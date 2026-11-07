@@ -19,7 +19,10 @@ Transcribe, translate and burn subtitles into videos from the browser.
 
 ## Run locally
 
-**Prerequisites:** Node.js 20+
+**Prerequisites:** Node.js 24 LTS
+
+For Windows production setup, updates and rollback, see the
+[deployment guide](docs/DEPLOYMENT.md).
 
 1. Install dependencies: `npm install`
 2. Copy `.env.example` to `.env.local` and set `GEMINI_API_KEY=...`
