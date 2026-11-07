@@ -60,30 +60,42 @@ El servidor compilado se arranca con `tsx` y usa Vite para cargar configuración
 
 ## Arrancar y comprobar
 
-Desde la carpeta de la versión, en una terminal dedicada, quita las variables de clave heredadas de esa sesión. Node da prioridad a las variables de la sesión sobre las del archivo:
+Abre una terminal dedicada en la carpeta de la versión. Usa el puerto `3000` para el servicio normal o `3001` para ensayar una candidata. Quita las variables de clave heredadas de esa sesión porque Node les da prioridad sobre el archivo.
 
 ```powershell
 Remove-Item Env:GEMINI_API_KEY,Env:API_KEY -ErrorAction SilentlyContinue
+$envFile = Join-Path $env:LOCALAPPDATA 'LinguistVision\.env'
+if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+    throw "Falta el archivo de configuración: $envFile"
+}
 $env:HOST = '127.0.0.1'
-$env:PORT = '3000'
-node --env-file="$env:LOCALAPPDATA\LinguistVision\.env" --import tsx server/index.ts --production
+$env:PORT = '3000' # cambia a '3001' para el ensayo
+if (Get-NetTCPConnection -State Listen -LocalPort ([int]$env:PORT) -ErrorAction SilentlyContinue) {
+    throw "El puerto $env:PORT ya está en uso."
+}
+node --env-file="$envFile" --import tsx server/index.ts --production
 ```
 
-Para ensayar una actualización en paralelo, usa `3001` en esa terminal. Abre en el navegador `http://127.0.0.1:3000` (o `3001` durante el ensayo). En otra ventana de PowerShell, consulta el mismo puerto:
+Después de que el servidor anuncie el arranque, abre otra ventana de PowerShell. Usa el mismo puerto que en la terminal del servidor.
 
 ```powershell
-$checkPort = 3000
-$health = Invoke-RestMethod "http://127.0.0.1:$checkPort/api/health" -TimeoutSec 10
+$checkPort = 3000 # usa 3001 si estás comprobando la candidata
+$listeners = @(Get-NetTCPConnection -State Listen -LocalPort $checkPort -ErrorAction Stop)
+if ($listeners.Count -ne 1 -or $listeners[0].LocalAddress -ne '127.0.0.1') {
+    throw "El puerto $checkPort debe escuchar solo en 127.0.0.1."
+}
+$baseUrl = "http://127.0.0.1:$checkPort"
+$health = Invoke-RestMethod "$baseUrl/api/health" -TimeoutSec 10
 if ($health.ok -ne $true -or $health.configured -ne $true) {
     throw 'El servidor no está listo o falta la clave de Gemini.'
 }
 ```
 
-`configured: true` indica que el servidor cargó una clave. Para comprobar que Gemini la acepta, usa un video corto de prueba, transcríbelo y descarga los subtítulos. Si falla esa prueba, revisa la clave, el modelo y el mensaje del servidor antes de cambiar de versión.
+Abre en el navegador la dirección que acabas de comprobar. `configured: true` indica que el servidor cargó una clave. Para comprobar que Gemini la acepta, usa un video corto de prueba en esa misma dirección, transcríbelo y descarga los subtítulos. Si falla el ensayo en `3001`, deja la versión anterior activa en `3000`.
 
 ## Cambiar de versión y volver atrás
 
 1. Anota la carpeta y el commit de la versión que funciona. Prepara la candidata y compruébala en el puerto `3001`. Si una comprobación falla, deja la versión activa en `3000`.
-2. Termina las transcripciones o exportaciones activas. Detén el ensayo con `Ctrl+C` en su terminal y después detén el servidor anterior en la suya. Espera a que ambas terminales devuelvan el control. Abre la carpeta candidata y arráncala en `3000`. Verifica la página y `/api/health`. Si aparece `EADDRINUSE`, identifica el proceso que ya usa el puerto antes de reintentar.
-3. Si el arranque o la comprobación falla, detén la candidata y vuelve a arrancar desde la carpeta anterior en `3000`, con el mismo archivo `.env`. Comprueba nuevamente la página y `/api/health`.
+2. Termina las transcripciones o exportaciones activas. Detén el ensayo con `Ctrl+C` en su terminal y después detén el servidor anterior en la suya. Espera a que ambas terminales devuelvan el control. Entra en la carpeta candidata, repite **Arrancar y comprobar** con el puerto `3000` y abre la página. Si aparece `EADDRINUSE`, identifica qué proceso usa el puerto antes de reintentar.
+3. Si el arranque o la comprobación falla, detén la candidata, entra en la carpeta anterior y repite **Arrancar y comprobar** en `3000` con el mismo archivo `.env`. Abre nuevamente la página.
 4. Conserva al menos la última versión que funcionó, incluidas sus dependencias y `dist/`, para poder revertir sin reinstalar.
