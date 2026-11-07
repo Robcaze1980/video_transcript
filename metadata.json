@@ -1,0 +1,5 @@
+{
+  "name": "LinguistVision: AI Video Translator",
+  "description": "A professional tool to transcribe, translate, and sync subtitles for videos using Gemini's multi-modal capabilities.",
+  "requestFramePermissions": []
+}
