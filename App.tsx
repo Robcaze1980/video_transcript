@@ -1,5 +1,7 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { subtitleLanguages } from './config/subtitleLanguages';
+import { CaptionOverlay } from './components/CaptionOverlay';
 import {
   AppState,
   ProcessingProgress,
@@ -23,7 +25,6 @@ import {
   downloadFile,
   downloadBlob,
   formatTime,
-  drawSubtitlesToCanvas,
   hexToRgba,
 } from './utils/helpers';
 import {
@@ -32,7 +33,7 @@ import {
   mergeSubtitleCues,
 } from './utils/subtitles';
 import { formatApiError, isAbortError, readVideoDuration } from './utils/media';
-import { convertWebmToMp4 } from './utils/ffmpegUtil';
+import { convertWebmToMp4, renderTimedSubtitlesMp4 } from './utils/ffmpegUtil';
 import { recordVideoWithSubtitles } from './utils/videoExport';
 
 const DEFAULT_STYLE: SubtitleStyle = {
@@ -55,19 +56,19 @@ const FONT_OPTIONS = [
   { name: 'Impact', value: 'Impact, sans-serif' },
 ];
 
-const LANGUAGES = ['English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Arabic', 'Portuguese', 'Italian', 'Russian'];
-
 const MAX_FILE_SIZE_MB = 300;
 
 type Tab = 'video' | 'transcript' | 'style';
+
+const searchableText = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(AppState.IDLE);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
-  const [currentSubtitle, setCurrentSubtitle] = useState<Subtitle | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [subtitleSearch, setSubtitleSearch] = useState('');
   const [sourceLang, setSourceLang] = useState('Auto-detect');
   const [targetLang, setTargetLang] = useState('English');
   const [error, setError] = useState<string | null>(null);
@@ -77,11 +78,12 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('video');
   const [exportProgress, setExportProgress] = useState(0);
   const [isConverting, setIsConverting] = useState(false);
+  const [isBurning, setIsBurning] = useState(false);
   const [convertProgress, setConvertProgress] = useState(0);
   const [exportWarning, setExportWarning] = useState<string | null>(null);
   const [lastExportedBlob, setLastExportedBlob] = useState<Blob | null>(null);
   const [hasKey, setHasKey] = useState(false);
-  const [videoAspectRatio, setVideoAspectRatio] = useState<number | null>(null);
+  const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null);
   const [continuousMode, setContinuousMode] = useState(false);
   const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
   const [transcriptionReport, setTranscriptionReport] = useState<TranscriptionReport | null>(null);
@@ -102,6 +104,15 @@ const App: React.FC = () => {
   const uploadedSourceRef = useRef<UploadedVideoSource | null>(null);
   const processingAbortRef = useRef<AbortController | null>(null);
   const gapJobInFlightRef = useRef(false);
+  const currentSubtitle = findActiveSubtitle(subtitles, currentTime, continuousMode);
+  const searchQuery = searchableText(subtitleSearch.trim());
+  const matchingIds = useMemo(() => {
+    if (!searchQuery) return null;
+    return new Set(subtitles.filter(subtitle =>
+      searchableText(subtitle.originalText).includes(searchQuery) ||
+      searchableText(subtitle.translatedText).includes(searchQuery)
+    ).map(subtitle => subtitle.id));
+  }, [subtitles, searchQuery]);
 
   const refreshApiAccess = async () => {
     const access = await getApiAccess();
@@ -123,19 +134,6 @@ const App: React.FC = () => {
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (!currentSubtitle) return;
-    const latest = subtitles.find((subtitle) => subtitle.id === currentSubtitle.id) || null;
-    if (latest !== currentSubtitle) setCurrentSubtitle(latest);
-  }, [subtitles, currentSubtitle]);
-
-  useEffect(() => {
-    if (!videoRef.current) return;
-    setCurrentSubtitle(
-      findActiveSubtitle(subtitles, videoRef.current.currentTime, continuousMode)
-    );
-  }, [continuousMode]);
 
   const handleOpenKey = async () => {
     const aistudio = (window as unknown as {
@@ -183,7 +181,10 @@ const App: React.FC = () => {
     setVideoUrl(nextUrl);
     setState(AppState.IDLE);
     setSubtitles([]);
-    setCurrentSubtitle(null);
+    setSubtitleSearch('');
+    setEditingId(null);
+    setVideoSize(null);
+    setSubtitleStyle(previous => ({ ...previous, anchor: undefined }));
     setCurrentTime(0);
     setTranscriptionReport(null);
     setTranscriptionWarning(null);
@@ -331,19 +332,15 @@ const App: React.FC = () => {
     const active = findActiveSubtitle(subtitles, time, continuousMode);
     setCurrentTime(time);
 
-    if (active?.id !== currentSubtitle?.id) {
-      setCurrentSubtitle(active);
-      if (active && transcriptRef.current) {
-        const activeElement = document.getElementById(active.id);
-        if (activeElement) {
-          activeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }
+    if (active && active.id !== currentSubtitle?.id && !searchQuery && !editingId && transcriptRef.current) {
+      document.getElementById(active.id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   };
 
   const burnAndExport = async (targetFormat: 'mp4' | 'fast' = 'mp4') => {
-    if (!videoRef.current || !videoUrl || !exportCanvasRef.current || subtitles.length === 0) {
+    const video = videoRef.current;
+    const canvas = exportCanvasRef.current;
+    if (!video || !videoUrl || !canvas || subtitles.length === 0) {
       setError('Export requirements not met. Load video and subtitles first.');
       return;
     }
@@ -351,13 +348,58 @@ const App: React.FC = () => {
     setState(AppState.EXPORTING);
     setActiveTab('video');
     setExportProgress(0);
+    setConvertProgress(0);
     setIsConverting(false);
+    setIsBurning(false);
     setExportWarning(null);
 
     try {
+      const width = videoSize?.width || video.videoWidth;
+      const height = videoSize?.height || video.videoHeight;
+      const duration = video.duration;
+      const canBurn = targetFormat === 'mp4'
+        && Boolean(videoFile)
+        && width > 0
+        && height > 0
+        && Number.isFinite(duration)
+        && duration > 0;
+
+      if (canBurn) {
+        // Ruta determinista: ffmpeg quema los subtítulos sobre el archivo
+        // original sin regrabar en tiempo real, así conserva el audio y no
+        // depende de que la pestaña siga visible durante toda la exportación.
+        setIsBurning(true);
+        try {
+          const mp4Blob = await renderTimedSubtitlesMp4({
+            source: videoFile as File,
+            canvas,
+            width,
+            height,
+            duration,
+            subtitles,
+            style: subtitleStyle,
+            continuousMode,
+            onProgress: (progress) => {
+              const percent = Math.max(0, Math.min(100, progress * 100));
+              setConvertProgress(percent);
+              setExportProgress(percent);
+            },
+          });
+          downloadBlob(mp4Blob, 'linguist_vision_export.mp4');
+          return;
+        } catch (burnError) {
+          console.error('Fast MP4 export failed, using real-time recording', burnError);
+          setExportWarning(
+            'The fast MP4 encoder is unavailable in this browser. Falling back to real-time recording.'
+          );
+        } finally {
+          setIsBurning(false);
+        }
+      }
+
       const recorded = await recordVideoWithSubtitles({
-        video: videoRef.current,
-        canvas: exportCanvasRef.current,
+        video,
+        canvas,
         subtitles,
         style: subtitleStyle,
         continuousMode,
@@ -393,6 +435,7 @@ const App: React.FC = () => {
     } catch (exportError) {
       if (!isAbortError(exportError)) setError(formatApiError(exportError));
     } finally {
+      setIsBurning(false);
       setIsConverting(false);
       setState(AppState.REVIEW);
     }
@@ -535,6 +578,10 @@ const App: React.FC = () => {
         return;
       }
       setSubtitles(parsed);
+      setState(AppState.REVIEW);
+      setActiveTab('transcript');
+      setEditingId(null);
+      setSubtitleSearch('');
       setTranscriptionReport(null);
       setTranscriptionWarning(null);
       setShowImportModal(false);
@@ -562,6 +609,10 @@ const App: React.FC = () => {
             return;
           }
           setSubtitles(parsed);
+          setState(AppState.REVIEW);
+          setActiveTab('transcript');
+          setEditingId(null);
+          setSubtitleSearch('');
           setTranscriptionReport(null);
           setTranscriptionWarning(null);
           setShowImportModal(false);
@@ -633,7 +684,6 @@ const App: React.FC = () => {
     e?.stopPropagation();
     setSubtitles(prev => prev.filter(s => s.id !== id));
     if (editingId === id) setEditingId(null);
-    if (currentSubtitle?.id === id) setCurrentSubtitle(null);
   };
 
   const handleUpdateSubtitleTime = (id: string, field: 'start' | 'end', val: number) => {
@@ -690,9 +740,10 @@ const App: React.FC = () => {
 
   const jumpToTime = (time: number) => {
     if (videoRef.current) {
-      videoRef.current.currentTime = Math.max(0, time);
-      void videoRef.current.play().catch(() => undefined);
-      setActiveTab('video');
+      const video = videoRef.current;
+      video.pause();
+      video.currentTime = Math.max(0, time);
+      setCurrentTime(video.currentTime);
     }
   };
 
@@ -714,30 +765,6 @@ const App: React.FC = () => {
     }
   };
 
-  if (!hasKey) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-950 p-6 text-center">
-        <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mb-6 shadow-2xl shadow-indigo-500/20">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.778-7.778z"/><path d="M12 12l.663-.663"/><path d="M18 10l-2-2"/><path d="M22 6l-2-2"/></svg>
-        </div>
-        <h1 className="text-2xl font-bold mb-4">Gemini API Key Required</h1>
-        <p className="text-slate-400 max-w-md mb-3 text-sm leading-relaxed">
-          {apiMessage || 'Configure GEMINI_API_KEY in .env.local and run npm run dev.'}
-        </p>
-        <p className="text-slate-500 max-w-md mb-8 text-xs leading-relaxed">
-          The local server keeps the key out of the browser bundle. AI Studio users can instead
-          select a key from a billing-enabled project.
-        </p>
-        <button 
-          onClick={handleOpenKey}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-3 rounded-full font-bold shadow-xl active:scale-95 transition-all"
-        >
-          SELECT AI STUDIO KEY
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
       <header className="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl px-4 flex items-center justify-between shrink-0 z-50">
@@ -747,11 +774,11 @@ const App: React.FC = () => {
           </div>
           <h1 className="text-sm font-bold tracking-tight">LinguistVision</h1>
         </div>
-        {videoUrl && state === AppState.REVIEW && (
+        {videoUrl && state === AppState.REVIEW && subtitles.length > 0 && (
           <div className="flex gap-2">
             <button onClick={() => burnAndExport('mp4')} className="bg-[#25D366] hover:bg-[#128C7E] text-white px-3 md:px-4 py-1.5 md:py-2 rounded-full text-[9px] md:text-[10px] font-black uppercase flex items-center gap-1.5 shadow-lg active:scale-95 transition-all">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              Save for WhatsApp
+              Download MP4
             </button>
             <button onClick={() => burnAndExport('fast')} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-full text-[10px] font-black uppercase flex items-center gap-1 shadow-lg active:scale-95 transition-all hidden md:flex">
               Fast Download (WebM)
@@ -761,7 +788,7 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 flex flex-col md:flex-row overflow-hidden relative min-h-0">
-        <div className={`flex-1 flex flex-col bg-slate-950 p-2 md:p-6 min-h-0 ${activeTab === 'video' ? 'flex' : 'hidden md:flex'}`}>
+        <div className={`flex-col bg-slate-950 p-2 md:p-6 min-h-0 ${activeTab === 'transcript' ? 'flex h-2/5 shrink-0 md:h-auto md:flex-1' : activeTab === 'video' ? 'flex flex-1' : 'hidden md:flex md:flex-1'}`}>
           {!videoUrl && state !== AppState.ERROR ? (
             <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-slate-800 rounded-2xl bg-slate-900/20">
               <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-3 text-slate-500">
@@ -782,36 +809,26 @@ const App: React.FC = () => {
                     <video 
                       ref={videoRef}
                       src={videoUrl} 
-                      className={`max-w-full max-h-full object-contain ${state === AppState.EXPORTING ? 'opacity-30' : ''}`}
+                      className={`w-full h-full object-contain ${state === AppState.EXPORTING ? 'opacity-30' : ''}`}
                       onTimeUpdate={handleTimeUpdate}
+                      onSeeked={handleTimeUpdate}
                       onLoadedMetadata={(e) => {
                         const target = e.target as HTMLVideoElement;
                         if (target.videoWidth && target.videoHeight) {
-                          setVideoAspectRatio(target.videoWidth / target.videoHeight);
+                          setVideoSize({ width: target.videoWidth, height: target.videoHeight });
                         }
                       }}
                       playsInline
                       controls={state !== AppState.EXPORTING}
                     />
                     
-                    {currentSubtitle && state !== AppState.EXPORTING && (
-                      <div className={`absolute ${subtitleStyle.position === 'bottom' ? 'bottom-16 md:bottom-20' : 'top-6 md:top-10'} left-0 right-0 px-4 pointer-events-none transition-all flex justify-center w-full z-30`}>
-                        <div 
-                          className={`px-4 py-2 rounded-lg max-w-[92%] md:max-w-[70%] text-center ${subtitleStyle.showBackground ? 'backdrop-blur-sm shadow-2xl' : ''}`}
-                          style={{
-                            backgroundColor: subtitleStyle.showBackground ? hexToRgba(subtitleStyle.backgroundColor, subtitleStyle.backgroundOpacity) : 'transparent',
-                            color: subtitleStyle.textColor,
-                            fontSize: `${Math.max(14, subtitleStyle.fontSize * 0.9)}px`,
-                            fontFamily: subtitleStyle.fontFamily,
-                            textShadow: subtitleStyle.textShadow ? '2px 2px 4px rgba(0,0,0,0.85)' : 'none',
-                            WebkitTextStroke: subtitleStyle.textOutline ? '1.5px #000' : 'none',
-                          }}
-                        >
-                          <p dir="auto" className="font-semibold leading-snug">
-                            {currentSubtitle.translatedText}
-                          </p>
-                        </div>
-                      </div>
+                    {videoSize && state !== AppState.EXPORTING && (
+                      <CaptionOverlay
+                        text={currentSubtitle?.translatedText ?? ''}
+                        style={subtitleStyle}
+                        videoSize={videoSize}
+                        onMove={(anchor) => setSubtitleStyle(previous => ({ ...previous, anchor }))}
+                      />
                     )}
                   </div>
                 )}
@@ -826,9 +843,11 @@ const App: React.FC = () => {
                     <h3 className="text-xs font-bold text-white mb-1 text-center">
                       {state === AppState.PROCESSING
                         ? processingProgress?.message || 'Preparing transcription...'
-                        : isConverting
-                          ? 'Converting to MP4 format...'
-                          : 'Burning Subtitles...'}
+                        : isBurning
+                          ? 'Burning subtitles into MP4...'
+                          : isConverting
+                            ? 'Converting to MP4 format...'
+                            : 'Burning Subtitles...'}
                     </h3>
                     <div className="w-full max-w-xs bg-slate-800 rounded-full h-1.5 overflow-hidden mt-2">
                       <div
@@ -838,7 +857,7 @@ const App: React.FC = () => {
                             2,
                             state === AppState.PROCESSING
                               ? processingProgress?.percent || 0
-                              : isConverting
+                              : isBurning || isConverting
                                 ? convertProgress
                                 : exportProgress
                           )}%`,
@@ -848,7 +867,7 @@ const App: React.FC = () => {
                     <div className="text-[10px] font-mono text-indigo-400 mt-2">
                       {state === AppState.PROCESSING
                         ? `${Math.round(processingProgress?.percent || 0)}%`
-                        : `${Math.round(isConverting ? convertProgress : exportProgress)}% Done`}
+                        : `${Math.round(isBurning || isConverting ? convertProgress : exportProgress)}% Done`}
                     </div>
                     {state === AppState.PROCESSING && (
                       <button
@@ -860,7 +879,9 @@ const App: React.FC = () => {
                     )}
                     <p className="text-[9px] text-slate-500 mt-2 text-center max-w-xs">
                       {state === AppState.EXPORTING
-                        ? 'Keep this tab active while the video records in real time.'
+                        ? isBurning
+                          ? 'Encoding runs locally with ffmpeg. Do not close this tab.'
+                          : 'Keep this tab active while the video records in real time.'
                         : 'Each section is validated and retried independently.'}
                     </p>
                   </div>
@@ -874,18 +895,18 @@ const App: React.FC = () => {
                       <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest pl-1">Original Audio</label>
                       <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="w-full bg-slate-800 text-[11px] font-bold p-2.5 rounded-xl border border-slate-700 outline-none">
                         <option value="Auto-detect">Detect Automatically</option>
-                        {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                        {subtitleLanguages.map(({ tag, label }) => <option key={tag} value={label}>{label}</option>)}
                       </select>
                     </div>
                     <div className="space-y-1">
                       <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest pl-1">Subtitle Language</label>
                       <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="w-full bg-slate-800 text-[11px] font-bold p-2.5 rounded-xl border border-slate-700 outline-none">
-                        {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                        {subtitleLanguages.map(({ tag, label }) => <option key={tag} value={label}>{label}</option>)}
                       </select>
                     </div>
                   </div>
-                  <button onClick={startProcessing} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-xs font-black tracking-widest active:scale-[0.98] shadow-lg transition-all">
-                    GENERATE SUBTITLES
+                  <button onClick={hasKey ? startProcessing : handleOpenKey} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-xs font-black tracking-widest active:scale-[0.98] shadow-lg transition-all">
+                    {hasKey ? 'GENERATE SUBTITLES' : 'CONFIGURE GEMINI'}
                   </button>
                 </div>
               )}
@@ -971,7 +992,7 @@ const App: React.FC = () => {
           )}
         </div>
 
-        <aside className={`md:w-96 border-l border-slate-800 bg-slate-900/40 flex flex-col shrink-0 overflow-hidden ${activeTab === 'video' ? 'hidden md:flex' : 'flex'}`}>
+        <aside inert={state === AppState.EXPORTING} className={`md:w-96 border-l border-slate-800 bg-slate-900/40 flex-col min-h-0 flex-1 md:flex-none overflow-hidden ${activeTab === 'video' ? 'hidden md:flex' : 'flex'}`}>
           <div className="flex-1 flex flex-col min-h-0">
             <div className="flex border-b border-slate-800 bg-slate-900/60 backdrop-blur-sm shrink-0">
                <button onClick={() => setActiveTab('transcript')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-wider ${activeTab !== 'style' ? 'text-indigo-400 bg-indigo-500/5 border-b-2 border-indigo-500' : 'text-slate-500 hover:text-slate-300'}`}>Transcript</button>
@@ -984,7 +1005,7 @@ const App: React.FC = () => {
                   <div className="bg-slate-950/50 rounded-xl overflow-hidden border border-slate-800 relative aspect-video flex items-center justify-center p-4">
                     <span className="absolute top-2 left-3 text-[9px] font-black text-slate-600 uppercase tracking-widest">Live Preview</span>
                     <div 
-                      className={`px-4 py-2 rounded-lg max-w-[90%] text-center tracking-wide ${subtitleStyle.showBackground ? 'backdrop-blur-sm shadow-2xl' : ''} ${subtitleStyle.position === 'top' ? 'absolute top-10' : 'absolute bottom-6'}`}
+                      className={`px-4 py-2 rounded-lg max-w-[90%] text-center tracking-wide ${subtitleStyle.showBackground ? 'backdrop-blur-sm shadow-2xl' : ''} ${!subtitleStyle.anchor && subtitleStyle.position === 'top' ? 'absolute top-10' : 'absolute bottom-6'}`}
                       style={{
                         backgroundColor: subtitleStyle.showBackground ? hexToRgba(subtitleStyle.backgroundColor, subtitleStyle.backgroundOpacity) : 'transparent',
                         color: subtitleStyle.textColor,
@@ -1045,8 +1066,8 @@ const App: React.FC = () => {
                   <div className="space-y-3 pt-3 border-t border-slate-800">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Position</label>
                     <div className="flex bg-slate-800 p-1 rounded-xl">
-                      <button onClick={() => setSubtitleStyle({ ...subtitleStyle, position: 'top' })} className={`flex-1 py-3 text-[10px] font-bold rounded-lg ${subtitleStyle.position === 'top' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>TOP</button>
-                      <button onClick={() => setSubtitleStyle({ ...subtitleStyle, position: 'bottom' })} className={`flex-1 py-3 text-[10px] font-bold rounded-lg ${subtitleStyle.position === 'bottom' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>BOTTOM</button>
+                      <button onClick={() => setSubtitleStyle({ ...subtitleStyle, position: 'top', anchor: undefined })} className={`flex-1 py-3 text-[10px] font-bold rounded-lg ${!subtitleStyle.anchor && subtitleStyle.position === 'top' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>TOP</button>
+                      <button onClick={() => setSubtitleStyle({ ...subtitleStyle, position: 'bottom', anchor: undefined })} className={`flex-1 py-3 text-[10px] font-bold rounded-lg ${!subtitleStyle.anchor && subtitleStyle.position === 'bottom' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>BOTTOM</button>
                     </div>
                   </div>
                 </div>
@@ -1201,18 +1222,30 @@ const App: React.FC = () => {
                     )}
                   </div>
 
+                  {subtitles.length > 0 && (
+                    <div className="space-y-1">
+                      <input type="search" aria-label="Search subtitles" placeholder="Search original or translated text"
+                        value={subtitleSearch} onChange={(e) => setSubtitleSearch(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+                      {matchingIds && <p role="status" className="text-xs text-slate-400">{matchingIds.size} matches</p>}
+                    </div>
+                  )}
                   {subtitles.length > 0 ? (
                     <div className="space-y-2.5">
                       {subtitles.map((sub, index) => {
+                        if (matchingIds && !matchingIds.has(sub.id) && editingId !== sub.id) return null;
                         const nextSub = subtitles[index + 1];
                         const gapSeconds = nextSub ? Number((nextSub.start - sub.end).toFixed(2)) : 0;
-                        const hasSignificantGap = gapSeconds >= 1.5;
+                        const hasSignificantGap = !matchingIds && gapSeconds >= 1.5;
 
                         return (
                           <React.Fragment key={sub.id}>
                             <div 
                               id={sub.id} 
-                              onClick={() => jumpToTime(sub.start)} 
+                              onClick={() => {
+                                jumpToTime(sub.start);
+                                if (matchingIds) setEditingId(sub.id);
+                              }}
                               className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
                                 currentSubtitle?.id === sub.id 
                                   ? 'bg-indigo-600/20 border-indigo-500/60 ring-1 ring-indigo-500/30' 
@@ -1232,7 +1265,12 @@ const App: React.FC = () => {
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setEditingId(editingId === sub.id ? null : sub.id);
+                                      if (editingId === sub.id) {
+                                        setEditingId(null);
+                                      } else {
+                                        jumpToTime(sub.start);
+                                        setEditingId(sub.id);
+                                      }
                                     }}
                                     className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase transition-colors ${
                                       editingId === sub.id ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'

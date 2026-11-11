@@ -35,9 +35,32 @@ const seekToStart = (video: HTMLVideoElement): Promise<void> =>
     video.currentTime = 0;
   });
 
-export const recordVideoWithSubtitles = async (
-  options: RecordVideoOptions
-): Promise<RecordedVideo> => {
+// Sin un fotograma decodificado `drawImage` no pinta nada y el canvas nunca
+// emite datos al grabador.
+const waitForFirstFrame = (video: HTMLVideoElement): Promise<void> =>
+  new Promise((resolve) => {
+    if (video.readyState >= 2) {
+      resolve();
+      return;
+    }
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener('loadeddata', onReady);
+      video.removeEventListener('canplay', onReady);
+    };
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      resolve();
+    }, 10_000);
+    video.addEventListener('loadeddata', onReady, { once: true });
+    video.addEventListener('canplay', onReady, { once: true });
+  });
+
+const recordOnce = async (options: RecordVideoOptions): Promise<RecordedVideo> => {
   const { video, canvas, subtitles, style, continuousMode, onProgress } = options;
 
   if (typeof MediaRecorder === 'undefined') {
@@ -45,16 +68,17 @@ export const recordVideoWithSubtitles = async (
   }
 
   const mimeTypes = [
-    'video/mp4;codecs="avc1.42E01E, mp4a.40.2"',
-    'video/mp4',
     'video/webm;codecs=vp8,opus',
     'video/webm',
+    'video/mp4;codecs="avc1.42E01E, mp4a.40.2"',
+    'video/mp4',
   ];
   const selectedMime = mimeTypes.find((mime) => MediaRecorder.isTypeSupported(mime));
   if (!selectedMime) throw new Error('This browser cannot record a supported video format.');
 
   video.pause();
   await seekToStart(video);
+  await waitForFirstFrame(video);
 
   canvas.width = video.videoWidth || 1280;
   canvas.height = video.videoHeight || 720;
@@ -81,11 +105,15 @@ export const recordVideoWithSubtitles = async (
   return new Promise<RecordedVideo>((resolve, reject) => {
     let recorder: MediaRecorder | null = null;
     let animationFrame = 0;
+    let pumpTimer = 0;
+    let guardTimer = 0;
     let settled = false;
     const chunks: Blob[] = [];
 
     const cleanup = () => {
       cancelAnimationFrame(animationFrame);
+      window.clearInterval(pumpTimer);
+      window.clearTimeout(guardTimer);
       video.pause();
       document.removeEventListener('visibilitychange', onVisibilityChange);
       stream.getTracks().forEach((track) => track.stop());
@@ -108,6 +136,13 @@ export const recordVideoWithSubtitles = async (
 
     const finish = () => {
       if (settled || !recorder) return;
+      if (recorder.state === 'recording') {
+        try {
+          recorder.requestData();
+        } catch {
+          // Older browsers may not expose requestData.
+        }
+      }
       if (recorder.state !== 'inactive') {
         try {
           recorder.stop();
@@ -128,26 +163,31 @@ export const recordVideoWithSubtitles = async (
       }
     };
 
+    const drawFrame = () => {
+      if (settled) return;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const activeSubtitle = findActiveSubtitle(subtitles, video.currentTime, continuousMode);
+      if (activeSubtitle?.translatedText.trim()) {
+        drawSubtitlesToCanvas(
+          context,
+          activeSubtitle.translatedText,
+          style,
+          canvas.width,
+          canvas.height
+        );
+      }
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        onProgress(Math.min(100, (video.currentTime / video.duration) * 100));
+      }
+    };
+
     const renderFrame = () => {
       if (settled) return;
       if (video.ended) {
         finish();
         return;
       }
-      if (!video.paused) {
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const activeSubtitle = findActiveSubtitle(subtitles, video.currentTime, continuousMode);
-        if (activeSubtitle?.translatedText.trim()) {
-          drawSubtitlesToCanvas(
-            context,
-            activeSubtitle.translatedText,
-            style,
-            canvas.width,
-            canvas.height
-          );
-        }
-        onProgress(Math.min(100, (video.currentTime / video.duration) * 100));
-      }
+      if (!video.paused) drawFrame();
       animationFrame = requestAnimationFrame(renderFrame);
     };
 
@@ -172,10 +212,6 @@ export const recordVideoWithSubtitles = async (
       if (settled) return;
       settled = true;
       cleanup();
-      if (chunks.length === 0) {
-        reject(new Error('Export failed: no video data was captured.'));
-        return;
-      }
       const baseMime = selectedMime.split(';')[0] || 'video/webm';
       resolve({
         blob: new Blob(chunks, { type: baseMime }),
@@ -184,20 +220,22 @@ export const recordVideoWithSubtitles = async (
       });
     };
 
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const initialSubtitle = findActiveSubtitle(subtitles, video.currentTime, continuousMode);
-    if (initialSubtitle?.translatedText.trim()) {
-      drawSubtitlesToCanvas(
-        context,
-        initialSubtitle.translatedText,
-        style,
-        canvas.width,
-        canvas.height
-      );
-    }
+    drawFrame();
 
     mediaRecorder.start(1000);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    // Los navegadores frenan requestAnimationFrame cuando la pestaña pasa a
+    // segundo plano: sin fotogramas el grabador no recibe imagen y el archivo
+    // sale vacío. Un temporizador mantiene el canvas emitiendo mientras tanto.
+    pumpTimer = window.setInterval(() => {
+      if (!settled && !video.paused && !video.ended) drawFrame();
+    }, 100);
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      guardTimer = window.setTimeout(
+        () => fail(new Error('The export took longer than the video duration. Try again.')),
+        video.duration * 2000 + 60_000
+      );
+    }
     void video
       .play()
       .then(() => {
@@ -205,4 +243,33 @@ export const recordVideoWithSubtitles = async (
       })
       .catch(() => fail(new Error('The browser blocked video playback. Press Export again.')));
   });
+};
+
+export const recordVideoWithSubtitles = async (
+  options: RecordVideoOptions
+): Promise<RecordedVideo> => {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const recorded = await recordOnce(options);
+      if (recorded.blob.size > 0) return recorded;
+      lastError = new Error('Export failed: no video data was captured.');
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : '';
+      // Repetir no arregla estos casos: el navegador no puede grabar el vídeo.
+      if (/blocked video playback|does not support|cannot record a supported/i.test(message)) {
+        break;
+      }
+    }
+    if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 400));
+  }
+
+  if (lastError instanceof Error && lastError.message.startsWith('Export failed')) {
+    throw new Error(
+      'Export failed: no video data was captured. Keep this tab visible in the foreground while exporting, then try again.'
+    );
+  }
+  throw lastError instanceof Error ? lastError : new Error('Export failed.');
 };

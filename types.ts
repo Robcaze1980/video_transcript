@@ -1,5 +1,8 @@
 
+export type SubtitleHighlight = { start: number; end: number };
+
 export interface Subtitle {
+  highlights?: SubtitleHighlight[];
   id: string;
   start: number; // in seconds
   end: number;   // in seconds
@@ -84,9 +87,19 @@ export interface SubtitleStyle {
   backgroundColor: string;
   backgroundOpacity: number;
   position: 'bottom' | 'top';
+  alignment?: 'left' | 'center' | 'right';
+  anchor?: { x: number; y: number };
   showBackground: boolean;
   textOutline: boolean;
   textShadow: boolean;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  letterSpacing?: number;
+  lineSpacing?: number;
+  scale?: number;
+  rotation?: number;
+  opacity?: number;
 }
 
 export enum AppState {

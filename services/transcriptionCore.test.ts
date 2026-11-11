@@ -3,7 +3,16 @@ import {
   DEFAULT_TRANSCRIPTION_MODEL,
   describeGeminiError,
   isRetryableGeminiError,
+  localizeEnglishFootMeasurements,
 } from './transcriptionCore';
+
+describe('English to Spanish measurement localization', () => {
+  it('translates feet only for the same numeric measurement in the original', () => {
+    expect(localizeEnglishFootMeasurements('He fell 15 feet.', 'Cayó 15 feet.')).toBe('Cayó 15 pies.');
+    expect(localizeEnglishFootMeasurements('He fell 15 feet.', 'Cayó 16 feet.')).toBe('Cayó 16 feet.');
+    expect(localizeEnglishFootMeasurements('He landed on both feet.', 'Cayó de pies.')).toBe('Cayó de pies.');
+  });
+});
 
 describe('transcription model diagnostics', () => {
   it('uses the currently supported default model', () => {

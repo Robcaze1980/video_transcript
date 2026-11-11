@@ -1,5 +1,5 @@
 
-import { Subtitle, SubtitleStyle } from "../types";
+import { Subtitle, SubtitleHighlight, SubtitleStyle } from "../types";
 
 export const formatTime = (seconds: number, separator: string = ','): string => {
   const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
@@ -151,55 +151,137 @@ const wrapCanvasText = (
   return lines.length > 0 ? lines : [''];
 };
 
+const opacityLayers = new WeakMap<CanvasRenderingContext2D, CanvasRenderingContext2D>();
+
+function lineHighlights(source: string, lines: string[], highlights: SubtitleHighlight[]) {
+  const sourceOffsets = [...source.matchAll(/\S/g)].map(match => match.index);
+  let offset = 0;
+  return lines.map(line => {
+    const lineOffsets = [...line.matchAll(/\S/g)].map(match => match.index);
+    const first = offset;
+    offset += lineOffsets.length;
+    return highlights.flatMap(mark => {
+      const selected = lineOffsets.filter((_, index) => {
+        const original = sourceOffsets[first + index];
+        return original >= mark.start && original < mark.end;
+      });
+      return selected.length ? [{ start: selected[0], end: selected.at(-1)! + 1 }] : [];
+    });
+  });
+}
+
+// The browser lays out the whole line so bidi ordering and joined letters stay intact.
+function drawHighlights(ctx: CanvasRenderingContext2D, line: string, ranges: SubtitleHighlight[],
+  left: number, y: number, fontSize: number) {
+  if (!ranges.length) return;
+  const span = document.createElement('span');
+  span.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;white-space:pre;pointer-events:none;';
+  span.style.font = ctx.font;
+  span.style.letterSpacing = ctx.letterSpacing ?? '0px';
+  span.dir = ctx.direction;
+  span.textContent = line;
+  document.body.append(span);
+  const range = document.createRange();
+  try {
+    const origin = span.getBoundingClientRect().left;
+    ctx.save();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = '#b86d00';
+    for (const { start, end } of ranges) {
+      range.setStart(span.firstChild!, start);
+      range.setEnd(span.firstChild!, end);
+      for (const rect of range.getClientRects()) {
+        ctx.fillRect(left + rect.left - origin, y - fontSize * 0.53, rect.width, fontSize * 1.06);
+      }
+    }
+    ctx.restore();
+  } finally { span.remove(); }
+}
+
 export const drawSubtitlesToCanvas = (
   ctx: CanvasRenderingContext2D,
   text: string,
   style: SubtitleStyle,
   width: number,
-  height: number
-) => {
+  height: number,
+  highlights?: SubtitleHighlight[],
+): { x: number; y: number; width: number; height: number } => {
+  const opacity = style.opacity ?? 1;
+  if (opacity < 1) {
+    let layer = opacityLayers.get(ctx);
+    if (!layer) {
+      layer = document.createElement('canvas').getContext('2d')!;
+      opacityLayers.set(ctx, layer);
+    }
+    if (layer.canvas.width !== width) layer.canvas.width = width;
+    if (layer.canvas.height !== height) layer.canvas.height = height;
+    layer.clearRect(0, 0, width, height);
+    const box = drawSubtitlesToCanvas(layer, text, { ...style, opacity: 1 }, width, height, highlights);
+    ctx.save();
+    ctx.globalAlpha *= opacity;
+    ctx.drawImage(layer.canvas, 0, 0);
+    ctx.restore();
+    return box;
+  }
   const { fontSize, fontFamily, textColor, backgroundColor, backgroundOpacity, position } = style;
+  ctx.save();
   
   const isPortrait = height > width;
   const sizeRef = Math.min(width, height);
   const scale = sizeRef / 400; 
   const baseFontSize = fontSize * scale * 0.9;
-  const maxWidth = isPortrait ? width * 0.82 : width * 0.7;
+  const zoom = style.scale ?? 1;
+  const rotation = (style.rotation ?? 0) * Math.PI / 180;
+  const maxWidth = (isPortrait ? width * 0.82 : width * 0.7) / Math.max(1, zoom);
 
   let scaledFontSize = baseFontSize;
   let lines: string[] = [];
 
   // Shrink only when needed so a long translation remains inside the frame.
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    ctx.font = `${scaledFontSize}px ${fontFamily}`;
-    lines = wrapCanvasText(ctx, text, maxWidth);
+    ctx.font = `${style.italic ? 'italic ' : ''}${style.bold ? 'bold ' : ''}${scaledFontSize}px ${fontFamily}`;
+    if (style.letterSpacing && 'letterSpacing' in ctx) ctx.letterSpacing = `${style.letterSpacing * scale}px`;
+    lines = text.split(/\r?\n/).flatMap(line => wrapCanvasText(ctx, line, maxWidth));
     if (lines.length <= 4 || scaledFontSize <= baseFontSize * 0.6) break;
     scaledFontSize *= 0.9;
   }
 
-  const isRtl = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/.test(text);
-  ctx.textAlign = 'center';
+  const alignment = style.alignment ?? 'center';
+  ctx.textAlign = alignment;
   ctx.textBaseline = 'middle';
-  ctx.direction = isRtl ? 'rtl' : 'ltr';
 
-  const lineHeight = scaledFontSize * 1.3;
+  const lineHeight = scaledFontSize * (style.lineSpacing ?? 1.3);
   const totalHeight = lines.length * lineHeight;
   const padding = scaledFontSize * 0.5;
   
-  const bottomMargin = Math.max(height * 0.08, 40 * scale);
-  const yBase = position === 'bottom' ? height - bottomMargin - (totalHeight / 2) : bottomMargin + (totalHeight / 2);
+  const margin = 8 * scale;
+  const boxWidth = Math.min(width - 2 * margin, Math.max(...lines.map(line => ctx.measureText(line).width)) + padding * 4);
+  const boxHeight = totalHeight + padding * 2;
+  const defaultMargin = Math.max(height * 0.08, 40 * scale);
+  const defaultY = position === 'bottom' ? height - defaultMargin - totalHeight / 2 : defaultMargin + totalHeight / 2;
+  const clampCenter = (value: number, extent: number, size: number) => {
+    const min = Math.min(extent / 2, size / 2 + margin);
+    return Math.max(min, Math.min(extent - min, value));
+  };
+  const cosine = Math.abs(Math.cos(rotation));
+  const sine = Math.abs(Math.sin(rotation));
+  const boundsWidth = zoom * (cosine * boxWidth + sine * boxHeight);
+  const boundsHeight = zoom * (sine * boxWidth + cosine * boxHeight);
+  const xBase = clampCenter((style.anchor?.x ?? 0.5) * width, width, boundsWidth);
+  const yBase = clampCenter(style.anchor ? style.anchor.y * height : defaultY, height, boundsHeight);
+  const boxX = xBase - boxWidth / 2;
+  const boxY = yBase - boxHeight / 2;
+  ctx.translate(xBase, yBase);
+  ctx.rotate(rotation);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-xBase, -yBase);
 
   // Draw background box
   if (style.showBackground) {
-    const maxLineWidth = Math.max(...lines.map(l => ctx.measureText(l).width));
-    const bgWidth = Math.min(width - 16 * scale, maxLineWidth + padding * 4);
-    
     ctx.fillStyle = hexToRgba(backgroundColor, backgroundOpacity);
     ctx.beginPath();
-    const boxX = (width - bgWidth) / 2;
-    const boxY = yBase - (totalHeight / 2) - padding;
-    const boxW = bgWidth;
-    const boxH = totalHeight + padding * 2;
+    const boxW = boxWidth;
+    const boxH = boxHeight;
     const radius = 12 * scale;
     
     ctx.moveTo(boxX + radius, boxY);
@@ -220,9 +302,16 @@ export const drawSubtitlesToCanvas = (
     ctx.shadowOffsetY = 2 * scale;
   }
 
+  const markedLines = highlights?.length ? lineHighlights(text, lines, highlights) : [];
   lines.forEach((line, i) => {
-    const x = width / 2;
+    const firstLetter = line.match(/\p{Letter}/u)?.[0] ?? '';
+    ctx.direction = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/.test(firstLetter) ? 'rtl' : 'ltr';
+    const x = alignment === 'left' ? boxX + padding * 2 :
+      alignment === 'right' ? boxX + boxWidth - padding * 2 : xBase;
     const y = yBase - (totalHeight / 2) + (lineHeight / 2) + (i * lineHeight);
+    const textWidth = ctx.measureText(line.trim()).width;
+    const left = alignment === 'left' ? x : alignment === 'right' ? x - textWidth : x - textWidth / 2;
+    if (markedLines[i]?.length) drawHighlights(ctx, line, markedLines[i], left, y, scaledFontSize);
     
     if (style.textOutline) {
       ctx.lineWidth = 1.5 * scale;
@@ -232,6 +321,12 @@ export const drawSubtitlesToCanvas = (
     
     ctx.fillStyle = textColor;
     ctx.fillText(line.trim(), x, y);
+    if (style.underline) {
+      ctx.fillRect(left, y + scaledFontSize * 0.48, textWidth, Math.max(scale, scaledFontSize * 0.055));
+    }
   });
   ctx.restore();
+  ctx.restore();
+  return { x: (xBase - boundsWidth / 2) / width, y: (yBase - boundsHeight / 2) / height,
+    width: boundsWidth / width, height: boundsHeight / height };
 };

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es" data-launch-language-preview="false">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mi espacio | LinguistVision</title>
+  <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="./pilot.css">
+  <script type="module" src="./pilot.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#workspace">Ir al contenido</a>
+<main>
+  <header class="workspace-header"><a class="workspace-brand" href="./">LinguistVision</a><div id="header-balance" hidden><bdi id="header-balance-value">—</bdi> <button type="button" class="secondary" data-view="balance" data-panel-text="buy">Comprar minutos</button></div><div class="header-language">
+    <label for="interface-language" data-text="interfaceLanguage">Idioma de la interfaz</label>
+    <select id="interface-language"></select></div>
+  </header>
+  <form id="login">
+    <label for="code" data-text="invitation">Código de invitación</label>
+    <input id="code" type="password" dir="ltr" required autocomplete="current-password">
+    <button data-text="enter">Entrar</button>
+  </form>
+  <section id="workspace" hidden>
+    <nav class="workspace-nav" aria-label="Mi espacio">
+      <button type="button" data-view="home" data-panel-text="home">Inicio</button>
+      <button type="button" data-view="projects" data-panel-text="projects">Mis proyectos</button>
+      <button type="button" data-view="balance" data-panel-text="balance">Saldo y compras</button>
+      <button type="button" data-view="account" data-panel-text="account">Mi cuenta</button>
+      <button id="logout" class="secondary" type="button" data-text="exit">Salir</button>
+      <div class="nav-balance"><span data-panel-text="balance">Saldo</span><bdi id="nav-balance">—</bdi>
+      <button type="button" class="secondary" data-view="balance" data-panel-text="buy">Comprar minutos</button></div>
+    </nav>
+    <div class="workspace-content">
+    <section id="home-panel" class="panel-view">
+      <h1 data-panel-text="home">Inicio</h1><p data-panel-text="welcome">Prepara tus subtítulos y continúa tus proyectos.</p>
+      <div class="home-balance"><span data-panel-text="available">Disponible</span><strong id="home-balance">—</strong>
+      <span id="home-reserved"></span><button type="button" class="secondary" data-view="balance" data-panel-text="buy">Comprar minutos</button></div>
+      <div class="start-actions"><button type="button" data-view="create" data-panel-text="create">Crear subtítulos</button>
+      <button type="button" class="secondary" data-view="import" data-panel-text="import">Importar subtítulos</button></div>
+      <h2 data-panel-text="recent">Proyectos recientes</h2><ul id="home-projects" class="project-rows"></ul>
+      <p id="home-empty" data-panel-text="empty">Aún no tienes proyectos. Crea o importa subtítulos para comenzar.</p>
+      <p class="help" data-panel-text="retention">Durante el piloto los proyectos se conservan 24 horas. Descarga tus archivos antes de que caduquen.</p>
+    </section>
+    <section id="balance-panel" class="panel-view" hidden>
+    <h1 data-panel-text="balance">Saldo y compras</h1>
+    <div class="row"><h2 id="balance-title" data-text="credits">Créditos de prueba</h2></div>
+    <p id="balance"></p>
+    <p id="mode"></p>
+    <div id="packages" hidden><label for="package" data-text="selectPackage">Paquete de minutos</label><select id="package"></select></div>
+    <div class="actions">
+      <button id="checkout" type="button" data-text="buy">Obtener 5 créditos de prueba</button>
+      <button id="simulate" type="button" hidden data-text="confirm">Confirmar pago simulado</button>
+      <button id="refresh" class="secondary" type="button" data-text="refresh">Actualizar saldo</button>
+    </div>
+    <p class="help" data-panel-text="shared">El saldo se reparte entre varios videos. No es una suscripción.</p>
+    <h2 data-panel-text="purchases">Historial de compras</h2><p class="data-gap" data-panel-text="purchasesUnavailable">El historial de compras aún no está disponible en este panel.</p>
+    <h2 data-panel-text="usage">Consumo por video</h2><p class="data-gap" data-panel-text="usageUnavailable">El detalle de consumo por video aún no está disponible. El saldo mostrado sí procede del servidor.</p>
+    </section>
+    <section id="account-panel" class="panel-view" hidden><h1 data-panel-text="account">Mi cuenta</h1>
+      <p data-panel-text="profileUnavailable">Tu sesión está activa. Los detalles del perfil aún no están disponibles en este panel.</p>
+      <p class="help" data-panel-text="localeHelp">Cambia el idioma de la interfaz arriba. No cambia los idiomas de tus proyectos.</p>
+      <a id="account-login-link" href="./sign-in/?lang=es" data-panel-text="access">Opciones de acceso</a>
+    </section>
+    <section id="projects" class="panel-view" hidden>
+      <h2 data-text="projects">Proyectos de subtítulos</h2>
+      <p data-text="projectHelp"></p>
+      <button type="button" class="secondary" data-view="import" data-panel-text="import">Importar subtítulos</button>
+      <div id="project-import-panel" hidden><form id="project-import">
+        <label for="project-video" data-text="projectVideo">Video MP4</label>
+        <input id="project-video" name="video" type="file" accept=".mp4,video/mp4" required>
+        <p data-text="subtitleImportHelp">SRT, LRC o ASS en UTF-8. ASS conserva texto y tiempos.</p>
+        <label for="project-srt" data-text="projectTranslatedSrt">Subtítulos de la pista traducida</label>
+        <input id="project-srt" name="srt" type="file" required>
+        <label for="project-original-srt" data-text="projectOriginalSrt">Subtítulos de la pista original (opcional)</label>
+        <input id="project-original-srt" name="originalSrt" type="file">
+        <button type="submit" data-text="projectImport">Importar y abrir</button>
+        <button type="button" id="cancel-project-upload" class="secondary" data-text="cancelUpload" hidden>Cancelar carga</button>
+      </form></div>
+      <p id="projects-empty" data-panel-text="empty">Aún no tienes proyectos.</p>
+      <ul id="project-list" class="project-rows"></ul>
+    </section>
+    <section id="project-review" class="panel-view" hidden><div class="editor-heading"><button type="button" class="secondary" data-view="projects" data-panel-text="backProjects">Volver a proyectos</button><p data-panel-text="reviewHelp">Revisa nombres, medidas y tiempos antes de descargar.</p></div><div id="project-editor"></div></section>
+    <form id="job" class="panel-view" hidden><h1 data-panel-text="create">Crear subtítulos</h1>
+      <p id="wizard-step" class="step-label" role="status"></p>
+      <div id="create-file-step">
+        <label for="file" data-text="file">Archivo de prueba, hasta 1 MiB</label><input id="file" type="file" required>
+        <p class="help" data-panel-text="limits">Piloto: hasta 30 segundos y 1 MiB por video.</p>
+        <video id="input-preview" controls playsinline preload="metadata" hidden></video>
+        <p id="input-info" role="status"></p>
+      </div><div id="create-language-step" hidden>
+      <h2 data-text="process">Procesar archivo</h2>
+      <label for="service" data-text="service">Servicio</label><select id="service"></select>
+      <div id="independent-fields" hidden>
+        <label for="choose-source" data-text="launchSource">Idioma del audio</label><select id="choose-source"></select>
+        <label for="choose-target" data-text="launchTarget">Idioma del subtítulo</label><select id="choose-target"></select>
+        <p id="effective-pair-status" class="help"></p>
+      </div>
+      <div id="directionFields" hidden><label for="direction" data-text="direction">Idioma del audio y del subtítulo</label>
+        <select id="direction"></select>
+      </div>
+      <div id="launch-language-fields" hidden>
+        <label for="launch-source" data-text="launchSource">Idioma del audio</label><select id="launch-source"></select>
+        <label for="launch-target" data-text="launchTarget">Idioma del subtítulo</label><select id="launch-target"></select>
+        <p id="launch-pair-status" role="status"></p>
+        <button id="request-language" type="button" data-text="requestLanguage" hidden>Solicitar este par</button>
+      </div>
+      </div><div id="create-summary-step" hidden><h2 data-panel-text="summary">Revisa antes de procesar</h2>
+        <dl id="create-summary"></dl><p class="help" data-panel-text="quoteUnavailable">La duración de la vista previa es orientativa. El servidor confirma el consumo al procesar; todavía no ofrece una cotización previa.</p>
+      </div><div class="wizard-actions"><button type="button" id="wizard-back" class="secondary" data-panel-text="back" hidden>Atrás</button>
+      <button type="button" id="wizard-next" data-panel-text="continue">Continuar</button>
+      <button id="submit-job" data-text="submit" hidden>Procesar por 1 crédito de prueba</button>
+      </div>
+    </form>
+    <section id="result" class="panel-view" hidden><h2 data-text="result">Resultado</h2>
+      <p id="jobStatus" role="status"></p><button type="button" id="cancel-job-upload" class="secondary" data-text="cancelUpload" hidden>Cancelar carga</button><a id="download" hidden data-text="original">Descargar resultado original</a>
+      <button id="edit" type="button" hidden data-text="edit">Revisar y exportar subtítulos</button>
+      <button id="project-from-result" type="button" hidden data-text="projectFromJob">Crear proyecto desde el resultado</button>
+      <button id="cancel-job" type="button" hidden data-text="cancelJob">Cancelar trabajo</button>
+      <button id="retry-job" type="button" hidden data-text="retryJob">Reintentar trabajo</button>
+      <div id="editor"></div>
+    </section>
+    <section id="history" class="panel-view" hidden><h2 data-text="recent">Trabajos recientes</h2><ul id="historyList"></ul></section>
+  </div></section>
+  <p id="message" role="status" aria-live="polite"></p>
+</main>
+</body>
+</html>

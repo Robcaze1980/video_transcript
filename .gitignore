@@ -14,6 +14,19 @@ dist-ssr
 .env
 .env.*
 !.env.example
+.firebase/
+firebase-debug.*
+*-firebase-adminsdk-*.json
+*service-account*.json
+application_default_credentials.json
+.firebase.env
+.openrouter-key.txt
+.codex-remote-attachments/
+private-files/
+validation/
+releases/
+*.dump
+*.backup
 
 # Local AI Studio state and imported prompt history
 .aistudio/

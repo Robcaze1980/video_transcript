@@ -1,4 +1,4 @@
-import { GoogleGenAI, Part, Type } from '@google/genai';
+import { GoogleGenAI, Part, Type, type GenerateContentResponseUsageMetadata } from '@google/genai';
 import { SectionModelResponse } from '../types';
 
 export const DEFAULT_TRANSCRIPTION_MODEL = 'gemini-3.8-flash';
@@ -11,6 +11,8 @@ export interface SectionTranscriptionRequest {
   videoDuration: number;
   targetLanguage: string;
   sourceLanguage: string;
+  preciseSpeechTiming?: boolean;
+  englishSpanishConstructionTerms?: boolean;
 }
 
 const formatPromptTime = (seconds: number): string => {
@@ -25,6 +27,9 @@ const buildSectionPrompt = (request: SectionTranscriptionRequest): string => {
     request.sourceLanguage === 'Auto-detect'
       ? 'Detect the spoken language from the audio.'
       : `The spoken language is ${request.sourceLanguage}.`;
+  const constructionTerms = request.englishSpanishConstructionTerms
+    ? ' In structural construction context, use cercha for truss (cercha de techo for roof truss), viga for beam, and punto de anclaje for anchor point. Keep each measurement in its original unit and preserve its numeric value. Translate the unit name into Spanish, for example 15 feet becomes 15 pies, without converting to meters. Apply these terms only to the translation and only where the audio supports them.'
+    : '';
 
   return `You are a precise audio-visual transcription engine. Analyze ONLY the requested portion of this video.
 
@@ -34,9 +39,13 @@ ${sourceInstruction}
 
 RULES:
 1. Transcribe every spoken utterance whose midpoint falls inside the requested window. Do not summarize, paraphrase, skip repeated words, or describe non-speech sounds.
-2. Return absolute timestamps in seconds for the full video, not timestamps relative to this section.
+2. ${request.preciseSpeechTiming
+    ? 'Return absolute timestamps in seconds measured against the audio from the beginning of the video, including any leading silence. Align each cue to the first and last audible words. Do not start a cue in the preceding silent pause. Use fractional seconds where possible.'
+    : 'Return absolute timestamps in seconds for the full video, not timestamps relative to this section.'}
 3. Include a cue only when its midpoint is between ${request.start.toFixed(3)} and ${request.end.toFixed(3)} seconds. Keep cues short, normally 1 to 6 seconds, and never overlap them.
-4. Translate the complete original utterance into ${request.targetLanguage}. Preserve meaning; do not omit details to make the translation shorter.
+4. ${request.sourceLanguage === request.targetLanguage
+    ? 'Copy the complete original utterance into the translated field, in the same language.'
+    : `Translate the complete original utterance into ${request.targetLanguage}. Preserve meaning; do not omit details to make the translation shorter.${constructionTerms}`}
 5. Set hasSpeech to false only if there is no human speech anywhere in the requested window. In that case return an empty subtitles array.
 6. If you cannot verify a segment, leave it out rather than inventing text. Never fabricate dialogue.
 
@@ -86,6 +95,7 @@ export async function requestSectionTranscription(
     mediaPart: Part;
     request: SectionTranscriptionRequest;
     abortSignal?: AbortSignal;
+    onUsage?: (usage: GenerateContentResponseUsageMetadata) => void;
   }
 ): Promise<SectionModelResponse> {
   const { mediaPart, request, abortSignal } = options;
@@ -126,6 +136,7 @@ export async function requestSectionTranscription(
       abortSignal,
     },
   });
+  if (response.usageMetadata) options.onUsage?.(response.usageMetadata);
 
   const finishReason = String(response.candidates?.[0]?.finishReason || '').toUpperCase();
   if (finishReason && !['STOP', 'FINISH_REASON_UNSPECIFIED'].includes(finishReason)) {
@@ -173,4 +184,11 @@ export async function requestSectionTranscription(
       typeof candidate.detectedLanguage === 'string' ? candidate.detectedLanguage : undefined,
     subtitles: candidate.subtitles as SectionModelResponse['subtitles'],
   };
+}
+
+export function localizeEnglishFootMeasurements(original: string, translation: string) {
+  const measurements = /\b(\d+(?:[.,]\d+)?)(\s+)feet\b/gi;
+  const sourceValues = new Set(Array.from(original.matchAll(measurements), match => match[1]));
+  return translation.replace(measurements, (match, value: string, spacing: string) =>
+    sourceValues.has(value) ? value + spacing + 'pies' : match);
 }

@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "tsx server/index.ts",
     "dev:vite": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.pilot.config.ts",
     "start": "tsx server/index.ts --production",
     "preview": "tsx server/index.ts --production",
+    "pilot:local": "tsx server/commercial/pilotLocal.ts",
     "lint": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -17,15 +18,24 @@
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@google/genai": "^1.38.0",
+    "@supabase/supabase-js": "2.119.0",
+    "firebase": "13.2.0",
+    "firebase-admin": "14.5.0",
+    "pdfjs-dist": "6.5.438",
+    "pg": "8.23.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/pg": "8.23.1",
     "@vitejs/plugin-react": "^5.0.0",
     "tsx": "^4.23.15",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.14.7"
   }
 }
