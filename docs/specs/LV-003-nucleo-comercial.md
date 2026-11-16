@@ -51,3 +51,32 @@ DeepSeek V4.1 Flash, Ionstream, `gen-1794084041-QtojLqyoKkUScZKeBjFb`: US$0.0005
 - Las pruebas con PostgreSQL 17 verifican concurrencia, idempotencia, aislamiento, reintentos y vencimiento de intentos. Incluyen recuperación tras perder una respuesta de captura simulada y rechazo de vendedores e importes incorrectos. Los adaptadores de subtítulos y PDF consumen el mismo saldo y usan la misma cola.
 - Para repetir las pruebas, asignar `LINGUISTVISION_TEST_DATABASE_URL` a una base desechable de LinguistVision y ejecutar `npm test`. La suite crea y elimina un esquema exclusivo. Sin esa variable, las pruebas con base de datos se omiten.
 - El [piloto web privado](LV-003-piloto-web-privado.md) ofrece sesión, historial, descargas por cuenta y reconciliación de órdenes PayPal pendientes. Los archivos de prueba de hasta 1 MiB siguen en PostgreSQL. Faltan PayPal Sandbox externo, almacenamiento para archivos mayores y los controles de publicación.
+
+## Cuenta y pagos · verificación local del 11 de noviembre de 2026
+
+Alcance: comprobar los criterios existentes de acreditación única, liberación de reservas y aislamiento por propietario. No cambia reglas comerciales. Drive se aplaza por instrucción del propietario.
+
+| Comprobación | Evidencia ejecutada |
+|---|---|
+| Captura repetida/concurrente | Ocho confirmaciones iguales producen un solo abono de600 segundos, una compra y un movimiento de compra. Reutilizar la captura para una orden de otra cuenta devuelve conflicto y esa cuenta conserva saldo0. |
+| Datos de captura incorrectos | Importe, moneda, referencia local o ID de orden del proveedor incorrectos no generan compra, movimientos ni orden cumplida; la captura válida posterior sí se acredita. |
+| Orden ajena | Otra cuenta no ve la orden ni solicita su captura/aprobación simulada. La cuenta propietaria sigue en estado `approval` y la otra conserva saldo0. |
+| Respuesta perdida | Conciliación local recupera la captura simulada sin capturar ni acreditar dos veces; vendedor e importe incorrectos no se acreditan. |
+| Fallos y carreras | Fallo recuperable mantiene reserva; agotamiento/caducidad/cancelación liberan una vez. Publicación y cancelación producen una sola transición/movimiento terminal. |
+| Archivo ajeno | Leer, descargar, editar, cancelar y borrar archivos/proyectos ajenos se rechaza. La nueva comprobación HTTP de `delete-files` ajeno devuelve404, conserva la descarga y fuente del propietario y no altera el libro de movimientos. Incluye Range, archivos privados y sesiones Firebase simuladas revocadas. |
+
+Resultados:41 pruebas de base del bloque aprobadas; tras dos regresiones nuevas y refuerzos en pruebas existentes,162 pruebas totales aprobadas,0 fallidas,0 omitidas; tipos correctos. Evidencia local excluida de Git: `work/account-payments-baseline.json`, `account-payments-final-tests.json`, `account-payments-types.log`, `account-payments-matrix.json`. La primera corrida de las pruebas nuevas esperaba equivocadamente `pending` para una orden aún sin aprobar; se corrigió a `approval`, sin cambio de producto. El fallo de autoría se conserva en `account-payments-capture-tests.json`.
+
+La base es `linguistvision_test` en PostgreSQL dedicado15438, con esquemas UUID temporales; comprobación posterior:0 esquemas de prueba residuales. Lectura de la base de la web:1 cuenta/identidad,2 proyectos sintéticos,0 compras/movimientos/jobs, sin cambios. No se usaron credenciales reales de PayPal, pagos remotos ni Gemini. Sólo cambian pruebas en este bloque; no se cambia el código de cobro ni se repiten compilaciones del producto sin cambios.
+
+DeepSeek V4.1 Flash y Kimi K3.1 Pro revisaron independientemente el núcleo y las pruebas de base: ambos PASS limitado al código local suministrado. Codex leyó ambas respuestas completas, verificó evidencia y ejecutó después las regresiones adicionales; no atribuir estas pruebas posteriores a una ejecución de los modelos. Respaldo OpenRouter autorizado, pues T3 sigue sin aislamiento acreditado; sin herramientas ni topes locales. Evidencia privada `%LOCALAPPDATA%/LinguistVision/t3-review/account-payments-20261111/`: contexto, hashes, respuestas completas, contabilidad y aislamiento.
+
+| Revisor | Generación | Tokens | usage.cost USD |
+|---|---|---:|---:|
+| deepseek/deepseek-v4.1-flash | gen-1794464370-NLIwppj6CdGoo4YZyBwK |68246|0.03188949885|
+| moonshotai/kimi-k3.1-pro | gen-1794464370-0NQa2vi9Bwtcs7E7FPdM |43841|0.22578831000|
+| Total ronda | |112087|0.25767780885|
+
+Coste del proveedor observado; factura por conciliar. Codex tokens/coste no medidos. Se conserva la candidata activa y los cambios anteriores de Drive.
+
+Límites: no certifica PayPal remoto/Pixel ni firma y servicio Firebase por sus dobles de pruebas, ni cierra LV-003/LV-007 o autoriza publicación. Seguimientos de revisión: límite global de intentos de login puede afectar disponibilidad de otras cuentas (pendiente reproducir/controlar antes de producción); dependencia interna `inputs.id == private_upload_id` vigente hoy, sin defecto de aislamiento demostrado. No se modifican ambos frentes por una recomendación no validada en este bloque.

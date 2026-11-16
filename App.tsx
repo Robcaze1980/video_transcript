@@ -772,7 +772,7 @@ const App: React.FC = () => {
           <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded flex items-center justify-center shadow-lg">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m16 16 3-8 3 8"/><path d="M17 14h4"/><path d="M7 2h1"/><path d="m2 22 5-10 5 10"/><path d="M14 18h1"/><path d="M2 5h12"/></svg>
           </div>
-          <h1 className="text-sm font-bold tracking-tight">LinguistVision</h1>
+          <h1 className="text-sm font-bold tracking-tight">Vistavo</h1>
         </div>
         {videoUrl && state === AppState.REVIEW && subtitles.length > 0 && (
           <div className="flex gap-2">

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "a1",
+    "label": "Unida",
+    "idea": "La V y el encuadre se vuelven un solo trazo.",
+    "risk": "Una firma más continua y ligera.",
+    "body": "<path d=\"M24 10 H10 V22 L32 50 L54 22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": "a2",
+    "label": "Con gesto",
+    "idea": "Un remate propio en el brazo de la V.",
+    "risk": "Más carácter geométrico y sensación de avance.",
+    "body": "<path fill=\"currentColor\" d=\"M8 13 H19 L32 40 L43 17 H36 V9 H56 V19 L38 53 Q32 63 26 53 Z\"/>"
+  },
+  {
+    "id": "a3",
+    "label": "Con presencia",
+    "idea": "El mismo gesto, dentro de una ventana.",
+    "risk": "Más peso visual y presencia como icono.",
+    "body": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M18 4 H46 Q60 4 60 18 V46 Q60 60 46 60 H18 Q4 60 4 46 V18 Q4 4 18 4 Z M14 17.75 H22.25 L32 38 L40.25 20.75 H35 V14.75 H50 V22.25 L36.5 47.75 Q32 55.25 27.5 47.75 Z\"/>"
+  }
+]

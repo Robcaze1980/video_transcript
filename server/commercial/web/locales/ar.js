@@ -4,6 +4,7 @@ export default {
   "dir": "rtl",
   "name": "العربية",
   "messages": {
+    "unknown": "النتيجة قيد التحقق. لن تتم إعادة المحاولة تلقائيًا.",
     "videoBalance": "رصيد الفيديو التجريبي",
     "balanceTime": "$1 متاحة · $2 محجوزة",
     "selectPackage": "باقة الدقائق",
@@ -174,7 +175,7 @@ export default {
     "paypalWebPreparing": "جارٍ إعداد الدفع التجريبي…",
     "paypalWebContinue": "المتابعة إلى PayPal التجريبي",
     "paypalWebDetails": "احصل على ٥ أرصدة بدفع تجريبي قدره ٤٫٩٥ دولار أمريكي.",
-    "paypalWebBack": "العودة إلى LinguistVision",
+    "paypalWebBack": "العودة إلى Vistavo",
     "badDuration": "تعذّرت قراءة مدة الفيديو.",
     "fileLimit": "اختر ملفًا لا يتجاوز ١ ميبيبايت.",
     "videoLimit": "اختر فيديو لا تتجاوز مدته ٣٠ ثانية.",

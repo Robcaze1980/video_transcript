@@ -23,8 +23,14 @@ CREATE TABLE checkout_orders (
   credits integer NOT NULL CHECK (credits > 0),
   capture_requested_at timestamptz,
   next_attempt_at timestamptz,
+  create_return_url text,
+  create_request_key text,
+  create_started_at timestamptz,
+  create_lease uuid,
+  approval_url text,
   fulfilled_at timestamptz
 );
+CREATE UNIQUE INDEX checkout_create_key ON checkout_orders(account_id,create_request_key) WHERE create_request_key IS NOT NULL;
 
 CREATE TABLE purchases (
   payment_ref text PRIMARY KEY,
@@ -53,6 +59,7 @@ CREATE TABLE subtitle_projects (
   draft text NOT NULL CONSTRAINT subtitle_projects_draft_size CHECK (octet_length(draft) <= 65536),
   original_draft text CHECK (octet_length(original_draft) BETWEEN 1 AND 65536),
   highlights jsonb NOT NULL DEFAULT '{}'::jsonb,
+  segment_ids jsonb,
   subtitle_style jsonb CHECK (jsonb_typeof(subtitle_style) = 'object'),
   revision integer NOT NULL DEFAULT 1 CHECK (revision > 0),
   updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -76,7 +83,11 @@ CREATE TABLE jobs (
   service text NOT NULL,
   options jsonb NOT NULL,
   price integer NOT NULL CHECK (price > 0),
-  state text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+  state text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'unknown')),
+  reconciliation_ref text CHECK (length(reconciliation_ref) BETWEEN 1 AND 500),
+  unknown_attempt_id uuid,
+  quarantined_at timestamptz,
+  input_sha256 text CHECK (input_sha256 ~ '^[a-f0-9]{64}$'),
   attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
   max_attempts integer NOT NULL CHECK (max_attempts > 0),
   ready_at timestamptz NOT NULL DEFAULT clock_timestamp(),

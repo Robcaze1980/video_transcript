@@ -1,0 +1,10 @@
+{
+  "project":"vistavo-prod",
+  "projectNumber":"107404655346",
+  "databaseId":"(default)",
+  "root":"vistavo/candidate-v1",
+  "profile":"ai-candidate-v1",
+  "index":{"collectionGroup":"outbox","queryScope":"COLLECTION","fields":[{"fieldPath":"aiProfile","order":"ASCENDING"},{"fieldPath":"state","order":"ASCENDING"},{"fieldPath":"nextAttemptAt","order":"ASCENDING"}]},
+  "backfill":{"pageSize":100,"maxPagesPerRun":10,"existingPendingOnly":true,"createForbidden":true,"claimForbidden":true},
+  "cloudSqlForbidden":true
+}

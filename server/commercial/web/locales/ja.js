@@ -4,6 +4,7 @@ export default {
   "dir": "ltr",
   "name": "日本語",
   "messages": {
+    "unknown": "結果を確認しています。自動的に再実行しません。",
     "videoBalance": "テスト用の動画残高",
     "balanceTime": "利用可能 $1・予約済み $2",
     "selectPackage": "分数パック",
@@ -174,7 +175,7 @@ export default {
     "paypalWebPreparing": "テスト支払いを準備中…",
     "paypalWebContinue": "PayPal Sandbox に進む",
     "paypalWebDetails": "4.95米ドルのテスト支払いで5クレジットを取得。",
-    "paypalWebBack": "LinguistVision に戻る",
+    "paypalWebBack": "Vistavo に戻る",
     "badDuration": "動画の長さを読み取れませんでした。",
     "fileLimit": "最大1 MiBのファイルを選択してください。",
     "videoLimit": "最大30秒の動画を選択してください。",

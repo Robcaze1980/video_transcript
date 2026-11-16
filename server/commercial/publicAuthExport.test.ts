@@ -1,0 +1,25 @@
+import {afterEach,describe,expect,it} from 'vitest';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {tmpdir} from 'node:os';
+import {authCsp,commercialPolicies,publicAuthAssets,publicDirectoryForConfig,assertPublicDirectoryBinding,accountHosting,assertAccountHosting} from '../../scripts/publicAuthAssets.mjs';
+const directories:string[]=[];
+async function fixture(change:(m:Record<string,any>)=>void=()=>{}){
+ const directory=await fs.mkdtemp(path.join(tmpdir(),'vistavo-auth-assets-'));directories.push(directory);
+ await fs.mkdir(path.join(directory,'.vite'));await fs.mkdir(path.join(directory,'assets'));
+ const manifest:Record<string,any>={'server/commercial/web/publicAuth.ts':{file:'publicAuth.js',isEntry:true,imports:['_sdk']},'server/commercial/web/accountUi.ts':{file:'accountUi.js',isEntry:true},_sdk:{file:'assets/sdk-abc.js'},'server/commercial/web/cloudCandidate.tsx':{file:'cloudCandidate.js',isEntry:true}};
+ for(const file of ['publicAuth.js','accountUi.js','assets/sdk-abc.js','cloudCandidate.js'])await fs.writeFile(path.join(directory,file),'export {};');
+ change(manifest);await fs.writeFile(path.join(directory,'.vite/manifest.json'),JSON.stringify(manifest));return directory;
+}
+afterEach(async()=>{for(const directory of directories.splice(0)){const allowed=path.resolve(tmpdir())+path.sep+'vistavo-auth-assets-';if(!path.resolve(directory).startsWith(allowed))throw Error('Test cleanup boundary');await fs.rm(directory,{recursive:true,force:true});}});
+describe('public auth artifact boundary',()=>{
+ it('routes only the authenticated account API, preserving private responses and reserved helpers',()=>{const a=accountHosting(),hosting={rewrites:a.rewrites,headers:[a.headers]};expect(()=>assertAccountHosting(hosting)).not.toThrow();for(const rewrites of [[{source:'/api/**',run:{serviceId:'vistavo-files-api',region:'us-central1'}}],[...a.rewrites,{source:'/__/**',destination:'/index.html'}],[]])expect(()=>assertAccountHosting({...hosting,rewrites})).toThrow();expect(()=>assertAccountHosting({...hosting,headers:[{...a.headers,headers:[]}]})).toThrow();});
+ it('binds a nested Firebase config to its own candidate site using actual CLI-relative semantics',()=>{const base=path.resolve('outputs/public-auth-test'),config=path.join(base,'firebase.json'),site=path.join(base,'site');expect(publicDirectoryForConfig(config,site)).toBe('site');expect(assertPublicDirectoryBinding(config,'site',site)).toBe(site);expect(()=>assertPublicDirectoryBinding(config,'outputs/vistavo-public/site',site)).toThrow('does not bind');});
+ it('preserves correct root-config paths and rejects escaping config-project boundaries',()=>{const config=path.resolve('firebase.commercial.json'),site=path.resolve('outputs/public-auth-test/site');expect(assertPublicDirectoryBinding(config,publicDirectoryForConfig(config,site),site)).toBe(site);expect(()=>publicDirectoryForConfig(path.join(site,'nested/firebase.json'),site)).toThrow('outside config project');expect(()=>assertPublicDirectoryBinding(config,'../private',site)).toThrow('Unsafe Hosting');});
+ it('exports just reachable public assets and preserves actual relative module paths',async()=>{const assets=await publicAuthAssets(await fixture());expect(assets.map(f=>f.name)).toEqual(['assets/accountUi.js','assets/assets/sdk-abc.js','assets/publicAuth.js']);expect(assets.some(f=>f.name.includes('cloudCandidate'))).toBe(false);});
+ it('rejects a private entry even when a public manifest references it',async()=>{const dir=await fixture(m=>m['server/commercial/web/publicAuth.ts'].imports.push('server/commercial/web/cloudCandidate.tsx'));await expect(publicAuthAssets(dir)).rejects.toThrow('Nonpublic bundle entry');});
+ it('rejects a private entry smuggled as a public entry filename',async()=>{const dir=await fixture(m=>m['server/commercial/web/publicAuth.ts'].file='cloudCandidate.js');await expect(publicAuthAssets(dir)).rejects.toThrow('Unexpected public entry filename');});
+ it('rejects traversal in a shared asset before reading outside dist',async()=>{const dir=await fixture(m=>m._sdk.file='../outside.js');await expect(publicAuthAssets(dir)).rejects.toThrow('Nonpublic shared asset');});
+ it('fails if a required dependency is missing instead of publishing a partial login',async()=>{const dir=await fixture(m=>m._sdk.imports=['_missing']);await expect(publicAuthAssets(dir)).rejects.toThrow('Nonpublic bundle entry');});
+ it('separates commercial and auth CSP without attaching a conflicting global CSP to helpers',()=>{const strict="default-src 'self'; connect-src 'none'; form-action 'none'";const policies=commercialPolicies(['es-419','ar'],strict);expect(policies.some(p=>p.source==='**'||p.source.startsWith('/__'))).toBe(false);expect(policies.find(p=>p.source==='/es-419/**')!.headers[0].value).toBe(strict);expect(policies.find(p=>p.source==='/acceso/**')!.headers[0].value).toBe(authCsp);expect(authCsp).toContain("form-action 'none'");expect(authCsp).toContain('https://apis.google.com');expect(authCsp).not.toMatch(/unsafe-eval|unsafe-inline|https:\/\/\*/);});
+});

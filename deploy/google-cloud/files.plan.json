@@ -1,0 +1,235 @@
+{
+  "project": "vistavo-prod",
+  "projectNumber": "107404655346",
+  "region": "us-central1",
+  "labels": {
+    "app": "vistavo",
+    "phase": "files-candidate",
+    "managedby": "codex-lv007-gcs"
+  },
+  "cloudSqlForbidden": true,
+  "firestore": {
+    "databaseId": "(default)",
+    "body": {
+      "locationId": "us-central1",
+      "type": "FIRESTORE_NATIVE",
+      "databaseEdition": "STANDARD",
+      "concurrencyMode": "PESSIMISTIC",
+      "pointInTimeRecoveryEnablement": "POINT_IN_TIME_RECOVERY_ENABLED",
+      "deleteProtectionState": "DELETE_PROTECTION_ENABLED"
+    },
+    "root": "vistavo/candidate-v1"
+  },
+  "identities": {
+    "api": "vistavo-files-api",
+    "validator": "vistavo-files-validator",
+    "cleaner": "vistavo-files-cleaner",
+    "maintenance": "vistavo-files-maintenance",
+    "scheduler": "vistavo-files-scheduler",
+    "proof": "vistavo-bootstrap",
+    "builder": "vistavo-builder"
+  },
+  "customRoles": [
+    {
+      "roleId": "vistavoFileVerifier",
+      "role": {
+        "title": "Vistavo Firebase token verifier",
+        "description": "User read for Firebase token revocation checks only",
+        "includedPermissions": [
+          "firebaseauth.users.get"
+        ],
+        "stage": "GA"
+      }
+    }
+  ],
+  "projectBindings": [
+    {
+      "role": "roles/datastore.user",
+      "members": [
+        "serviceAccount:vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-validator@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-cleaner@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-maintenance@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-bootstrap@vistavo-prod.iam.gserviceaccount.com"
+      ],
+      "condition": {
+        "title": "vistavo-default-database",
+        "description": "Vistavo candidate; default database only",
+        "expression": "resource.name == \"projects/vistavo-prod/databases/(default)\""
+      }
+    },
+    {
+      "role": "roles/serviceusage.serviceUsageConsumer",
+      "members": [
+        "serviceAccount:vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-validator@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-cleaner@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-maintenance@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-bootstrap@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-builder@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    },
+    {
+      "role": "projects/vistavo-prod/roles/vistavoFileVerifier",
+      "members": [
+        "serviceAccount:vistavo-files-api@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    },
+    {
+      "role": "roles/logging.logWriter",
+      "members": [
+        "serviceAccount:vistavo-builder@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    }
+  ],
+  "mediaBucket": "vistavo-prod-107404655346-media",
+  "mediaBindings": [
+    {
+      "role": "roles/storage.objectCreator",
+      "members": [
+        "serviceAccount:vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-validator@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-bootstrap@vistavo-prod.iam.gserviceaccount.com"
+      ],
+      "condition": {
+        "title": "vistavo-files-create",
+        "expression": "resource.name.startsWith(\"projects/_/buckets/vistavo-prod-107404655346-media/objects/candidate-files-v1/\")"
+      }
+    },
+    {
+      "role": "roles/storage.objectViewer",
+      "members": [
+        "serviceAccount:vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-validator@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-bootstrap@vistavo-prod.iam.gserviceaccount.com"
+      ],
+      "condition": {
+        "title": "vistavo-files-read",
+        "expression": "resource.name.startsWith(\"projects/_/buckets/vistavo-prod-107404655346-media/objects/candidate-files-v1/\")"
+      }
+    },
+    {
+      "role": "roles/storage.objectUser",
+      "members": [
+        "serviceAccount:vistavo-files-cleaner@vistavo-prod.iam.gserviceaccount.com"
+      ],
+      "condition": {
+        "title": "vistavo-files-clean",
+        "expression": "resource.name.startsWith(\"projects/_/buckets/vistavo-prod-107404655346-media/objects/candidate-files-v1/\")"
+      }
+    }
+  ],
+  "buildBucket": "vistavo-prod-107404655346-builds",
+  "buildBucketBindings": [
+    {
+      "role": "roles/storage.objectViewer",
+      "members": [
+        "serviceAccount:vistavo-builder@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    }
+  ],
+  "artifactRepository": "vistavo",
+  "artifactBindings": [
+    {
+      "role": "roles/artifactregistry.writer",
+      "members": [
+        "serviceAccount:vistavo-builder@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    }
+  ],
+  "services": {
+    "api": {
+      "name": "vistavo-files-api",
+      "account": "vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+      "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+      "cpu": "1",
+      "memory": "2Gi",
+      "maxInstances": 2,
+      "concurrency": 8,
+      "timeout": "300s",
+      "invokers": [
+        "serviceAccount:vistavo-bootstrap@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    },
+    "maintenance": {
+      "name": "vistavo-files-maintenance",
+      "account": "vistavo-files-maintenance@vistavo-prod.iam.gserviceaccount.com",
+      "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+      "cpu": "1",
+      "memory": "512Mi",
+      "maxInstances": 1,
+      "concurrency": 1,
+      "timeout": "120s",
+      "invokers": [
+        "serviceAccount:vistavo-files-scheduler@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    }
+  },
+  "jobs": {
+    "validate": {
+      "name": "vistavo-files-validate",
+      "account": "vistavo-files-validator@vistavo-prod.iam.gserviceaccount.com",
+      "cpu": "2",
+      "memory": "4Gi",
+      "timeout": "600s",
+      "role": "validate",
+      "maxRetries": 0,
+      "invokersWithOverrides": [
+        "serviceAccount:vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-maintenance@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    },
+    "cleanup": {
+      "name": "vistavo-files-cleanup",
+      "account": "vistavo-files-cleaner@vistavo-prod.iam.gserviceaccount.com",
+      "cpu": "1",
+      "memory": "512Mi",
+      "timeout": "600s",
+      "role": "cleanup",
+      "maxRetries": 0,
+      "invokersWithOverrides": [
+        "serviceAccount:vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-maintenance@vistavo-prod.iam.gserviceaccount.com",
+        "serviceAccount:vistavo-files-validator@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    },
+    "proof": {
+      "name": "vistavo-files-proof",
+      "account": "vistavo-bootstrap@vistavo-prod.iam.gserviceaccount.com",
+      "cpu": "2",
+      "memory": "4Gi",
+      "timeout": "1800s",
+      "maxRetries": 0,
+      "vpcAccess": {
+        "networkInterfaces": [
+          {
+            "network": "vistavo-private",
+            "subnetwork": "vistavo-us-central1"
+          }
+        ],
+        "egress": "ALL_TRAFFIC"
+      },
+      "invokersWithOverrides": []
+    }
+  },
+  "proofSelfSigner": {
+    "account": "vistavo-bootstrap@vistavo-prod.iam.gserviceaccount.com",
+    "role": "roles/iam.serviceAccountTokenCreator",
+    "member": "serviceAccount:vistavo-bootstrap@vistavo-prod.iam.gserviceaccount.com"
+  },
+  "scheduler": {
+    "name": "vistavo-files-maintenance",
+    "schedule": "*/5 * * * *",
+    "timeZone": "Etc/UTC",
+    "account": "vistavo-files-scheduler@vistavo-prod.iam.gserviceaccount.com",
+    "mode": "OIDC to maintenance HTTP service; no idle Cloud Run Job launches"
+  },
+  "notes": [
+    "Plan only until preapply review and API schema checks. No public invokers, no Hosting rewrites.",
+    "No media lifecycle, object versioning, soft delete or retention locks. Opaque zero-byte markers remain live indefinitely.",
+    "Firestore candidate namespace is separate from any future live ledger. No actual payments or AI calls.",
+    "Proof uses synthetic accounts/files only; temporary proof job/SA/users are removed after receipts.",
+    "Existing private subnet has PGA; proof job uses all traffic via Direct VPC, no NAT/ALB or private DNS zone needed.",
+    "2026-11-13: SAquota10 blocked new proof identity. Reuse existing isolated unused vistavo-bootstrap temporarily, verify zero preexisting grants/keys, remove only new proof grants afterward; never delete preexisting SA."
+  ]
+}

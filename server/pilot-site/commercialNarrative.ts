@@ -69,7 +69,7 @@ export const commercialNarrative: Record<string, CommercialNarrative> = {
     betaNote: 'Diez interfaces no implican que todos los pares estén verificados. Las capacidades siguen en beta. Comprueba los pares habilitados y revisa el resultado.',
     plansHeading: 'Elige minutos para tus próximos videos.',
     faqs: [
-      ['¿Para quién sirve LinguistVision?', 'Para quien ya graba explicaciones, lecciones o actualizaciones y necesita revisar los subtítulos antes de compartirlas. Los ejemplos de esta página son ficticios.'],
+      ['¿Para quién sirve Vistavo?', 'Para quien ya graba explicaciones, lecciones o actualizaciones y necesita revisar los subtítulos antes de compartirlas. Los ejemplos de esta página son ficticios.'],
       ['¿Qué puedo descargar?', 'Puedes descargar los subtítulos en SRT. El editor también exporta MP4 con subtítulos incrustados. Su inclusión en la oferta de lanzamiento está por confirmar.'],
       ['¿Cuál es la diferencia entre SRT y MP4?', 'El SRT guarda texto y tiempos para usarlo con un video o en otro editor. El MP4 exportado lleva el subtítulo visible dentro de la imagen.'],
       ['¿Puedo corregir sin volver a transcribir?', 'Sí. Puedes editar frases, tiempos y estilos sobre el resultado guardado y volver a exportarlo. Revisa los cambios mientras reproduces el video.'],
@@ -121,7 +121,7 @@ export const commercialNarrative: Record<string, CommercialNarrative> = {
     betaNote: 'Ten interfaces do not mean every language pair is verified. Capabilities remain in beta. Check the enabled pairs and review the result.',
     plansHeading: 'Choose minutes for your next videos.',
     faqs: [
-      ['Who is LinguistVision for?', 'People who already record explanations, lessons, or updates and want to review their subtitles before sharing. The examples on this page are fictional.'],
+      ['Who is Vistavo for?', 'People who already record explanations, lessons, or updates and want to review their subtitles before sharing. The examples on this page are fictional.'],
       ['What can I download?', 'You can download subtitles as SRT. The editor also exports MP4 with visible captions. Its inclusion in the launch offer is still to be confirmed.'],
       ['How do SRT and MP4 differ?', 'SRT stores text and timing for use with a video or in another editor. The exported MP4 has the captions rendered into the image.'],
       ['Can I edit without transcribing again?', 'Yes. Edit lines, timing, and styles in the saved result, then export again. Play the video to check your changes.'],
@@ -173,7 +173,7 @@ export const commercialNarrative: Record<string, CommercialNarrative> = {
     betaNote: 'وجود عشر واجهات لا يعني التحقق من جميع أزواج الترجمة. القدرات ما زالت تجريبية. راجع الأزواج المفعّلة وتحقق من النتيجة.',
     plansHeading: 'اختر الدقائق المناسبة لمقاطعك القادمة.',
     faqs: [
-      ['لمن تناسب LinguistVision؟', 'لمن يسجّل شروحات أو دروسًا أو تحديثات ويحتاج إلى مراجعة النص المصاحب قبل المشاركة. الأمثلة في هذه الصفحة افتراضية.'],
+      ['لمن تناسب Vistavo؟', 'لمن يسجّل شروحات أو دروسًا أو تحديثات ويحتاج إلى مراجعة النص المصاحب قبل المشاركة. الأمثلة في هذه الصفحة افتراضية.'],
       ['ما الذي يمكنني تنزيله؟', 'يمكن تنزيل النصوص بصيغة SRT. كما يصدّر المحرر MP4 بنصوص مدمجة في الصورة. إدراج هذا التصدير ضمن عرض الإطلاق ما زال قيد التأكيد.'],
       ['ما الفرق بين SRT وMP4؟', 'يحفظ SRT النص والتوقيت لاستخدامهما مع الفيديو أو في محرر آخر. أما MP4 المصدّر فتظهر النصوص ضمن صورته.'],
       ['هل يمكن التصحيح دون إعادة التفريغ؟', 'نعم. عدّل العبارات والتوقيت والأنماط في النتيجة المحفوظة، ثم صدّرها مجددًا. شغّل الفيديو للتحقق من التغييرات.'],
@@ -225,7 +225,7 @@ export const commercialNarrative: Record<string, CommercialNarrative> = {
     betaNote: 'Dez interfaces não significam que todos os pares estejam verificados. As capacidades seguem em beta. Confira os pares habilitados e revise o resultado.',
     plansHeading: 'Escolha minutos para seus próximos vídeos.',
     faqs: [
-      ['Para quem é o LinguistVision?', 'Para quem já grava explicações, aulas ou atualizações e precisa revisar as legendas antes de compartilhar. Os exemplos desta página são fictícios.'],
+      ['Para quem é o Vistavo?', 'Para quem já grava explicações, aulas ou atualizações e precisa revisar as legendas antes de compartilhar. Os exemplos desta página são fictícios.'],
       ['O que posso baixar?', 'Você pode baixar as legendas em SRT. O editor também exporta MP4 com legendas incorporadas. A inclusão dessa exportação na oferta de lançamento será confirmada.'],
       ['Qual é a diferença entre SRT e MP4?', 'O SRT guarda texto e tempos para usar com o vídeo ou em outro editor. O MP4 exportado mostra as legendas dentro da imagem.'],
       ['Posso corrigir sem transcrever novamente?', 'Sim. Edite frases, tempos e estilos no resultado salvo e exporte novamente. Reproduza o vídeo para conferir as alterações.'],
@@ -277,7 +277,7 @@ export const commercialNarrative: Record<string, CommercialNarrative> = {
     betaNote: 'Dix interfaces ne signifient pas que toutes les paires sont vérifiées. Les fonctions restent en bêta. Consultez les paires activées et vérifiez le résultat.',
     plansHeading: 'Choisissez des minutes pour vos prochaines vidéos.',
     faqs: [
-      ['À qui s’adresse LinguistVision ?', 'Aux personnes qui enregistrent déjà des explications, des leçons ou des annonces et souhaitent vérifier les sous-titres avant de partager. Les exemples de cette page sont fictifs.'],
+      ['À qui s’adresse Vistavo ?', 'Aux personnes qui enregistrent déjà des explications, des leçons ou des annonces et souhaitent vérifier les sous-titres avant de partager. Les exemples de cette page sont fictifs.'],
       ['Que puis-je télécharger ?', 'Vous pouvez télécharger les sous-titres en SRT. L’éditeur exporte aussi des MP4 avec sous-titres incrustés. Leur inclusion dans l’offre de lancement reste à confirmer.'],
       ['Quelle est la différence entre SRT et MP4 ?', 'Le SRT contient le texte et le minutage à utiliser avec une vidéo ou dans un autre éditeur. Le MP4 exporté intègre les sous-titres dans l’image.'],
       ['Puis-je corriger sans refaire la transcription ?', 'Oui. Modifiez les phrases, le minutage et les styles du résultat enregistré, puis exportez à nouveau. Relisez les changements pendant la lecture de la vidéo.'],
@@ -329,7 +329,7 @@ export const commercialNarrative: Record<string, CommercialNarrative> = {
     betaNote: 'Zehn Oberflächen bedeuten keine geprüfte Abdeckung aller Sprachpaare. Die Funktionen bleiben in der Beta. Prüfen Sie die verfügbaren Paare und das Ergebnis.',
     plansHeading: 'Wählen Sie Minuten für Ihre nächsten Videos.',
     faqs: [
-      ['Für wen eignet sich LinguistVision?', 'Für Menschen, die Erklärungen, Lektionen oder Mitteilungen aufnehmen und deren Untertitel vor dem Teilen prüfen möchten. Die Beispiele auf dieser Seite sind fiktiv.'],
+      ['Für wen eignet sich Vistavo?', 'Für Menschen, die Erklärungen, Lektionen oder Mitteilungen aufnehmen und deren Untertitel vor dem Teilen prüfen möchten. Die Beispiele auf dieser Seite sind fiktiv.'],
       ['Was kann ich herunterladen?', 'Sie können Untertitel als SRT herunterladen. Der Editor exportiert auch MP4 mit eingebrannten Untertiteln. Ob dieser Export im Startangebot enthalten ist, wird noch bestätigt.'],
       ['Was unterscheidet SRT und MP4?', 'SRT enthält Text und Zeitangaben zur Verwendung mit einem Video oder in einem anderen Editor. Im exportierten MP4 sind die Untertitel im Bild sichtbar.'],
       ['Kann ich ohne erneute Transkription korrigieren?', 'Ja. Bearbeiten Sie Zeilen, Zeiten und Stile im gespeicherten Ergebnis und exportieren Sie es erneut. Prüfen Sie Ihre Änderungen während der Wiedergabe.'],
@@ -433,7 +433,7 @@ export const commercialNarrative: Record<string, CommercialNarrative> = {
     betaNote: '열 가지 화면 언어가 모든 언어 조합의 검증 완료를 뜻하지는 않습니다. 기능은 베타 단계입니다. 활성화된 조합과 결과를 확인하세요.',
     plansHeading: '다음 영상에 필요한 분수를 선택하세요.',
     faqs: [
-      ['LinguistVision은 누구를 위한 서비스인가요?', '설명, 강의, 소식 영상을 이미 촬영하고 공유 전에 자막을 검토하려는 분들을 위한 서비스입니다. 이 페이지의 활용 사례는 가상입니다.'],
+      ['Vistavo은 누구를 위한 서비스인가요?', '설명, 강의, 소식 영상을 이미 촬영하고 공유 전에 자막을 검토하려는 분들을 위한 서비스입니다. 이 페이지의 활용 사례는 가상입니다.'],
       ['무엇을 다운로드할 수 있나요?', '자막을 SRT로 다운로드할 수 있습니다. 편집기에서는 자막이 영상에 삽입된 MP4도 내보낼 수 있습니다. 출시 상품에 이 기능을 포함할지는 추후 확정됩니다.'],
       ['SRT와 MP4는 어떻게 다른가요?', 'SRT는 영상이나 다른 편집기에서 사용할 자막 텍스트와 시간을 저장합니다. 내보낸 MP4에는 자막이 영상 이미지에 표시됩니다.'],
       ['다시 전사하지 않고 수정할 수 있나요?', '네. 저장한 결과의 문장, 시간, 스타일을 수정하고 다시 내보낼 수 있습니다. 영상을 재생하며 변경 사항을 확인하세요.'],
@@ -485,7 +485,7 @@ export const commercialNarrative: Record<string, CommercialNarrative> = {
     betaNote: '十种界面语言不代表所有语言组合均已验证。功能仍在测试中，请查看已启用的组合并核对结果。',
     plansHeading: '为下一批视频选择所需分钟数。',
     faqs: [
-      ['LinguistVision 适合谁？', '适合已经录制说明、课程或工作通报，并希望在分享前核对字幕的人。本页场景均为虚构示例。'],
+      ['Vistavo 适合谁？', '适合已经录制说明、课程或工作通报，并希望在分享前核对字幕的人。本页场景均为虚构示例。'],
       ['我可以下载什么？', '可以下载 SRT 字幕。编辑器也能导出字幕嵌入画面的 MP4。首发方案是否包含此项导出，仍待确认。'],
       ['SRT 和 MP4 有什么区别？', 'SRT 保存字幕文字和时间，可配合视频或导入其他编辑器。导出的 MP4 会把字幕显示在视频画面中。'],
       ['修改时需要重新转写吗？', '可以直接修改已保存结果的句子、时间和样式，再次导出。请播放视频核对修改内容。'],
@@ -537,7 +537,7 @@ export const commercialNarrative: Record<string, CommercialNarrative> = {
     betaNote: 'Mười giao diện không có nghĩa là mọi cặp ngôn ngữ đều đã được xác minh. Các tính năng vẫn ở beta. Kiểm tra cặp đang bật và xem lại kết quả.',
     plansHeading: 'Chọn số phút cho những video tiếp theo.',
     faqs: [
-      ['LinguistVision dành cho ai?', 'Dành cho người đã quay video giải thích, bài học hoặc bản cập nhật và muốn kiểm tra phụ đề trước khi chia sẻ. Các tình huống trên trang là ví dụ giả định.'],
+      ['Vistavo dành cho ai?', 'Dành cho người đã quay video giải thích, bài học hoặc bản cập nhật và muốn kiểm tra phụ đề trước khi chia sẻ. Các tình huống trên trang là ví dụ giả định.'],
       ['Tôi có thể tải xuống những gì?', 'Bạn có thể tải phụ đề SRT. Trình chỉnh sửa cũng xuất MP4 với phụ đề gắn vào hình ảnh. Việc đưa cách xuất này vào gói ra mắt còn chờ xác nhận.'],
       ['SRT và MP4 khác nhau thế nào?', 'SRT lưu văn bản và thời gian để dùng với video hoặc trong trình chỉnh sửa khác. MP4 xuất ra hiển thị phụ đề ngay trong hình ảnh video.'],
       ['Có thể sửa mà không chép lời lại không?', 'Có. Bạn có thể sửa câu, thời gian và kiểu trong kết quả đã lưu rồi xuất lại. Hãy phát video để kiểm tra các thay đổi.'],

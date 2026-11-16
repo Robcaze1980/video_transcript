@@ -4,6 +4,7 @@ export default {
   "dir": "ltr",
   "name": "English",
   "messages": {
+    "unknown": "Outcome pending verification. No automatic retry.",
     "videoBalance": "Test video balance",
     "balanceTime": "$1 available · $2 reserved",
     "selectPackage": "Minute pack",
@@ -174,7 +175,7 @@ export default {
     "paypalWebPreparing": "Preparing the test payment…",
     "paypalWebContinue": "Continue to PayPal Sandbox",
     "paypalWebDetails": "Get 5 credits with a USD 4.95 test payment.",
-    "paypalWebBack": "Back to LinguistVision",
+    "paypalWebBack": "Back to Vistavo",
     "badDuration": "Could not read the video duration.",
     "fileLimit": "Select a file up to 1 MiB.",
     "videoLimit": "Select a video up to 30 seconds long.",

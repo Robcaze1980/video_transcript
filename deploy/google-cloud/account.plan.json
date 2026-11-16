@@ -1,0 +1,100 @@
+{
+  "task": "LV-019.A",
+  "project": "vistavo-prod",
+  "projectNumber": "107404655346",
+  "region": "us-central1",
+  "database": {
+    "id": "vistavo-live",
+    "type": "FIRESTORE_NATIVE",
+    "edition": "STANDARD",
+    "deleteProtectionState": "DELETE_PROTECTION_ENABLED",
+    "pointInTimeRecoveryEnablement": "POINT_IN_TIME_RECOVERY_ENABLED",
+    "root": "vistavo/production-v1",
+    "marker": {
+      "service": "vistavo-account",
+      "environment": "production",
+      "schemaVersion": 1,
+      "unit": "video_seconds"
+    }
+  },
+  "service": {
+    "id": "vistavo-account-api",
+    "accountId": "vistavo-account-api",
+    "serviceAccount": "vistavo-account-api@vistavo-prod.iam.gserviceaccount.com",
+    "minInstances": 0,
+    "maxInstances": 2,
+    "concurrency": 20,
+    "cpu": "1",
+    "memory": "512Mi",
+    "timeout": "30s",
+    "ingress": "INGRESS_TRAFFIC_ALL",
+    "publicTransport": true,
+    "environment": {
+      "NODE_ENV": "production",
+      "VISTAVO_ACCOUNT_MODE": "production",
+      "VISTAVO_PROJECT_ID": "vistavo-prod",
+      "VISTAVO_ACCOUNT_DATABASE": "vistavo-live"
+    }
+  },
+  "iam": {
+    "databaseRole": "roles/datastore.user",
+    "databaseCondition": "resource.name == \"projects/vistavo-prod/databases/vistavo-live\"",
+    "authReadRole": "projects/vistavo-prod/roles/vistavoFileVerifier",
+    "authPermissions": [
+      "firebaseauth.users.get"
+    ],
+    "preserveLegacyBindings": true
+  },
+  "build": {
+    "repository": "us-central1-docker.pkg.dev/vistavo-prod/vistavo/account",
+    "sourceBucket": "vistavo-prod-107404655346-builds",
+    "sourcePrefix": "account-source/",
+    "serviceAccount": "projects/vistavo-prod/serviceAccounts/vistavo-builder@vistavo-prod.iam.gserviceaccount.com",
+    "files": [
+      "package.json",
+      "package-lock.json",
+      "deploy/google-cloud/account.Dockerfile",
+      "deploy/google-cloud/account-bundle.mjs",
+      "server/account/contracts.ts",
+      "server/account/backend.ts",
+      "server/account/http.ts",
+      "server/account/runtime.ts",
+      "server/account/entry.ts"
+    ]
+  },
+  "rules": "deploy/google-cloud/account.rules",
+  "indexes": "deploy/google-cloud/account.indexes.json",
+  "constraints": {
+    "noCloudSql": true,
+    "noVpc": true,
+    "noGcsRuntime": true,
+    "noJobs": true,
+    "noAiSecrets": true,
+    "noLegacyChanges": true,
+    "noServiceAccountKeys": true,
+    "hostingRewriteDeferred": true
+  },
+  "diagnostics": {
+    "api": "policytroubleshooter.googleapis.com",
+    "version": "v3",
+    "principals": [
+      "vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+      "vistavo-files-cleaner@vistavo-prod.iam.gserviceaccount.com",
+      "vistavo-files-maintenance@vistavo-prod.iam.gserviceaccount.com",
+      "vistavo-files-validator@vistavo-prod.iam.gserviceaccount.com",
+      "vistavo-runtime@vistavo-prod.iam.gserviceaccount.com"
+    ],
+    "databases": [
+      "(default)",
+      "vistavo-live"
+    ],
+    "permissions": [
+      "datastore.entities.get",
+      "datastore.entities.create",
+      "datastore.entities.update",
+      "datastore.entities.delete"
+    ],
+    "method": "Google live IAM policy evaluation; not impersonated SDK proof",
+    "newIamGrants": false
+  }
+}

@@ -4,6 +4,7 @@ export default {
   "dir": "ltr",
   "name": "Tiếng Việt",
   "messages": {
+    "unknown": "Kết quả đang chờ xác minh. Không tự động thử lại.",
     "videoBalance": "Số dư video thử nghiệm",
     "balanceTime": "$1 khả dụng · $2 đã giữ",
     "selectPackage": "Gói phút",
@@ -174,7 +175,7 @@ export default {
     "paypalWebPreparing": "Đang chuẩn bị thanh toán thử nghiệm…",
     "paypalWebContinue": "Tiếp tục đến PayPal Sandbox",
     "paypalWebDetails": "Nhận 5 tín dụng với thanh toán thử nghiệm 4,95 USD.",
-    "paypalWebBack": "Quay lại LinguistVision",
+    "paypalWebBack": "Quay lại Vistavo",
     "badDuration": "Không thể đọc thời lượng video.",
     "fileLimit": "Chọn tệp tối đa 1 MiB.",
     "videoLimit": "Chọn video dài tối đa 30 giây.",

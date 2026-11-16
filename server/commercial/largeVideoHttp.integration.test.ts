@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -168,6 +168,32 @@ describe.skipIf(!connectionString)('large private video: HTTP → disk → job �
     expect((await get('jobs/' + jobId + '/source')).status).toBe(404);
     await expect(stat(store.path(id))).rejects.toMatchObject({ code: 'ENOENT' });
   }, 15000);
+  it('rejects changed subtitles when replaying creation of an uploaded project', async () => {
+    const id = await ready();
+    const body = { uploadId: id, srt: draft };
+    expect((await post('projects/from-upload', body)).status).toBe(201);
+    expect((await post('projects/from-upload', body)).status).toBe(200);
+    expect((await post('projects/from-upload', { ...body, srt: draft.replace('Texto sintético.', 'Otro texto.') })).status).toBe(409);
+    expect((await post('projects/from-upload', body, stranger)).status).toBe(404);
+  });
+
+  it('opens HTTP private source ranges through the validated descriptor and fails closed', async () => {
+    const id = await ready();
+    expect((await post('projects/from-upload', { uploadId:id, srt:draft })).status).toBe(201);
+    const open = vi.spyOn(store, 'open');
+    try {
+      const response = await get('projects/' + id + '/source', owner, {range:'bytes=4-7'});
+      expect(response.status).toBe(206);
+      expect(await response.text()).toBe('ftyp');
+      expect(open).toHaveBeenCalledWith(id,{start:4,end:7},video.length);
+      open.mockRejectedValueOnce(new Error('synthetic unsafe replacement detected'));
+      const rejected = await get('projects/' + id + '/source');
+      expect(rejected.status).toBe(500);
+      expect(rejected.headers.get('content-type')).toContain('application/json');
+    } finally { open.mockRestore(); }
+    expect((await post('projects/' + id + '/delete')).status).toBe(200);
+  });
+
   it('refunds instead of publishing when the stored video expires during processing', async () => {
     const id = await ready();
     const before = (await (await get('account')).json()).balance;
@@ -216,6 +242,31 @@ describe.skipIf(!connectionString)('large private video: HTTP → disk → job �
     await new CommercialJobs(pool, new Map(), uploads).purgeExpiredInputs();
     await expect(stat(store.path(id))).rejects.toMatchObject({ code: 'ENOENT' });
   }, 15000);
+  it('preserves private input evidence after quarantine and expiry without provider replay', async () => {
+    const id = await ready();
+    const balance = (await (await get('account')).json()).balance;
+    const jobId = await enqueue(id);
+    expect((await post('jobs/' + jobId + '/cancel')).status).toBe(200);
+    expect((await (await get('jobs/' + jobId)).json()).state).toBe('unknown');
+    release!();
+    await pool.query("UPDATE inputs SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", [id]);
+    await pool.query("UPDATE private_uploads SET created_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", [id]);
+    const localJobs = new CommercialJobs(pool, new Map([[adapter.key, adapter]]), uploads);
+    await localJobs.purgeExpiredInputs();
+    await expect(stat(store.path(id))).rejects.toMatchObject({ code: 'ENOENT' });
+    const row = (await pool.query('SELECT input_sha256,unknown_attempt_id,quarantined_at,request_key FROM jobs WHERE id=$1', [jobId])).rows[0];
+    expect(row.input_sha256).toBe(createHash('sha256').update(video).digest('hex'));
+    expect(row.unknown_attempt_id).toBeTruthy();expect(row.quarantined_at).toBeTruthy();expect(row.request_key).toBeTruthy();
+    const calls = executeFile.mock.calls.length;
+    expect(await localJobs.runOnce()).toBe(false);
+    expect(executeFile).toHaveBeenCalledTimes(calls);
+    expect((await post('jobs/' + jobId + '/retry')).status).toBe(404);
+    expect((await (await get('account')).json()).balance.reserved).toBe(2);
+    expect(await localJobs.reconcileUnknown(accounts[0],jobId,'failed','synthetic-provider-verification')).toBe(true);
+    expect(await localJobs.reconcileUnknown(accounts[0],jobId,'failed','synthetic-provider-verification')).toBe(false);
+    expect((await (await get('account')).json()).balance).toEqual(balance);
+  });
+
   it('rejects an abort queued behind complete without deleting the newly ready video', async () => {
     const begin = await post('uploads', { name: 'synthetic.mp4', size: video.length, requestKey: randomUUID() });
     expect(begin.status).toBe(201);
@@ -254,7 +305,8 @@ describe.skipIf(!connectionString)('large private video: HTTP → disk → job �
     await until(async () => (await get('jobs/' + jobId)).json(), job => job.state === 'succeeded');
     const source = await get('jobs/' + jobId + '/source');
     expect(source.status).toBe(200);
-    expect(Buffer.from(await source.arrayBuffer())).toEqual(video);
+    // Native equality checks every byte and length without blocking both HTTP peers past keep-alive.
+    expect(Buffer.from(await source.arrayBuffer()).equals(video)).toBe(true);
     expect((await post('jobs/' + jobId + '/delete-files')).status).toBe(200);
     await expect(stat(store.path(id))).rejects.toMatchObject({ code: 'ENOENT' });
   }, 15000);

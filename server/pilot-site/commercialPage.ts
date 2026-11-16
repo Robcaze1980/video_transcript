@@ -9,6 +9,8 @@ import { renderHeroV2, commercialTopCopy } from './commercialHeroV2';
 import { renderHowV2, renderPricingV2, renderFaqV2, renderFooterV2 } from './commercialSectionsV2';
 import { pilotLanguages, type PilotLanguage } from './languages';
 import type { CommercialOffer } from './render';
+import { landingCatalogs } from './landingCatalogs';
+import { renderLocalizedLanding } from './localizedLanding';
 
 const escape = (value: string) => value.replace(/[&<>"']/g, char =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
@@ -24,6 +26,26 @@ export function renderCommercialLanding({ language, url, links, selector, indexa
   indexable: boolean; offer?: CommercialOffer;
 }) {
   const { locale, direction, name } = language;
+  // New localized copy is a draft preview. The existing offer/release renderer stays
+  // separate until native review and release approval; never promote drafts implicitly.
+  if (!indexable) {
+    const catalog = locale === 'es-419' ? undefined : landingCatalogs[locale];
+    if (locale !== 'es-419' && !catalog) throw new Error('Missing localized landing catalog: ' + locale);
+    const title = catalog?.meta.title ?? commercialCopy['es-419']![0];
+    const description = catalog?.meta.description ?? commercialCopy['es-419']![1];
+    const body = catalog ? renderLocalizedLanding(catalog) : claudeLandingEsBody;
+    return '<!doctype html><html lang="' + escape(locale) + '" dir="' + direction + '"><head>' +
+      '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<meta name="robots" content="noindex"><title>' + escape(title) + ' | Vistavo</title>' +
+      '<meta name="description" content="' + escape(description) + '">' +
+      '<link rel="canonical" href="' + escape(url) + '">' + links +
+      '<meta property="og:type" content="website"><meta property="og:site_name" content="Vistavo">' +
+      '<meta property="og:title" content="' + escape(title) + '"><meta property="og:description" content="' + escape(description) + '">' +
+      '<meta property="og:url" content="' + escape(url) + '"><meta property="og:image" content="' + escape(new URL('/demo/jobsite.webp', url).href) + '">' +
+      '<style>' + commercialStyle + '</style><script type="module" src="/pilot/editor-assets/commercialLanding.js"></script>' +
+      '</head><body class="claude-landing">' + body + '</body></html>';
+  }
+  if (!offer) throw new Error('An indexable commercial landing requires an approved offer');
   const topCopy = commercialTopCopy[locale];
   const localeOrder = ['es-419','en-US','pt-BR','fr','de','ja','ko','ar','zh-Hans','vi'];
   const languageOptions = localeOrder.map(code => {
@@ -47,14 +69,14 @@ export function renderCommercialLanding({ language, url, links, selector, indexa
     '<!doctype html><html lang="' + locale + '" dir="' + direction + '"><head>',
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
     indexable ? '' : '<meta name="robots" content="noindex">',
-    '<title>' + escape(seoTitle) + ' | LinguistVision</title><meta name="description" content="' + escape(seoDescription) + '">',
+    '<title>' + escape(seoTitle) + ' | Vistavo</title><meta name="description" content="' + escape(seoDescription) + '">',
     '<link rel="canonical" href="' + escape(url) + '">' + links,
-    '<meta property="og:type" content="website"><meta property="og:site_name" content="LinguistVision">',
+    '<meta property="og:type" content="website"><meta property="og:site_name" content="Vistavo">',
     '<meta property="og:title" content="' + escape(seoTitle) + '"><meta property="og:description" content="' + escape(seoDescription) + '">',
     '<meta property="og:url" content="' + escape(url) + '"><meta property="og:image" content="' + escape(new URL('/demo/jobsite.webp', url).href) + '">',
     '<style>' + commercialStyle + '</style><script type="module" src="/pilot/editor-assets/commercialLanding.js"></script></head><body class="commercial">',
     '<a class="skip-link" href="#main">' + escape(skipLabels[locale]) + '</a>',
-    '<header class="top"><div class="wrap"><a class="brand" href="' + escape(url) + '">LinguistVision</a>',
+    '<header class="top"><div class="wrap"><a class="brand" href="' + escape(url) + '">Vistavo</a>',
     '<nav class="section-nav">' + ['#how', '#languages', '#plans', '#questions'].map((href, i) => '<a href="' + href + '">' + escape(topCopy[i]) + '</a>').join('') + '</nav>',
     '<div class="header-actions"><label class="site-language-label" for="site-language">' + escape(topCopy[4]) + '</label><select id="site-language" data-site-language>' + languageOptions + '</select>',
     '<a class="sign-in-link" href="/pilot/sign-in/' + query + '">' + escape(login) + '</a></div></div></header>',
@@ -77,5 +99,5 @@ export function renderCommercialLanding({ language, url, links, selector, indexa
     '</body></html>',
   ].join('\n');
   if (locale !== 'es-419') return document;
-  return document.slice(0, document.indexOf('<body')).replace(/<title>[\s\S]*?<\/title>/, '<title>LinguistVision · Subtítulos en inglés para tus videos en español</title>').replace(/<meta property="og:title" content="[^"]*">/, '<meta property="og:title" content="LinguistVision · Subtítulos en inglés para tus videos en español">') + '<body class="claude-landing">' + claudeLandingEsBody + '</body></html>';
+  return document.slice(0, document.indexOf('<body')) + '<body class="claude-landing">' + claudeLandingEsBody + '</body></html>';
 }

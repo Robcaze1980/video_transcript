@@ -4,6 +4,7 @@ export default {
   "dir": "ltr",
   "name": "Español",
   "messages": {
+    "unknown": "Resultado pendiente de verificación. No se repetirá automáticamente.",
     "videoBalance": "Saldo de video de prueba",
     "balanceTime": "$1 disponibles · $2 reservados",
     "selectPackage": "Paquete de minutos",
@@ -174,7 +175,7 @@ export default {
     "paypalWebPreparing": "Preparando el pago de prueba…",
     "paypalWebContinue": "Continuar a PayPal Sandbox",
     "paypalWebDetails": "Obtén 5 créditos con un pago de prueba de 4,95 USD.",
-    "paypalWebBack": "Volver a LinguistVision",
+    "paypalWebBack": "Volver a Vistavo",
     "badDuration": "No se pudo leer la duración del video.",
     "fileLimit": "Selecciona un archivo de hasta 1 MiB.",
     "videoLimit": "Selecciona un video de hasta 30 segundos.",

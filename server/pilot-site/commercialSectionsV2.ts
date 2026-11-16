@@ -109,12 +109,12 @@ export function renderFooterV2(
     [[registration, base[2]], [signIn, base[3]], ['#plans', commercialSectionsCopyV2[locale].pricingLabel]].map(([href, label]) =>
       '<a href="' + escape(href) + '">' + escape(label) + diagonalArrow + '</a>').join('') +
     (offer ? '<a href="' + escape(offer.supportUrl) + '">' + escape(base[16]) + diagonalArrow + '</a>' : '<p>' + escape(base[16]) + ' <span>' + escape(copy.pending) + '</span></p>') +
-    '</div><div class="footer-grid"><div class="footer-brand"><a class="brand" href="' + escape(landing) + '"><span class="mark" aria-hidden="true">LV</span><bdi>LinguistVision</bdi></a><p>' + escape(base[1]) + '</p></div>',
+    '</div><div class="footer-grid"><div class="footer-brand"><a class="brand" href="' + escape(landing) + '"><span class="mark" aria-hidden="true">V</span><bdi>Vistavo</bdi></a><p>' + escape(base[1]) + '</p></div>',
     '<nav class="footer-column"><h3>' + escape(copy.product) + '</h3>' + link('#how', commercialNarrative[locale].nav[1]) + link('#languages', copy.languages) + link('#plans', copy.pricingLabel) + link('#questions', base[13]) + '</nav>',
     '<nav class="footer-column"><h3>' + escape(copy.account) + '</h3>' + link(registration, base[2]) + link(signIn, base[3]) + '</nav>',
     '<div class="footer-column"><h3>' + escape(copy.legal) + '</h3>' + legal.map(([href, label]) =>
       href ? link(href, label) : '<p>' + escape(label) + ' <span>' + escape(copy.pending) + '</span></p>').join('') + '</div></div>',
     '<nav class="footer-locales"><h3>' + escape(copy.languages) + '</h3><ul>' + selector + '</ul></nav>',
-    '<div class="footer-end"><p><bdi dir="ltr">© ' + new Date().getUTCFullYear() + ' LinguistVision</bdi></p></div></div></footer>',
+    '<div class="footer-end"><p><bdi dir="ltr">© ' + new Date().getUTCFullYear() + ' Vistavo</bdi></p></div></div></footer>',
   ].join('\n');
 }

@@ -30,18 +30,30 @@ const mailboxNotice: Record<string, string> = {
 
 const accessCopy: Record<string, readonly [intro: string, codeIntro: string, changeEmail: string, existing: string, newAccount: string]> = {
   es: ['Usa tu correo para continuar. Te enviaremos un código de un solo uso.', 'Introduce el código para', 'Cambiar correo o pedir otro código', '¿Ya tienes cuenta?', '¿Aún no tienes cuenta?'],
-  en: ['Enter your email to get a one-time code.', 'Enter the code for', 'Change email or request a new code', 'Already have an account?', 'New to LinguistVision?'],
+  en: ['Enter your email to get a one-time code.', 'Enter the code for', 'Change email or request a new code', 'Already have an account?', 'New to Vistavo?'],
   pt: ['Use seu e-mail para receber um código de uso único.', 'Digite o código para', 'Alterar o e-mail ou pedir outro código', 'Já tem uma conta?', 'Ainda não tem conta?'],
-  fr: ['Saisissez votre adresse e-mail pour obtenir un code à usage unique.', 'Saisissez le code pour', 'Modifier l’adresse ou demander un nouveau code', 'Vous avez déjà un compte ?', 'Vous découvrez LinguistVision ?'],
-  de: ['Geben Sie Ihre E-Mail-Adresse ein, um einen Einmalcode zu erhalten.', 'Geben Sie den Code ein für', 'E-Mail-Adresse ändern oder neuen Code anfordern', 'Sie haben bereits ein Konto?', 'Neu bei LinguistVision?'],
-  ja: ['メールアドレスを入力してワンタイムコードを取得してください。', '次のメールアドレスのコードを入力してください。', 'メールアドレスを変更、または新しいコードを取得', 'アカウントをお持ちですか？', 'LinguistVisionは初めてですか？'],
-  ko: ['이메일을 입력해 일회용 코드를 받으세요.', '다음 이메일의 코드를 입력하세요.', '이메일 변경 또는 새 코드 요청', '이미 계정이 있나요?', 'LinguistVision이 처음인가요?'],
-  ar: ['أدخل بريدك الإلكتروني للحصول على رمز يُستخدم مرة واحدة.', 'أدخل الرمز الخاص بالبريد', 'غيّر البريد أو اطلب رمزًا جديدًا', 'هل لديك حساب بالفعل؟', 'هل أنت جديد على LinguistVision؟'],
-  cmn: ['输入邮箱地址以获取一次性验证码。', '请输入此邮箱的验证码：', '更改邮箱或申请新验证码', '已有账号？', '第一次使用 LinguistVision？'],
-  vi: ['Nhập email để nhận mã dùng một lần.', 'Nhập mã cho địa chỉ', 'Đổi email hoặc yêu cầu mã mới', 'Bạn đã có tài khoản?', 'Bạn mới dùng LinguistVision?'],
+  fr: ['Saisissez votre adresse e-mail pour obtenir un code à usage unique.', 'Saisissez le code pour', 'Modifier l’adresse ou demander un nouveau code', 'Vous avez déjà un compte ?', 'Vous découvrez Vistavo ?'],
+  de: ['Geben Sie Ihre E-Mail-Adresse ein, um einen Einmalcode zu erhalten.', 'Geben Sie den Code ein für', 'E-Mail-Adresse ändern oder neuen Code anfordern', 'Sie haben bereits ein Konto?', 'Neu bei Vistavo?'],
+  ja: ['メールアドレスを入力してワンタイムコードを取得してください。', '次のメールアドレスのコードを入力してください。', 'メールアドレスを変更、または新しいコードを取得', 'アカウントをお持ちですか？', 'Vistavoは初めてですか？'],
+  ko: ['이메일을 입력해 일회용 코드를 받으세요.', '다음 이메일의 코드를 입력하세요.', '이메일 변경 또는 새 코드 요청', '이미 계정이 있나요?', 'Vistavo이 처음인가요?'],
+  ar: ['أدخل بريدك الإلكتروني للحصول على رمز يُستخدم مرة واحدة.', 'أدخل الرمز الخاص بالبريد', 'غيّر البريد أو اطلب رمزًا جديدًا', 'هل لديك حساب بالفعل؟', 'هل أنت جديد على Vistavo؟'],
+  cmn: ['输入邮箱地址以获取一次性验证码。', '请输入此邮箱的验证码：', '更改邮箱或申请新验证码', '已有账号？', '第一次使用 Vistavo？'],
+  vi: ['Nhập email để nhận mã dùng một lần.', 'Nhập mã cho địa chỉ', 'Đổi email hoặc yêu cầu mã mới', 'Bạn đã có tài khoản?', 'Bạn mới dùng Vistavo?'],
 };
 
 export const demoAssets = new Map([
+  ['/demo/ejemplo-inspeccion.jpg', ['ejemplo-inspeccion.jpg', 'image/jpeg']],
+  ['/demo/uso-taller.jpg', ['uso-taller.jpg', 'image/jpeg']],
+  ['/demo/uso-capacitacion.jpg', ['uso-capacitacion.jpg', 'image/jpeg']],
+  ['/demo/uso-tutorial.jpg', ['uso-tutorial.jpg', 'image/jpeg']],
+  ['/demo/hero-inspeccion.mp4', ['hero-inspeccion.mp4', 'video/mp4']],
+  ['/demo/hero-inspeccion.jpg', ['hero-inspeccion.jpg', 'image/jpeg']],
+  ['/demo/hero-reparacion.mp4', ['hero-reparacion.mp4', 'video/mp4']],
+  ['/demo/hero-reparacion.jpg', ['hero-reparacion.jpg', 'image/jpeg']],
+  ['/demo/hero-capacitacion.mp4', ['hero-capacitacion.mp4', 'video/mp4']],
+  ['/demo/hero-capacitacion.jpg', ['hero-capacitacion.jpg', 'image/jpeg']],
+  ['/demo/hero-srt.mp4', ['hero-srt.mp4', 'video/mp4']],
+  ['/demo/hero-srt.jpg', ['hero-srt.jpg', 'image/jpeg']],
   ['/demo/inter-400.ttf', ['inter-400.ttf', 'font/ttf']],
   ['/demo/inter-500.ttf', ['inter-500.ttf', 'font/ttf']],
   ['/demo/inter-600.ttf', ['inter-600.ttf', 'font/ttf']],
@@ -73,10 +85,10 @@ export function renderCommercialPage(
   const query = '?lang=' + language.id;
   const head = '<!doctype html><html lang="' + language.locale + '" dir="' + language.direction +
     '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<meta name="robots" content="noindex"><title>' + escape(title) + ' | LinguistVision</title>';
+    '<meta name="robots" content="noindex"><title>' + escape(title) + ' | Vistavo</title>';
   if (page === 'demo') {
     return head + '<link rel="stylesheet" href="/pilot/pilot.css"></head><body><main><header><a href="' + escape(landing) +
-      '">LinguistVision</a><h1>' + escape(title) + '</h1></header><p>' + escape(copy[5]) +
+      '">Vistavo</a><h1>' + escape(title) + '</h1></header><p>' + escape(copy[5]) +
       '</p><p><a href="/demo/jobsite.srt" download>' + escape(copy[6]) + '</a></p><div id="demo-editor" data-locale="' +
       language.id + '"></div><script type="module" src="/pilot/commercialDemo.js"></script></main></body></html>';
   }
@@ -95,7 +107,7 @@ export function renderCommercialPage(
     (register ? existing : newAccount) + ' <a href="/pilot/' + (register ? 'sign-in' : 'register') + '/' + query + '">' +
     escape(copy[register ? 3 : 2]) + '</a>';
   return head + '<link rel="stylesheet" href="/pilot/account.css"></head><body><main><section aria-labelledby="account-title">' +
-    '<header><a class="brand" href="' + escape(landing) + '"><span aria-hidden="true">LV</span><bdi>LinguistVision</bdi></a>' +
+    '<header><a class="brand" href="' + escape(landing) + '"><span aria-hidden="true">V</span><bdi>Vistavo</bdi></a>' +
     '<h1 id="account-title">' + escape(title) + '</h1><p>' + (email === undefined ? intro : codeIntro + ' <bdi dir="ltr">' +
       escape(email) + '</bdi>') + '</p></header><form method="post" action="' + action + '">' + form + '</form>' +
     '<p class="next">' + next + '</p></section><p class="preview-note">' + escape(mailboxNotice[language.id]) + '</p></main></body></html>';

@@ -1,3 +1,4 @@
+import type { PipelineVoiceService } from './pipelineVoiceService';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -24,6 +25,8 @@ import type { SupabaseAccessConfig } from './supabaseAccess';
 import { createFirebaseRoutes } from './firebaseRoutes';
 import type { FirebaseAccessConfig } from './firebaseAccess';
 import { UploadError, type ResumableUploads } from './resumableUploads';
+import type { PipelineTextService } from './pipelineTextService';
+import { PeerLoginLimiter } from './loginLimiter';
 
 const maxFile = 1048576;
 const maxSrt = maxPilotSubtitleBytes;
@@ -128,7 +131,7 @@ function sendVideo(res: ServerResponse, input: Buffer, range?: string) {
   }).end(input.subarray(start, end + 1));
 }
 
-function sendPrivateVideo(res: ServerResponse, input: FileInput, range?: string) {
+async function sendPrivateVideo(res: ServerResponse, input: FileInput, uploads: ResumableUploads, account: string, range?: string) {
   let start = 0, end = input.size - 1;
   if (range) {
     const match = /^bytes=(\d*)-(\d*)$/.exec(range);
@@ -139,9 +142,9 @@ function sendPrivateVideo(res: ServerResponse, input: FileInput, range?: string)
       res.writeHead(416, { 'Content-Range': 'bytes */' + input.size }).end(); return;
     }
   }
+  const stream = await uploads.open(account, input.id, { start, end });
   res.writeHead(range ? 206 : 200, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes',
     'Content-Length': end - start + 1, ...(range ? { 'Content-Range': `bytes ${start}-${end}/${input.size}` } : {}) });
-  const stream = createReadStream(input.path, { start, end });
   stream.on('error', error => res.destroy(error));
   res.on('close', () => stream.destroy());
   stream.pipe(res);
@@ -171,6 +174,8 @@ interface PilotConfig {
   port: number;
   editorAssets?: URL;
   uploads?: ResumableUploads;
+  textPipeline?: PipelineTextService;
+  voicePipeline?: PipelineVoiceService;
   privateOrigin?: string;
   proxyHost?: string;
   onWorkerError?: () => void;
@@ -181,6 +186,8 @@ interface PilotConfig {
 
 export async function startPilot(config: PilotConfig) {
   const { pool, payments } = config;
+  if (config.voicePipeline && !payments.simulateApproval) throw new Error('Voice pipeline requires simulated payments.');
+  if (config.textPipeline && !payments.simulateApproval) throw new Error('Text pipeline requires simulated payments.');
   if (config.previewLaunchLanguages && !payments.simulateApproval) {
     throw new Error('The launch language preview requires simulated payments.');
   }
@@ -232,7 +239,7 @@ export async function startPilot(config: PilotConfig) {
     if (code.length < 24 || !uuid.test(account)) throw new Error('Invalid pilot invitation.');
     return { hash: sha256(code), account };
   });
-  if (!access && (!invitations.length || !services.size)) throw new Error('Access and a service are required.');
+  if (!access && (!invitations.length || (!services.size && !config.textPipeline && !config.voicePipeline))) throw new Error('Access and a service are required.');
   const sessions = new Map<string, { account: string; expires: number }>();
   const privateOrigin = config.privateOrigin ? new URL(config.privateOrigin) : undefined;
   if (privateOrigin && (privateOrigin.protocol !== 'https:' || config.privateOrigin !== privateOrigin.origin)) {
@@ -242,8 +249,7 @@ export async function startPilot(config: PilotConfig) {
     throw new Error('The private proxy host must be a hostname with an optional port.');
   }
   const secureCookie = privateOrigin ? '; Secure' : '';
-  let failedLogins = 0;
-  let resetFailedLogins = 0;
+  const failedLogins = new PeerLoginLimiter(10);
   let emailRequests = 0;
   let resetEmailRequests = 0;
   const assets = new Map(await Promise.all([
@@ -251,6 +257,7 @@ export async function startPilot(config: PilotConfig) {
     ['/pilot.js', 'pilot.js', 'text/javascript; charset=utf-8'],
     ['/pilotDrive.js', 'pilotDrive.js', 'text/javascript; charset=utf-8'],
     ['/pilotUpload.js', 'pilotUpload.js', 'text/javascript; charset=utf-8'],
+    ['/languageChoices.js', 'languageChoices.js', 'text/javascript; charset=utf-8'],
     ...(access ? [['/commercialDemo.js', 'commercialDemo.js', 'text/javascript; charset=utf-8'],
       ['/account.css', 'account.css', 'text/css; charset=utf-8']] : []),
     ...(paypalWebClientId ? [
@@ -415,17 +422,12 @@ export async function startPilot(config: PilotConfig) {
 
       if (path === '/api/login' && req.method === 'POST') {
         if (access) throw new RequestError(404, 'Ruta no disponible.');
-        const now = Date.now();
-        if (now >= resetFailedLogins) {
-          failedLogins = 0;
-          resetFailedLogins = now + 60_000;
-        }
-        if (failedLogins >= 10) throw new RequestError(429, 'Demasiados intentos. Espera un minuto.');
+        if (failedLogins.isBlocked(req.socket.remoteAddress)) throw new RequestError(429, 'Demasiados intentos. Espera un minuto.');
         const { code } = await jsonBody(req);
         const digest = sha256(typeof code === 'string' ? code : '');
         const invite = invitations.find(item => timingSafeEqual(digest, item.hash));
         if (!invite) {
-          failedLogins++;
+          failedLogins.recordFailure(req.socket.remoteAddress);
           throw new RequestError(401, 'Código de invitación inválido.');
         }
         if (token) sessions.delete(token);
@@ -470,6 +472,8 @@ export async function startPilot(config: PilotConfig) {
             chunkBytes: config.uploads.limits.chunkBytes, quotaBytes: config.uploads.limits.quotaBytes,
             maxActive: config.uploads.limits.maxActiveUploads, retentionHours: config.uploads.limits.ttlMs / 3600000, scope: account } } : {}),
           ...(firebaseConfig && !firebaseConfig.emulator ? { drive: { uid: await firebase.userId(token) } } : {}),
+          textPipeline: Boolean(config.textPipeline),
+          voicePipeline: Boolean(config.voicePipeline),
           paymentMode: payments.simulateApproval ? 'simulated' : 'paypal-sandbox',
           ...(access ? { packages: videoPackages } : {}),
           ...(paypalWebClientId ? { paypalWebCheckout: true } : {}),
@@ -496,12 +500,16 @@ export async function startPilot(config: PilotConfig) {
         return;
       }
       if (path === '/api/checkout' && req.method === 'POST') {
-        const checkoutPackage = access ? (await jsonBody(req)).packageId : undefined;
+        const checkoutBody = await jsonBody(req);
+        const checkoutPackage = access ? checkoutBody.packageId : undefined;
+        const requestKey = checkoutBody.requestKey;
+        if (requestKey !== undefined && (typeof requestKey !== 'string' || !/^[a-zA-Z0-9:_-]{1,200}$/.test(requestKey)))
+          throw new RequestError(422, 'Clave de compra inválida.');
         const pack = access ? videoPackages.find(plan => plan.id === checkoutPackage) : testPackage;
         if (!pack) throw new RequestError(422, 'Selecciona un paquete válido.');
         const order = await checkout.createOrder(account, pack.currency, pack.amount, pack.credits,
-          origin, attribution?.read(req.headers.cookie));
-        json(res, 201, { id: order.id, url: order.url,
+          origin, attribution?.read(req.headers.cookie), requestKey as string | undefined);
+        json(res, order.pending ? 202 : 201, { id: order.id, url: order.url, pending: order.pending,
           ...(paypalWebClientId ? { providerOrderId: order.providerOrderId } : {}),
         });
         return;
@@ -512,7 +520,9 @@ export async function startPilot(config: PilotConfig) {
         if (req.method === 'GET' && !action) {
           const status = await checkout.status(account, orderId);
           if (!status) throw new RequestError(404, 'Orden de pago no disponible.');
-          json(res, 200, { status });
+          const approval = status === 'approval' ? await checkout.approval(account, orderId) : undefined;
+          json(res, 200, { status, ...(approval?.url ? { url: approval.url } : {}),
+            ...(paypalWebClientId && approval?.providerOrderId ? { providerOrderId: approval.providerOrderId } : {}) });
           return;
         }
         if (req.method === 'POST' && (action === 'capture' || (action === 'simulate' && payments.simulateApproval))) {
@@ -525,6 +535,75 @@ export async function startPilot(config: PilotConfig) {
           }
           json(res, 202, { received: true });
           return;
+        }
+      }
+      if (config.voicePipeline) {
+        const voiceRequest = /^\/api\/projects\/([0-9a-f-]{36})\/voice\/(Kore|Charon)$/.exec(path);
+        if (voiceRequest && req.method === 'GET') {
+          json(res,200,await config.voicePipeline.latest(account,voiceRequest[1],voiceRequest[2])); return;
+        }
+        if (voiceRequest && req.method === 'POST') {
+          const body = await jsonBody(req,1024);
+          json(res,202,await config.voicePipeline.request(account,voiceRequest[1],voiceRequest[2],body.revision,body.requestKey)); return;
+        }
+        const voiceJob = /^\/api\/voice-jobs\/([0-9a-f-]{36})(?:\/(cancel|audio.wav))?$/.exec(path);
+        if (voiceJob) {
+          const [,id,action] = voiceJob;
+          if (!action && req.method==='GET') {
+            const view = await config.voicePipeline.get(account,id);
+            if (!view) throw new RequestError(404,'Narration unavailable.');
+            json(res,200,view); return;
+          }
+          if (action==='cancel' && req.method==='POST') {
+            await jsonBody(req,1024); json(res,200,{cancelled:await config.voicePipeline.cancel(account,id)}); return;
+          }
+          if (action==='audio.wav' && req.method==='GET') {
+            const view = await config.voicePipeline.get(account,id);
+            if (!view?.narration) throw new RequestError(404,'Narration unavailable.');
+            const size = view.narration.byteSize, range = req.headers.range;
+            let start=0, end=size-1;
+            if (range) {
+              const m=/^bytes=(\d*)-(\d*)$/.exec(range);
+              if (m && (m[1] || m[2])) {
+                start=m[1]?Number(m[1]):Math.max(0,size-Number(m[2]));
+                end=m[1]&&m[2]?Math.min(Number(m[2]),end):end;
+              } else start=size;
+              if (!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start>end||start>=size) {
+                res.writeHead(416,{'Content-Range':'bytes */'+size}).end(); return;
+              }
+            }
+            const audio=await config.voicePipeline.audio(account,id,{start,end});
+            res.writeHead(range?206:200,{'Content-Type':'audio/wav','Accept-Ranges':'bytes',
+              'Content-Disposition':'inline; filename="narration-'+view.narration.voiceId+'.wav"',
+              'Content-Length':end-start+1,...(range?{'Content-Range':`bytes ${start}-${end}/${size}`}:{})});
+            audio.stream.on('error',error=>res.destroy(error));res.on('close',()=>audio.stream.destroy());audio.stream.pipe(res);return;
+          }
+        }
+      }
+      if (config.textPipeline) {
+        const textRequest = /^\/api\/projects\/([0-9a-f-]{36})\/text$/.exec(path);
+        if (textRequest && req.method === 'GET') { json(res,200,await config.textPipeline.latest(account,textRequest[1])); return; }
+        if (textRequest && req.method === 'POST') {
+          const body = await jsonBody(req);
+          json(res,202,await config.textPipeline.request(account,textRequest[1],body.revision,body.requestKey)); return;
+        }
+        const textJob = /^\/api\/text-jobs\/([0-9a-f-]{36})(?:\/(cancel|apply|(?:es|en)\.(?:txt|srt)))?$/.exec(path);
+        if (textJob) {
+          const [,id,action] = textJob;
+          if (req.method === 'GET' && !action) {
+            const result = await config.textPipeline.get(account,id);
+            if (!result) throw new RequestError(404,'Resultado no disponible.');
+            json(res,200,result); return;
+          }
+          if (req.method === 'POST' && action === 'cancel') { await jsonBody(req,1024); json(res,200,{cancelled:await config.textPipeline.cancel(account,id)}); return; }
+          if (req.method === 'POST' && action === 'apply') { await jsonBody(req,1024); json(res,200,await config.textPipeline.apply(account,id)); return; }
+          if (req.method === 'GET' && action && /^(es|en)\.(txt|srt)$/.test(action)) {
+            const [language,format] = action.split('.') as ['es'|'en','txt'|'srt'];
+            const bytes = await config.textPipeline.download(account,id,language,format);
+            res.writeHead(200,{'Content-Type':format==='srt'?'application/x-subrip; charset=utf-8':'text/plain; charset=utf-8',
+              'Content-Disposition':`attachment; filename="linguistvision-${language}.${format}"`,'Content-Length':bytes.length});
+            res.end(bytes); return;
+          }
         }
       }
       if (config.uploads && path === '/api/uploads' && req.method === 'POST') {
@@ -571,13 +650,12 @@ export async function startPilot(config: PilotConfig) {
             (originalSrt !== undefined && typeof originalSrt !== 'string')) throw new RequestError(422, 'Selecciona los subtítulos del proyecto.');
         const file = await config.uploads.get(account, uploadId);
         await jobs.addFileInput(account, uploadId);
-        const translated = await decodeSubtitle(new File([srt], typeof srtName === 'string' ? srtName : 'track.srt'), file.metadata.duration);
+        const translated = config.textPipeline && srt === '' ? {draft:'',format:'srt'} : await decodeSubtitle(new File([srt], typeof srtName === 'string' ? srtName : 'track.srt'), file.metadata.duration);
         const original = typeof originalSrt === 'string' && originalSrt.length
           ? await decodeSubtitle(new File([originalSrt], typeof originalName === 'string' ? originalName : 'original.srt'), file.metadata.duration) : undefined;
         const existing = await jobs.subtitleProject(account, uploadId);
-        if (existing) { json(res, 200, { id: uploadId }); return; }
         const id = await jobs.createSubtitleProject(account, uploadId, file.name, file.metadata.duration, translated.draft, undefined, original?.draft);
-        json(res, 201, { id, converted: [] }); return;
+        json(res, existing ? 200 : 201, { id, converted: [] }); return;
       }
       if (path === '/api/files' && req.method === 'POST') {
         const bytes = await readBody(req, maxFile);
@@ -645,7 +723,7 @@ export async function startPilot(config: PilotConfig) {
           const stored = await jobs.subtitleProject(account, id);
           if (!stored) throw new RequestError(404, 'Proyecto no disponible.', 'projectUnavailable');
           const file = await jobs.fileInput(account, id);
-          if (file) { sendPrivateVideo(res, file, req.headers.range); return; }
+          if (file && config.uploads) { await sendPrivateVideo(res, file, config.uploads, account, req.headers.range); return; }
           const video = await jobs.subtitleProjectSource(account, id);
           if (!video) throw new RequestError(404, 'Video no disponible.', 'projectUnavailable');
           sendVideo(res, video, req.headers.range);
@@ -665,7 +743,7 @@ export async function startPilot(config: PilotConfig) {
             json(res, 200, project);
             return;
           }
-          const { draft, originalDraft, revision, style, highlights } = await jsonBody(req, 14 * maxSrt + 4096);
+          const { draft, originalDraft, revision, style, highlights, segmentIds } = await jsonBody(req, 14 * maxSrt + 4096);
           if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 1 || revision > 2147483647) {
             throw new RequestError(400, 'Revisión inválida.');
           }
@@ -676,6 +754,16 @@ export async function startPilot(config: PilotConfig) {
           const original = originalDraft === undefined || originalDraft === null ? originalDraft as undefined | null :
             validateDraft(originalDraft, project.duration);
           const nextStyle = style === undefined || style === null ? style as undefined | null : validateStyle(style);
+          let nextSegmentIds: Record<string,string[]> | undefined;
+          if (segmentIds !== undefined) {
+            if (!segmentIds || typeof segmentIds !== 'object' || Array.isArray(segmentIds) || Object.keys(segmentIds).some(k=>!['original','translated'].includes(k))) throw new RequestError(422,'Invalid segment identifiers.');
+            nextSegmentIds={};
+            for (const track of ['original','translated'] as const) {
+              const ids=segmentIds[track];const text=track==='original'?(original===undefined?project.originalDraft:original):(translated??project.draft);
+              if (!Array.isArray(ids)||ids.length!==parseSRT(text??'').length||ids.some(id=>typeof id!=='string'||!/^[-a-zA-Z0-9_]{1,100}$/.test(id))||new Set(ids).size!==ids.length) throw new RequestError(422,'Invalid segment identifiers.');
+              nextSegmentIds[track]=ids;
+            }
+          }
           let nextHighlights: SavedHighlights | undefined;
           if (highlights !== undefined) {
             const invalid = new RequestError(422, 'El resaltado no coincide con los subtítulos.', 'highlightInvalid');
@@ -691,7 +779,7 @@ export async function startPilot(config: PilotConfig) {
             }
           }
           const saved = await jobs.saveSubtitleProject(account, id, revision, translated, original,
-            nextStyle, nextHighlights);
+            nextStyle, nextHighlights, nextSegmentIds);
           if (!saved) throw new RequestError(409, 'El proyecto cambió en otra pestaña o ya no está disponible.', 'projectConflict');
           json(res, 200, saved);
           return;
@@ -717,11 +805,11 @@ export async function startPilot(config: PilotConfig) {
         if (match[2] === '/cancel') {
           const job = await jobs.status(account, match[1]);
           if (!job) throw new RequestError(404, 'Trabajo no disponible.');
-          if (job.state !== 'cancelled' && !await jobs.cancel(account, job.id) &&
-              (await jobs.status(account, job.id))?.state !== 'cancelled') {
+          if (!['cancelled','unknown'].includes(job.state) && !await jobs.cancel(account, job.id) &&
+              !['cancelled','unknown'].includes((await jobs.status(account, job.id))?.state ?? '')) {
             throw new RequestError(409, 'El trabajo ya terminó.', 'jobAlreadyFinished');
           }
-          json(res, 200, { state: 'cancelled' });
+          json(res, 200, { state: (await jobs.status(account, job.id))?.state });
           return;
         }
         if (match[2] === '/retry') {
@@ -775,7 +863,7 @@ export async function startPilot(config: PilotConfig) {
         if (match[2] === '/source') {
           if (!config.editorAssets || !service?.editableVideo) throw new RequestError(404, 'Video no disponible.');
           const file = await jobs.completedFile(account, job.id, job.service);
-          if (file) { sendPrivateVideo(res, file, req.headers.range); return; }
+          if (file && config.uploads) { await sendPrivateVideo(res, file, config.uploads, account, req.headers.range); return; }
           const input = await jobs.completedInput(account, job.id, job.service);
           if (!input) throw new RequestError(404, 'Video no disponible.');
           sendVideo(res, input, req.headers.range);
@@ -829,14 +917,18 @@ export async function startPilot(config: PilotConfig) {
   let paymentWork: Promise<unknown> | undefined;
   let jobWork: Promise<unknown> | undefined;
   let cleanupWork: Promise<unknown> | undefined;
+  let textWork: Promise<unknown> | undefined;
+  let voiceWork: Promise<unknown> | undefined;
   const poll = setInterval(() => {
     const onError = () => config.onWorkerError?.();
     if (!paymentWork) paymentWork = checkout.fulfillNext().catch(onError).finally(() => { paymentWork = undefined; });
+    if (config.textPipeline && !textWork) textWork = config.textPipeline.runOnce().catch(onError).finally(() => { textWork = undefined; });
+    if (config.voicePipeline && !voiceWork) voiceWork = config.voicePipeline.runOnce().catch(onError).finally(() => {voiceWork=undefined;});
     if (!jobWork) jobWork = jobs.runOnce().catch(onError).finally(() => { jobWork = undefined; });
   }, 250);
   poll.unref();
   const cleanup = () => {
-    if (!cleanupWork) cleanupWork = jobs.purgeExpiredInputs().then(() => config.uploads?.purgeExpired()).then(() => access?.purgeExpired())
+    if (!cleanupWork) cleanupWork = jobs.purgeExpiredInputs().then(() => config.uploads?.purgeExpired()).then(() => access?.purgeExpired()).then(() => config.voicePipeline?.reconcile())
       .catch(() => config.onWorkerError?.()).finally(() => { cleanupWork = undefined; });
   };
   cleanup();
@@ -847,9 +939,11 @@ export async function startPilot(config: PilotConfig) {
     localOrigin: 'http://127.0.0.1:' + address.port,
     async close() {
       clearInterval(poll);
+      config.textPipeline?.abortAll();
+      config.voicePipeline?.abortAll();
       clearInterval(cleanupTimer);
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-      await Promise.allSettled([paymentWork, jobWork, cleanupWork]);
+      await Promise.allSettled([paymentWork, jobWork, cleanupWork, textWork, voiceWork]);
       if (firebase) await firebase.close();
     },
   };

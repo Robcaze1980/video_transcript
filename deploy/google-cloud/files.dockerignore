@@ -1,0 +1,7 @@
+# Explicit archive allowlist supplies no external credentials, outputs, env files or customer media.
+**/.env*
+**/*credentials*
+**/*service-account*
+**/node_modules
+.git
+outputs

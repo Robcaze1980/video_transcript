@@ -1,6 +1,9 @@
+import {VoicePipelineControls,type VoiceId} from './VoicePipelineControls';
+import { TextPipelineControls, type TextPipelineApi } from './TextPipelineControls';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { driveCopy } from './driveCopy';
+import { waitForCloudAuthorization } from './cloudAuthorization';
 import { CaptionOverlay } from '../../../components/CaptionOverlay';
 import type { Subtitle } from '../../../types';
 import { generateSRT, parseSRT } from '../../../utils/helpers';
@@ -19,7 +22,7 @@ export interface CloudExport {
 }
 
 type SaveDraft = (draft: string | undefined, revision: number, originalDraft: string | null | undefined,
-  style: PilotStyle | undefined, highlights?: SavedHighlights) => Promise<{ revision: number }>;
+  style: PilotStyle | undefined, highlights?: SavedHighlights, segmentIds?: Record<string,string[]>) => Promise<{ revision: number }>;
 
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -34,12 +37,14 @@ function validText(cues: Subtitle[]) {
   return cues.every(cue => cue.translatedText.trim() && !/\n[^\S\n]*\n/.test(cue.translatedText.trim()));
 }
 
-function Editor({ source, initial, initialStyle, duration, locale, persistence, presets, reportDirty, demo, cloud }: {
+function Editor({ source, initial, initialStyle, duration, locale, persistence, presets, reportDirty, demo, cloud, textPipeline }: {
   source: string; initial: Tracks; initialStyle: PilotStyle; duration: number; locale: Locale;
   presets?: PresetActions; reportDirty: (dirty: boolean) => void;
   persistence?: { revision: number; save: SaveDraft };
-  demo?: boolean; cloud?: CloudExport;
+  demo?: boolean; cloud?: CloudExport; textPipeline?: TextPipelineApi;
 }) {
+  const [voiceId,setVoiceId] = useState<VoiceId>('Kore');
+  const voiceApi = useMemo(()=>textPipeline?.voice?.(voiceId),[textPipeline,voiceId]);
   const video = useRef<HTMLVideoElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const correction = useRef<HTMLTextAreaElement>(null);
@@ -71,6 +76,7 @@ function Editor({ source, initial, initialStyle, duration, locale, persistence, 
   }, [source, demo]);
   const [subtitleStyle, setStyle] = useState(initialStyle);
   const [busy, setBusy] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [saving, setSaving] = useState(false);
   const saveInFlight = useRef(false);
   const [saved, setSaved] = useState(() => ({ tracks: initial, style: initialStyle, revision: persistence?.revision ?? 0 }));
@@ -88,7 +94,7 @@ function Editor({ source, initial, initialStyle, duration, locale, persistence, 
     if (!cloud || exportController.current) return;
     const controller = new AbortController(); exportController.current = controller; setBusy(true); setCloudLink('');
     try {
-      await cloud.authorize();
+      await waitForCloudAuthorization(() => cloud.authorize(), controller.signal);
       const result = await cloud.save(srtBlob, track === 'original' ? 'linguistvision-original.srt' : 'linguistvision.srt',
         srtKey, controller.signal, progress => setCloudStatus(dc[2] + ' ' + Math.round(progress * 100) + '%'));
       setCloudLink(result.webViewLink); setCloudStatus(dc[3]);
@@ -142,6 +148,7 @@ function Editor({ source, initial, initialStyle, duration, locale, persistence, 
         subtitleStyle !== saved.style ? subtitleStyle : undefined,
         Object.fromEntries((['translated', 'original'] as const).filter(key => nextTracks[key] !== saved.tracks[key])
           .map(key => [key, nextTracks[key].flatMap((cue, index) => (cue.highlights ?? []).map(mark => ({ ...mark, cue: index })))])),
+        { original:nextTracks.original.map(c=>c.id),translated:nextTracks.translated.map(c=>c.id) },
       );
       if (replacement) {
         setUndo({ tracks, style: subtitleStyle });
@@ -245,7 +252,7 @@ function Editor({ source, initial, initialStyle, duration, locale, persistence, 
     setBusy(true);
     try {
       setCloudLink('');
-      if (toDrive) { if (!cloud) throw new Error('Drive unavailable.'); await cloud.authorize(); }
+      if (toDrive) { if (!cloud) throw new Error('Drive unavailable.'); await waitForCloudAuthorization(() => cloud.authorize(), controller.signal); }
       setMessage(['mp4Preparing']);
       const started = performance.now();
       const cached = lastMp4.current;
@@ -294,7 +301,9 @@ function Editor({ source, initial, initialStyle, duration, locale, persistence, 
         labels={{ inactive: t('noCaption'), move: t('move'), help: t('moveHelp') }} />}
     </div>
     <canvas ref={canvas} hidden />
-    <fieldset disabled={busy || saving}>
+    {voiceApi && persistence && <VoicePipelineControls api={voiceApi} voiceId={voiceId} onSelectVoice={setVoiceId} revision={saved.revision} dirty={dirty || saving || busy} spanish={locale.id==='es'} />}
+    {textPipeline && persistence && <TextPipelineControls api={textPipeline} revision={saved.revision} dirty={dirty || saving || busy} spanish={locale.id==='es'} setApplying={setApplying} />}
+    <fieldset disabled={busy || saving || applying}>
       {!demo && <>
       <label htmlFor="subtitle-track">{t('editTrack')}</label>
       <select id="subtitle-track" value={track} onChange={event => {
@@ -396,6 +405,7 @@ function Editor({ source, initial, initialStyle, duration, locale, persistence, 
         <button type="button" disabled={!cues.length || !validText(cues)}
           onClick={() => download(new Blob([generateSRT(cues)], { type: 'application/x-subrip' }),
             track === 'original' ? 'linguistvision-original.srt' : 'linguistvision.srt')}>{t('srt')}</button>
+        <button type="button" disabled={!cues.length || !validText(cues)} onClick={()=>download(new Blob([cues.map(c=>c.translatedText.trim()).join('\n')+'\n'],{type:'text/plain;charset=utf-8'}),track==='original'?'linguistvision-original.txt':'linguistvision.txt')}>TXT</button>
         {!demo && <button type="button" disabled={!size || !mp4Profile || !(preview === 'both' ? tracks.original.length || tracks.translated.length : tracks[preview].length)}
           onClick={() => void exportMp4()}>{t('mp4')}</button>}
         {!demo && cloud && <>
@@ -414,10 +424,10 @@ function Editor({ source, initial, initialStyle, duration, locale, persistence, 
   </div>;
 }
 
-function Project({ source, subtitles, originalSubtitles, locale, save, presets, reportDirty, demo, cloud }: {
+function Project({ source, subtitles, originalSubtitles, locale, save, presets, reportDirty, demo, cloud, textPipeline }: {
   source: string; subtitles: string; originalSubtitles?: string; locale: Locale; save?: SaveDraft;
   presets?: PresetActions; reportDirty: (dirty: boolean) => void;
-  demo?: boolean; cloud?: CloudExport;
+  demo?: boolean; cloud?: CloudExport; textPipeline?: TextPipelineApi;
 }) {
   const [loaded, setLoaded] = useState<{ tracks: Tracks; style: PilotStyle; revision: number; duration: number }>();
   const [error, setError] = useState('');
@@ -425,7 +435,7 @@ function Project({ source, subtitles, originalSubtitles, locale, save, presets, 
     const abort = new AbortController();
     void fetch(subtitles, { signal: abort.signal }).then(async response => {
       if (!response.ok) throw new Error(save ? 'projectUnavailable' : 'srtUnavailable');
-      const { draft, originalDraft, revision, duration, style, highlights } = save ? await response.json() :
+      const { draft, originalDraft, revision, duration, style, highlights, segmentIds } = save ? await response.json() :
         { draft: await response.text(), originalDraft: null, revision: 0, duration: 0, style: null };
       let original = originalDraft;
       if (originalSubtitles) {
@@ -435,6 +445,7 @@ function Project({ source, subtitles, originalSubtitles, locale, save, presets, 
       }
       const tracks = { translated: parseSRT(draft), original: original ? parseSRT(original) : [] };
       for (const track of ['translated', 'original'] as const) {
+        if (segmentIds?.[track]?.length===tracks[track].length) tracks[track].forEach((cue,index)=>{cue.id=segmentIds[track][index];});
         for (const { cue, start, end } of parseHighlights(highlights?.[track], tracks[track]) ?? []) {
           tracks[track][cue].highlights = [{ start, end }];
         }
@@ -448,13 +459,13 @@ function Project({ source, subtitles, originalSubtitles, locale, save, presets, 
     return () => abort.abort();
   }, [subtitles, originalSubtitles, save]);
   return loaded ? <Editor source={source} initial={loaded.tracks} initialStyle={loaded.style} duration={loaded.duration}
-    locale={locale} presets={presets} reportDirty={reportDirty} demo={demo} cloud={cloud}
+    locale={locale} presets={presets} reportDirty={reportDirty} demo={demo} cloud={cloud} textPipeline={textPipeline}
     persistence={save ? { revision: loaded.revision, save } : undefined} /> :
     <p role="status">{locale.text(error || 'srtLoading')}</p>;
 }
 
 export function mountEditor(element: HTMLElement, source: string, subtitles: string, locale: Locale, save?: SaveDraft,
-  originalSubtitles?: string, presets?: PresetActions, demo = false, cloud?: CloudExport) {
+  originalSubtitles?: string, presets?: PresetActions, demo = false, cloud?: CloudExport, textPipeline?: TextPipelineApi) {
   const root = createRoot(element);
   let dirty = false;
   const reportDirty = (value: boolean) => { dirty = value; };
@@ -466,7 +477,7 @@ export function mountEditor(element: HTMLElement, source: string, subtitles: str
   if (!demo) window.addEventListener('beforeunload', beforeUnload);
   const setLocale = (next: Locale) => root.render(
     <Project source={source} subtitles={subtitles} originalSubtitles={originalSubtitles} locale={next}
-      save={save} presets={presets} reportDirty={reportDirty} demo={demo} cloud={cloud} />,
+      save={save} presets={presets} reportDirty={reportDirty} demo={demo} cloud={cloud} textPipeline={textPipeline} />,
   );
   setLocale(locale);
   return { setLocale, hasUnsavedChanges: () => dirty, unmount: () => {

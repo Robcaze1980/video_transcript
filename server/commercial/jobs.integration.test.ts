@@ -78,6 +78,45 @@ describe.skipIf(!connectionString)('commercial jobs with PostgreSQL', () => {
     expect(await jobs.balance(account)).toEqual({ available: 1, reserved: 0, consumed: 1, credited: 2 });
   });
 
+  it('records a concurrent capture once and rejects reusing it for another account order', async () => {
+    const other = await jobs.createAccount();
+    const checkout = new TestCheckout(pool, jobs, createSimulatedPayments());
+    const first = await checkout.createOrder(account, 'usd', 100, 600, 'http://127.0.0.1:3001');
+    const second = await checkout.createOrder(other, 'usd', 100, 600, 'http://127.0.0.1:3001');
+    const captureFor = async (id: string) => {
+      const { rows: [order] } = await pool.query('SELECT provider_order_id FROM checkout_orders WHERE id=$1', [id]);
+      return { orderId: order.provider_order_id, reference: id, captureId: 'shared-capture', amount: 100, currency: 'usd' };
+    };
+    const capture = await captureFor(first.id);
+    const results = await Promise.all(Array.from({ length: 8 }, () => jobs.applyCompletedCapture(first.id, capture)));
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await jobs.balance(account)).toEqual({ available: 600, reserved: 0, consumed: 0, credited: 600 });
+    expect((await pool.query('SELECT payment_ref,credits FROM purchases')).rows)
+      .toEqual([{ payment_ref: 'paypal:shared-capture', credits: 600 }]);
+    expect((await pool.query("SELECT kind,credits FROM credit_movements WHERE kind='purchase'")).rows)
+      .toEqual([{ kind: 'purchase', credits: 600 }]);
+    await expect(jobs.applyCompletedCapture(second.id, await captureFor(second.id))).rejects.toMatchObject({ code: 'conflict' });
+    expect(await jobs.balance(other)).toEqual({ available: 0, reserved: 0, consumed: 0, credited: 0 });
+    expect(await checkout.status(other, second.id)).toBe('approval');
+    expect((await pool.query('SELECT count(*)::int AS count FROM purchases')).rows[0].count).toBe(1);
+  });
+
+  it('rejects capture amount, currency and reference mismatches without marking an order fulfilled', async () => {
+    const checkout = new TestCheckout(pool, jobs, createSimulatedPayments());
+    const order = await checkout.createOrder(account, 'usd', 100, 600, 'http://127.0.0.1:3001');
+    const { rows: [stored] } = await pool.query('SELECT provider_order_id FROM checkout_orders WHERE id=$1', [order.id]);
+    const valid = { orderId: stored.provider_order_id, reference: order.id, captureId: 'capture-negative', amount: 100, currency: 'usd' };
+    for (const wrong of [{ amount: 1 }, { currency: 'eur' }, { reference: randomUUID() }, { orderId: 'different-provider-order' }]) {
+      await expect(jobs.applyCompletedCapture(order.id, { ...valid, ...wrong })).rejects.toMatchObject({ code: 'conflict' });
+      expect(await checkout.status(account, order.id)).toBe('approval');
+      expect(await jobs.balance(account)).toEqual({ available: 0, reserved: 0, consumed: 0, credited: 0 });
+    }
+    expect((await pool.query('SELECT 1 FROM purchases')).rowCount).toBe(0);
+    expect((await pool.query('SELECT 1 FROM credit_movements')).rowCount).toBe(0);
+    expect(await jobs.applyCompletedCapture(order.id, valid)).toBe(true);
+    expect(await jobs.balance(account)).toMatchObject({ available: 600, credited: 600 });
+  });
+
   it('limits uploads and active jobs per account without changing prior reservations', async () => {
     const other = await jobs.createAccount();
     await jobs.creditConfirmedPurchase(account, 'quota-purchase', 5);
@@ -96,6 +135,11 @@ describe.skipIf(!connectionString)('commercial jobs with PostgreSQL', () => {
     const payments = createSimulatedPayments();
     const checkout = new TestCheckout(pool, jobs, payments);
     const order = await checkout.createOrder(account, 'usd', 495, 5, 'http://127.0.0.1:3001');
+    const stranger = await jobs.createAccount();
+    expect(await checkout.status(stranger, order.id)).toBeNull();
+    expect(await checkout.requestCapture(stranger, order.id, true)).toBe(false);
+    expect(await checkout.status(account, order.id)).toBe('approval');
+    expect(await jobs.balance(stranger)).toEqual({ available: 0, reserved: 0, consumed: 0, credited: 0 });
     const { rows: [row] } = await pool.query('SELECT provider_order_id FROM checkout_orders WHERE id=$1', [order.id]);
     expect(await checkout.requestCapture(account, order.id, false, 'other-paypal-order')).toBe(false);
     expect(await checkout.requestCapture(account, order.id)).toBe(true);
@@ -140,6 +184,8 @@ describe.skipIf(!connectionString)('commercial jobs with PostgreSQL', () => {
     expect(await checkout.fulfillNext()).toBe(false);
     expect(await jobs.balance(account)).toEqual({ available: 5, reserved: 0, consumed: 0, credited: 5 });
     expect(captureCall).toHaveBeenCalledTimes(1);
+    expect((await pool.query('SELECT 1 FROM purchases WHERE checkout_order_id=$1', [order.id])).rowCount).toBe(1);
+    expect(await jobs.balance(stranger)).toEqual({ available: 0, reserved: 0, consumed: 0, credited: 0 });
   });
 
 
@@ -200,16 +246,16 @@ describe.skipIf(!connectionString)('commercial jobs with PostgreSQL', () => {
     await pool.query("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1", [id]);
     expect(await jobs.renew(attempt)).toBe(false);
     expect(await jobs.publish(attempt, Buffer.from('stale'))).toBe(false);
-    const next = (await jobs.claim())!;
-    expect(next.attempt_id).not.toBe(attempt.attempt_id);
+    expect(await jobs.claim()).toBeNull();
+    expect((await jobs.result(account, id))?.state).toBe('unknown');
     expect(await jobs.publish(attempt, Buffer.from('stale'))).toBe(false);
-    expect(await jobs.publish(next, Buffer.from('valid'))).toBe(true);
-    expect(await jobs.publish(next, Buffer.from('repeated'))).toBe(false);
+    expect(await jobs.reconcileUnknown(account, id, 'succeeded', 'verified-provider-result', {result:Buffer.from('valid')})).toBe(true);
+    expect(await jobs.reconcileUnknown(account, id, 'succeeded', 'verified-provider-result', {result:Buffer.from('repeated')})).toBe(false);
     expect((await jobs.result(account, id))?.result?.toString()).toBe('valid');
     expect(await jobs.balance(account)).toMatchObject({ reserved: 0, consumed: 1 });
   });
 
-  it('retains the reservation on recoverable errors and releases it once when attempts are exhausted', async () => {
+  it('retains the reservation for an expired last attempt until its outcome is reconciled', async () => {
     const retryInput = await jobs.addInput(account, Buffer.from('temporary'));
     await jobs.creditConfirmedPurchase(account, 'purchase-1', 1);
     const id = await jobs.enqueue(account, retryInput, 'retry', adapter.key, {});
@@ -223,7 +269,9 @@ describe.skipIf(!connectionString)('commercial jobs with PostgreSQL', () => {
     expect(last.attempts).toBe(last.max_attempts);
     await pool.query("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1", [id]);
     expect((await Promise.all([jobs.reapExpired(), jobs.reapExpired()])).sort()).toEqual([0, 1]);
-    expect(await jobs.result(account, id)).toEqual({ state: 'failed', result: null, original: null });
+    expect(await jobs.result(account, id)).toEqual({ state: 'unknown', result: null, original: null });
+    expect(await jobs.balance(account)).toMatchObject({ reserved: 1, consumed: 0 });
+    expect(await jobs.reconcileUnknown(account, id, 'failed', 'verified-no-provider-result')).toBe(true);
     expect(await jobs.balance(account)).toEqual({ available: 1, reserved: 0, consumed: 0, credited: 1 });
   });
 
@@ -236,9 +284,9 @@ describe.skipIf(!connectionString)('commercial jobs with PostgreSQL', () => {
     ]);
     expect(published).not.toBe(cancelled);
     const balance = await jobs.balance(account);
-    expect(balance.reserved).toBe(0);
-    expect(balance.available + balance.consumed).toBe(1);
+      expect(balance.reserved).toBe(published ? 0 : 1);
+      expect(balance.available + balance.consumed + balance.reserved).toBe(1);
     const { rows } = await pool.query("SELECT kind FROM credit_movements WHERE reference=$1 AND kind IN ('capture','release')", [id]);
-    expect(rows).toEqual([{ kind: published ? 'capture' : 'release' }]);
+      expect(rows).toEqual(published ? [{ kind: 'capture' }] : []);
   });
 });

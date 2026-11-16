@@ -284,6 +284,11 @@ describe.skipIf(!connectionString)('private pilot over HTTP', () => {
       fetch(source, { headers: { range: value, ...(cookie ? { cookie } : {}) } });
     expect((await range()).status).toBe(401);
     expect((await range(stranger)).status).toBe(404);
+    const ledgerBefore = (await pool.query('SELECT kind,credits FROM credit_movements WHERE reference=$1 ORDER BY kind', [id])).rows;
+    expect((await post('jobs/' + id + '/delete-files', {}, stranger)).status).toBe(404);
+    expect((await get('jobs/' + id + '/download', owner)).status).toBe(200);
+    expect((await pool.query('SELECT kind,credits FROM credit_movements WHERE reference=$1 ORDER BY kind', [id])).rows)
+      .toEqual(ledgerBefore);
     const accepted = await range(owner);
     expect(accepted.status).toBe(206);
     expect(accepted.headers.get('content-range')).toBe('bytes 2-4/10');
@@ -291,6 +296,19 @@ describe.skipIf(!connectionString)('private pilot over HTTP', () => {
     expect((await range(owner, 'bytes=10-')).status).toBe(416);
     expect((await post('jobs/' + id + '/delete-files', {}, owner)).status).toBe(200);
     expect((await range(owner)).status).toBe(404);
+  });
+
+  it('limits failed invitation logins by socket peer and ignores spoofed forwarded headers', async () => {
+    const call = (localAddress: string, code: string, forwarded?: string) => new Promise<number>((resolve, reject) => {
+      const req = httpRequest(url('login'), {
+        method: 'POST', localAddress, headers: { origin: pilot.origin, 'content-type': 'application/json',
+          ...(forwarded ? { 'x-forwarded-for': forwarded } : {}) },
+      }, res => { res.resume(); res.on('end', () => resolve(res.statusCode!)); });
+      req.on('error', reject); req.end(JSON.stringify({ code }));
+    });
+    for (let i = 0; i < 10; i++) expect(await call('127.0.0.2', 'invalid')).toBe(401);
+    expect(await call('127.0.0.2', codes[0], '127.0.0.3')).toBe(429);
+    expect(await call('127.0.0.3', codes[0])).toBe(200);
   });
 
   it('imports, saves and reopens a private UTF-8 subtitle project without a transcription job', async () => {
@@ -475,6 +493,10 @@ describe.skipIf(!connectionString)('private pilot over HTTP', () => {
       const cancelled = await Promise.all([post(job + '/cancel', {}, owner), post(job + '/cancel', {}, owner)]);
       expect(cancelled.map(response => response.status)).toEqual([200, 200]);
       expect(aborted).toBe(true);
+      expect(await balance()).toEqual({...initialBalance,available:initialBalance.available-1,reserved:initialBalance.reserved+1});
+      expect((await (await get(job,owner)).json()).state).toBe('unknown');
+      expect((await post(job+'/retry',{},owner)).status).toBe(404);
+      await new CommercialJobs(pool,new Map()).reconcileUnknown(accountId,job.split('/')[1],'failed','fixture-provider-cancel-confirmed');
       expect(await balance()).toEqual(initialBalance);
       const retries = await Promise.all([post(job + '/retry', {}, owner), post(job + '/retry', {}, owner)]);
       expect(retries.map(response => response.status)).toEqual([202, 202]);

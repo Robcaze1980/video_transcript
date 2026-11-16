@@ -1,0 +1,139 @@
+{
+  "projectId": "vistavo-prod",
+  "projectNumber": "107404655346",
+  "region": "us-central1",
+  "environment": "candidate",
+  "apis": [
+    "run.googleapis.com",
+    "iam.googleapis.com",
+    "secretmanager.googleapis.com",
+    "artifactregistry.googleapis.com",
+    "cloudbuild.googleapis.com",
+    "compute.googleapis.com",
+    "servicenetworking.googleapis.com",
+    "storage.googleapis.com",
+    "firestore.googleapis.com",
+    "cloudscheduler.googleapis.com"
+  ],
+  "network": {
+    "name": "vistavo-private",
+    "autoCreateSubnetworks": false,
+    "subnet": "vistavo-us-central1",
+    "subnetCidr": "10.40.0.0/24",
+    "privateGoogleAccess": true,
+    "sqlPeeringRangeName": "vistavo-sql-private",
+    "sqlPeeringCidr": "10.41.0.0/16",
+    "serviceNetworkingConnection": {
+      "service": "servicenetworking.googleapis.com",
+      "reservedPeeringRanges": [
+        "vistavo-sql-private"
+      ]
+    }
+  },
+  "sql": {
+    "superseded": true,
+    "creationForbidden": true,
+    "reason": "Rob approved Firestore; do not create Cloud SQL"
+  },
+  "mediaBucket": {
+    "name": "vistavo-prod-107404655346-media",
+    "location": "US-CENTRAL1",
+    "storageClass": "STANDARD",
+    "uniformBucketLevelAccess": true,
+    "publicAccessPrevention": "enforced",
+    "versioning": false,
+    "softDeleteRetentionSeconds": 0
+  },
+  "buildSourceBucket": {
+    "name": "vistavo-prod-107404655346-builds",
+    "location": "US-CENTRAL1",
+    "uniformBucketLevelAccess": true,
+    "publicAccessPrevention": "enforced",
+    "lifecycleDeleteDays": 7
+  },
+  "artifactRepository": {
+    "name": "vistavo",
+    "format": "DOCKER",
+    "location": "us-central1"
+  },
+  "identities": {
+    "runtime": "vistavo-runtime",
+    "bootstrap": "vistavo-bootstrap",
+    "builder": "vistavo-builder"
+  },
+  "runtimeRoles": [],
+  "runtimeMediaBucketRole": "roles/storage.objectUser",
+  "secrets": [],
+  "apiService": {
+    "name": "vistavo-api",
+    "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+    "publicInvokerBinding": false,
+    "cpu": "1",
+    "memory": "2Gi",
+    "minInstances": 0,
+    "maxInstances": 2,
+    "concurrency": 8,
+    "serviceAccount": "vistavo-runtime@vistavo-prod.iam.gserviceaccount.com"
+  },
+  "workerJob": {
+    "name": "vistavo-worker",
+    "cpu": "2",
+    "memory": "4Gi",
+    "parallelism": 1,
+    "taskCount": 1,
+    "maxRetries": 0,
+    "serviceAccount": "vistavo-runtime@vistavo-prod.iam.gserviceaccount.com"
+  },
+  "notes": [
+    "Plan only until T3 and Codex validate prerequisites, exact API fields, tier availability and current cost.",
+    "No public app traffic, Hosting rewrites, real payments, customer data migration or service-account JSON keys.",
+    "App TTL/deletion is enforced by durable application cleanup; bucket lifecycle is only fallback, not exact 24h guarantee.",
+    "Builder has no deployment permissions; explicit service account in Cloud Build requests.",
+    "Soft delete wire field: softDeletePolicy.retentionDurationSeconds, 0 on newly created empty media bucket only.",
+    "Cloud SQL creation, SQL roles and DB password secrets are superseded and forbidden. Existing unused VPC/PSA resources are preserved, not reapplied or deleted.",
+    "Firestore IAM, separate worker/dispatcher identities and recovery manifests require validation before apply. No grants performed by this plan.",
+    "PostgreSQL remains the local pilot/reference only; cloud persistence and outbox use Firestore, with no resident polling."
+  ],
+  "iamBindings": [
+    {
+      "identity": "runtime",
+      "scope": "vistavo-prod-107404655346-media",
+      "roles": [
+        "roles/storage.objectUser"
+      ]
+    },
+    {
+      "identity": "builder",
+      "scope": "vistavo",
+      "roles": [
+        "roles/artifactregistry.writer"
+      ]
+    },
+    {
+      "identity": "builder",
+      "scope": "vistavo-prod-107404655346-builds",
+      "roles": [
+        "roles/storage.objectViewer"
+      ]
+    },
+    {
+      "identity": "builder",
+      "scope": "project",
+      "roles": [
+        "roles/logging.logWriter"
+      ]
+    }
+  ],
+  "architecture": {
+    "database": "firestore",
+    "compute": "cloud-run-on-demand",
+    "cloudSqlForbidden": true,
+    "approved": "2026-11-13"
+  },
+  "proposedFirestoreRoles": {
+    "roles": [
+      "roles/datastore.user"
+    ],
+    "status": "plan-only; validate database scope and identities before granting"
+  }
+}

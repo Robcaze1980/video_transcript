@@ -1,0 +1,2 @@
+import {build} from 'esbuild';
+await build({entryPoints:['server/commercial/filesEntry.ts','server/commercial/aiProof.ts','server/commercial/cloudLifecycleProbe.ts','server/commercial/cloudThreeFixesProbe.ts'],outdir:'cloud-dist',bundle:true,platform:'node',target:'node24',format:'esm',packages:'external',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});

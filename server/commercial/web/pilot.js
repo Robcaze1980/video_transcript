@@ -1,3 +1,4 @@
+import { enabledDirections, languageChoices } from './languageChoices.js';
 import { uploadPrivateVideo } from './pilotUpload.js';
 import { createDriveUploader } from './pilotDrive.js';
 import { corePilotLocales, formatVideoPackage, pilotLocale, pilotLocales, panelText } from './pilotLocales.js';
@@ -69,7 +70,7 @@ const pt = key => panelText(locale.id, key);
 function panelLabels() {
   for (const node of document.querySelectorAll('[data-panel-text]')) node.textContent = pt(node.dataset.panelText);
   el('account-login-link').href = './sign-in/?lang=' + locale.id;
-  el('workspace').querySelector('nav').setAttribute('aria-label', pt('account'));
+  el('workspace').querySelector('nav').setAttribute('aria-label', 'Vistavo');
 }
 function balanceTime(seconds) {
   if (!Number.isFinite(seconds)) return pt('unavailable');
@@ -94,6 +95,7 @@ function syncPanels() {
   }
 }
 function goView(view, focus = true) {
+  if (view==='create' && account?.textPipeline && !services.length) view='import';
   if (!['home','projects','balance','account','create','import','editor','result'].includes(view) || submitting) return;
   if (view !== activeView && !['editor','result'].includes(view) && !allowCloseEditor()) return;
   if (view !== activeView && !['editor','result'].includes(view)) closeEditor();
@@ -165,7 +167,7 @@ let jobRequest = 0;
 let editor;
 let editorRequest = 0;
 let services = [];
-const terminal = new Set(['succeeded', 'failed', 'cancelled']);
+const terminal = new Set(['succeeded', 'failed', 'cancelled', 'unknown']);
 
 async function api(path, body, raw = false) {
   const multipart = body instanceof FormData;
@@ -223,21 +225,29 @@ function syncService() {
   el('directionFields').hidden = true;
   el('independent-fields').hidden = preview || !service.directions?.length;
   const previous = el('direction').value;
-  el('direction').replaceChildren(...(service.directions ?? []).map(item =>
+  el('direction').replaceChildren(...enabledDirections(service).map(item =>
     new Option(t(item.id) === item.id ? item.label : t(item.id), item.id, false, item.id === previous)));
   if (preview) {
-    for (const id of ['launch-source', 'launch-target']) {
-      const select = el(id);
-      const preferred = select.value || (id === 'launch-source' ? 'en' : 'es');
-      select.replaceChildren(...account.launchLanguagePreview.map(language => {
-        const option = new Option(language.name, language.id, false, language.id === preferred);
-        option.lang = language.locale;
-        return option;
-      }));
-    }
+    const choices = languageChoices(service, el('launch-source').value || 'en');
+    setLaunchOptions('launch-source', choices.sources, choices.source);
+    syncLaunchTargets(service);
   }
   syncIndependentPair(service);
   syncLaunchPair(service);
+}
+
+function setLaunchOptions(id, ids, preferred) {
+  const catalog = account?.launchLanguagePreview ?? [];
+  el(id).replaceChildren(...ids.map(code => {
+    const language = catalog.find(item => item.id === code);
+    const option = new Option(language?.name ?? directionLanguage(code), code, false, code === preferred);
+    if (language) option.lang = language.locale;
+    return option;
+  }));
+}
+function syncLaunchTargets(service = services.find(item => item.key === el('service').value)) {
+  const choices = languageChoices(service, el('launch-source').value);
+  setLaunchOptions('launch-target', choices.targets, el('launch-target').value || 'es');
 }
 
 function directionLanguage(id) {
@@ -246,7 +256,7 @@ function directionLanguage(id) {
 }
 function syncIndependentPair(service, sourceChanged = false) {
   if (el('independent-fields').hidden) return;
-  const directions = service.directions ?? [];
+  const directions = enabledDirections(service);
   const selected = directions.find(item => item.id === el('direction').value) ?? directions[0];
   const source = sourceChanged ? el('choose-source').value : selected?.id.split('-')[0];
   const sources = [...new Set(directions.map(item => item.id.split('-')[0]))];
@@ -257,8 +267,8 @@ function syncIndependentPair(service, sourceChanged = false) {
     return new Option(directionLanguage(id), item.id, false, item.id === selected?.id);
   }));
   el('direction').value = el('choose-target').value;
-  const effective = directions.find(item => item.id === el('direction').value);
-  el('effective-pair-status').textContent = t(effective?.status === 'verified' ? 'pairVerified' : 'pairBeta');
+  el('effective-pair-status').textContent = '';
+  el('effective-pair-status').hidden = true;
 }
 el('choose-source').addEventListener('change', () => {
   pendingInput = undefined;
@@ -277,11 +287,12 @@ function launchPair() {
 function syncLaunchPair(service = services.find(item => item.key === el('service').value)) {
   const preview = !el('launch-language-fields').hidden;
   const { source, target } = launchPair();
-  const direction = service?.directions?.find(item => item.id === source + '-' + target);
-  const status = direction?.status === 'verified' ? 'pairVerified' : direction ? 'pairBeta' : 'pairRequest';
-  const blocked = (preview && !direction) || !balanceFresh;
-  el('launch-pair-status').textContent = preview ? t(status) : '';
-  el('request-language').hidden = !blocked;
+  const directions = enabledDirections(service);
+  const direction = directions.find(item => item.id === (preview ? source + '-' + target : el('direction').value));
+  const blocked = ((preview || Boolean(service?.directions)) && !direction) || !balanceFresh;
+  el('launch-pair-status').textContent = '';
+  el('launch-pair-status').hidden = true;
+  el('request-language').hidden = true;
   el('submit-job').disabled = blocked;
   el('file').disabled = blocked;
 }
@@ -341,7 +352,7 @@ function renderServices() {
 }
 
 async function refresh() {
-  try { account = await api('account'); balanceFresh = true; }
+  try { account = await api('account'); balanceFresh = true; const input=el('project-srt'); input.required=!account.textPipeline; el('text-pipeline-hint').hidden=!account.textPipeline; }
   catch (error) {
     balanceFresh = false; renderAccount();
     for (const id of ['balance','nav-balance','home-balance','home-reserved','header-balance-value']) el(id).textContent = pt('unavailable');
@@ -493,7 +504,7 @@ function applyLocale() {
   try { localStorage.setItem('linguistvision-pilot-language', locale.id); } catch {}
   document.documentElement.lang = locale.tag;
   document.documentElement.dir = locale.dir;
-  document.title = t('title') + ' | LinguistVision';
+  document.title = t('title') + ' | Vistavo';
   el('interface-language').value = locale.id;
   for (const node of document.querySelectorAll('[data-text]')) node.textContent = t(node.dataset.text);
   panelLabels();
@@ -563,8 +574,27 @@ el('checkout').addEventListener('click', event => {
     return;
   }
   void action(event.currentTarget, async () => {
-    const session = await api('checkout', { packageId });
+    const storageKey = 'vistavo-checkout-key:' + (packageId ?? 'pilot');
+    let requestKey = sessionStorage.getItem(storageKey);
+    if (!requestKey) {requestKey=crypto.randomUUID();sessionStorage.setItem(storageKey,requestKey);}
+    const session = await api('checkout', { packageId, requestKey });
+    sessionStorage.setItem('vistavo-checkout-id:'+session.id,storageKey);
     if (session.url) { location.assign(session.url); return; }
+    if (session.pending) {
+      paymentId = session.id;
+      message('paymentPending');
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const recovered = await api('checkout/' + paymentId);
+        if (recovered.status === 'approval') {
+          if (recovered.url) { location.assign(recovered.url); return; }
+          if (account.paymentMode === 'simulated') el('simulate').hidden = false;
+          return;
+        }
+        if (recovered.status === 'unknown') { message('paymentPending'); return; }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      return;
+    }
     paymentId = session.id;
     el('simulate').hidden = false;
     message('paymentPrompt');
@@ -582,8 +612,11 @@ async function waitForPayment(id) {
   message('paymentChecking');
   for (let i = 0; i < 24; i++) {
     const { status } = await api('checkout/' + id);
+      if (status === 'unknown') { message('paymentPending'); return; }
     if (status === 'credited') {
       await refresh();
+      const mapKey='vistavo-checkout-id:'+id;const requestKey=sessionStorage.getItem(mapKey);
+      if(requestKey)sessionStorage.removeItem(requestKey);sessionStorage.removeItem(mapKey);
       message('paymentSuccess');
       return;
     }
@@ -666,14 +699,30 @@ async function openEditor(id, project = false) {
   const target = el(project ? 'project-editor' : 'editor');
   editor = {
     ...mountEditor(target, base + '/source', project ? base : base + '/download', locale,
-      project ? (draft, revision, originalDraft, style, highlights) =>
-        api(path, { draft, revision, originalDraft, style, highlights }) : undefined,
+      project ? (draft, revision, originalDraft, style, highlights, segmentIds) =>
+        api(path, { draft, revision, originalDraft, style, highlights, segmentIds }) : undefined,
       project ? undefined : base + '/original',
       project ? {
         list: () => api('subtitle-presets'),
         save: preset => api('subtitle-presets', preset),
         remove: name => api('subtitle-presets/delete', { name }),
-      } : undefined, false, cloudExport),
+      } : undefined, false, cloudExport, project && account?.textPipeline ? {
+      voice: account.voicePipeline ? voiceId => ({
+        latest:()=>api(path+'/voice/'+voiceId),
+        start:(revision,requestKey)=>api(path+'/voice/'+voiceId,{revision,requestKey}),
+        get:jobId=>api('voice-jobs/'+jobId),
+        cancel:jobId=>api('voice-jobs/'+jobId+'/cancel',{}),
+        audio:jobId=>'./api/voice-jobs/'+jobId+'/audio.wav',
+        reload:async()=>{},
+      }):undefined,
+      latest: () => api(path + '/text'),
+      start: (revision,requestKey) => api(path + '/text',{revision,requestKey}),
+      get: jobId => api('text-jobs/' + jobId),
+      cancel: jobId => api('text-jobs/' + jobId + '/cancel',{}),
+      apply: jobId => api('text-jobs/' + jobId + '/apply',{}),
+      downloads: jobId => './api/text-jobs/' + jobId,
+      reload: async () => {await refreshHistory();await openEditor(id,true);},
+    } : undefined),
     projectId: project ? id : undefined,
   };
   activeView = 'editor'; syncPanels();
@@ -688,13 +737,13 @@ el('project-import').addEventListener('submit', event => {
     let imported;
     if (account?.uploads) {
       const video = files.get('video'), srt = files.get('srt'), original = files.get('originalSrt');
-      if (!(video instanceof File) || !(srt instanceof File) || !srt.size || srt.size > 65536 ||
+      if (!(video instanceof File) || !(srt instanceof File) || (!srt.size && !account.textPipeline) || srt.size > 65536 ||
           (original instanceof File && original.size > 65536)) throw new Error(locale.id === 'es' ? 'Selecciona video y subtítulos UTF-8 de hasta 64 KiB.' : 'Select video and UTF-8 subtitles up to 64 KiB.');
       const text = async file => new TextDecoder('utf-8', {fatal:true}).decode(await file.arrayBuffer());
-      const srtText = await text(srt);
+      const srtText = srt.size ? await text(srt) : '';
       const originalText = original instanceof File && original.size ? await text(original) : undefined;
       const { id } = await uploadLarge(video, 'cancel-project-upload');
-      imported = await api('projects/from-upload', { uploadId:id, srt:srtText, srtName:srt.name,
+      imported = await api('projects/from-upload', { uploadId:id, srt:srtText, srtName:srt.name || 'track.srt',
         ...(originalText ? {originalSrt: originalText, originalName: original.name} : {}) });
     } else imported = await upload('projects', files, 'cancel-project-upload');
     const { id, converted = [] } = imported;
@@ -750,9 +799,8 @@ el('retry-job').addEventListener('click', event => {
 
 el('service').addEventListener('change', () => { pendingInput = undefined; syncService(); });
 el('direction').addEventListener('change', () => { pendingInput = undefined; });
-for (const id of ['launch-source', 'launch-target']) {
-  el(id).addEventListener('change', () => { pendingInput = undefined; syncLaunchPair(); });
-}
+el('launch-source').addEventListener('change', () => { pendingInput = undefined; syncLaunchTargets(); syncLaunchPair(); });
+el('launch-target').addEventListener('change', () => { pendingInput = undefined; syncLaunchPair(); });
 el('request-language').addEventListener('click', event => {
   const pair = launchPair();
   void action(event.currentTarget, async () => {

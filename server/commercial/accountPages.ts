@@ -7,6 +7,28 @@ type Language = ReturnType<typeof commercialLocale>;
 type Copy = readonly [email: string, password: string, google: string, forgot: string, send: string, reset: string,
   checkEmail: string, invalid: string, updated: string];
 
+const googleActions: Record<string, readonly [signIn: string, signUp: string]> = {
+  en: ['Sign in with Google', 'Sign up with Google'],
+  es: ['Iniciar sesión con Google', 'Registrarse con Google'],
+  pt: ['Entrar com o Google', 'Cadastrar-se com o Google'],
+  fr: ['Se connecter avec Google', 'S’inscrire avec Google'],
+  de: ['Mit Google anmelden', 'Mit Google registrieren'],
+  ja: ['Googleでログイン', 'Googleで登録'],
+  ko: ['Google 계정으로 로그인', 'Google 계정으로 가입'],
+  ar: ['تسجيل الدخول باستخدام Google', 'التسجيل باستخدام Google'],
+  cmn: ['使用 Google 登录', '使用 Google 注册'],
+  vi: ['Đăng nhập bằng Google', 'Đăng ký bằng Google'],
+};
+
+// Official Google HTML button artwork, supplied by the owner. Decorative to avoid a duplicate accessible name.
+const googleIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+  <path fill="none" d="M0 0h48v48H0z"/>
+</svg>`;
+
 const copy: Record<string, Copy> = {
   en: ['Email', 'Password', 'Continue with Google', 'Forgot password?', 'Send recovery link', 'Save new password', 'If the request is eligible, check your email. Open the link in this browser.', 'We couldn’t complete your request. Check your details or start again.', 'Password updated. Sign in with your new password.'],
   es: ['Correo electrónico', 'Contraseña', 'Continuar con Google', '¿Olvidaste tu contraseña?', 'Enviar enlace de recuperación', 'Guardar nueva contraseña', 'Si la solicitud es válida, revisa tu correo. Abre el enlace en este navegador.', 'No pudimos completar la solicitud. Revisa tus datos o vuelve a empezar.', 'Contraseña actualizada. Inicia sesión con tu nueva contraseña.'],
@@ -23,7 +45,7 @@ const copy: Record<string, Copy> = {
 type PresentationCopy = readonly [divider: string, show: string, hide: string, hint: string, existing: string,
   newAccount: string, recoveryTitle: string, recoveryIntro: string];
 const presentation: Record<string, PresentationCopy> = {
-  en: ['or use your email', 'Show', 'Hide', 'At least 8 characters.', 'Already have an account?', 'New to LinguistVision?', 'Recover your password', 'Enter your account email. If the request is eligible, you will receive a link to create a new password.'],
+  en: ['or use your email', 'Show', 'Hide', 'At least 8 characters.', 'Already have an account?', 'New to Vistavo?', 'Recover your password', 'Enter your account email. If the request is eligible, you will receive a link to create a new password.'],
   es: ['o con tu correo', 'Mostrar', 'Ocultar', 'Mínimo 8 caracteres.', '¿Ya tienes cuenta?', '¿No tienes cuenta?', 'Recuperar contraseña', 'Escribe el correo de tu cuenta. Si la solicitud es válida, recibirás un enlace para crear una contraseña nueva.'],
   pt: ['ou use seu e-mail', 'Mostrar', 'Ocultar', 'Pelo menos 8 caracteres.', 'Já tem uma conta?', 'Ainda não tem conta?', 'Recuperar senha', 'Digite o e-mail da sua conta. Se o pedido for válido, você receberá um link para criar uma nova senha.'],
   fr: ['ou avec votre e-mail', 'Afficher', 'Masquer', 'Au moins 8 caractères.', 'Vous avez déjà un compte ?', 'Vous n’avez pas de compte ?', 'Récupérer le mot de passe', 'Saisissez l’adresse e-mail de votre compte. Si la demande est valide, vous recevrez un lien pour créer un nouveau mot de passe.'],
@@ -36,7 +58,8 @@ const presentation: Record<string, PresentationCopy> = {
 };
 
 export function renderAccountAccess(language: Language, page: AccessPage, notice?: 'sent' | 'error' | 'updated', firebase = false) {
-  const [email, password, google, forgot, send, reset, sent, error, updated] = copy[language.id];
+  const [email, password, , forgot, send, reset, sent, error, updated] = copy[language.id];
+  const google = googleActions[language.id][page === 'register' ? 1 : 0];
   const [divider, show, hide, hint, existing, newAccount, recoveryTitle, recoveryIntro] = presentation[language.id];
   const [, , register, login] = commercialCopy[language.locale]!;
   const pack = pilotLanguages.find(item => item.locale === language.locale)!;
@@ -49,14 +72,16 @@ export function renderAccountAccess(language: Language, page: AccessPage, notice
     { sent, error, updated }[notice] + '</p>' : '';
   return `<!doctype html><html lang="${language.locale}" dir="${language.direction}"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-    <title>${title} | LinguistVision</title><link rel="stylesheet" href="/pilot/account.css">
+    <title>${title} | Vistavo</title><link rel="stylesheet" href="/pilot/account.css">
     <script type="module" src="/pilot/editor-assets/accountUi.js"></script>
     ${firebase ? '<script type="module" src="/pilot/editor-assets/firebaseAuth.js"></script>' : ''}</head><body data-auth-page="${page}">
-    <header class="auth-header"><a class="brand" href="${landing}"><bdi>LinguistVision</bdi></a></header>
+    <header class="auth-header"><a class="brand" href="${landing}"><bdi>Vistavo</bdi></a></header>
     <main class="auth-main"><section class="auth-panel" aria-labelledby="account-title"><h1 id="account-title">${title}</h1>
     ${page === 'forgot' ? '<p class="auth-intro">' + recoveryIntro + '</p>' : ''}${message}
     ${firebase ? '<p id="auth-message" role="status" class="auth-status" aria-live="polite"></p>' : ''}
-    ${standard ? `<form id="auth-google" method="post" action="/pilot/auth/google/${query}"><button class="google">${google}</button></form>
+    ${standard ? `<form id="auth-google" method="post" action="/pilot/auth/google/${query}"><button type="submit" class="gsi-material-button">
+    <span class="gsi-material-button-state" aria-hidden="true"></span><span class="gsi-material-button-content-wrapper">
+    <span class="gsi-material-button-icon">${googleIcon}</span><span class="gsi-material-button-contents">${google}</span></span></button></form>
     <p class="auth-divider">${divider}</p>` : ''}
     <form id="auth-form" method="post" action="${action}">
     ${page !== 'reset' ? `<label for="email">${email}</label><input id="email" name="email" dir="ltr" type="email" required maxlength="254" autocomplete="email">` : ''}

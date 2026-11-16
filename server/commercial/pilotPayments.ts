@@ -97,6 +97,7 @@ export function createPayPalSandbox(clientId: string, secret: string, merchantId
 export function createSimulatedPayments(): PilotPayments {
   const merchantId = 'local-test-merchant';
   const orders = new Map<string, PayPalOrder>();
+  const references = new Map<string, {id:string;amount:number;returnUrl:string}>();
   const get = (id: string) => {
     const order = orders.get(id);
     if (!order) throw new Error('Simulated PayPal order not found.');
@@ -105,7 +106,13 @@ export function createSimulatedPayments(): PilotPayments {
   return {
     merchantId,
     async createOrder(reference, _returnUrl, amount = testPackage.amount) {
+      const prior = references.get(reference);
+      if (prior) {
+        if (prior.amount !== amount || prior.returnUrl !== _returnUrl) throw new Error('Idempotency key payload mismatch.');
+        return {id:prior.id,url:null};
+      }
       const id = 'sandbox-order-' + randomUUID();
+      references.set(reference,{id,amount,returnUrl:_returnUrl});
       orders.set(id, {
         id, status: 'CREATED', purchase_units: [{ reference_id: reference, payee: { merchant_id: merchantId },
           amount: { value: amountValue(amount), currency_code: 'USD' } }],

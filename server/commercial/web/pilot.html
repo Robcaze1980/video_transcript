@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mi espacio | LinguistVision</title>
+  <title>Mi espacio | Vistavo</title>
   <meta name="robots" content="noindex">
   <link rel="stylesheet" href="./pilot.css">
   <script type="module" src="./pilot.js"></script>
@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#workspace">Ir al contenido</a>
 <main>
-  <header class="workspace-header"><a class="workspace-brand" href="./">LinguistVision</a><div id="header-balance" hidden><bdi id="header-balance-value">—</bdi> <button type="button" class="secondary" data-view="balance" data-panel-text="buy">Comprar minutos</button></div><div class="header-language">
+  <header class="workspace-header"><a class="workspace-brand" href="./">Vistavo</a><div id="header-balance" hidden><span class="bar-balance-label" data-panel-text="available">Disponible</span> <bdi id="header-balance-value">—</bdi> <button type="button" class="secondary" data-view="balance" data-panel-text="buy">Comprar minutos</button></div><div class="header-language">
     <label for="interface-language" data-text="interfaceLanguage">Idioma de la interfaz</label>
     <select id="interface-language"></select></div>
   </header>
@@ -21,12 +21,11 @@
     <button data-text="enter">Entrar</button>
   </form>
   <section id="workspace" hidden>
-    <nav class="workspace-nav" aria-label="Mi espacio">
+    <nav class="workspace-nav" aria-label="Mi espacio"><span class="nav-brand">Vistavo</span>
       <button type="button" data-view="home" data-panel-text="home">Inicio</button>
       <button type="button" data-view="projects" data-panel-text="projects">Mis proyectos</button>
       <button type="button" data-view="balance" data-panel-text="balance">Saldo y compras</button>
       <button type="button" data-view="account" data-panel-text="account">Mi cuenta</button>
-      <button id="logout" class="secondary" type="button" data-text="exit">Salir</button>
       <div class="nav-balance"><span data-panel-text="balance">Saldo</span><bdi id="nav-balance">—</bdi>
       <button type="button" class="secondary" data-view="balance" data-panel-text="buy">Comprar minutos</button></div>
     </nav>
@@ -37,7 +36,7 @@
       <span id="home-reserved"></span><button type="button" class="secondary" data-view="balance" data-panel-text="buy">Comprar minutos</button></div>
       <div class="start-actions"><button type="button" data-view="create" data-panel-text="create">Crear subtítulos</button>
       <button type="button" class="secondary" data-view="import" data-panel-text="import">Importar subtítulos</button></div>
-      <h2 data-panel-text="recent">Proyectos recientes</h2><ul id="home-projects" class="project-rows"></ul>
+      <div class="section-heading"><h2 data-panel-text="recent">Proyectos recientes</h2><button type="button" class="link-button" data-view="projects" data-panel-text="projects">Mis proyectos</button></div><ul id="home-projects" class="project-rows"></ul>
       <p id="home-empty" data-panel-text="empty">Aún no tienes proyectos. Crea o importa subtítulos para comenzar.</p>
       <p class="help" data-panel-text="retention">Durante el piloto los proyectos se conservan 24 horas. Descarga tus archivos antes de que caduquen.</p>
     </section>
@@ -59,6 +58,7 @@
     <section id="account-panel" class="panel-view" hidden><h1 data-panel-text="account">Mi cuenta</h1>
       <p data-panel-text="profileUnavailable">Tu sesión está activa. Los detalles del perfil aún no están disponibles en este panel.</p>
       <p class="help" data-panel-text="localeHelp">Cambia el idioma de la interfaz arriba. No cambia los idiomas de tus proyectos.</p>
+            <button id="logout" class="secondary" type="button" data-text="exit">Salir</button>
       <a id="account-login-link" href="./sign-in/?lang=es" data-panel-text="access">Opciones de acceso</a>
     </section>
     <section id="projects" class="panel-view" hidden>
@@ -71,6 +71,7 @@
         <p data-text="subtitleImportHelp">SRT, LRC o ASS en UTF-8. ASS conserva texto y tiempos.</p>
         <label for="project-srt" data-text="projectTranslatedSrt">Subtítulos de la pista traducida</label>
         <input id="project-srt" name="srt" type="file" required>
+        <p id="text-pipeline-hint" hidden>Ensayo ES→EN: puedes dejar el SRT vacío y generar ambas pistas desde el editor. El video se envía a Google; no se descuenta saldo.</p>
         <label for="project-original-srt" data-text="projectOriginalSrt">Subtítulos de la pista original (opcional)</label>
         <input id="project-original-srt" name="originalSrt" type="file">
         <button type="submit" data-text="projectImport">Importar y abrir</button>

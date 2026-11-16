@@ -17,8 +17,18 @@ describe('pilot language packages', () => {
       expect(html.match(/<h1(?:\s[^>]*)?>/g)).toHaveLength(1);
       if (language.locale === 'es-419') {
         expect(html).toContain('class="claude-landing"');
-        expect(html).toContain('El inspector explica en español. El propietario necesita entenderlo en inglés.');
-        expect(html.match(/data-faq-category=/g)).toHaveLength(17);
+        expect(html).toContain('/demo/ejemplo-inspeccion.jpg');
+        expect(html).toContain('Diez idiomas, en cualquier dirección');
+        expect(html).toContain('También para');
+        expect(html).toContain('id="plans"');
+        expect(html).toContain('<title>Subtítulos traducidos para tus videos, con tu voz | Vistavo</title>');
+        expect(html).toContain('Desde US$1 por 10 minutos de video.');
+        expect(html).toContain('data-site-menu');
+        expect(html).toContain('todavía no ofrece una cotización previa');
+        expect(html).not.toContain('Antes de procesar ves el consumo previsto');
+        expect(html).not.toContain('Si grabas en español, puedes subtitular en:');
+
+        expect(html.match(/data-faq-category=/g)).toHaveLength(16);
         expect(html.match(/data-scene-panel=/g)).toHaveLength(4);
         expect(html).not.toContain('{{');
         expect(html).not.toMatch(/\sstyle="/);
@@ -26,20 +36,18 @@ describe('pilot language packages', () => {
         expect(html).toContain('content="noindex"');
         continue;
       }
-      expect(html.match(/class="pricing-plan(?: is-featured)?"/g)).toHaveLength(3);
-      expect(html.match(/data-faq-category=/g)).toHaveLength(17);
+      expect(html).toContain('class="claude-landing"');
+      expect(html).toContain('.claude-landing:lang(ar) .lsel .lg');
+      expect(html.match(/class="pnum"/g)).toHaveLength(3);
+      expect(html.match(/data-faq-category=/g)).toHaveLength(16);
       expect(html.match(/data-scene-panel=/g)).toHaveLength(4);
+      expect(html.match(/data-illustrative-video=/g)).toHaveLength(8);
+      expect(html.match(/data-step-target=/g)).toHaveLength(3);
       expect(html).toContain('/pilot/editor-assets/commercialLanding.js');
       expect(html).not.toMatch(/\sstyle="/);
-      expect(html).toContain('class="roof-story" aria-labelledby="roof-title"');
-      expect(html.match(/class="roof-step-number"/g)).toHaveLength(3);
-      expect(html).toContain('srclang="en"');
-      for (const anchor of ['uses', 'how', 'plans']) {
-        expect(html).toContain('id="' + anchor + '"');
-        if (anchor !== 'uses') expect(html).toContain('href="#' + anchor + '"');
-      }
-      expect(html).toContain('30');
-      expect(html).toContain(packageCopy[language.locale][2]);
+      for (const anchor of ['uses', 'how', 'plans']) expect(html).toContain('id="' + anchor + '"');
+      expect(html).toContain('/demo/ejemplo-inspeccion.jpg');
+      expect(html).toContain('/demo/uso-taller.jpg');
       expect(html).toContain('/demo/jobsite.srt');
       expect(html).toContain('/pilot/demo/?lang=');
       expect(html).toContain('content="noindex"');

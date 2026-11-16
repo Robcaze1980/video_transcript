@@ -4,6 +4,7 @@ export default {
   "dir": "ltr",
   "name": "Deutsch",
   "messages": {
+    "unknown": "Ergebnis wird überprüft. Keine automatische Wiederholung.",
     "videoBalance": "Testguthaben für Videos",
     "balanceTime": "$1 verfügbar · $2 reserviert",
     "selectPackage": "Minutenpaket",
@@ -174,7 +175,7 @@ export default {
     "paypalWebPreparing": "Testzahlung wird vorbereitet…",
     "paypalWebContinue": "Weiter zu PayPal Sandbox",
     "paypalWebDetails": "Erhalten Sie 5 Guthaben mit einer Testzahlung über 4,95 USD.",
-    "paypalWebBack": "Zurück zu LinguistVision",
+    "paypalWebBack": "Zurück zu Vistavo",
     "badDuration": "Die Videodauer konnte nicht gelesen werden.",
     "fileLimit": "Wählen Sie eine Datei bis 1 MiB.",
     "videoLimit": "Wählen Sie ein Video mit bis zu 30 Sekunden Länge.",

@@ -1,0 +1,67 @@
+{
+  "hosting": {
+    "site": "vistavo-prod",
+    "public": "outputs/vistavo-public/site",
+    "ignore": [
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "trailingSlash": true,
+    "redirects": [
+      {
+        "source": "/",
+        "destination": "/es-419/subtitulos-video/",
+        "type": 302
+      }
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Content-Security-Policy",
+            "value": "default-src 'self'; script-src 'self'; style-src 'sha256-QUqpz7oHZu6gfqJB+6gWE/EViNoONG7dVi2y5wkK+GE=' 'sha256-U40L1rSJIZ0Xvah8lZUCvWUrZV7x/W1YYZrbBdFzlmg='; img-src 'self' data:; font-src 'self'; media-src 'self'; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          },
+          {
+            "key": "X-Robots-Tag",
+            "value": "noindex"
+          },
+          {
+            "key": "Permissions-Policy",
+            "value": "camera=(), microphone=(), geolocation=()"
+          },
+          {
+            "key": "Cache-Control",
+            "value": "public,max-age=0,must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "**/*.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public,max-age=0,must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "**/*.@(js|jpg|webp|mp4|ttf|svg|png|ico)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public,max-age=3600"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -20,6 +20,8 @@ firebase-debug.*
 *service-account*.json
 application_default_credentials.json
 .firebase.env
+.firebase.*.env
+*firebase*credentials*.json
 .openrouter-key.txt
 .codex-remote-attachments/
 private-files/
@@ -27,6 +29,9 @@ validation/
 releases/
 *.dump
 *.backup
+
+# Compiled standalone account API (reproduced from source)
+/account-dist/
 
 # Local AI Studio state and imported prompt history
 .aistudio/

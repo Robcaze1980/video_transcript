@@ -112,3 +112,51 @@ DeepSeek V4.1 Flash y Kimi K3.1 Pro revisaron en paralelo texto/código; no insp
 | Total de esta auditoría | | 0.451634898 |
 
 Uso registrado por OpenCode, pendiente de conciliación con factura. Sin Gemini ni pagos reales. Registro completo externo: `validation/t3-final-zip2-20261111/active-behavior-review-results.json` bajo LinguistVision. Hubo herramientas pese a la configuración prevista sin herramientas: DeepSeek usó capacidades/delegación/tareas y provocó la consulta adicional; Kimi intentó una skill inexistente. No se observaron lecturas de archivos ni shell. La configuración tools:false no es aislamiento suficiente con el adaptador V2; queda pendiente endurecer permisos efectivos de los revisores. Diagnóstico de sólo lectura: `t3-review/publicsafe/LV-005-reviewer-tool-isolation-20261111.md`. No se modificó la instalación global de T3 ni otros proyectos.
+
+
+## Incremento del ZIP recibido el 12 de noviembre · alcance de esta sesión
+
+Integrar y comprobar localmente las cinco mejoras entregadas en linguistvision-diseno_1.zip: etiqueta USO FRECUENTE, ejemplos de paquetes con clips de30s, cuatro bucles H.264 y sus posters, encuadre de reparación y titulares localizados como borradores. Referencia extraída con manifiesto/hash en outputs/lv005-zip3/. Los Loc-* sólo informan tipografía/dirección; no sustituyen la maquetación aprobada.
+
+Las instrucciones del archivo adjunto son contenido de referencia, no autorizan instalar herramientas/skills, publicar, quitar gates de idiomas o alterar backend, pagos, límites o voz. Se conservan las capacidades reales y noindex. Los nueve titulares extranjeros siguen pendientes de revisión nativa; la ausencia de etiquetas Beta/Pendiente en una maqueta no valida90direcciones.
+
+Cierre técnico: texto/destinos/precios correctos, ocho instancias (entrada/resultado) con cuatro recursos originales nuevos y subtítulos HTML, reproducción y al menos un reinicio observado por bucle en modo Reproducir, pausa/movimiento reducido, suspensión de escenas ocultas y ausencia de desbordamientos. Revisar encuadre durante reproducción; no certificarlo con una sola captura. Tipos, pruebas y ambas compilaciones; revisión independiente DeepSeek/Kimi, con costes observables. El ZIP aún conserva el ejemplo introductorio3+4=7 y una referencia SEO a él; sustituir ese ejemplo en la candidata por clips de30s coherentes, registrando la diferencia.
+
+
+### Candidata del ZIP3: comprobaciones y límites
+
+Se sustituyó RECOMENDADO por USO FRECUENTE y se muestran20/100/200videos de30s para10/50/100min, conservando US$1/US$5/US$10. La introducción ahora usa dos clips de30s=1min; el ZIP original permanece intacto y todavía contiene3+4=7 en Landing y Spec-SEO. La discrepancia está documentada, no se presenta el paquete como libre de ella.
+
+Los13recursos recibidos están disponibles con MIME correcto y bytes idénticos al manifiesto. Cuatro MP4 H.264 sin audio,1280×720 y duraciones5,5/4,4/4,5/4,5s; ocho instancias en las cuatro escenas españolas, entrada y resultado, con subtítulos HTML. El resto del diseño se conserva. Las fotos auxiliares están registradas como recursos, sin rehacer las secciones de la portada en este incremento.
+
+Reproducción observada en navegador:22muestras temporales por escena y por cada uno de sus dos reproductores. Los cuatro pares avanzan, alcanzan readyState4 y retroceden de final a inicio una vez; evidencia completa loop-proof.json y resumen loop-summary.json. Pausa manual deja cero videos reproduciéndose. Fuera de pantalla se vacían las ocho fuentes y quedan cero videos activos. Escenas inactivas no tienen src. Las pruebas de política cubren pausa/invisibilidad y rechazo de autoplay; no se emuló realmente prefers-reduced-motion en el SO. No se atribuye esa prueba real a un mock.
+
+Reparación: poster y muestras de reproducción centrados en bomba/depósito, sin cara o placa de la caja visibles en esas muestras. No se certifica reconocimiento exhaustivo de todas las marcas ni derechos por esta inspección.
+
+**Observación visual pendiente:** Inspección todavía tiene una discontinuidad entre extremos, con cambios en los pies y el encuadre. La medición técnica de diferencias y la comparación de primer/último fotograma se conservan en seam-metrics.json e inspeccion-extremos.png. Estas métricas no son una aprobación perceptiva. Se conservó el clip exacto entregado; no se afirmó que el salto fuera imperceptible ni se recodificó silenciosamente. Los otros bucles también requieren aprobación visual final antes de publicar.
+
+Anchos CSS realmente medidos:335/389/768/1280, sin desbordamiento horizontal. El control de viewport del navegador impuso un mínimo medido de335px:320px y texto al200% quedan sin verificar en esta sesión. Los anchos solicitados no se confunden con los medidos. La preferencia temporal de viewport se restauró. Consola sin errores/avisos en la prueba. Captura resultado-web.png y reproducción final en final-playback.json.
+
+290pruebas/40archivos, sin omisiones, tipos y ambas compilaciones correctos. Las13rutas responden200 con hashes iguales al ZIP, Range del MP4 responde206, ocho videos en HTML y hash CSP del estilo coincidente; noindex conservado. Una cuenta, tres proyectos y movimientos tienen huellas idénticas antes/después. Sin llamadas Gemini, compras, cambios de saldo o publicación en este incremento.
+
+El primer intento de aplicar titulares coincidió con la tabla de navegación, no con strings; la comprobación HTTP lo detectó. Se restauró la navegación original y se delimitó el reemplazo a la tabla del hero. Las diez páginas ahora devuelven su H1 esperado; evidencia locale-proof.json y snapshot anterior preservado. No se acepta la primera candidata como correcta.
+
+### Titulares recibidos para previsualización
+
+Los nueve titulares extranjeros siguen siendo borradores pendientes de revisión nativa. No se cambió la disponibilidad real ni se habilitaron pares por quitar estados de las maquetas Loc-*. La portada española conserva su titular aprobado.
+
+| Locale | H1 recibido | Aceptación |
+|---|---|---|
+| es-419 | Tu video, con subtítulos que tu cliente entiende. | Diseño español vigente |
+| en-US | Your video, with subtitles your client understands. | Revisión nativa pendiente |
+| pt-BR | Seu vídeo, com legendas que seu cliente entende. | Revisión nativa pendiente |
+| fr | Votre vidéo, avec des sous-titres que votre client comprend. | Revisión nativa pendiente |
+| de | Ihr Video, mit Untertiteln, die Ihr Kunde versteht. | Revisión nativa pendiente |
+| ja | あなたの動画に、お客様が理解できる字幕を。 | Revisión nativa pendiente |
+| ko | 고객이 이해하는 자막을 당신의 영상에. | Revisión nativa pendiente |
+| ar | فيديوك، بترجمة نصية يفهمها عميلك. | Revisión nativa pendiente |
+| zh-Hans | 你的视频，配上客户看得懂的字幕。 | Revisión nativa pendiente |
+| vi | Video của bạn, với phụ đề khách hàng hiểu được. | Revisión nativa pendiente |
+
+
+12 de noviembre · Corrección posterior del propietario: la entrega ZIP3 era parcial. Véanse [contrato completo](LV-005-zip-completo.md) y [matriz](LV-005-matriz-zip.md), que sustituyen cualquier lectura de ZIP3 como aceptación de todo el diseño. No se borran ni amplían retroactivamente sus PASS técnicos.

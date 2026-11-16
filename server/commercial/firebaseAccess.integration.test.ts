@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { Pool } from 'pg';
 import { expect, it } from 'vitest';
 import type { DecodedIdToken } from 'firebase-admin/auth';
@@ -84,6 +85,16 @@ it.skipIf(!database)('protects Firebase sessions, verified UID ownership, concur
     expect((await call('api/account', undefined, ownerCookie)).status).toBe(401);
     expect((await fetch(video, { headers: { cookie: ownerCookie, range: 'bytes=0-15' } })).status).toBe(401);
     expect((await call('api/account', undefined, otherCookie)).status).toBe(200);
+    const attemptFrom = (localAddress: string, idToken: string, forwarded?: string) => new Promise<number>((resolve, reject) => {
+      const req = httpRequest(origin + '/pilot/auth/session/', {
+        method: 'POST', localAddress, headers: { origin, 'content-type': 'application/json',
+          ...(forwarded ? { 'x-forwarded-for': forwarded, forwarded: 'for=' + forwarded } : {}) },
+      }, res => { res.resume(); res.on('end', () => resolve(res.statusCode!)); });
+      req.on('error', reject); req.end(JSON.stringify({ idToken }));
+    });
+    for (let i = 0; i < 30; i++) expect(await attemptFrom('127.0.0.2', 'forged')).toBe(401);
+    expect(await attemptFrom('127.0.0.2', 'other', '127.0.0.3')).toBe(429);
+    expect(await attemptFrom('127.0.0.3', 'other')).toBe(200);
     expect((await call('register/?lang=ar')).headers.get('content-security-policy')).toContain('identitytoolkit.googleapis.com');
     expect((await call('sign-in/?lang=es')).headers.get('content-security-policy')).toContain("script-src 'self' 'wasm-unsafe-eval' https://apis.google.com;");
     expect(await (await call('register/?lang=ar')).text()).toContain('firebaseAuth.js');

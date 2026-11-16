@@ -1,3 +1,8 @@
+import {PipelineVoiceService} from './pipelineVoiceService';
+import {GeminiVoiceProvider} from './pipelineVoiceProvider';
+import { PipelineTextService } from './pipelineTextService';
+import { CommercialJobs } from './jobs';
+import { createGeminiTextProvider } from './pipelineTextProvider';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -123,6 +128,10 @@ async function main() {
       }
       await client.query(await readFile(new URL('./privateInputMigration.sql', import.meta.url), 'utf8'));
       await client.query(await readFile(new URL('./privateUploads.sql', import.meta.url), 'utf8'));
+      await client.query(await readFile(new URL('./pipelineMigration.sql', import.meta.url), 'utf8'));
+      await client.query(await readFile(new URL('./pipelineTextMigration.sql', import.meta.url), 'utf8'));
+      await client.query(await readFile(new URL('./migrations/0016c_voice.sql', import.meta.url), 'utf8'));
+      await client.query(await readFile(new URL('./migrations/0017_reliability.sql', import.meta.url), 'utf8'));
       if (previewLaunchLanguages || commercialPreview) {
         await client.query(await readFile(new URL('./pilotLanguageRequestsMigration.sql', import.meta.url), 'utf8'));
       }
@@ -146,11 +155,21 @@ async function main() {
       if (useGemini || error.code !== 'ENOENT') throw error;
       return undefined;
     });
+    const uploads = privateStorage ? new ResumableUploads(pool, new PrivateFileStore(privateStorage)) : undefined;
+    const textEnabled = process.env.LINGUISTVISION_TEXT_PIPELINE === '1';
+    if (textEnabled && (!geminiKey || !uploads || !payments.simulateApproval)) throw new Error('Configure private text pipeline with simulated payments.');
+    const textPipeline = textEnabled ? new PipelineTextService(pool,new CommercialJobs(pool,new Map(),uploads!),
+      createGeminiTextProvider(geminiKey!, event => console.log(JSON.stringify({type:'text-usage',...event as object})))) : undefined;
+    const voiceEnabled = process.env.LINGUISTVISION_VOICE_PIPELINE === '1';
+    if (voiceEnabled && (!textEnabled || !geminiKey || !privateStorage || !payments.simulateApproval)) throw new Error('Configure private voice pipeline with simulated payments.');
+    const voicePipeline = voiceEnabled ? new PipelineVoiceService(pool,new CommercialJobs(pool,new Map(),uploads!),
+      new PrivateFileStore(privateStorage!+'-voice'),new GeminiVoiceProvider({apiKey:geminiKey!,
+        onUsage:event=>console.log(JSON.stringify({type:'voice-usage',...event}))})) : undefined;
     const pilot = await startPilot({
       pool, invitations: commercialPreview ? new Map() : new Map([[invitation!, accountId!]]), services, payments,
       paypalWebClientId: usePayPalWebSdk && !payments.simulateApproval ? testKey : undefined,
       port: 3001, editorAssets, previewLaunchLanguages, previewConversionAttribution,
-      uploads: privateStorage ? new ResumableUploads(pool, new PrivateFileStore(privateStorage)) : undefined,
+      uploads, textPipeline, voicePipeline,
       commercialPreview: firebase ? { firebase } : supabase ? { supabase } : commercialPreview && outbox ? {
         sendAccessCode: message => writeFile(join(outbox, randomUUID() + '.json'), JSON.stringify(message),
           { flag: 'wx', mode: 0o600 }),

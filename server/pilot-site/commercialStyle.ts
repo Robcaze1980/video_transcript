@@ -1,4 +1,5 @@
 import { claudeLandingEsStyle } from './claudeLandingEs';
+import { localizedLandingStyle } from './localizedLandingStyle';
 import { commercialV2Style } from './commercialV2Style';
 const commercialBaseStyle = `
 :root{color-scheme:light;--paper:#fff;--wash:#f7f8fa;--ink:#111827;--soft:#4b5563;--line:#e5e7eb;--field:#8a919c;--accent:#0f6b45;--accent-hover:#0a4d32;--selection:#eaf5ee;font:100%/1.55 "Inter",system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -125,4 +126,4 @@ body.commercial{margin:0;background:var(--paper);color:var(--ink);font:1rem/1.55
 @media(prefers-reduced-motion:reduce){.commercial *,.commercial *::before,.commercial *::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 `;
 
-export const commercialStyle = commercialBaseStyle + commercialV2Style + claudeLandingEsStyle;
+export const commercialStyle = commercialBaseStyle + commercialV2Style + claudeLandingEsStyle + localizedLandingStyle;

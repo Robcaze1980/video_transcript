@@ -5,12 +5,12 @@ import { commercialLocale } from './commercialPages';
 import { firebaseIdentity, verifiedFirebaseUser, type FirebaseAccessConfig } from './firebaseAccess';
 import { firebaseCopy } from './firebaseCopy';
 import { renderAccountAccess, type AccessPage } from './accountPages';
+import { PeerLoginLimiter } from './loginLimiter';
 
 export function createFirebaseRoutes(config: FirebaseAccessConfig, accounts: ReturnType<typeof createAccountAccess>,
   cookie: string, readJson: (req: IncomingMessage) => Promise<Record<string, unknown>>) {
   const { identity, app } = firebaseIdentity(config);
-  let requestCount = 0;
-  let resetLimit = 0;
+  const sessionAttempts = new PeerLoginLimiter(30);
   const decode = async (token?: string) => {
     if (!token || token.length > 7000) return;
     try {
@@ -53,8 +53,7 @@ export function createFirebaseRoutes(config: FirebaseAccessConfig, accounts: Ret
         res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"ok":true}');
         return true;
       }
-      if (Date.now() >= resetLimit) { requestCount = 0; resetLimit = Date.now() + 60_000; }
-      if (requestCount++ >= 30) { res.writeHead(429).end(); return true; }
+      if (!sessionAttempts.take(req.socket.remoteAddress)) { res.writeHead(429).end(); return true; }
       const { idToken } = await readJson(req);
       if (typeof idToken !== 'string' || !idToken.length || idToken.length > 7000) { res.writeHead(401).end(); return true; }
       try {

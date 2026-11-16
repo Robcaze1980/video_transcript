@@ -7,8 +7,8 @@ type CommercialCopy = readonly [
 
 export const commercialCopy: Partial<Record<string, CommercialCopy>> = {
   'es-419': [
-    'Subtítulos traducidos para videos de trabajo',
-    'Añade subtítulos en inglés a tus inspecciones grabadas en español. Revisa la traducción y descarga SRT conservando tu voz original. Traducción en beta.',
+    'Subtítulos traducidos para tus videos, con tu voz',
+    'Conserva tu voz. Traduce los subtítulos, revisa cada frase y descarga SRT o MP4. Desde US$1 por 10 minutos de video.',
     'Crear cuenta', 'Iniciar sesión', 'Probar el editor', 'Demostración sintética. Audio y subtítulos en inglés.', 'Descargar SRT de muestra',
     'Videos que tu equipo necesita entender', 'Obra · Explica cómo mantener despejado un pasillo.',
     'Capacitación · Corrige los nombres de herramientas en un tutorial.',

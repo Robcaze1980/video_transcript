@@ -4,6 +4,7 @@ export default {
   "dir": "ltr",
   "name": "普通话",
   "messages": {
+    "unknown": "结果正在核实，不会自动重试。",
     "videoBalance": "视频测试余额",
     "balanceTime": "可用 $1 · 已预留 $2",
     "selectPackage": "分钟套餐",
@@ -174,7 +175,7 @@ export default {
     "paypalWebPreparing": "正在准备测试支付…",
     "paypalWebContinue": "继续前往 PayPal Sandbox",
     "paypalWebDetails": "通过 4.95 美元的测试支付获取 5 个积分。",
-    "paypalWebBack": "返回 LinguistVision",
+    "paypalWebBack": "返回 Vistavo",
     "badDuration": "无法读取视频时长。",
     "fileLimit": "请选择最大 1 MiB 的文件。",
     "videoLimit": "请选择最长 30 秒的视频。",

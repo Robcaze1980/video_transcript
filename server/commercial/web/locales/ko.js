@@ -4,6 +4,7 @@ export default {
   "dir": "ltr",
   "name": "한국어",
   "messages": {
+    "unknown": "결과를 확인 중입니다. 자동으로 재시도하지 않습니다.",
     "videoBalance": "테스트 영상 잔액",
     "balanceTime": "사용 가능 $1 · 예약 $2",
     "selectPackage": "분 단위 이용권",
@@ -174,7 +175,7 @@ export default {
     "paypalWebPreparing": "테스트 결제 준비 중…",
     "paypalWebContinue": "PayPal Sandbox로 계속",
     "paypalWebDetails": "USD 4.95 테스트 결제로 크레딧 5개 받기.",
-    "paypalWebBack": "LinguistVision으로 돌아가기",
+    "paypalWebBack": "Vistavo으로 돌아가기",
     "badDuration": "동영상 길이를 읽을 수 없습니다.",
     "fileLimit": "최대 1 MiB의 파일을 선택하세요.",
     "videoLimit": "최대 30초 길이의 동영상을 선택하세요.",

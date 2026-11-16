@@ -1,16 +1,15 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { PilotStyle, SubtitlePreset } from './pilotStyles';
 import type { SavedHighlights } from './pilotHighlights';
 
 type Options = Record<string, unknown>;
 export interface FileInput { id: string; path: string; size: number; name: string; expiresAt: Date;
-  metadata: { duration: number; width: number; height: number; audioTracks: number } }
+  metadata: { duration: number; width: number; height: number; audioTracks: number; sha256?: string } }
 export interface JobFiles {
   get(accountId: string, id: string): Promise<FileInput>;
   abort(accountId: string, id: string): Promise<unknown>;
   getWithClient(client: PoolClient, accountId: string, id: string): Promise<FileInput>;
-  abortWithClient(client: PoolClient, accountId: string, id: string): Promise<unknown>;
   purgeExpired(): Promise<{ deleted: number; failed: number }>;
 }
 
@@ -33,7 +32,7 @@ interface Job {
   service: string;
   options: Options;
   price: number;
-  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
   attempts: number;
   max_attempts: number;
 }
@@ -51,6 +50,9 @@ export class JobError extends Error {
 }
 
 export class RetryableJobError extends Error {}
+
+/** A provider may have performed the operation. Never automatically repeat it. */
+export class JobOutcomeUnknown extends Error {}
 
 export class CommercialJobs {
   private readonly activeAttempts = new Map<string, AbortController>();
@@ -152,9 +154,9 @@ export class CommercialJobs {
   async subtitleProject(accountId: string, id: string) {
     const { rows: [project] } = await this.pool.query<{
       draft: string; originalDraft: string | null; style: PilotStyle | null; duration: number; revision: number;
-      highlights: SavedHighlights;
+      highlights: SavedHighlights; segmentIds: Record<string,string[]> | null;
     }>(
-      `SELECT p.draft,p.original_draft AS "originalDraft",p.subtitle_style AS style,p.duration,p.revision,p.highlights
+      `SELECT p.draft,p.original_draft AS "originalDraft",p.subtitle_style AS style,p.duration,p.revision,p.highlights,p.segment_ids AS "segmentIds"
        FROM subtitle_projects p JOIN inputs i USING (id,account_id)
        WHERE p.id=$1 AND p.account_id=$2 AND (i.content IS NOT NULL OR i.private_upload_id IS NOT NULL) AND i.expires_at>clock_timestamp()`, [id, accountId],
     );
@@ -170,7 +172,7 @@ export class CommercialJobs {
   }
 
   async saveSubtitleProject(accountId: string, id: string, revision: number, draft: string | undefined, originalDraft?: string | null,
-    style?: PilotStyle | null, highlights?: SavedHighlights) {
+    style?: PilotStyle | null, highlights?: SavedHighlights, segmentIds?: Record<string,string[]>) {
     const { rows: [project] } = await this.pool.query<{ revision: number }>(
       `UPDATE subtitle_projects p SET draft=COALESCE($4,p.draft), original_draft=CASE WHEN $5 THEN $6 ELSE p.original_draft END,
        subtitle_style=CASE WHEN $7 THEN $8 ELSE p.subtitle_style END,
@@ -178,11 +180,13 @@ export class CommercialJobs {
          SELECT track FROM (VALUES ('translated', $4 IS NOT NULL AND $4 IS DISTINCT FROM p.draft),
            ('original', $5 AND $6 IS DISTINCT FROM p.original_draft)) AS tracks(track, changed) WHERE changed
        )) || COALESCE($9::jsonb, '{}'::jsonb),
+       segment_ids=CASE WHEN $10::jsonb IS NOT NULL THEN $10::jsonb
+         WHEN ($4 IS NOT NULL AND $4 IS DISTINCT FROM p.draft) OR ($5 AND $6 IS DISTINCT FROM p.original_draft) THEN NULL ELSE p.segment_ids END,
        revision=p.revision+1, updated_at=clock_timestamp() FROM inputs i
        WHERE p.id=$1 AND p.account_id=$2 AND p.revision=$3 AND i.id=p.id AND i.account_id=p.account_id
        AND (i.content IS NOT NULL OR i.private_upload_id IS NOT NULL) AND i.expires_at>clock_timestamp() RETURNING p.revision`,
       [id, accountId, revision, draft ?? null, originalDraft !== undefined, originalDraft ?? null, style !== undefined, style ?? null,
-        highlights ?? null],
+        highlights ?? null, segmentIds ?? null],
     );
     return project;
   }
@@ -291,6 +295,8 @@ export class CommercialJobs {
         if (!existing.matches) throw new JobError('conflict', 'This request key belongs to another job.');
         return existing.id;
       }
+      const unresolved = await client.query("SELECT 1 FROM jobs WHERE account_id=$1 AND input_id=$2 AND state='unknown'", [accountId, inputId]);
+      if (unresolved.rowCount) throw new JobError('conflict', 'The previous operation requires reconciliation before retrying.');
       const adapter = this.adapters.get(service);
       if (!adapter) throw new JobError('not_found', 'Service not found.');
       const { rows: [input] } = await client.query<{ content: Buffer; private_upload_id: string }>(
@@ -300,10 +306,15 @@ export class CommercialJobs {
       );
       if (!input) throw new JobError('not_found', 'Input not found.');
       let price = adapter.price;
+      let fingerprint = input.content ? createHash('sha256').update(input.content).digest('hex') : null;
       try {
         if (input.private_upload_id) {
           if (!this.files || !adapter.validateFile || !adapter.measureFilePrice || !adapter.executeFile) throw new Error('Large video processing is not available for this service.');
           const file = await this.files.getWithClient(client, accountId, input.private_upload_id);
+          if (!file.metadata.sha256 || !/^[a-f0-9]{64}$/.test(file.metadata.sha256)) {
+            throw new Error('Private upload fingerprint is unavailable.');
+          }
+          fingerprint = file.metadata.sha256;
           adapter.validateFile(file, JSON.parse(encoded) as Options);
           price = await adapter.measureFilePrice(file);
         } else {
@@ -316,13 +327,14 @@ export class CommercialJobs {
       if (!Number.isSafeInteger(price) || price < 1) throw new Error('Invalid service price.');
       if (available < price) throw new JobError('insufficient_credits', 'Insufficient available credits.');
       const active = await client.query(
-        "SELECT 1 FROM jobs WHERE account_id=$1 AND state IN ('queued','running') OFFSET 2 LIMIT 1", [accountId],
+        "SELECT 1 FROM jobs WHERE account_id=$1 AND state IN ('queued','running','unknown') OFFSET 2 LIMIT 1", [accountId],
       );
       if (active.rowCount) throw new JobError('conflict', 'La cuenta ya tiene tres trabajos activos.');
       const id = randomUUID();
       await client.query(
-        'INSERT INTO jobs(id,account_id,input_id,request_key,service,options,price,max_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,3)',
-        [id, accountId, inputId, requestKey, service, encoded, price]
+        'INSERT INTO jobs(id,account_id,input_id,request_key,service,options,price,max_attempts,input_sha256) VALUES ($1,$2,$3,$4,$5,$6,$7,3,$8)',
+        [id, accountId, inputId, requestKey, service, encoded, price,
+          fingerprint]
       );
       await client.query('UPDATE accounts SET available=available-$2, reserved=reserved+$2 WHERE id=$1', [accountId, price]);
       await this.record(client, 'reserve', id, accountId, price);
@@ -437,13 +449,13 @@ export class CommercialJobs {
   }
 
   async claim(): Promise<Attempt | null> {
+    await this.reapExpired();
     const { rows } = await this.pool.query<Attempt>(
       `WITH next_job AS (
-         SELECT id FROM jobs WHERE attempts<max_attempts AND (
-           (state='queued' AND ready_at<=clock_timestamp())
-           OR (state='running' AND lease_until<=clock_timestamp())
-         )
-         ORDER BY ready_at,id LIMIT 1 FOR UPDATE SKIP LOCKED
+         SELECT j.id FROM jobs j JOIN inputs i ON i.id=j.input_id AND i.account_id=j.account_id
+         WHERE j.attempts<j.max_attempts AND j.state='queued' AND j.ready_at<=clock_timestamp()
+           AND i.expires_at>clock_timestamp() AND (i.content IS NOT NULL OR i.private_upload_id IS NOT NULL)
+         ORDER BY j.ready_at,j.id LIMIT 1 FOR UPDATE OF j SKIP LOCKED
        )
        UPDATE jobs SET state='running', attempts=attempts+1, attempt_id=$1,
          lease_until=clock_timestamp()+interval '30 seconds'
@@ -483,24 +495,69 @@ export class CommercialJobs {
 
   async cancel(accountId: string, jobId: string) {
     const cancelled = await this.finish(accountId, jobId, 'cancelled');
-    if (cancelled) this.activeAttempts.get(jobId)?.abort();
-    return cancelled;
+    if (cancelled) return true;
+    const {rowCount} = await this.pool.query(
+      `UPDATE jobs SET state='unknown',unknown_attempt_id=attempt_id,quarantined_at=clock_timestamp(),attempt_id=NULL,lease_until=NULL
+       WHERE id=$1 AND account_id=$2 AND state='running'`,[jobId,accountId]);
+    if (rowCount) this.activeAttempts.get(jobId)?.abort();
+    return rowCount === 1;
+  }
+
+  /** Preserve the reservation until a trusted operator verifies the remote outcome. No HTTP route exposes this. */
+  async quarantine(attempt: Attempt) {
+    const { rowCount } = await this.pool.query(
+      `UPDATE jobs SET state='unknown',unknown_attempt_id=attempt_id,quarantined_at=clock_timestamp(),attempt_id=NULL,lease_until=NULL
+       WHERE id=$1 AND account_id=$2 AND state='running' AND attempt_id=$3`,
+      [attempt.id, attempt.account_id, attempt.attempt_id]);
+    return rowCount === 1;
+  }
+
+  /** Trusted reconciliation only, after verifying provider evidence. Not exposed through customer HTTP routes. */
+  async reconcileUnknown(accountId: string, jobId: string, outcome: 'failed' | 'succeeded',
+    evidence: string, artifacts?: JobArtifacts) {
+    if (typeof evidence !== 'string' || !evidence.trim() || evidence.length > 500 ||
+        !['failed','succeeded'].includes(outcome)) throw new JobError('invalid_input', 'Provider evidence is required.');
+    if (outcome === 'succeeded' && (!artifacts || !Buffer.isBuffer(artifacts.result) ||
+        artifacts.result.length < 1 || artifacts.result.length > 1048576 ||
+        (artifacts.original !== undefined && (!Buffer.isBuffer(artifacts.original) || artifacts.original.length < 1 || artifacts.original.length > 65536)))) {
+      throw new JobError('invalid_input', 'A valid reconciled result is required.');
+    }
+    return this.transaction(async client => {
+      await this.lockAccount(client, accountId);
+      await client.query('SELECT i.id FROM inputs i JOIN jobs j ON j.input_id=i.id WHERE j.id=$1 AND j.account_id=$2 FOR UPDATE OF i', [jobId,accountId]);
+      await client.query('SELECT id FROM jobs WHERE id=$1 AND account_id=$2 FOR UPDATE', [jobId,accountId]);
+      const {rows:[job]} = await client.query<{price:number;state:string}>(
+        `WITH verified AS MATERIALIZED (
+           SELECT ($3='succeeded' AND i.expires_at>clock_timestamp()) AS deliverable
+           FROM inputs i JOIN jobs j ON j.input_id=i.id WHERE j.id=$1 AND j.account_id=$2
+         ) UPDATE jobs SET state=CASE WHEN verified.deliverable THEN 'succeeded' ELSE 'failed' END,
+           reconciliation_ref=$4,result=CASE WHEN verified.deliverable THEN $5::bytea ELSE NULL END,
+           original_result=CASE WHEN verified.deliverable THEN $6::bytea ELSE NULL END FROM verified
+         WHERE id=$1 AND account_id=$2 AND state='unknown'
+         RETURNING price,jobs.state`, [jobId,accountId,outcome,evidence,outcome==='succeeded'?artifacts!.result:null,
+          outcome==='succeeded'?artifacts!.original??null:null]);
+      if (!job) return false;
+      await client.query(job.state==='succeeded'
+        ? 'UPDATE accounts SET reserved=reserved-$2,consumed=consumed+$2 WHERE id=$1'
+        : 'UPDATE accounts SET reserved=reserved-$2,available=available+$2 WHERE id=$1', [accountId,job.price]);
+      await this.record(client,job.state==='succeeded'?'capture':'release',jobId,accountId,job.price);
+      return true;
+    });
   }
 
   async reapExpired() {
     const { rows } = await this.pool.query<{ id: string; account_id: string }>(
-      `SELECT id,account_id FROM jobs WHERE state='running' AND attempts=max_attempts
-       AND lease_until<=clock_timestamp() ORDER BY lease_until LIMIT 100`
-    );
+      `SELECT j.id,j.account_id FROM jobs j JOIN inputs i ON i.id=j.input_id AND i.account_id=j.account_id
+       WHERE j.state='queued' AND i.expires_at<=clock_timestamp() ORDER BY j.ready_at,j.id LIMIT 100`);
     let recovered = 0;
-    for (const job of rows) {
-      if (await this.finish(job.account_id, job.id, 'failed')) recovered++;
-    }
-    return recovered;
+    for (const job of rows) if (await this.finish(job.account_id, job.id, 'failed')) recovered++;
+    const { rowCount } = await this.pool.query(
+      `UPDATE jobs SET state='unknown',unknown_attempt_id=attempt_id,quarantined_at=clock_timestamp(),attempt_id=NULL,lease_until=NULL
+       WHERE state='running' AND lease_until<=clock_timestamp()`);
+    return recovered + (rowCount ?? 0);
   }
 
   async runOnce() {
-    await this.reapExpired();
     const attempt = await this.claim();
     if (!attempt) return false;
     const controller = new AbortController();
@@ -508,13 +565,16 @@ export class CommercialJobs {
     const heartbeat = setInterval(() => {
       void this.renew(attempt).then(renewed => {
         if (!renewed) controller.abort();
-      }).catch(() => undefined);
+      }).catch(() => { controller.abort(); void this.quarantine(attempt).catch(() => undefined); });
     }, 10_000);
     try {
       let output: Buffer | JobArtifacts;
       try {
         const adapter = this.adapters.get(attempt.service);
         if (!adapter) throw new Error('The job adapter is unavailable.');
+        const live = await this.pool.query('SELECT 1 FROM inputs WHERE id=$1 AND account_id=$2 AND expires_at>clock_timestamp() AND (content IS NOT NULL OR private_upload_id IS NOT NULL)',
+          [attempt.input_id,attempt.account_id]);
+        if (!live.rowCount) { await this.fail(attempt,false); return true; }
         if (attempt.private_upload_id) {
           if (!this.files || !adapter.executeFile) throw new Error('Private storage is unavailable.');
           output = await adapter.executeFile(await this.files.get(attempt.account_id, attempt.private_upload_id), attempt.options, attempt.id, controller.signal);
@@ -523,10 +583,15 @@ export class CommercialJobs {
         if (result.length < 1 || result.length > 1048576) throw new Error('Invalid result size.');
         if (original && (original.length < 1 || original.length > 65536)) throw new Error('Invalid original subtitle size.');
       } catch (error) {
-        await this.fail(attempt, error instanceof RetryableJobError);
+        if (controller.signal.aborted || error instanceof JobOutcomeUnknown) await this.quarantine(attempt);
+        else await this.fail(attempt, error instanceof RetryableJobError);
         return true;
       }
-      await this.publish(attempt, output);
+      if (controller.signal.aborted) await this.quarantine(attempt);
+      else await this.publish(attempt, output);
+    } catch {
+      // If persistence failed after the provider ran, preserve uncertainty instead of repeating the operation.
+      await this.quarantine(attempt);
     } finally {
       clearInterval(heartbeat);
       this.activeAttempts.delete(attempt.id);
@@ -539,9 +604,9 @@ export class CommercialJobs {
     return this.transaction(async client => {
       await this.lockAccount(client, accountId);
       // Finish all lock waits before evaluating expiration at the actual terminal update.
-      await client.query('SELECT 1 FROM jobs WHERE id=$1 AND account_id=$2 FOR UPDATE', [jobId, accountId]);
       await client.query(`SELECT 1 FROM inputs i JOIN jobs j ON j.input_id=i.id
         WHERE j.id=$1 AND j.account_id=$2 FOR UPDATE OF i`, [jobId, accountId]);
+      await client.query('SELECT 1 FROM jobs WHERE id=$1 AND account_id=$2 FOR UPDATE', [jobId, accountId]);
       const { rows: [job] } = await client.query<{ price: number; state: string }>(
         `WITH terminal AS MATERIALIZED (
            SELECT CASE WHEN $3='succeeded' AND i.expires_at<=clock_timestamp() THEN 'failed' ELSE $3 END AS state
@@ -551,7 +616,9 @@ export class CommercialJobs {
            original_result=CASE WHEN terminal.state='succeeded' THEN $6::bytea ELSE NULL END,
            attempt_id=NULL,lease_until=NULL FROM terminal
          WHERE jobs.id=$1 AND account_id=$2 AND (
-           ($3='cancelled' AND jobs.state IN ('queued','running'))
+           ($3='cancelled' AND jobs.state='queued')
+           OR (jobs.state='queued' AND $3='failed' AND $5::uuid IS NULL AND terminal.state='failed'
+             AND EXISTS(SELECT 1 FROM inputs i WHERE i.id=jobs.input_id AND i.expires_at<=clock_timestamp()))
            OR (jobs.state='running' AND (
              ($5::uuid IS NOT NULL AND attempt_id=$5 AND lease_until>clock_timestamp())
              OR ($5::uuid IS NULL AND $3='failed' AND attempts=max_attempts AND lease_until<=clock_timestamp())

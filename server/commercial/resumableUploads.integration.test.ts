@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -80,6 +80,7 @@ describe.skipIf(!connectionString)('private resumable uploads with PostgreSQL an
     await uploads.append(owner, start.id, 16, video.subarray(16));
     const asset = await uploads.complete(owner, start.id);
     expect(asset).toMatchObject({ id: start.id, size: video.length, metadata });
+    expect(asset.metadata.sha256).toBe(createHash('sha256').update(video).digest('hex'));
     expect(asset.path).toBe(join(root, start.id + '.mp4'));
     expect(asset.expiresAt.toISOString()).toBe(deadline);
     expect(await uploads.complete(owner, start.id)).toEqual(asset);
@@ -89,6 +90,16 @@ describe.skipIf(!connectionString)('private resumable uploads with PostgreSQL an
     for await (const chunk of stream) chunks.push(Buffer.from(chunk));
     expect(Buffer.concat(chunks)).toEqual(video);
     expect(await uploads.begin(owner, video.length, '../display-name.mp4', 'retry-key')).toMatchObject({ id: asset.id, state: 'ready' });
+  });
+
+  it('backfills the fingerprint of an existing ready upload from its private bytes', async () => {
+    const owner = await account();
+    const asset = await ready(owner);
+    await pool.query("UPDATE private_uploads SET metadata=metadata-'sha256' WHERE id=$1", [asset.id]);
+    const restored = await uploads.get(owner, asset.id);
+    const expected = createHash('sha256').update(video).digest('hex');
+    expect(restored.metadata.sha256).toBe(expected);
+    expect((await pool.query("SELECT metadata->>'sha256' AS hash FROM private_uploads WHERE id=$1", [asset.id])).rows[0].hash).toBe(expected);
   });
 
   it('deduplicates concurrent begin calls and rejects a request key with different details', async () => {
@@ -221,12 +232,13 @@ describe.skipIf(!connectionString)('private resumable uploads with PostgreSQL an
     const chunks: Buffer[] = [];
     for await (const chunk of stream) chunks.push(Buffer.from(chunk));
     expect(Buffer.concat(chunks).toString('latin1')).toBe('ftyp');
+    await expect(store.open(asset.id, undefined, video.length + 1)).rejects.toThrow('size changed');
     expect(() => store.path('../outside')).toThrow('Invalid private artifact key.');
     expect(() => new PrivateFileStore('relative')).toThrow('absolute directory');
     expect(() => new PrivateFileStore(resolve('private-uploads'))).toThrow('outside the repository');
   });
 
-  it('reads and deletes within the caller transaction when the pool has only one connection', async () => {
+  it('marks deletion within one connection and removes bytes only after commit', async () => {
     const owner = await account();
     const asset = await ready(owner);
     const singlePool = new Pool({ connectionString, options: '-c search_path=' + schema, max: 1, connectionTimeoutMillis: 500 });
@@ -237,31 +249,40 @@ describe.skipIf(!connectionString)('private resumable uploads with PostgreSQL an
       expect(await single.getWithClient(client, owner, asset.id)).toEqual(asset);
       expect(singlePool.totalCount).toBe(1);
       expect(singlePool.waitingCount).toBe(0);
-      expect(await single.abortWithClient(client, owner, asset.id)).toBe(true);
-      expect(await single.abortWithClient(client, owner, asset.id)).toBe(false);
+      expect(await single.markDeletingWithClient(client, owner, asset.id)).toBe(true);
+      expect(await single.markDeletingWithClient(client, owner, asset.id)).toBe(false);
+      expect((await stat(asset.path)).size).toBe(video.length);
       await client.query('COMMIT');
-      await expect(stat(asset.path)).rejects.toMatchObject({ code: 'ENOENT' });
     } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); await singlePool.end(); }
+    await uploads.purgeExpired();
+    await expect(stat(asset.path)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('allows the caller to roll back and retry a failed deletion with its existing connection', async () => {
+  it('keeps bytes on rollback and a durable tombstone when deletion later fails', async () => {
     const owner = await account();
     const asset = await ready(owner);
     const client = await pool.connect();
-    const failure = vi.spyOn(store, 'remove').mockRejectedValueOnce(new Error('temporary file lock'));
     try {
       await client.query('BEGIN');
-      await expect(uploads.abortWithClient(client, owner, asset.id)).rejects.toThrow('temporary file lock');
+      expect(await uploads.markDeletingWithClient(client, owner, asset.id)).toBe(true);
+      expect((await stat(asset.path)).size).toBe(video.length);
       await client.query('ROLLBACK');
       expect((await uploads.status(owner, asset.id)).state).toBe('ready');
       expect((await stat(asset.path)).size).toBe(video.length);
-      failure.mockRestore();
       await client.query('BEGIN');
-      expect(await uploads.abortWithClient(client, owner, asset.id)).toBe(true);
+      expect(await uploads.markDeletingWithClient(client, owner, asset.id)).toBe(true);
       await client.query('COMMIT');
     } catch (error) { await client.query('ROLLBACK'); throw error; }
-    finally { failure.mockRestore(); client.release(); }
+    finally { client.release(); }
+    const failure = vi.spyOn(store, 'remove').mockRejectedValueOnce(new Error('temporary file lock'));
+    try {
+      expect((await uploads.purgeExpired()).failed).toBe(1);
+      expect((await pool.query('SELECT state FROM private_uploads WHERE id=$1',[asset.id])).rows[0].state).toBe('deleting');
+      await expect(uploads.get(owner, asset.id)).rejects.toMatchObject({code:'not_found'});
+      expect((await stat(asset.path)).size).toBe(video.length);
+    } finally { failure.mockRestore(); }
+    await uploads.purgeExpired();
     await expect(stat(asset.path)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

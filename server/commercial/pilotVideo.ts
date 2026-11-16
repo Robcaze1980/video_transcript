@@ -1,3 +1,4 @@
+import { JobOutcomeUnknown } from './jobs';
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { GoogleGenAI, type GenerateContentResponseUsageMetadata } from '@google/genai';
@@ -13,6 +14,11 @@ import {
   type TimedWord, type TimingWindow,
 } from './pilotCueTiming';
 import { decodePilotAudio } from './pilotWordTiming';
+
+async function requestCommercialTranscription(...args: Parameters<typeof requestSectionTranscription>) {
+  try { return await requestSectionTranscription(...args); }
+  catch { throw new JobOutcomeUnknown('Gemini transcription outcome requires verification.'); }
+}
 
 export function isMp4(input: Buffer) {
   if (input.length <= 12 || input.toString('latin1', 4, 8) !== 'ftyp') return false;
@@ -137,7 +143,7 @@ export function createPilotVideoAdapter(apiKey: string,
       const duration = input.metadata.duration;
       const section = { index: 0, start: 0, end: duration };
       return withGeminiVideoFile(apiKey, input, async (media, uploadSignal) => {
-        const result = await requestSectionTranscription(ai, {
+        const result = await requestCommercialTranscription(ai, {
           model: DEFAULT_TRANSCRIPTION_MODEL, mediaPart: { fileData: { fileUri: media.uri, mimeType: media.mimeType } },
           request: { ...section, sectionIndex: 0, totalSections: 1, videoDuration: duration,
             sourceLanguage: direction.sourceLanguage, targetLanguage: direction.targetLanguage,
@@ -173,7 +179,7 @@ export function createPilotVideoAdapter(apiKey: string,
       const direction = byId.get(options.direction as string);
       if (!direction) throw new Error('Unsupported language pair.');
       const section = { index: 0, start: 0, end: duration };
-      const result = await requestSectionTranscription(ai, {
+      const result = await requestCommercialTranscription(ai, {
         model: DEFAULT_TRANSCRIPTION_MODEL,
         mediaPart: { inlineData: { mimeType: 'video/mp4', data: input.toString('base64') } },
         request: {

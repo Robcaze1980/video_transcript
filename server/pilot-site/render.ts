@@ -26,7 +26,7 @@ export function renderLaunchPreview(origin: string) {
       ...language,
       searchLanguage: null,
       slug: 'video-subtitles',
-      title: 'Localization preview | LinguistVision',
+      title: 'Localization preview | Vistavo',
       description: 'This route is reserved for a localized version.',
       heading: 'Localization pending',
       descriptionOfPilot: 'Copy and language capability are still under review.',
@@ -128,6 +128,7 @@ function renderSite(
     const pilotEntry = pilotEntryLabels?.get(locale);
     const copy = landingCopy[locale];
     const marketing = commercial && commercialCopy[locale];
+    if (commercial && !marketing) throw new Error('Missing commercial copy for ' + locale);
     const links = language.searchLanguage === null ? '' : alternates.flatMap(({ code, url }) =>
       code ? ['<link rel="alternate" hreflang="' + code + '" href="' + escaped(url) + '">'] : []
     ).join('\n');
@@ -151,7 +152,7 @@ function renderSite(
       links,
       '<style>' + landingStyle + '</style>',
       '</head><body><header class="top"><div class="wrap">',
-      '<div class="brand"><span class="mark" aria-hidden="true">LV</span><bdi>LinguistVision</bdi></div>',
+      '<div class="brand"><span class="mark" aria-hidden="true">V</span><bdi>Vistavo</bdi></div>',
       '<nav><details><summary>' + escaped(language.name) + '</summary><ul>' + selector + '</ul></details></nav>',
       '</div></header><main>',
       '<section class="hero wrap">' + (drafts.has(locale) ? '<div lang="en" dir="ltr">' : '<div>'),
@@ -160,7 +161,7 @@ function renderSite(
       pilotEntry ? '<span class="primary"><a href="/pilot/enter">' + escaped(pilotEntry) + '</a></span>' : '',
       copy && example ? '<a href="#subtitle-example"' + (pilotEntry ? '' : ' class="primary"') + '>' + escaped(copy[0]) + '</a>' : '',
       '</div></div>',
-      example ? '<figure><div id="subtitle-example" class="window"><bdi>LinguistVision</bdi>' +
+      example ? '<figure><div id="subtitle-example" class="window"><bdi>Vistavo</bdi>' +
         '<div class="dots" aria-hidden="true"><i></i><i></i><i></i></div></div>' +
         '<div class="screen"><div class="caption"><p>' + escaped(example.caption) + '</p></div></div>' +
         '<div class="track" dir="ltr"><p><bdi dir="ltr"><time datetime="PT4S">00:04</time>–<time datetime="PT7S">00:07</time></bdi></p>' +

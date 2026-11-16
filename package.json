@@ -11,7 +11,13 @@
     "preview": "tsx server/index.ts --production",
     "pilot:local": "tsx server/commercial/pilotLocal.ts",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:firestore": "node --no-network-family-autoselection --import tsx --test server/commercial/firestoreBackend.emulator.mjs server/commercial/firestoreTransport.emulator.mjs server/commercial/firestoreFiles.emulator.mjs server/commercial/firestoreAiBackend.emulator.mjs server/commercial/firestoreAi.emulator.mjs server/commercial/cloudDiagnostics.emulator.mjs server/commercial/cloudCandidateLimits.emulator.mjs server/commercial/cloudEnqueueRecovery.emulator.mjs server/commercial/firestoreSilentContract.emulator.mjs server/commercial/firestoreAiAccess.emulator.mjs",
+    "emulator:firestore": "firebase emulators:start --only firestore --project demo-vistavo-ledger --config deploy/google-cloud/firebase.emulators.json",
+    "emulator:candidate": "firebase emulators:start --only auth,firestore --project demo-vistavo-ledger --config deploy/google-cloud/firebase.emulators.json",
+    "candidate:isolated": "node --no-network-family-autoselection --import tsx server/commercial/startIsolatedCandidate.mjs",
+    "test:candidate:isolated": "node --no-network-family-autoselection --import tsx --test server/commercial/isolatedCandidateLocal.emulator.mjs",
+    "candidate:cloud:local": "node --no-network-family-autoselection --import tsx server/commercial/cloudCandidateLocal.ts"
   },
   "dependencies": {
     "@ffmpeg/core": "^0.12.10",
@@ -21,6 +27,7 @@
     "@supabase/supabase-js": "2.119.0",
     "firebase": "13.2.0",
     "firebase-admin": "14.5.0",
+    "google-auth-library": "10.9.0",
     "pdfjs-dist": "6.5.438",
     "pg": "8.23.1",
     "react": "^19.2.3",

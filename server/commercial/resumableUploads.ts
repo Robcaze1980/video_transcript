@@ -7,6 +7,7 @@ const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 export const privateUploadChunkBytes = 8 * 1024 * 1024;
 
 export interface PrivateVideoMetadata {
+  sha256?: string;
   duration: number;
   width: number;
   height: number;
@@ -15,7 +16,7 @@ export interface PrivateVideoMetadata {
 
 export class UploadError extends Error {
   readonly status: number;
-  constructor(readonly code: 'invalid_input' | 'not_found' | 'conflict' | 'expired' | 'quota', message: string) {
+  constructor(readonly code: 'invalid_input' | 'not_found' | 'conflict' | 'expired' | 'quota', message: string, readonly transient=false) {
     super(message);
     this.status = { invalid_input: 422, not_found: 404, conflict: 409, expired: 410, quota: 429 }[code];
   }
@@ -68,7 +69,7 @@ export function probePrivateVideo(path: string): Promise<PrivateVideoMetadata> {
     const timer = setTimeout(stop, 120_000);
     probe.stdout.on('data', (chunk: Buffer) => { output += chunk.toString('utf8'); if (output.length > 65_536) stop(); });
     probe.stderr.on('data', (chunk: Buffer) => { errorOutput += chunk.toString('utf8'); if (errorOutput.length > 8192) stop(); });
-    probe.once('error', () => { clearTimeout(timer); reject(new UploadError('invalid_input', 'The video reader is unavailable.')); });
+    probe.once('error', () => { clearTimeout(timer); reject(new UploadError('invalid_input', 'The video reader is unavailable.',true)); });
     probe.once('close', code => {
       clearTimeout(timer);
       if (code === 0 && !interrupted && !errorOutput.trim()) {
@@ -86,7 +87,7 @@ export function probePrivateVideo(path: string): Promise<PrivateVideoMetadata> {
           }
         } catch { /* An incomplete or malformed file is rejected below. */ }
       }
-      reject(new UploadError('invalid_input', 'The upload must be a readable MP4 video.'));
+      reject(new UploadError('invalid_input', 'The upload must be a readable MP4 video.',interrupted||code===null));
     });
   });
 }
@@ -201,7 +202,7 @@ export class ResumableUploads {
       }
       const { rows: [updated] } = await client.query<UploadRow>(
         `UPDATE private_uploads SET state='ready',metadata=$2::jsonb WHERE id=$1 AND expires_at>clock_timestamp() RETURNING *`,
-        [id, JSON.stringify(metadata)]);
+        [id, JSON.stringify({ ...metadata, sha256: await this.store.fingerprint(row.id) })]);
       if (!updated) throw new UploadError('expired', 'The upload has expired.');
       return this.asset(updated);
     });
@@ -216,6 +217,11 @@ export class ResumableUploads {
     return this.transaction(client => this.getWithClient(client, account, id));
   }
 
+  async open(account: string, id: string, range?: { start: number; end?: number }) {
+    const file = await this.get(account, id);
+    return this.store.open(id, range, file.size);
+  }
+
   /** Use the caller's transaction when a job already holds a database connection. */
   async getWithClient(client: PoolClient, account: string, id: string) {
     const row = await this.row(client, account, id);
@@ -223,16 +229,18 @@ export class ResumableUploads {
     this.available(row);
     if (row.state !== 'ready') throw new UploadError('conflict', 'The upload is incomplete.');
     if (await this.store.size(id) !== Number(row.size)) throw new UploadError('invalid_input', 'The private artifact is unavailable.');
+    if (!row.metadata?.sha256) {
+      row.metadata = { ...row.metadata!, sha256: await this.store.fingerprint(id) };
+      await client.query('UPDATE private_uploads SET metadata=$2::jsonb WHERE id=$1',[id,JSON.stringify(row.metadata)]);
+    }
     return this.asset(row);
   }
 
-  /** The job transaction fences active work. A failed deletion must roll back that transaction. */
-  async abortWithClient(client: PoolClient, account: string, id: string) {
+  /** Fence access transactionally. Delete bytes only after the caller commits. */
+  async markDeletingWithClient(client: PoolClient, account: string, id: string) {
     const row = await this.row(client, account, id);
-    if (row.state === 'deleted') return false;
+    if (row.state === 'deleted' || row.state === 'deleting') return false;
     await client.query("UPDATE private_uploads SET state='deleting' WHERE id=$1", [id]);
-    await this.store.remove(id);
-    await client.query("UPDATE private_uploads SET state='deleted',metadata=NULL WHERE id=$1", [id]);
     return true;
   }
 
@@ -246,12 +254,13 @@ export class ResumableUploads {
 
   /** Public cancellation may remove incomplete uploads only. Check and delete under the same lock. */
   async abortIncomplete(account: string, id: string) {
-    return this.transaction(async client => {
+    const marked = await this.transaction(async client => {
       const row = await this.row(client, account, id);
       if (row.state === 'deleted') return false;
       if (row.state !== 'uploading') throw new UploadError('conflict', 'The video is already saved. Delete it from its project or job.');
-      return this.abortWithClient(client, account, id);
+      return this.markDeletingWithClient(client, account, id);
     });
+    return marked ? this.deleteBytes(account, id) : false;
   }
 
   private async deleteBytes(account: string, id: string) {

@@ -1,4 +1,6 @@
 // Progressive enhancement only: all examples and FAQ answers originate in server HTML.
+import {syncIllustrativeVideo} from './illustrativeVideo';
+import { normalizeLandingSearch } from './landingSearch';
 type Phase = { at: number; name: string };
 
 function enhanceSequence(widget: HTMLElement, kind: 'hero' | 'how'): void {
@@ -25,13 +27,25 @@ function enhanceSequence(widget: HTMLElement, kind: 'hero' | 'how'): void {
   const duration = kind === 'hero' ? 8000 : 7000;
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   const suspensions = new Set<string>();
-  const selectionAttribute = kind === 'hero' ? 'aria-selected' : 'aria-pressed';
+  const selectionAttribute = kind === 'hero' && !canonical ? 'aria-selected' : 'aria-pressed';
   let selected = Math.max(0, tabs.findIndex(tab => tab.getAttribute(selectionAttribute) === 'true'));
   let manuallyPaused = false;
   let manualSelection = false;
   let elapsed = 0;
   let startedAt: number | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  function syncIllustrations(): void {
+    const active = tabs[selected].getAttribute(targetAttribute);
+    for (const panel of panels) {
+      const shown = panel.getAttribute(panelAttribute) === active;
+      for (const video of panel.querySelectorAll<HTMLVideoElement>('video[data-illustrative-video]')) {
+        const visible = shown && suspensions.size === 0 && !reduced.matches;
+        const playing = visible && !manuallyPaused;
+        syncIllustrativeVideo(video,visible,playing);
+      }
+    }
+  }
 
   function stopClock(): void {
     if (startedAt !== undefined) elapsed += performance.now() - startedAt;
@@ -56,7 +70,7 @@ function enhanceSequence(widget: HTMLElement, kind: 'hero' | 'how'): void {
       tab.setAttribute(selectionAttribute, String(active));
       if (kind === 'hero') tab.tabIndex = active ? 0 : -1;
       tab.classList.toggle('on', active);
-      if (kind === 'hero') tab.setAttribute('aria-pressed', String(active));
+      if (kind === 'hero' && canonical) tab.removeAttribute('aria-selected');
       else tab.closest('li')?.classList.toggle('on', active);
     });
     const id = tabs[selected].getAttribute(targetAttribute);
@@ -64,6 +78,7 @@ function enhanceSequence(widget: HTMLElement, kind: 'hero' | 'how'): void {
     toggle.textContent = ((manuallyPaused || reduced.matches) ? toggle.dataset.playLabel : toggle.dataset.pauseLabel) || toggle.textContent;
     toggle.setAttribute('aria-pressed', String(manuallyPaused || reduced.matches));
     toggle.disabled = reduced.matches;
+    syncIllustrations();
   }
 
   function update(): void {
@@ -141,7 +156,7 @@ function enhanceSequence(widget: HTMLElement, kind: 'hero' | 'how'): void {
     suspend('document', document.hidden);
     suspend('page', false);
   });
-  const updateVideo = () => suspend('video', [...document.querySelectorAll<HTMLVideoElement>('.real-demo video'), ...widget.querySelectorAll('video')].some(video => !video.paused && !video.ended));
+  const updateVideo = () => suspend('video', [...document.querySelectorAll<HTMLVideoElement>('.real-demo video'), ...widget.querySelectorAll<HTMLVideoElement>('video:not([data-illustrative-video])')].some(video => !video.paused && !video.ended));
   for (const event of ['play', 'pause', 'ended']) document.addEventListener(event, updateVideo, true);
   reduced.addEventListener('change', update);
   if ('IntersectionObserver' in window) {
@@ -172,7 +187,7 @@ function enhanceFaq(widget: HTMLElement): void {
   let searching = false;
   let appliedQuery = '';
   const previousOpen = new Map<HTMLDetailsElement, boolean>();
-  const normalize = (value: string) => value.normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase();
+  const normalize = (value: string) => normalizeLandingSearch(value, document.documentElement.lang || undefined);
   const text = new Map(answers.map(answer => [answer, normalize(answer.textContent || '')]));
   function filter(): void {
     const query = normalize(canonicalResults ? appliedQuery : search.value.trim());
@@ -255,4 +270,15 @@ document.querySelectorAll<HTMLSelectElement>('[data-site-language]').forEach(sel
     const destination = new URL(select.value, location.origin);
     if (destination.origin === location.origin) location.assign(destination.href);
   });
+});
+
+// Native details works without JavaScript; enhancement adds Escape and return of focus.
+document.querySelectorAll<HTMLDetailsElement>('[data-site-menu]').forEach(menu => {
+  const toggle = menu.querySelector('summary')!;
+  const close = () => { menu.open = false; toggle.focus(); };
+  const sync = () => toggle.setAttribute('aria-expanded', String(menu.open));
+  menu.addEventListener('toggle', sync);
+  menu.addEventListener('keydown', event => { if (event.key === 'Escape' && menu.open) { event.preventDefault(); close(); } });
+  menu.querySelectorAll('a').forEach(link => link.addEventListener('click', close));
+  sync();
 });

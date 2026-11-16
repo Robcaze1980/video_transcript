@@ -8,7 +8,7 @@ export interface RoofStory {
 
 export const roofStories: Record<string, RoofStory> = {
   'es-419': {
-    label: 'El caso que dio origen a LinguistVision',
+    label: 'El caso que dio origen a Vistavo',
     title: 'Una inspección en español. Un cliente que la entiende en inglés.',
     intro: 'Un inspector recorre el techo y explica lo que encuentra con sus propias palabras. Su cliente necesita entender ese mismo mensaje en inglés.',
     steps: [
@@ -19,7 +19,7 @@ export const roofStories: Record<string, RoofStory> = {
     note: 'Ejemplo español → inglés en beta. No se genera el reporte ni se envía automáticamente. La inclusión comercial del MP4 sigue pendiente.',
   },
   'en-US': {
-    label: 'The use case that inspired LinguistVision',
+    label: 'The use case that inspired Vistavo',
     title: 'An inspection in Spanish. A client who understands it in English.',
     intro: 'An inspector walks the roof and explains the findings in their own words. The client needs to understand that same message in English.',
     steps: [
@@ -30,7 +30,7 @@ export const roofStories: Record<string, RoofStory> = {
     note: 'Spanish-to-English example in beta. The report is not generated and the video is not sent automatically. Commercial inclusion of MP4 remains to be confirmed.',
   },
   ar: {
-    label: 'حالة الاستخدام التي ألهمت LinguistVision',
+    label: 'حالة الاستخدام التي ألهمت Vistavo',
     title: 'فحص بالإسبانية. وعميل يفهمه بالإنجليزية.',
     intro: 'يتجول مفتش على السطح ويشرح ما يجده بكلماته. يحتاج عميله إلى فهم الرسالة نفسها بالإنجليزية.',
     steps: [
@@ -41,7 +41,7 @@ export const roofStories: Record<string, RoofStory> = {
     note: 'مثال من الإسبانية إلى الإنجليزية في النسخة التجريبية. لا يُنشأ التقرير ولا يُرسل الفيديو تلقائيًا. إدراج MP4 في العرض التجاري ما زال قيد التأكيد.',
   },
   'pt-BR': {
-    label: 'O caso que deu origem ao LinguistVision',
+    label: 'O caso que deu origem ao Vistavo',
     title: 'Uma inspeção em espanhol. Um cliente que a entende em inglês.',
     intro: 'Um inspetor percorre o telhado e explica o que encontra com suas próprias palavras. O cliente precisa entender essa mesma mensagem em inglês.',
     steps: [
@@ -52,7 +52,7 @@ export const roofStories: Record<string, RoofStory> = {
     note: 'Exemplo de espanhol para inglês, em beta. O relatório não é gerado e o vídeo não é enviado automaticamente. A inclusão comercial do MP4 ainda será confirmada.',
   },
   fr: {
-    label: 'Le cas à l’origine de LinguistVision',
+    label: 'Le cas à l’origine de Vistavo',
     title: 'Une inspection en espagnol. Un client qui la comprend en anglais.',
     intro: 'Un inspecteur parcourt le toit et explique ses observations avec ses propres mots. Son client doit comprendre ce même message en anglais.',
     steps: [
@@ -63,7 +63,7 @@ export const roofStories: Record<string, RoofStory> = {
     note: 'Exemple de l’espagnol vers l’anglais, en bêta. Le rapport n’est pas généré et la vidéo n’est pas envoyée automatiquement. L’inclusion du MP4 dans l’offre commerciale reste à confirmer.',
   },
   de: {
-    label: 'Der Anwendungsfall, aus dem LinguistVision entstand',
+    label: 'Der Anwendungsfall, aus dem Vistavo entstand',
     title: 'Eine Inspektion auf Spanisch. Ein Kunde, der sie auf Englisch versteht.',
     intro: 'Ein Inspektor geht über das Dach und erklärt seine Beobachtungen in eigenen Worten. Sein Kunde muss dieselbe Botschaft auf Englisch verstehen.',
     steps: [
@@ -74,7 +74,7 @@ export const roofStories: Record<string, RoofStory> = {
     note: 'Beispiel von Spanisch nach Englisch, in der Beta. Der Bericht wird nicht erstellt und das Video nicht automatisch versendet. Ob MP4 zum kommerziellen Angebot gehört, ist noch zu bestätigen.',
   },
   ja: {
-    label: 'LinguistVisionが生まれるきっかけとなった使い方',
+    label: 'Vistavoが生まれるきっかけとなった使い方',
     title: 'スペイン語の点検動画を、英語の字幕でお客様へ。',
     intro: '点検担当者が屋根を歩き、見つけたことを自分の言葉で説明します。お客様には、その同じ内容を英語で伝える必要があります。',
     steps: [
@@ -85,7 +85,7 @@ export const roofStories: Record<string, RoofStory> = {
     note: 'スペイン語から英語へのベータ版の例です。報告書の作成や動画の自動送信は行いません。MP4を商用プランに含めるかは今後確定します。',
   },
   ko: {
-    label: 'LinguistVision이 시작된 활용 사례',
+    label: 'Vistavo이 시작된 활용 사례',
     title: '스페인어로 한 점검, 영어로 이해하는 고객.',
     intro: '점검 담당자는 지붕을 살펴보며 발견한 내용을 자신의 말로 설명합니다. 고객은 같은 내용을 영어로 이해해야 합니다.',
     steps: [
@@ -96,7 +96,7 @@ export const roofStories: Record<string, RoofStory> = {
     note: '베타 단계의 스페인어 → 영어 예시입니다. 보고서 생성이나 영상 자동 전송은 제공하지 않습니다. MP4의 상용 상품 포함 여부는 추후 확정됩니다.',
   },
   'zh-Hans': {
-    label: 'LinguistVision 起源于这样的使用场景',
+    label: 'Vistavo 起源于这样的使用场景',
     title: '用西班牙语检查屋顶，让客户通过英语字幕了解情况。',
     intro: '检查人员走上屋顶，用自己的话解释发现的情况。客户需要用英语了解同样的信息。',
     steps: [
@@ -107,7 +107,7 @@ export const roofStories: Record<string, RoofStory> = {
     note: '这是西班牙语译成英语的测试版示例。应用不会生成报告，也不会自动发送视频。MP4 是否纳入商业方案仍待确认。',
   },
   vi: {
-    label: 'Tình huống khởi nguồn của LinguistVision',
+    label: 'Tình huống khởi nguồn của Vistavo',
     title: 'Kiểm tra bằng tiếng Tây Ban Nha. Khách hàng hiểu bằng tiếng Anh.',
     intro: 'Người kiểm tra đi trên mái nhà và giải thích những gì mình thấy bằng lời của mình. Khách hàng cần hiểu cùng thông điệp đó bằng tiếng Anh.',
     steps: [

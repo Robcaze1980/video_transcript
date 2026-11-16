@@ -102,7 +102,7 @@ it.skipIf(!database)('completes account access and a single simulated purchase f
       expect(html).toContain('id="plans"');
       const style = html.match(/<style>([\s\S]*?)<\/style>/)![1];
       expect(page.headers.get('content-security-policy')).toContain("'sha256-" + createHash('sha256').update(style).digest('base64') + "'");
-      expect(html.match(language.id === 'es' ? /class="pnum"/g : /class="offer-price"/g)).toHaveLength(3);
+      expect(html.match(/class="pnum"/g)).toHaveLength(3);
       const pack = videoPackages[accounts.length % videoPackages.length];
       const created = await post('/pilot/api/checkout', JSON.stringify({ packageId: pack.id, amount: 1 }), browser);
       expect(created.status).toBe(201);

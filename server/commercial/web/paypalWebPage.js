@@ -23,7 +23,7 @@ async function checkoutApi(path, method, body) {
   const response = await fetch('../api/checkout' + path, method === 'POST' ? {
     method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}),
   } : undefined);
-  if (!response.ok) throw new Error('PayPal Sandbox request failed.');
+  if (!response.ok) { const error = new Error('PayPal Sandbox request failed.'); error.status = response.status; throw error; }
   return response.json();
 }
 
@@ -39,9 +39,34 @@ async function prepare() {
       checkout.disabled = true;
       status('');
       try {
-        await startPayPalWeb(sdk, () => checkoutApi('', 'POST', { packageId: pack?.id }), {
+        await startPayPalWeb(sdk, async () => {
+          const storageKey = 'vistavo-pending-checkout:' + (pack?.id ?? 'pilot');
+          const prior = sessionStorage.getItem(storageKey);
+          const requestKeyName=storageKey+':request';
+          let requestKey=sessionStorage.getItem(requestKeyName);
+          if(!requestKey){requestKey=crypto.randomUUID();sessionStorage.setItem(requestKeyName,requestKey);}
+          const intent = prior ? {id:prior,pending:true} : await checkoutApi('', 'POST', { packageId: pack?.id,requestKey });
+          if (!intent.pending) return intent;
+          status('paymentPending');
+          // Keep the original local intent across recoverable failures and button retries.
+          sessionStorage.setItem(storageKey, intent.id);
+          for (let attempt = 0; attempt < 24; attempt++) {
+            let recovered;
+            try { recovered = await checkoutApi('/' + intent.id, 'GET'); }
+            catch (error) { if (error.status === 404) sessionStorage.removeItem(storageKey); throw error; }
+            if (recovered.providerOrderId) {
+              sessionStorage.removeItem(storageKey);
+              return { ...intent, providerOrderId: recovered.providerOrderId };
+            }
+            if (recovered.status === 'unknown') break;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          throw new Error('Checkout creation remains pending.');
+        }, {
           presentationMode,
           onApprove(payment, token) {
+            const key='vistavo-pending-checkout:'+(pack?.id??'pilot');sessionStorage.removeItem(key);
+            sessionStorage.setItem('vistavo-checkout-id:'+payment,key+':request');
             location.assign('../?' + new URLSearchParams({ lang: locale.id, payment, token }));
           },
           onCancel: () => allowRetry('paypalWebCancelled'),

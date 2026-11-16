@@ -44,6 +44,24 @@ button:hover { background: var(--auth-hover); border-color: var(--auth-hover); }
 button:disabled { opacity: .6; cursor: wait; }
 .google, .auth-secondary { color: var(--auth-text); background: #fff; border-color: var(--auth-field); }
 .google:hover, .auth-secondary:hover { color: var(--auth-text); background: var(--auth-surface); border-color: var(--auth-field); }
+.gsi-material-button {
+  appearance: none; user-select: none; position: relative; overflow: hidden;
+  background: #fff; color: #1f1f1f; border: 1px solid #747775; border-radius: 4px;
+  font-family: "Google Sans", Roboto, Arial, sans-serif; font-size: 14px; font-weight: 500;
+  letter-spacing: .25px; line-height: 20px; min-block-size: 40px; padding: 0 12px;
+  inline-size: 100%; max-inline-size: 400px; align-self: center; justify-self: center;
+  transition: box-shadow .2s, background-color .2s;
+}
+.gsi-material-button:hover { background: #fff; border-color: #747775; box-shadow: 0 1px 2px #3c40434d, 0 1px 3px 1px #3c404326; }
+.gsi-material-button-state { position: absolute; inset: 0; background: #303030; opacity: 0; pointer-events: none; }
+.gsi-material-button:is(:hover, :focus-visible) .gsi-material-button-state { opacity: .08; }
+.gsi-material-button:active .gsi-material-button-state { opacity: .12; }
+.gsi-material-button-content-wrapper { display: flex; align-items: center; inline-size: 100%; gap: 10px; position: relative; }
+.gsi-material-button-icon { display: flex; flex: 0 0 20px; inline-size: 20px; block-size: 20px; }
+.gsi-material-button-icon svg { display: block; inline-size: 20px; block-size: 20px; }
+.gsi-material-button-contents { flex: 1; padding-block: 9px; text-align: center; overflow-wrap: anywhere; }
+.gsi-material-button:disabled { color: #1f1f1f; background: #fff; box-shadow: none; opacity: .6; cursor: wait; }
+.gsi-material-button:disabled .gsi-material-button-state { opacity: 0; }
 :is(a, button, input):focus-visible { outline: 3px solid var(--auth-action); outline-offset: 3px; }
 .auth-divider { display: flex; align-items: center; gap: .75rem; color: var(--auth-muted); font-size: .875rem; text-align: center; }
 .auth-divider::before, .auth-divider::after { content: ""; flex: 1; border-block-start: 1px solid var(--auth-line); }

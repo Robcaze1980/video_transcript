@@ -1,0 +1,151 @@
+{
+  "project": "vistavo-prod",
+  "projectNumber": "107404655346",
+  "region": "us-central1",
+  "cloudSqlForbidden": true,
+  "catalogVersion": "ai-candidate-v1",
+  "labels": {
+    "app": "vistavo",
+    "phase": "ai-candidate",
+    "managedby": "codex-lv007-ai"
+  },
+  "identity": {
+    "id": "vistavo-runtime",
+    "email": "vistavo-runtime@vistavo-prod.iam.gserviceaccount.com",
+    "create": false,
+    "expectedDescription": "Vistavo dedicated vistavo-runtime candidate identity"
+  },
+  "firestore": {
+    "databaseId": "(default)",
+    "root": "vistavo/candidate-v1",
+    "indexes": [
+      {
+        "collectionGroup": "artifacts",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "inputId",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "accountId",
+            "order": "ASCENDING"
+          }
+        ]
+      },
+      {
+        "collectionGroup": "artifacts",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "state",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "nextAttemptAt",
+            "order": "ASCENDING"
+          }
+        ]
+      }
+    ]
+  },
+  "projectBindings": [
+    {
+      "role": "roles/datastore.user",
+      "members": [
+        "serviceAccount:vistavo-runtime@vistavo-prod.iam.gserviceaccount.com"
+      ],
+      "condition": {
+        "title": "vistavo-default-database",
+        "description": "Vistavo candidate; default database only",
+        "expression": "resource.name == \"projects/vistavo-prod/databases/(default)\""
+      }
+    },
+    {
+      "role": "roles/serviceusage.serviceUsageConsumer",
+      "members": [
+        "serviceAccount:vistavo-runtime@vistavo-prod.iam.gserviceaccount.com"
+      ]
+    }
+  ],
+  "mediaBucket": "vistavo-prod-107404655346-media",
+  "mediaBindings": [
+    {
+      "role": "roles/storage.objectViewer",
+      "members": [
+        "serviceAccount:vistavo-runtime@vistavo-prod.iam.gserviceaccount.com"
+      ],
+      "condition": {
+        "title": "vistavo-ai-read-input-results",
+        "description": "AI worker reads only Vistavo candidate objects; no bucket listing",
+        "expression": "resource.name.startsWith(\"projects/_/buckets/vistavo-prod-107404655346-media/objects/candidate-files-v1/\")"
+      }
+    },
+    {
+      "role": "roles/storage.objectCreator",
+      "members": [
+        "serviceAccount:vistavo-runtime@vistavo-prod.iam.gserviceaccount.com"
+      ],
+      "condition": {
+        "title": "vistavo-ai-create-results",
+        "description": "AI worker creates only known result leaf names under a results path; no overwrite/delete",
+        "expression": "resource.name.startsWith(\"projects/_/buckets/vistavo-prod-107404655346-media/objects/candidate-files-v1/\") && resource.name.extract(\"projects/_/buckets/vistavo-prod-107404655346-media/objects/candidate-files-v1/{input}/results/\") != \"\" && (resource.name.endsWith(\"/transcript-es.txt\") || resource.name.endsWith(\"/transcript-es.srt\") || resource.name.endsWith(\"/translation-en.txt\") || resource.name.endsWith(\"/translation-en.srt\") || resource.name.endsWith(\"/cues.json\") || resource.name.endsWith(\"/narration-en.wav\"))"
+      }
+    }
+  ],
+  "secret": {
+    "id": "vistavo-gemini-provider",
+    "resource": "projects/vistavo-prod/secrets/vistavo-gemini-provider",
+    "canonicalResource": "projects/107404655346/secrets/vistavo-gemini-provider",
+    "create": false,
+    "bindings": [
+      {
+        "role": "roles/secretmanager.secretAccessor",
+        "members": [
+          "serviceAccount:vistavo-runtime@vistavo-prod.iam.gserviceaccount.com"
+        ]
+      }
+    ]
+  },
+  "job": {
+    "name": "vistavo-ai-process",
+    "account": "vistavo-runtime@vistavo-prod.iam.gserviceaccount.com",
+    "cpu": "2",
+    "memory": "4Gi",
+    "timeout": "1800s",
+    "maxRetries": 0,
+    "taskCount": 1,
+    "parallelism": 1,
+    "invokersWithOverrides": [
+      "serviceAccount:vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+      "serviceAccount:vistavo-files-maintenance@vistavo-prod.iam.gserviceaccount.com"
+    ]
+  },
+  "storage": {
+    "textTotalBytes": 1048576,
+    "textPerObjectBytes": 262144,
+    "voiceTotalBytes": 33554432,
+    "directWriteCopies": 1,
+    "financialProfile": {
+      "mode": "simulation",
+      "unit": "test-unit"
+    },
+    "keys": "candidate-files-v1/<inputUUID>/results/<jobUUID>/<allowed filename>"
+  },
+  "operations": {
+    "createServiceAccount": false,
+    "createSecret": false,
+    "readSecretValue": false,
+    "createApiKey": false,
+    "deployJob": false,
+    "updateServices": false,
+    "createCloudSql": false
+  },
+  "notes": [
+    "Foundation configures existing worker IAM and artifact indexes only; Job deployment and API/maintenance image/env changes are a separate reviewed step.",
+    "Use managed identity + Secret Manager; never generate service-account key JSON. Secret must already be created in this exclusive project.",
+    "Creator condition uses supported resource.name startsWith/endsWith/extract functions; strict UUID/key grammar is also enforced in GcsObjects. No unsupported regex matches/contains condition. https://docs.cloud.google.com/iam/docs/conditions-attribute-reference",
+    "All output keys and their single-copy maximum quota are persisted before provider work; this is not a 2x/3x result staging design.",
+    "No public invokers, Hosting rewrite, real payments, customer data or commercial narration pricing is authorized by this candidate plan."
+  ]
+}

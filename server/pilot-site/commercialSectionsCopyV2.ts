@@ -31,7 +31,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: 'Preguntas encontradas', categories: ['Uso general', 'Archivos y descargas', 'Idiomas y traducción', 'Precios y límites'],
     product: 'Producto', account: 'Cuenta', legal: 'Ayuda y legal', languages: 'Otros idiomas', pending: 'Página pendiente',
     extraFaqs: [
-      ['¿Qué hace LinguistVision?', 'Transcribe el video, traduce en las direcciones habilitadas y permite revisar los subtítulos antes de descargar.'],
+      ['¿Qué hace Vistavo?', 'Transcribe el video, traduce en las direcciones habilitadas y permite revisar los subtítulos antes de descargar.'],
       ['¿Funciona en el celular?', 'Puedes trabajar desde el navegador del teléfono. Revisa texto y tiempos y comprueba el archivo descargado en tu dispositivo.'],
       ['¿Qué archivos puedo subir?', 'El piloto procesa video MP4. También puedes importar SRT, LRC o ASS junto al video para corregir sus subtítulos.'],
       ['¿Puedo volver a mi proyecto?', 'Guarda los cambios y reabre el proyecto para continuar editando sin volver a transcribir. En el piloto se conserva 24 horas.'],
@@ -53,7 +53,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: 'Questions found', categories: ['General use', 'Files and downloads', 'Languages and translation', 'Pricing and limits'],
     product: 'Product', account: 'Account', legal: 'Help and legal', languages: 'Other languages', pending: 'Page pending',
     extraFaqs: [
-      ['What does LinguistVision do?', 'It transcribes video, translates in enabled directions, and lets you review subtitles before downloading.'],
+      ['What does Vistavo do?', 'It transcribes video, translates in enabled directions, and lets you review subtitles before downloading.'],
       ['Does it work on a phone?', 'You can work in your phone’s browser. Review wording and timing, then check the downloaded file on your device.'],
       ['What files can I upload?', 'The pilot processes MP4 video. You can also import SRT, LRC, or ASS alongside a video to correct existing subtitles.'],
       ['Can I return to my project?', 'Save your changes and reopen the project to keep editing without transcribing again. Pilot projects are kept for 24 hours.'],
@@ -75,7 +75,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: 'الأسئلة الموجودة', categories: ['الاستخدام العام', 'الملفات والتنزيل', 'اللغات والترجمة', 'الأسعار والحدود'],
     product: 'المنتج', account: 'الحساب', legal: 'المساعدة والمعلومات القانونية', languages: 'لغات أخرى', pending: 'الصفحة قيد الإعداد',
     extraFaqs: [
-      ['ماذا تفعل LinguistVision؟', 'تفرّغ الفيديو وتترجم في الاتجاهات المفعّلة، وتتيح مراجعة النصوص قبل التنزيل.'],
+      ['ماذا تفعل Vistavo؟', 'تفرّغ الفيديو وتترجم في الاتجاهات المفعّلة، وتتيح مراجعة النصوص قبل التنزيل.'],
       ['هل تعمل على الهاتف؟', 'يمكنك العمل من متصفح الهاتف. راجع النص والتوقيت وتحقق من الملف الذي نزّلته على جهازك.'],
       ['ما الملفات التي يمكن رفعها؟', 'تعالج النسخة التجريبية فيديو MP4. ويمكن استيراد SRT أو LRC أو ASS مع الفيديو لتصحيح نصوص موجودة.'],
       ['هل يمكنني العودة إلى المشروع؟', 'احفظ التغييرات وافتح المشروع مجددًا لمواصلة التعديل دون تفريغ جديد. تُحفظ مشاريع المرحلة التجريبية 24 ساعة.'],
@@ -97,7 +97,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: 'Perguntas encontradas', categories: ['Uso geral', 'Arquivos e downloads', 'Idiomas e tradução', 'Preços e limites'],
     product: 'Produto', account: 'Conta', legal: 'Ajuda e informações legais', languages: 'Outros idiomas', pending: 'Página pendente',
     extraFaqs: [
-      ['O que o LinguistVision faz?', 'Transcreve o vídeo, traduz nas direções habilitadas e permite revisar as legendas antes de baixar.'],
+      ['O que o Vistavo faz?', 'Transcreve o vídeo, traduz nas direções habilitadas e permite revisar as legendas antes de baixar.'],
       ['Funciona no celular?', 'Você pode trabalhar no navegador do celular. Revise texto e tempos e confira o arquivo baixado no aparelho.'],
       ['Quais arquivos posso enviar?', 'O piloto processa vídeo MP4. Você também pode importar SRT, LRC ou ASS junto ao vídeo para corrigir legendas existentes.'],
       ['Posso voltar ao meu projeto?', 'Salve as alterações e reabra o projeto para continuar sem transcrever novamente. No piloto, os projetos ficam guardados por 24 horas.'],
@@ -119,7 +119,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: 'Questions trouvées', categories: ['Utilisation générale', 'Fichiers et téléchargements', 'Langues et traduction', 'Tarifs et limites'],
     product: 'Produit', account: 'Compte', legal: 'Aide et informations légales', languages: 'Autres langues', pending: 'Page en préparation',
     extraFaqs: [
-      ['Que fait LinguistVision ?', 'Il transcrit la vidéo, traduit dans les directions activées et permet de vérifier les sous-titres avant le téléchargement.'],
+      ['Que fait Vistavo ?', 'Il transcrit la vidéo, traduit dans les directions activées et permet de vérifier les sous-titres avant le téléchargement.'],
       ['Fonctionne-t-il sur téléphone ?', 'Vous pouvez travailler dans le navigateur du téléphone. Vérifiez le texte, le minutage et le fichier téléchargé sur votre appareil.'],
       ['Quels fichiers puis-je importer ?', 'Le pilote traite les vidéos MP4. Vous pouvez aussi importer un SRT, LRC ou ASS avec la vidéo pour corriger des sous-titres existants.'],
       ['Puis-je revenir à mon projet ?', 'Enregistrez les modifications et rouvrez le projet pour poursuivre sans refaire la transcription. Les projets du pilote sont conservés 24 heures.'],
@@ -141,7 +141,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: 'Gefundene Fragen', categories: ['Allgemeine Nutzung', 'Dateien und Downloads', 'Sprachen und Übersetzung', 'Preise und Grenzen'],
     product: 'Produkt', account: 'Konto', legal: 'Hilfe und Rechtliches', languages: 'Weitere Sprachen', pending: 'Seite in Vorbereitung',
     extraFaqs: [
-      ['Was macht LinguistVision?', 'Es transkribiert Videos, übersetzt in freigeschalteten Richtungen und ermöglicht die Prüfung der Untertitel vor dem Download.'],
+      ['Was macht Vistavo?', 'Es transkribiert Videos, übersetzt in freigeschalteten Richtungen und ermöglicht die Prüfung der Untertitel vor dem Download.'],
       ['Funktioniert es auf dem Smartphone?', 'Sie können im Smartphone-Browser arbeiten. Prüfen Sie Text, Zeiten und die heruntergeladene Datei auf Ihrem Gerät.'],
       ['Welche Dateien kann ich hochladen?', 'Die Pilotphase verarbeitet MP4-Videos. SRT, LRC oder ASS können mit dem Video importiert werden, um vorhandene Untertitel zu korrigieren.'],
       ['Kann ich zum Projekt zurückkehren?', 'Speichern und öffnen Sie das Projekt erneut, um ohne erneute Transkription weiterzuarbeiten. Pilotprojekte werden 24 Stunden aufbewahrt.'],
@@ -163,7 +163,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: '見つかった質問', categories: ['基本的な使い方', 'ファイルとダウンロード', '言語と翻訳', '料金と上限'],
     product: '製品', account: 'アカウント', legal: 'ヘルプ・法的情報', languages: 'ほかの言語', pending: 'ページ準備中',
     extraFaqs: [
-      ['LinguistVisionは何ができますか？', '動画を書き起こし、有効な翻訳方向で訳文を作成します。ダウンロード前に字幕を確認できます。'],
+      ['Vistavoは何ができますか？', '動画を書き起こし、有効な翻訳方向で訳文を作成します。ダウンロード前に字幕を確認できます。'],
       ['スマートフォンで使えますか？', 'スマートフォンのブラウザーで作業できます。文章と時間を見直し、ダウンロードしたファイルを端末で確認してください。'],
       ['どのファイルをアップロードできますか？', '試験運用ではMP4動画を処理します。動画と一緒にSRT・LRC・ASSを取り込み、既存の字幕を修正することもできます。'],
       ['あとでプロジェクトに戻れますか？', '変更を保存して開き直せば、再度書き起こさずに編集を続けられます。試験運用での保存期間は24時間です。'],
@@ -185,7 +185,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: '찾은 질문', categories: ['기본 사용', '파일과 다운로드', '언어와 번역', '요금과 한도'],
     product: '제품', account: '계정', legal: '도움말 및 법적 정보', languages: '다른 언어', pending: '페이지 준비 중',
     extraFaqs: [
-      ['LinguistVision은 무엇을 하나요?', '영상을 전사하고 활성화된 방향으로 번역하며 다운로드 전에 자막을 검토할 수 있게 합니다.'],
+      ['Vistavo은 무엇을 하나요?', '영상을 전사하고 활성화된 방향으로 번역하며 다운로드 전에 자막을 검토할 수 있게 합니다.'],
       ['휴대전화에서 사용할 수 있나요?', '휴대전화 브라우저에서 작업할 수 있습니다. 문장과 시간을 검토하고 다운로드한 파일을 기기에서 확인하세요.'],
       ['어떤 파일을 올릴 수 있나요?', '시험 운영에서는 MP4 영상을 처리합니다. SRT, LRC, ASS를 영상과 함께 가져와 기존 자막을 수정할 수도 있습니다.'],
       ['나중에 프로젝트로 돌아올 수 있나요?', '변경 사항을 저장하고 다시 열면 전사하지 않고 편집을 이어 갈 수 있습니다. 시험 운영 프로젝트는 24시간 보관합니다.'],
@@ -207,7 +207,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: '找到的问题', categories: ['基本使用', '文件与下载', '语言与翻译', '价格与限制'],
     product: '产品', account: '账户', legal: '帮助与法律信息', languages: '其他语言', pending: '页面准备中',
     extraFaqs: [
-      ['LinguistVision 能做什么？', '转写视频，在已开放的方向上翻译，并让你在下载前核对字幕。'],
+      ['Vistavo 能做什么？', '转写视频，在已开放的方向上翻译，并让你在下载前核对字幕。'],
       ['可以在手机上使用吗？', '可以在手机浏览器中操作。请核对文字和时间，并在设备上检查下载的文件。'],
       ['可以上传什么文件？', '试用版处理 MP4 视频。也可以将 SRT、LRC 或 ASS 与视频一起导入，修正已有字幕。'],
       ['以后可以返回项目吗？', '保存修改后重新打开项目，即可继续编辑，无需再次转写。试用项目保留 24 小时。'],
@@ -229,7 +229,7 @@ export const commercialSectionsCopyV2: Record<string, SectionsCopy> = {
     results: 'Câu hỏi tìm thấy', categories: ['Sử dụng chung', 'Tệp và tải xuống', 'Ngôn ngữ và dịch', 'Giá và giới hạn'],
     product: 'Sản phẩm', account: 'Tài khoản', legal: 'Trợ giúp và pháp lý', languages: 'Ngôn ngữ khác', pending: 'Trang đang chuẩn bị',
     extraFaqs: [
-      ['LinguistVision làm gì?', 'Chép lời video, dịch theo những chiều đã bật và cho phép bạn kiểm tra phụ đề trước khi tải xuống.'],
+      ['Vistavo làm gì?', 'Chép lời video, dịch theo những chiều đã bật và cho phép bạn kiểm tra phụ đề trước khi tải xuống.'],
       ['Có dùng được trên điện thoại không?', 'Bạn có thể dùng trình duyệt điện thoại. Kiểm tra câu chữ, thời gian và tệp tải về trên thiết bị.'],
       ['Tôi có thể tải lên tệp nào?', 'Bản thử nghiệm xử lý video MP4. Bạn cũng có thể nhập SRT, LRC hoặc ASS cùng video để sửa phụ đề có sẵn.'],
       ['Tôi có thể quay lại dự án không?', 'Lưu thay đổi rồi mở lại dự án để tiếp tục sửa mà không chép lời lại. Dự án thử nghiệm được giữ 24 giờ.'],

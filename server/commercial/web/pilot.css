@@ -13,3 +13,39 @@ input,select,textarea{width:100%;min-width:0;max-width:100%;border:1px solid var
 #header-balance{display:flex;align-items:center;gap:.5rem;font-weight:650}#header-balance button{font-size:.875rem;min-height:44px}#header-balance-value{white-space:nowrap}#independent-fields{display:grid;gap:.65rem}@media(max-width:45rem){#header-balance{order:3;width:100%;justify-content:space-between;border-top:1px solid var(--line);padding-top:.5rem}.header-language{max-width:65%}.header-language select{max-width:100%}.header-language label{width:100%}}
 
 .editor-save-bar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.5rem}.editor-save-bar button{min-width:0}@media(max-width:45rem){main:has(#workspace[data-view=editor]) .header-language{display:none}#workspace[data-view=editor]>.workspace-nav{display:none}#workspace[data-view=editor] .editor-save-bar{bottom:0}main:has(#workspace[data-view=editor]){padding-bottom:1rem}}
+
+/* --- LV-005 · Panel del cliente y navegación móvil · traslado de App.dc.html y Panel-Movil.dc.html --- */
+.bar-balance-label{font-weight:400;color:var(--muted)}
+.link-button{min-height:44px;padding:.25rem 0;border:0;border-radius:0;background:none;color:var(--action);font-weight:600;text-decoration:underline;text-underline-offset:.2em}
+.link-button:hover{background:none;color:#0a4d32}
+.section-heading{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:baseline;justify-content:space-between}
+.nav-brand{font-size:1.125rem;font-weight:700}
+#workspace{grid-template-columns:15.5rem minmax(0,1fr);gap:0}
+.workspace-nav{padding:1.25rem 1rem;gap:1.25rem;background:var(--surface);border-inline-end:1px solid var(--line)}
+.workspace-nav>button{background:transparent;border:1px solid transparent;border-radius:8px;color:var(--text);font-weight:500;text-align:start;min-height:44px;padding:.5rem .75rem}
+.workspace-nav>button:hover{background:#fff}
+.workspace-nav>button[aria-current=page]{background:#fff;border-color:#c9ced6;border-inline-start:3px solid var(--action);color:var(--text);font-weight:700}
+.nav-balance{display:flex;flex-direction:column;gap:.5rem;margin-block-start:0;padding:.75rem;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:.9375rem}
+.workspace-content{padding:2rem 2.5rem 4rem}
+#home-panel,#projects,#balance-panel,#account-panel{max-width:60rem}
+.panel-view{gap:1.375rem}
+.home-balance{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem 1.5rem;padding:0;background:transparent;border:0;border-radius:0;color:var(--muted);font-size:.875rem}
+.home-balance strong{font-size:1.875rem;font-weight:700;line-height:1.1;letter-spacing:-.02em;color:var(--text)}
+.home-balance button{margin-inline-start:auto;align-self:center;margin-block-start:0}
+@media(max-width:60rem){
+  #workspace{grid-template-columns:12rem minmax(0,1fr);gap:0}
+  .workspace-content{padding:1.5rem 1.5rem 3rem}
+}
+@media(max-width:45rem){
+  .nav-brand{display:none}
+  .workspace-nav,#workspace:is([data-view=editor],[data-view=result],[data-view=create],[data-view=import])>.workspace-nav{background:var(--surface);border-inline-end:0;border-top:1px solid var(--line);padding:.25rem .25rem calc(.4rem + env(safe-area-inset-bottom))}
+  .workspace-nav>button{display:flex;align-items:center;justify-content:center;text-align:center;min-height:56px;padding:.25rem .5rem;font-size:.8125rem;line-height:1.25;font-weight:500;border:0;border-top:3px solid transparent;border-radius:0;background:transparent;color:var(--text)}
+  .workspace-nav>button[aria-current=page]{background:#fff;font-weight:700;border-inline-start:0;border-top-color:var(--action)}
+  .workspace-nav .nav-balance{display:none}
+  #logout{grid-column:1/-1;min-height:36px;font-size:.875rem;border:1px solid var(--field);border-radius:8px;background:#fff;color:var(--text)}
+  .workspace-content{padding:1.5rem 1rem 4rem}
+  #home-panel,#projects,#balance-panel,#account-panel{max-width:none}
+  .home-balance{padding:0}
+  .home-balance button{flex:1 1 12rem;margin-inline-start:0}
+}
+@media(max-width:45rem){#workspace[data-view=editor]>.workspace-nav{display:none}.workspace-content{padding-inline:0}.workspace-nav>button{min-width:0}main{padding-bottom:6rem}}

@@ -1,4 +1,5 @@
 import { constants, type ReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { lstat, mkdir, open, realpath, unlink, type FileHandle } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -94,8 +95,19 @@ export class PrivateFileStore {
     finally { await file.close(); }
   }
 
-  async open(id: string, range?: { start: number; end?: number }): Promise<ReadStream> {
+  async fingerprint(id: string) {
+    const hash = createHash('sha256');
+    const stream = await this.open(id);
+    for await (const chunk of stream) hash.update(chunk);
+    return hash.digest('hex');
+  }
+
+  async open(id: string, range?: { start: number; end?: number }, expectedSize?: number): Promise<ReadStream> {
     const file = await this.existing(id);
+    if (expectedSize !== undefined && (await file.stat()).size !== expectedSize) {
+      await file.close();
+      throw new Error('The private artifact size changed.');
+    }
     return file.createReadStream({ ...range, autoClose: true });
   }
 

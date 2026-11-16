@@ -1,0 +1,47 @@
+# LV-007.AI · Proveedores y resultados privados cloud
+
+Estado: conexión técnica privada verificada con evidencia real y Gemini batch PASS, 13nov2026. Depende de LV-007.GCS verificada. Sin Cloud SQL, Hosting rewrites, pagos ni publicación comercial. La estabilidad mantiene incidentes abiertos antes de lanzamiento.
+
+## Entrega y límites
+
+Video español verificado en GCS → transcripción/traducción ES/EN → TXT/SRT por idioma y JSON de cues privados. Texto inglés revisado y guardado en revisión nueva → voz estándar Kore/Charon → WAV privado. Todo ligado a UID, cuenta, input/generación/SHA, operación, catálogo y snapshot/revisión inmutables. MP4/render largo y sincronía quedan en LV-016.D, no se simulan como resueltos. El cliente web y aceptación humana PC/Pixel siguen después.
+
+Catálogo candidato restringido a cuentas de ensayo marcadas por operador en vistavo/candidate-v1. Los cargos son unidades ficticias segregadas de cualquier cuenta comercial; no se fija precio de voz ni se cambian paquetes. Cotización del servidor usa duración verificada y snapshot, precio se revalida dentro de la reserva, nunca monto enviado por cliente. No ruta pública para créditos, conciliación o finalización. API nueva /api/cloud/ai/… privada; la anterior /api/cloud/jobs sigue503 hasta oferta comercial aprobada.
+
+## Diseño para contraste T3
+
+- Reutilizar codecs de texto y WAV y modelos Gemini confirmados: gemini-3.8-flash y gemini-3.8-flash-tts, Kore/Charon. No usar servicios PostgreSQL desde cloud. Autenticación Firebase y Firestore REST pública del SDK se mantienen.
+- Evitar Gemini Files de48h: extraer audio MP3 mono16k/48kbps a temporales privados con FFmpeg y enviar ventanas inline de hasta30s, sin subir archivos persistentes al Files API. API/proveedor sin claves en cliente/logs; clave de esta app en Secret Manager con acceso exclusivo de la identidad del worker. Verificar titularidad/restricciones antes de trasladar credencial; sin claves nuevas de servicio ni ADC global.
+- Workera instancia bajo demanda con identidad vistavo-runtime ya existente y previamente aislada (cuota10SAs), tarea1, maxRetries0, CPU/memoria/tmp acotados. API y mantenimiento sin acceso a secreto. IAM sólo proyecto/bucket/prefijo propios y recursoSecret necesario.
+- Reserva financiera + Job/outbox + plan completo de resultados + cuota de almacenamiento se crean en UNA transacción. Reusar ledger probado y normalizar balance a sus5campos: no reescribir por accidente campos de almacenamiento del account snapshot.
+- Plan determinista antes del primer byte: candidate-files-v1/<inputUUID>/results/<jobUUID>/<nombre>. Texto cinco salidas (ES/ENtxt/srt y cues.json) cada una<=256KiB, presupuesto conjunto1MiB; voz WAV<=32MiB. Cada resultado usa PUT directo inmutable y reserva1×presupuesto. Generaciones strings, creación0 y SHA de lectura posterior. Los chunks/compose del video original no cambian.
+- Reclamo/prepare de inputs fuera de tx; heartbeat durante preparación. beginInvocation sólo inmediatamente antes del primer llamado pagado. Por cada llamada guardar intención durable, digest del request (sin texto), modelo/ventana o chunk, intento/lease y recibo/uso/idrespuesta (sin contenido). No IO externo en callbacks. Tras llamada pagada, excepción/timeout/acuse perdido/validación incierta => UNKNOWN y reserva monetaria retenida, sin replay automático. No clasificar un error genérico como fallo confirmado. No reintentar contenido válido para buscar verde.
+- Generar bytes/verificar GCS fuera de tx. Guardar recibo staged cercado por intento/input/snapshot. Publicación de manifiesto + estado succeeded + captura única + cuota comprometida en MISMO commit. Si se pierde acuse, releer estado y recibo; nunca invocar proveedor de nuevo. Entregar sólo artefactos del Job succeeded, input vigente/propietario y manifiesto exacto; Range/HEAD/cache-no-store y sin URL firmada pública. Revisión vieja se informa como stale; nunca sobrescribe proyecto actual.
+- Al fallar/cancelar/UNKNOWN marcar plan para purga de bytes conservando reserva monetaria UNKNOWN y evidencia; no devolver cargos automáticamente por ambigüedad. No hay fragmentos temporales GCS de resultados.
+- Borrado/caducidad del input invalida descargas inmediatamente y cerca TODOS los planes de resultados, incluso Jobs aún sin salida o proveedor en vuelo, antes de liberar su cuota. Mantener marcadores0bytes indefinidos para bloquear escritores tardíos. Mantener evidencia monetaria, eliminar texto/snapshot según política. No borrar marcadores ni usar lifecycle que los quite.
+- Mantenimiento HTTPmin0 ya programado cada5min despacha sólo trabajo real, recupera leases y purga planes/resultados. Índices comparados por nombre de colección exacto y probados con consultas nativas antes de aceptar.
+
+## Aceptación
+
+T3 DeepSeek propone mínimo y negativos; Kimi audita independiente. Codex integra y verifica; Gemini batch real revisa snapshot final y evidencia, sin topes locales. No enviar videos/textos de clientes a revisores.
+
+Pruebas: cuotas/atomicidad; dos cuentas y revocación; replay/edición concurrente; token/lease perdido; pérdida de acuse antes/después proveedor/GCS/commit; UNKNOWN sin replay; no publicación sin capture/manifest; descarga por generación/Range; cancelación y eliminación con proveedor/escritor pausados; TTL de todos los derivados y liberación una sola vez. Prueba real cloud con video sintético hablado ES, TXT/SRT válidos y ambas voces inglesas, uso/latencias/hashes/medidas y costo observado separado. No afirmar calidad nativa/voz aprobada por validar PCM ni sustituir escucha humana. Local instalación/tipos/suite sin omisiones/2builds y piloto3001 preservado. Cerrar con registros/handoff/costos y cero Cloud SQL comprobado.
+
+## Simplificación adoptada del almacenamiento de resultados
+Cada resultado se escribe directamente en una única clave inmutable con un PUT GCS de hasta32MiB, sin fragmentos ni composición de resultados. Se mantienen intactos los chunks8MiB del video original. Esto sustituye el plan propuesto2×: reservar presupuesto1MiBtexto/32MiBvoz antes de generar, publicar+capturar+comprometer bytes reales en un commit; no hay pico GCS adicional ni limpieza normal de fragmentos. El manifiesto enumera cinco salidas de texto o un WAV antes del primer byte; borrado/caducidad/UNKNOWN cercan todas las claves, incluidas ausentes.
+
+La clave local existente pertenece a gen-lang-client-0000426680 (no vistavo-prod). No se transfiere. Se prepara credencial propia restringida a GenerativeLanguage en vistavo-prod, exclusivamente en Secret Manager y accesible sólo por worker. Sin JSON de cuenta de servicio.
+
+## Correcciones de la revisión de candidata
+
+Para este perfil AI, después de admitir una llamada pagada, FINISH(false), input borrado/caducado/cambiado o permiso retirado conducen a UNKNOWN sin liberar dinero. Cada intención y la publicación revalidan ambos permisos del ensayo. Un heartbeat vencido antes de admisión vuelve a cola sin UNKNOWN. Un acuse perdido de STAGE/FINISH se resuelve releyendo el recibo durable y finalizando sin repetir proveedor ni escribir GCS. La reconciliación AI de éxito queda bloqueada: UNKNOWN inicia purga y no se puede resucitar; sólo conciliación confiable de fallo con evidencia puede liberar fondos. Esta limitación debe resolverse antes de oferta comercial. El comportamiento legado fuera de ai-candidate-v1 se conserva.
+
+## Evidencia de cierre técnico privado
+
+Gemini real Batch `batch-1794625807-CbTZINnB1JpdjBBGLbuT`: PASS acotado, informe íntegro en [revisión](../reviews/LV-007-ai-cloud-2026-11-13.md). [Aceptación limitada](../../outputs/vistavo-ai-cloud/acceptance.json) y [notas de evidencia](../../outputs/vistavo-ai-cloud/cloud-evidence-notes.md). No modifica los FALLA/INCONCLUYENTE anteriores.
+
+Fixture sintético20,8s/414238bytes: tres llamadas reales una vez, cinco salidas ES/ENtxt/srt/cues y dos WAV ingleses Kore19,2s/Charon17,64s. Generaciones/SHA/Range/HEAD/416/denegaciones/401revocado, nueve claves cercadas0bytes y cuota0. Dos usuarios y Job/grants temporales retirados; identidad bootstrap preexistente conservada sin claves. Todos los servicios privados/secret sólo worker y SQLGET200/cero instancias. Pruebas370/49 generales y94 únicas backend: corrida93 más archivoAI13 con12repetidas/TTL1adicional, sin omisiones; tipos/2builds/audit0.
+
+La prueba original falló después de cuatro controles por POST de reserva femenina500/104s, sin excepción SDK original. Causa INCONCLUYENTE, LV-E55 abierto. Recuperación con misma requestKey vía operador sin llamada directa; Scheduler generó femenino; continuación confirmó ambos audios y reserva masculina por HTTP normal. Resumen cloud-proof DERIVADO, continuaciónPASS7, originalFAIL preservado. Logging seguro posterior no es arreglo causal; el procesamiento es idéntico entre los dos builds.
+
+Antes de publicación: diagnosticar LV-E55 y acotar/validar `nudgeAi` que actualmente se espera dentro de HTTP y puede exceder la ventana de solicitud al recorrer lotes (LV-E56). También cerrar tratamiento de video mudo/música sin voz (hasSpeech=false hoy produce UNKNOWN tras llamada), consistencia preinvocación de hermanos UNKNOWN, defensas tempranas de cuota/staging y disponibilidad/revocación transaccional. Son deuda/gates de la próxima estabilización, no cambios aplicados ni calidad comercial aceptada. Mantener gates previos de reconciliación, restore, precios/pagos, videos largos, calidad humana y frontend.
