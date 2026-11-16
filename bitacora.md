@@ -1109,3 +1109,11 @@ Verificación final candidata/emuladores: 1/1 sin skips; dueño carga y descarga
 
 **Próximo:** comprobar descargas visualmente con Rob ya autenticado; después escribir el diseño del puente público autenticado a la API Run privada (no desplegarlo ni abrir ingress). Causa del HTTP 500 histórico E55 sigue separada e inconclusa.
 
+## 2026-11-16 · LV-019.B · propuesta de puente público a Cloud Run privado
+
+Se creó `docs/specs/LV-019-B-puente-cloud-run-privado.md`. Recomendación: Hosting `/api/video/**` → gateway separado con endpoint público y auth de Firebase obligatoria en aplicación → API privada `vistavo-files-api` por Direct VPC egress, manteniendo IAM/ingress privado del backend y autorización de propiedad en ese backend. La pantalla se propone bajo `/cuenta/**`; la ruta final aún debe validarse contra assets de Hosting.
+
+Contraste independiente por T3: Qwen4 Max PASS condicionado; DeepSeek v4.1 Flash inicial FALLA preservada porque la propuesta decía “sin IAM”, aunque añadir `roles/run.invoker` para el gateway al servicio privado es obligatorio. Se aclaró: no hay cambio aplicado y el grant futuro requiere autorización explícita de Rob. DeepSeek seguimiento PASS para planificación, con residuales menores (acotar `download=1` a artefactos AI y fijar página/CSP). Se corrigió el documento para aclararlos. Informes íntegros rastreables en `docs/reviews/LV-019-B-cloud-bridge-{qwen-t3,deepseek-t3-initial,deepseek-t3-followup}-2026-11-16.md`.
+
+El gateway nuevo tendría invocación de plataforma pública para Firebase Hosting, pero rechaza toda ruta API sin Firebase ID token válido; backend separado sigue exigiendo su token y UID/propiedad. Cambiar CSP/rewrite/guards es publicación funcional y requiere gate propio. No cambios en recursos, IAM, billing, Hosting, GCS, SQL o proveedores. DeepSeek/Qwen usage/costo no observable en T3 CLI; Codex no medido. Gemini y Kimi no usados en esta consulta según preferencia nueva. Qwen reemplaza a ambos para asesoría sobre migración a Firebase.
+
