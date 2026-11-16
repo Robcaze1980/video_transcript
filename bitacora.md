@@ -1117,3 +1117,11 @@ Contraste independiente por T3: Qwen4 Max PASS condicionado; DeepSeek v4.1 Flash
 
 El gateway nuevo tendría invocación de plataforma pública para Firebase Hosting, pero rechaza toda ruta API sin Firebase ID token válido; backend separado sigue exigiendo su token y UID/propiedad. Cambiar CSP/rewrite/guards es publicación funcional y requiere gate propio. No cambios en recursos, IAM, billing, Hosting, GCS, SQL o proveedores. DeepSeek/Qwen usage/costo no observable en T3 CLI; Codex no medido. Gemini y Kimi no usados en esta consulta según preferencia nueva. Qwen reemplaza a ambos para asesoría sobre migración a Firebase.
 
+## 2026-11-16 · LV-019.B · login local y cuatro descargas de muestra en UI
+
+Rob entró manualmente a la candidata con una cuenta sintética pre-verificada del Auth Emulator. No llegó ni se esperaba correo real. Su token local incluía `email_verified=true`; el bootstrap de perfil respondió 201. Rob cargó el MP4 sintético negro de 1 s/160×90/1.815 bytes y reportó guardado/lectura desde el almacenamiento privado local en RAM.
+
+UI mostró el texto fijo español “El técnico revisa la bomba de agua y confirma que no hay fugas.” y Rob guardó la revisión; la captura mostraba las acciones de descarga ES TXT/SRT y crear ejemplo EN. El texto inglés fijo fue “The technician checks the water pump and confirms there are no leaks.” Rob confirmó que ES TXT, ES SRT, EN TXT y EN SRT se descargaron desde el navegador. Los nombres esperados no aparecieron en la carpeta `Downloads` estándar; no hay SHA/readback en disco. Se registra como verificación manual del flujo UI por declaración de Rob, no como hash de archivos descargados. Detalle/límites: `docs/reviews/LV-019-B-browser-login-descargas-2026-11-16.md`.
+
+Sin transcripción, traducción o voz AI, GCS, cobros, proveedores, cambios en Hosting/IAM/Cloud Run o publicación. El MP4 queda en memoria hasta reinicio y no se borró aún. Próximo: candidata local del gateway; antes del paso cloud, costo e inventario exacto para aprobación de Rob.
+
