@@ -2,9 +2,9 @@ import {createServer,type IncomingMessage,type ServerResponse} from 'node:http';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {initializeApp,deleteApp} from 'firebase-admin/app';
+import {initializeApp,deleteApp,type App} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
-import {Firestore} from 'firebase-admin/firestore';
+import {getFirestore} from 'firebase-admin/firestore';
 import {AccountStore} from '../account/backend';
 import {accountHttp} from '../account/http';
 import {FirestoreBackend} from './firestoreBackend';
@@ -22,12 +22,14 @@ const accountDatabase='account-candidate';
 
 async function isolatedIdentity(){
  const app=initializeApp({projectId},'lv-isolated-candidate-'+randomUUID());
- return {identity:getAuth(app),close:()=>deleteApp(app)};
+ return {app,identity:getAuth(app),close:()=>deleteApp(app)};
 }
+
+function isolatedFirestore(app:App,databaseId?:string){return getFirestore(app,databaseId);}
 
 export async function createIsolatedAccountRuntime(){
  validateIsolatedCandidateEnvironment(process.env);
- const {identity,close:closeAuth}=await isolatedIdentity(),db=new Firestore({projectId,databaseId:accountDatabase,host:firestoreHost,ssl:false,preferRest:true});
+ const {app,identity,close:closeAuth}=await isolatedIdentity(),db=isolatedFirestore(app,accountDatabase);
  const root=db.collection('vistavo').doc('candidate-account-v1');
  let closing:Promise<void>|null=null;
  return {handler:accountHttp(new AccountStore(db,root),identity,origin),identity,close:()=>closing??=(async()=>{try{await db.recursiveDelete(root);}finally{await db.terminate();await closeAuth();}})()};
@@ -35,7 +37,7 @@ export async function createIsolatedAccountRuntime(){
 
 export async function createIsolatedCloudRuntime(){
  validateIsolatedCandidateEnvironment(process.env);
- const {identity,close:closeAuth}=await isolatedIdentity(),db=new Firestore({projectId,host:firestoreHost,ssl:false,preferRest:true}),root=db.collection('vistavo').doc('candidate-storage-'+randomUUID());
+ const {app,identity,close:closeAuth}=await isolatedIdentity(),db=isolatedFirestore(app),root=db.collection('vistavo').doc('candidate-storage-'+randomUUID());
  try{
   const marker=await root.get();
   if(!marker.exists)await root.create({schemaVersion:2,service:'vistavo',environment:'candidate',storageProtocol:'ephemeral-memory-v1'});

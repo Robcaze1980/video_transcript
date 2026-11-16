@@ -366,3 +366,9 @@ gRPC presentó INVALID_ARGUMENT/transactionclosed intermitente tras40PASS; orden
 
 ## 2026-11-16 · LV-019 · OpenRouter GLM timeout sin recibo
 POST directo del review independiente a `~z-ai/glm-flash-latest` venció el timeout del cliente a los 300 s. No se recibió status HTTP, generación ni costo individual; no reintentar para evitar duplicar una generación posiblemente procesada. Estado UNKNOWN, no PASS. El endpoint `/api/v1/activity` devolvió 403 porque la clave de proyecto no es una management key; no hubo acceso a historial detallado. Evidencia: `outputs/vistavo-account-services-20261114/direct-openrouter-glm-status.json`. El `usage` de `/api/v1/key` es agregado y no identifica esta llamada.
+## 2026-11-16 · Candidata local · Firestore API no alcanzaba healthz en 3005 · RESUELTO
+
+`npm run candidate:isolated` lanzaba el proceso de API de archivos/video, pero no llegaba a `3005/healthz`. Causa reproducida: la candidata creaba `Firestore` directamente y el primer `root.get()` intentaba obtener credenciales ADC, incompatibles con la regla de aislamiento que rechaza credenciales Google. Se reemplazó por Firestore del Firebase Admin SDK (`getFirestore` desde la app con projectId) con `FIRESTORE_EMULATOR_HOST`.
+
+Verificación posterior con emuladores: stack local healthy en 3003/3004/3005; `test:candidate:isolated` 1/1, `npm run lint` y ambas compilaciones PASS. Sin ADC, GCS, Firebase de producción o despliegue. El login visual aún requiere acción manual de Rob. Evidencia automatizada en el test dedicado y log de esta sesión; no atribuir esto al error de producto HTTP 500 histórico E55, que sigue inconcluso.
+
