@@ -1,0 +1,24 @@
+
+> linguistvision:-ai-video-translator@0.0.0 test:candidate:isolated
+> node --no-network-family-autoselection --import tsx --test server/commercial/isolatedCandidateLocal.emulator.mjs
+
+TAP version 13
+# {"event":"isolated-account-api-ready","origin":"http://127.0.0.1:3003","projectId":"demo-vistavo-ledger","database":"account-candidate","externalCloud":false}
+# {"event":"isolated-cloud-api-ready","origin":"http://127.0.0.1:3003","projectId":"demo-vistavo-ledger","database":"(default)","uploads":true,"storageAdapter":"ephemeral-memory","ai":false,"textFixture":true,"externalCloud":false}
+# {"event":"isolated-cloudrun-bridge-ready","port":3006,"privateAudience":"http://127.0.0.1:3005","externalCloud":false,"googleIdentityToken":false}
+# {"event":"isolated-candidate-proxy-ready","origin":"http://127.0.0.1:3003","projectId":"demo-vistavo-ledger","proxyHasFirebaseSdk":false,"proxyHasDatabaseAccess":false,"videoWorkflow":false,"uploads":true,"externalCloud":false}
+# Subtest: isolated same-origin candidate accepts a synthetic private MP4 and denies cross-account reads
+ok 1 - isolated same-origin candidate accepts a synthetic private MP4 and denies cross-account reads
+  ---
+  duration_ms: 6566.3156
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 9916.7597

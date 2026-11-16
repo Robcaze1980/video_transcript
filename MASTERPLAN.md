@@ -1,6 +1,6 @@
-## LV-019.B · checkpoint vigente · 16 nov 2026
+## LV-019.B · checkpoint vigente · 16 nov 2026 · puente local validado
 
-Se completaron en candidata local la carga sintética privada y el flujo de muestra de texto ES → revisión → EN → descarga TXT/SRT. Es un fixture determinista que no lee ni transcribe el MP4; no invoca proveedores, no gasta saldo y no fija precios. LV-007.GCS está implementado/verificado por separado y esta candidata no usa el bucket. Qwen PASS local con observaciones menores; navegador E2E pendiente. Siguiente: inspeccionar UI local y diseñar el puente seguro a la API Cloud Run interna. Sin despliegue, cambios IAM, GCS o Cloud SQL. Evidencia: [aceptación](outputs/lv019-b-video-text-20261116/local-text-fixture-acceptance-20261116.json).
+Se completaron en candidata local la carga sintética privada y el flujo de muestra de texto ES → revisión → EN → descarga TXT/SRT. Después se agregó el puente same-origin `/api/video/**` → gateway de loopback → API de archivos emulada, con verificación de identidad de usuario/servicio, rutas limitadas y backend que rechaza bypass. Test 1/1, lint, ambas builds y Qwen4 Max/T3 PASS. El fixture no lee ni transcribe el MP4; el secreto gateway es sintético y no simula una firma Google. No se usó Cloud Run real, IAM, VPC, Hosting, GCS, proveedores ni Cloud SQL. Siguiente: paquete de costos, cambios cloud exactos y reversión para aprobación explícita antes de implementación real. Evidencias: [flujo ES/EN local](outputs/lv019-b-video-text-20261116/local-text-fixture-acceptance-20261116.json) y `outputs/lv019-b-cloudrun-local-bridge-20261116/`.
 
 <!-- LV-019-LIVE-ATTEMPT-20261115 -->
 ## LV-019.A · Panel de cuenta publicado y comprobado · 16 nov 2026

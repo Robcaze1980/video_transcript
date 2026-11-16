@@ -4,7 +4,7 @@ import {initializeApp} from 'firebase/app';
 import {connectAuthEmulator,createUserWithEmailAndPassword,getAuth,inMemoryPersistence,onIdTokenChanged,sendEmailVerification,setPersistence,signInWithEmailAndPassword,signOut,type Auth,type User} from 'firebase/auth';
 import './isolatedCandidate.css';
 
-type CandidateConfig={environment:'isolated-local';web:{projectId:string;authDomain:string;apiKey:string;appId:string};authEmulatorUrl:string;features:{accountApi:boolean;cloudApi:boolean;videoWorkflow:boolean;uploads:boolean;ai:boolean;textFixture:boolean;payments:boolean}};
+type CandidateConfig={environment:'isolated-local';web:{projectId:string;authDomain:string;apiKey:string;appId:string};authEmulatorUrl:string;features:{accountApi:boolean;cloudApi:boolean;privateBridge:boolean;videoWorkflow:boolean;uploads:boolean;ai:boolean;textFixture:boolean;payments:boolean}};
 type Connected={account:{id:string;balance:{unit:string;available:number}};cloud:{id:string;balance:number}};
 type UploadedFile={id:string;name:string;size:number;state:string;sha256?:string;metadata?:{duration:number;width:number;height:number;audioTracks:number}};
 type TextFixture={revision:number;phase:'transcribed'|'reviewed'|'translated';transcriptEs:string;reviewedEs:string|null;translationEn:string|null;source:'local-deterministic-fixture'};
@@ -17,14 +17,14 @@ async function request(path:string,token:string,method='GET',body?:unknown){
 function App(){
  const [config,setConfig]=useState<CandidateConfig>(),[auth,setAuth]=useState<Auth>(),[user,setUser]=useState<User|null>(null),[identityRefresh,setIdentityRefresh]=useState(0),[connected,setConnected]=useState<Connected>(),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[register,setRegister]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[selectedFile,setSelectedFile]=useState<File>(),[uploadedFile,setUploadedFile]=useState<UploadedFile>(),[uploadBusy,setUploadBusy]=useState(false),[textFixture,setTextFixture]=useState<TextFixture>(),[reviewDraft,setReviewDraft]=useState(''),[fixtureBusy,setFixtureBusy]=useState(false);
  useEffect(()=>{let live=true,lastUid:string|null=null,unsubscribe:(()=>void)|undefined;void(async()=>{const response=await fetch('/api/candidate/config',{credentials:'omit',cache:'no-store',redirect:'error'});if(!response.ok)throw Error('No se pudo leer la configuración local.');const value=await response.json() as CandidateConfig;
-  if(value.environment!=='isolated-local'||value.features.videoWorkflow!==false||value.features.uploads!==true||value.features.ai!==false||value.features.textFixture!==true||value.features.payments!==false||value.authEmulatorUrl!=='http://127.0.0.1:9099')throw Error('La candidata no tiene el aislamiento esperado.');
+  if(value.environment!=='isolated-local'||value.features.privateBridge!==true||value.features.videoWorkflow!==false||value.features.uploads!==true||value.features.ai!==false||value.features.textFixture!==true||value.features.payments!==false||value.authEmulatorUrl!=='http://127.0.0.1:9099')throw Error('La candidata no tiene el aislamiento esperado.');
   const app=initializeApp(value.web,'vistavo-isolated-candidate'),instance=getAuth(app);connectAuthEmulator(instance,value.authEmulatorUrl,{disableWarnings:true});await setPersistence(instance,inMemoryPersistence);
   unsubscribe=onIdTokenChanged(instance,next=>{if(live){if(lastUid!==next?.uid){setUploadedFile(undefined);setTextFixture(undefined);setReviewDraft('');setSelectedFile(undefined);}lastUid=next?.uid??null;setUser(next);setConnected(undefined);}});if(live){setAuth(instance);setConfig(value);}
  })().catch(cause=>{if(live)setError(cause instanceof Error?cause.message:'No se pudo iniciar la candidata.');});return()=>{live=false;unsubscribe?.();};},[]);
  useEffect(()=>{if(!user||!config)return;let live=true;void(async()=>{if(!user.emailVerified){setNotice('Verifica el correo usando el enlace que muestra Firebase Authentication Emulator. No se envía ningún correo real.');return;}setBusy(true);setError('');try{
   const token=await user.getIdToken(true);
   await request('/api/account/bootstrap',token,'POST',{});
-  const [account,cloud]=await Promise.all([request('/api/account/me',token),request('/api/cloud/me',token)]);
+  const [account,cloud]=await Promise.all([request('/api/account/me',token),request('/api/video/me',token)]);
   if(live)setConnected({account,cloud});
  }catch(cause){if(live)setError(cause instanceof Error?cause.message:'No se pudieron conectar ambas APIs.');}finally{if(live)setBusy(false);}})();return()=>{live=false;};},[user,config,identityRefresh]);
  async function submit(event:React.FormEvent){event.preventDefault();if(!config||!auth)return;setBusy(true);setError('');setNotice('');try{if(register){const result=await createUserWithEmailAndPassword(auth,email,password);await sendEmailVerification(result.user);setNotice('Cuenta local creada. Abre el emulador para consultar el enlace de verificación: http://127.0.0.1:4000/auth');}else{await signInWithEmailAndPassword(auth,email,password);}}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo iniciar sesión local.');}finally{setBusy(false);}}
@@ -38,48 +38,48 @@ function App(){
   const uid=user.uid;let token:string|undefined,uploadId:string|undefined;setUploadBusy(true);setError('');setNotice('');setUploadedFile(undefined);
   try{
    token=await user.getIdToken();const bytes=await selectedFile.arrayBuffer(),digest=await crypto.subtle.digest('SHA-256',bytes),sha256=Array.from(new Uint8Array(digest),value=>value.toString(16).padStart(2,'0')).join('');if(auth?.currentUser?.uid!==uid)return;
-   const started=await request('/api/cloud/uploads',token,'POST',{name:selectedFile.name,size:selectedFile.size,sha256,requestKey:crypto.randomUUID()});
-   uploadId=String(started.id);const cleanup=async()=>{if(token&&uploadId)await request(`/api/cloud/uploads/${uploadId}`,token,'DELETE').catch(()=>undefined);};if(auth?.currentUser?.uid!==uid){await cleanup();return;}
-   const chunk=await fetch(`/api/cloud/uploads/${uploadId}/chunks?offset=0`,{method:'PUT',credentials:'omit',cache:'no-store',redirect:'error',headers:{Authorization:'Bearer '+token,'Content-Type':'application/octet-stream'},body:bytes});
+   const started=await request('/api/video/uploads',token,'POST',{name:selectedFile.name,size:selectedFile.size,sha256,requestKey:crypto.randomUUID()});
+   uploadId=String(started.id);const cleanup=async()=>{if(token&&uploadId)await request(`/api/video/uploads/${uploadId}`,token,'DELETE').catch(()=>undefined);};if(auth?.currentUser?.uid!==uid){await cleanup();return;}
+   const chunk=await fetch(`/api/video/uploads/${uploadId}/chunks?offset=0`,{method:'PUT',credentials:'omit',cache:'no-store',redirect:'error',headers:{Authorization:'Bearer '+token,'Content-Type':'application/octet-stream'},body:bytes});
    if(!chunk.ok)throw Error(`No se pudo guardar el bloque (${chunk.status}).`);
    await chunk.arrayBuffer();if(auth?.currentUser?.uid!==uid){await cleanup();return;}
-   await request(`/api/cloud/uploads/${uploadId}/complete`,token,'POST',{});if(auth?.currentUser?.uid!==uid){await cleanup();return;}
+   await request(`/api/video/uploads/${uploadId}/complete`,token,'POST',{});if(auth?.currentUser?.uid!==uid){await cleanup();return;}
    let status:UploadedFile|undefined;
    for(let attempt=0;attempt<20;attempt++){
-    status=await request(`/api/cloud/uploads/${uploadId}`,token) as UploadedFile;if(auth?.currentUser?.uid!==uid){await cleanup();return;}
+    status=await request(`/api/video/uploads/${uploadId}`,token) as UploadedFile;if(auth?.currentUser?.uid!==uid){await cleanup();return;}
     if(status.state==='ready'||status.state==='deleting'||status.state==='deleted')break;
     await new Promise(resolve=>setTimeout(resolve,250));
    }
    if(status?.state!=='ready')throw Error(`El archivo quedó en estado ${status?.state??'desconocido'}.`);
    if(auth?.currentUser?.uid!==uid)return;setUploadedFile(status);setNotice('Video guardado y leído desde el almacenamiento privado local.');
-  }catch(cause){if(token&&uploadId)await request(`/api/cloud/uploads/${uploadId}`,token,'DELETE').catch(()=>undefined);if(auth?.currentUser?.uid===uid)setError(cause instanceof Error?cause.message:'No se pudo completar la prueba local de almacenamiento.');}
+  }catch(cause){if(token&&uploadId)await request(`/api/video/uploads/${uploadId}`,token,'DELETE').catch(()=>undefined);if(auth?.currentUser?.uid===uid)setError(cause instanceof Error?cause.message:'No se pudo completar la prueba local de almacenamiento.');}
   finally{setUploadBusy(false);}
  }
  async function openUploadedFile(){
   if(!user||!uploadedFile)return;const uid=user.uid;setError('');
-  try{const token=await user.getIdToken(),response=await fetch(`/api/cloud/uploads/${uploadedFile.id}/content`,{credentials:'omit',cache:'no-store',redirect:'error',headers:{Authorization:'Bearer '+token}});if(auth?.currentUser?.uid!==uid)return;
+  try{const token=await user.getIdToken(),response=await fetch(`/api/video/uploads/${uploadedFile.id}/content`,{credentials:'omit',cache:'no-store',redirect:'error',headers:{Authorization:'Bearer '+token}});if(auth?.currentUser?.uid!==uid)return;
    if(!response.ok)throw Error(`La descarga privada falló (${response.status}).`);
    const blob=await response.blob();if(auth?.currentUser?.uid!==uid)return;const objectUrl=URL.createObjectURL(blob),link=document.createElement('a');link.href=objectUrl;link.download=uploadedFile.name;link.click();setTimeout(()=>URL.revokeObjectURL(objectUrl),30000);
   }catch(cause){setError(cause instanceof Error?cause.message:'No se pudo abrir el archivo privado.');}
  }
  async function startTextFixture(){
   if(!user||!uploadedFile)return;const uid=user.uid;setFixtureBusy(true);setError('');setNotice('');setTextFixture(undefined);
-  try{const value=await request('/api/cloud/text-fixture/transcribe',await user.getIdToken(),'POST',{inputId:uploadedFile.id}) as TextFixture;if(auth?.currentUser?.uid!==uid)return;setTextFixture(value);setReviewDraft(value.transcriptEs);setNotice('Se creó una muestra fija de texto. No se extrajo del video.');}
+  try{const value=await request('/api/video/text-fixture/transcribe',await user.getIdToken(),'POST',{inputId:uploadedFile.id}) as TextFixture;if(auth?.currentUser?.uid!==uid)return;setTextFixture(value);setReviewDraft(value.transcriptEs);setNotice('Se creó una muestra fija de texto. No se extrajo del video.');}
   catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear la muestra local.');}finally{setFixtureBusy(false);}
  }
  async function saveTextReview(){
   if(!user||!uploadedFile||!textFixture)return;const uid=user.uid;setFixtureBusy(true);setError('');
-  try{const value=await request(`/api/cloud/text-fixture/${uploadedFile.id}/review`,await user.getIdToken(),'PUT',{reviewedEs:reviewDraft,expectedRevision:textFixture.revision}) as {revision:number;phase:'reviewed';reviewedEs:string};if(auth?.currentUser?.uid!==uid)return;setTextFixture(current=>current?{...current,revision:value.revision,phase:value.phase,reviewedEs:value.reviewedEs,translationEn:null}:current);setNotice('Revisión de muestra guardada localmente.');}
+  try{const value=await request(`/api/video/text-fixture/${uploadedFile.id}/review`,await user.getIdToken(),'PUT',{reviewedEs:reviewDraft,expectedRevision:textFixture.revision}) as {revision:number;phase:'reviewed';reviewedEs:string};if(auth?.currentUser?.uid!==uid)return;setTextFixture(current=>current?{...current,revision:value.revision,phase:value.phase,reviewedEs:value.reviewedEs,translationEn:null}:current);setNotice('Revisión de muestra guardada localmente.');}
   catch(cause){setError(cause instanceof Error?cause.message:'No se pudo guardar la revisión local.');}finally{setFixtureBusy(false);}
  }
  async function translateTextFixture(){
   if(!user||!uploadedFile||!textFixture)return;const uid=user.uid;setFixtureBusy(true);setError('');
-  try{const value=await request(`/api/cloud/text-fixture/${uploadedFile.id}/translate`,await user.getIdToken(),'POST',{expectedRevision:textFixture.revision}) as {revision:number;phase:'translated';translationEn:string;source:'local-deterministic-fixture'};if(auth?.currentUser?.uid!==uid)return;setTextFixture(current=>current?{...current,...value}:current);setNotice('Se creó el archivo de muestra en inglés; no se llamó a un traductor.');}
+  try{const value=await request(`/api/video/text-fixture/${uploadedFile.id}/translate`,await user.getIdToken(),'POST',{expectedRevision:textFixture.revision}) as {revision:number;phase:'translated';translationEn:string;source:'local-deterministic-fixture'};if(auth?.currentUser?.uid!==uid)return;setTextFixture(current=>current?{...current,...value}:current);setNotice('Se creó el archivo de muestra en inglés; no se llamó a un traductor.');}
   catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear la muestra inglesa.');}finally{setFixtureBusy(false);}
  }
  async function downloadTextFixture(name:'transcript-es.txt'|'transcript-es.srt'|'translation-en.txt'|'translation-en.srt'){
   if(!user||!uploadedFile)return;if(name.startsWith('translation-')&&(!textFixture?.translationEn||textFixture.phase!=='translated'||reviewDraft!==textFixture.reviewedEs)){setError('Guarda la revisión actual antes de descargar el ejemplo inglés.');return;}const uid=user.uid;setError('');
-  try{const response=await fetch(`/api/cloud/text-fixture/${uploadedFile.id}/results/${name}`,{credentials:'omit',cache:'no-store',redirect:'error',headers:{Authorization:'Bearer '+await user.getIdToken()}});if(auth?.currentUser?.uid!==uid)return;if(!response.ok)throw Error(`La descarga privada falló (${response.status}).`);const blob=await response.blob();if(auth?.currentUser?.uid!==uid)return;const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+  try{const response=await fetch(`/api/video/text-fixture/${uploadedFile.id}/results/${name}`,{credentials:'omit',cache:'no-store',redirect:'error',headers:{Authorization:'Bearer '+await user.getIdToken()}});if(auth?.currentUser?.uid!==uid)return;if(!response.ok)throw Error(`La descarga privada falló (${response.status}).`);const blob=await response.blob();if(auth?.currentUser?.uid!==uid)return;const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);}
   catch(cause){setError(cause instanceof Error?cause.message:'No se pudo descargar la muestra privada.');}
  }
  return <div className="iso-shell"><header className="iso-header"><a href="/" className="iso-brand"><img src="/brand/vistavo-symbol.svg" width="36" height="36" alt=""/>Vistavo</a><span className="iso-badge">CANDIDATA AISLADA · LOCAL</span></header><main>

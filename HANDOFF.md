@@ -10,7 +10,9 @@ La candidata queda activa localmente con `uploads=true` y `textFixture=true`; el
 
 **Login/descargas manuales completados:** Rob confirmó que entró con una cuenta sintética ya verificada por Auth Emulator, cargó el MP4 sintético y descargó los cuatro TXT/SRT de muestra desde la interfaz. El texto inglés es fijo; no se llamó a IA. Descargas confirmadas por Rob, pero sin lectura/hash de archivos en disco (no aparecieron en el `Downloads` estándar de Windows). Detalle y límites: [informe manual](docs/reviews/LV-019-B-browser-login-descargas-2026-11-16.md). La candidata continúa aislada, con video en RAM y proveedores/pagos apagados.
 
-**Siguiente en orden:** preparar una candidata local del gateway con tabla de rutas y pruebas de emulador según el [diseño](docs/specs/LV-019-B-puente-cloud-run-privado.md). No hacer cambios cloud todavía. Desplegar el gateway requerirá una aprobación posterior para invocador IAM en `vistavo-files-api`, egress VPC y publicación/CSP; llevar antes costos y plan de reversión concretos a Rob.
+**Puente local a backend privado simulado completado:** UI same-origin `/api/video/**` → proxy local → gateway loopback `3006` → API de archivos local `3005`. El gateway verifica que el token Firebase esté vigente y que el correo esté verificado; usa un secreto sintético efímero. La API rechaza el bypass directo. Allowlist de rutas/queries, topes y descargas `private, no-store` comprobados. Test 1/1 PASS, lint PASS, ambas builds PASS, Qwen4 Max/T3 PASS y follow-up PASS. Evidencia: `outputs/lv019-b-cloudrun-local-bridge-20261116/`.
+
+**Siguiente:** preparar el inventario de costos, IAM puntual, VPC egress, cambios exactos de Hosting/CSP y reversión para decidir sobre el puente real. El secreto local no es un token de Google y esta prueba no llega a Cloud Run. No cambiar recursos cloud ni publicar hasta aprobación explícita de Rob. No crear Cloud SQL.
 
 ## Estado anterior · candidata aislada disponible localmente
 

@@ -1,6 +1,6 @@
 # LV-019.B · Propuesta de puente para la API privada de Cloud Run
 
-**Estado: propuesta, no aprobada para implementación.** La web pública permanece en Firebase Hosting. Los servicios actuales de video/IA continúan privados, con `ingress=internal` e IAM; no se modifican ni se despliegan recursos en este documento. Implementar esta ruta sí requerirá un cambio explícito a la política IAM de `vistavo-files-api` para añadir como invocador al gateway, además de salida VPC propia y cambios acotados en Hosting/CSP/guards. No se crea Cloud SQL. Qwen4 Max dio PASS condicionado. La revisión inicial independiente de DeepSeek se conserva como **FALLA** por la frase ambigua “sin cambios de IAM”; tras aclarar que el gateway nuevo necesita entrada pública protegida por auth de aplicación y que el cambio de IAM del backend requerirá autorización separada, DeepSeek dio PASS al borrador corregido. Los dos informes y ambos resultados se conservan; los PASS no autorizan implementación.
+**Estado: diseño cloud sin aprobar; Rob autorizó preparar un prototipo local aislado.** Esta autorización cubre solo código reversible y pruebas con Auth/Firestore Emulator y un backend privado simulado en loopback. No permite usar credenciales, URLs, IAM, red VPC, Firebase Hosting o servicios Cloud Run reales. El prototipo simula el token de invocador con un secreto efímero generado por el runner; no prueba una firma OIDC de Google ni acceso a Cloud Run. La web pública permanece en Firebase Hosting. El backend real conserva `ingress=internal` e IAM. Su futura conexión requerirá aprobación explícita para invocador IAM en `vistavo-files-api`, egress VPC, costos y cambios acotados de Hosting/CSP/guards. No se crea Cloud SQL. Qwen4 Max dio PASS condicionado al diseño; DeepSeek dio PASS de seguimiento al borrador corregido. Ninguna revisión autoriza cambios cloud.
 
 ## Diseño recomendado
 
@@ -15,6 +15,23 @@ Cloud Run de video/IA (ingress interno, roles/run.invoker solo para gateway)
   ──>
 Firestore / GCS / proveedores según las APIs existentes
 ```
+
+## Alcance autorizado del prototipo local · 16 nov 2026
+
+- El navegador sigue llamando al origen local `127.0.0.1:3003`, con Firebase ID token del Auth Emulator.
+- El proxy local enruta `/api/video/**` a un gateway de loopback. El gateway verifica usuario, emisor, revocación y correo verificado; solo traduce rutas de la tabla fija `/api/video/...` → `/api/cloud/...`.
+- El gateway reenvía el Firebase ID token del usuario y agrega un `X-Serverless-Authorization` sintético. El servicio local en `3005` exige ese valor sintético y vuelve a verificar el token/propiedad del usuario. El secreto sintético se genera al arrancar y no se registra.
+- Toda petición sin autenticación, ruta/método/query no permitidos o invocación directa del backend sin identidad del gateway debe rechazarse. Se conservan respuestas privadas `no-store` y streaming acotado.
+- El token sintético sirve para probar separación de roles y headers solamente. No equivale a un ID token firmado por Google, IAM, Direct VPC egress, ingreso interno ni una llamada real a Cloud Run.
+- Flags de transcripción/traducción/voz real, IA, pagos y publicación permanecen apagados; el almacenamiento local es efímero.
+
+### Resultado de la prueba local · 16 nov 2026
+
+**PASS local únicamente.** Se conectó la UI por `/api/video/**` al proxy de `3003`, luego al gateway aislado de `3006` y finalmente a la API privada emulada de `3005`. El Auth/Firestore Emulator mantiene sus puertos y bases separados. El runner crea un assertion efímero aleatorio de 64 hex y solo lo entrega al gateway y a la API. La API falla cerrada si el assertion falta y rechaza llamadas directas sin él; el navegador no puede suplirlo. Ambos lados verifican el Firebase ID token con `checkRevoked=true` y correo verificado, y el backend conserva la comprobación de propiedad.
+
+El proxy y el gateway aceptan solo rutas/métodos explícitos; las consultas se limitan a `offset` en chunks y `download=1` en TXT/SRT. El gateway fija audiencia/destino a `http://127.0.0.1:3005`, reenvía el token Firebase del usuario, agrega el assertion sintético y conserva streaming/backpressure, límites de 400.000 B JSON y 8 MiB por bloque, respuestas `private, no-store` y `Vary: Authorization`. Se limita el drenaje de requests rechazadas a 16 MiB o 10 s. Test 1/1 sin omisiones; incluye revocación, correo no verificado, usuario ajeno, header de identidad falso, bypass directo, tamaños, query, ruta, rango, descarga y borrado. `npm run lint` y ambas builds PASS. Revisiones Qwen4 Max vía T3: PASS inicial y PASS de seguimiento. Evidencia completa en `outputs/lv019-b-cloudrun-local-bridge-20261116/`; uso/costo T3 no observables desde CLI.
+
+**Cobertura restante del prototipo:** no se ejercitó la rama que cierra una conexión por exceder 16 MiB/10 s durante el drenaje, un `offset` de más de 20 caracteres ni una identidad Google firmada. Esta implementación no llama a Cloud Run real y no prueba sus grants, red VPC o Hosting. El token de loopback no es una credencial Google.
 
 El gateway es la única pieza nueva que recibe tráfico desde Internet. Aunque el endpoint sea alcanzable públicamente para que Hosting pueda invocarlo, ninguna ruta de negocio acepta solicitudes sin autenticar: el gateway verifica el Firebase ID token y el servicio privado vuelve a verificarlo para resolver UID y propiedad. Esto separa la identidad de la persona (`Authorization: Bearer <Firebase ID token>`) de la identidad de servicio a servicio (`X-Serverless-Authorization: Bearer <Google-signed ID token>`). No se confía en un UID enviado en el cuerpo o en un encabezado del navegador.
 

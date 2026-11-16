@@ -52,12 +52,13 @@ export async function createIsolatedCloudRuntime(){
  }catch(error){await db.terminate();await closeAuth();throw error;}
 }
 
-function apiService(port:number,handler:(req:IncomingMessage,res:ServerResponse)=>unknown){
+function apiService(port:number,handler:(req:IncomingMessage,res:ServerResponse)=>unknown,requiredGatewayToken?:string){
  const expectedHost=`127.0.0.1:${port}`;
  const server=createServer((req,res)=>{
   const peer=req.socket.remoteAddress;
   if(!['127.0.0.1','::ffff:127.0.0.1'].includes(peer??'')||req.headers.host!==expectedHost||req.headers.origin!==origin){req.resume();res.writeHead(403,{'Cache-Control':'no-store'}).end();return;}
   if(req.method==='GET'&&req.url==='/healthz'){res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}).end(JSON.stringify({status:'ok'}));return;}
+  if(requiredGatewayToken&&req.headers['x-serverless-authorization']!==`Bearer ${requiredGatewayToken}`){req.resume();res.writeHead(403,{'Cache-Control':'private, no-store','Vary':'Authorization'}).end(JSON.stringify({error:'gateway_identity_required'}));return;}
   Promise.resolve(handler(req,res)).catch(()=>{if(res.headersSent)res.destroy();else{req.resume();res.writeHead(503,{'Cache-Control':'no-store'}).end();}});
  });server.requestTimeout=30000;server.headersTimeout=10000;return server;
 }
@@ -68,14 +69,15 @@ export function createIsolatedAccountServer(runtime:Awaited<ReturnType<typeof cr
  server.once('close',()=>void runtime.close());server.once('error',()=>void runtime.close());return server;
 }
 
-export function createIsolatedCloudServer(runtime:Awaited<ReturnType<typeof createIsolatedCloudRuntime>>){
- const server=apiService(3005,runtime.handler);
+export function createIsolatedCloudServer(runtime:Awaited<ReturnType<typeof createIsolatedCloudRuntime>>,requiredGatewayToken:string){
+ if(!/^[a-f0-9]{64}$/.test(requiredGatewayToken))throw Error('Isolated cloud API requires a gateway assertion');
+ const server=apiService(3005,runtime.handler,requiredGatewayToken);
  server.listen(3005,'127.0.0.1',()=>console.log(JSON.stringify({event:'isolated-cloud-api-ready',origin,projectId,database:'(default)',uploads:true,storageAdapter:'ephemeral-memory',ai:false,textFixture:true,externalCloud:false})));
  server.once('close',()=>void runtime.close());server.once('error',()=>void runtime.close());return server;
 }
 
 export async function startIsolatedAccountApi(){return createIsolatedAccountServer(await createIsolatedAccountRuntime());}
-export async function startIsolatedCloudApi(){return createIsolatedCloudServer(await createIsolatedCloudRuntime());}
+export async function startIsolatedCloudApi(){const token=process.env.VISTAVO_LOCAL_GATEWAY_TOKEN;if(!token||!/^[a-f0-9]{64}$/.test(token))throw Error('Isolated cloud API requires a gateway assertion');return createIsolatedCloudServer(await createIsolatedCloudRuntime(),token);}
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  const role=process.argv[2];

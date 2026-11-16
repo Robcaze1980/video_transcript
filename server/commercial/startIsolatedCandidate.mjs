@@ -1,6 +1,7 @@
 import net from 'node:net';
 import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
+import {randomBytes} from 'node:crypto';
 
 const emulatorEnv={FIRESTORE_EMULATOR_HOST:'127.0.0.1:8185',FIREBASE_AUTH_EMULATOR_HOST:'127.0.0.1:9099',VISTAVO_ISOLATED_CANDIDATE:'1'};
 for(const [name,value] of Object.entries(emulatorEnv)){
@@ -24,14 +25,17 @@ async function waitForReady(port,path,child){
  throw Error(`Candidate HTTP endpoint ${port}${path} did not become ready`);
 }
 for(const port of [8185,9099])await assertLoopbackPort(port);
-for(const port of [3003,3004,3005])await assertCandidatePortFree(port);
+for(const port of [3003,3004,3005,3006])await assertCandidatePortFree(port);
 
 const children=[];
 const apiEntry=resolve('server/commercial/isolatedCandidateLocal.ts');
 const proxyEntry=resolve('server/commercial/isolatedCandidateProxy.ts');
+const gatewayEntry=resolve('server/commercial/isolatedCloudRunBridge.ts');
+const gatewayToken=randomBytes(32).toString('hex');
 function launch(role){
- const entry=role==='front'?proxyEntry:apiEntry;
- const child=spawn(process.execPath,['--no-network-family-autoselection','--import','tsx',entry,role],{cwd:process.cwd(),env:{...process.env},stdio:'inherit',windowsHide:true});
+ const entry=role==='front'?proxyEntry:role==='gateway'?gatewayEntry:apiEntry;
+ const env={...process.env};if(role==='gateway'||role==='cloud')env.VISTAVO_LOCAL_GATEWAY_TOKEN=gatewayToken;
+ const child=spawn(process.execPath,['--no-network-family-autoselection','--import','tsx',entry,role],{cwd:process.cwd(),env,stdio:'inherit',windowsHide:true});
  children.push(child);
  child.once('error',error=>{console.error(JSON.stringify({event:'isolated-candidate-child-error',role,message:error.message}));stop(1);});
  child.once('exit',(code,signal)=>{if(!shuttingDown){console.error(JSON.stringify({event:'isolated-candidate-child-exit',role,code,signal}));stop(code||1);}});
@@ -51,6 +55,7 @@ process.once('SIGINT',()=>stop(0));process.once('SIGTERM',()=>stop(0));
 try{
  const account=launch('account');await waitForReady(3004,'/healthz',account);
  const cloud=launch('cloud');await waitForReady(3005,'/healthz',cloud);
+ const gateway=launch('gateway');await waitForReady(3006,'/healthz',gateway);
  const front=launch('front');await waitForReady(3003,'/api/candidate/config',front);
- console.log(JSON.stringify({event:'isolated-candidate-stack-ready',origin:'http://127.0.0.1:3003',accountApi:'separate-local-process',cloudApi:'separate-local-process',proxyDatabaseAccess:false,projectId:'demo-vistavo-ledger',videoWorkflow:false,uploads:true,storageAdapter:'ephemeral-memory',ai:false,payments:false}));
+ console.log(JSON.stringify({event:'isolated-candidate-stack-ready',origin:'http://127.0.0.1:3003',accountApi:'separate-local-process',privateBridge:'local-simulation',privateApi:'separate-loopback-process',proxyDatabaseAccess:false,projectId:'demo-vistavo-ledger',videoWorkflow:false,uploads:true,storageAdapter:'ephemeral-memory',ai:false,payments:false,googleIdentityToken:false}));
 }catch(error){console.error(JSON.stringify({event:'isolated-candidate-stack-failed',message:error.message}));stop(1);}

@@ -372,3 +372,7 @@ POST directo del review independiente a `~z-ai/glm-flash-latest` venció el time
 
 Verificación posterior con emuladores: stack local healthy en 3003/3004/3005; `test:candidate:isolated` 1/1, `npm run lint` y ambas compilaciones PASS. Sin ADC, GCS, Firebase de producción o despliegue. El login visual aún requiere acción manual de Rob. Evidencia automatizada en el test dedicado y log de esta sesión; no atribuir esto al error de producto HTTP 500 histórico E55, que sigue inconcluso.
 
+## 2026-11-16 · LV-019.B · prototipo local del gateway · errores de prueba corregidos
+
+Durante la primera iteración del nuevo test, una carga sobredimensionada fue rechazada antes de drenar por completo el cuerpo y la siguiente llamada falló con `fetch failed`; se cambió el rechazo para consumir la solicitud antes de responder, después se acotó a 16 MiB/10 s y cierre de conexión si el cuerpo no termina. No se reprodujo fuera de la suite local. La prueba de revocación también recibió 200 al revocar en el mismo segundo de emisión; al introducir 2.1 s entre emisión y revocación, Auth Emulator devolvió 401, consistente con la granularidad temporal del claim. El código de gateway ya usaba `verifyIdToken(token, true)`; no se atribuye ese caso a producción ni al HTTP 500 histórico. Cierre final `test:candidate:isolated` 1/1, 0 omitidos, PASS; lint/build PASS. Evidencia `outputs/lv019-b-cloudrun-local-bridge-20261116/test-candidate-isolated.log`.
+

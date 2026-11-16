@@ -1,0 +1,57 @@
+{
+  "date": "2026-11-16",
+  "task": "LV-019.B-LOCAL-GATEWAY-01",
+  "status": "PASS_LOCAL_ONLY",
+  "repository": "Robcaze1980/video_transcript",
+  "baseCommit": "60375e5",
+  "workingTree": "local changes; not committed or pushed in this record",
+  "topology": {
+    "browserOrigin": "http://127.0.0.1:3003",
+    "sameOriginRoutes": "/api/video/**",
+    "candidateProxy": "127.0.0.1:3003",
+    "localGateway": "127.0.0.1:3006",
+    "privateBackendEmulator": "127.0.0.1:3005",
+    "accountApi": "127.0.0.1:3004",
+    "firebaseProject": "demo-vistavo-ledger",
+    "storage": "ephemeral in-memory objects adapter",
+    "serviceIdentity": "ephemeral local 64-hex assertion, not Google-signed OIDC"
+  },
+  "checks": {
+    "isolatedIntegration": "PASS 1/1, 0 skipped",
+    "tokenRevocation": "revoked user token -> 401",
+    "unverifiedEmail": "403",
+    "crossAccount": "file reads and delete -> 404",
+    "serviceIdentity": "browser-supplied X-Serverless-Authorization replaced; backend direct call without gateway assertion -> 403",
+    "routeAndQuery": "unknown route/query -> 404; invalid chunk offset -> 400",
+    "bodyLimits": "chunk >8 MiB -> 413; JSON without Content-Length -> 411; JSON 400001 B -> 413",
+    "privateDownloads": "private, no-store; Vary: Authorization; HEAD/range checked",
+    "proxyAndOrigin": "open proxy path rejected; hostile Origin -> 403; direct /api/cloud browser path -> 404",
+    "lint": "npm run lint PASS",
+    "build": "npm run build PASS for main and pilot apps",
+    "liveSmoke": "3003 page/config, 3004 account, 3005 private API, and 3006 gateway healthy; direct private backend without assertion -> 403"
+  },
+  "independentReview": {
+    "model": "qwen/qwen4-max",
+    "transport": "T3 CLI, provider linguistvision-openrouter",
+    "initial": "PASS",
+    "followup": "PASS; four non-blocking recommendations verified/corrected",
+    "threadIds": [
+      "mcp:11116feb-59d8-4ba7-970d-f18f00c947b2",
+      "mcp:eb6f5f68-99fa-4404-8298-f28aa2ba6d74"
+    ],
+    "tokensAndCost": "not measurable from T3 CLI"
+  },
+  "limitations": [
+    "No real Cloud Run call, Google-signed invoker ID token, IAM, VPC egress, Hosting rewrite/CSP, GCS, providers, billing or deployment was used or changed.",
+    "The rejected-body drain cutoff branch at 16 MiB/10 s was not exercised; requests tested drained fully.",
+    "The local synthetic assertion is only a protocol simulator and must never be reused in production.",
+    "Video/AI processing and payments remain disabled."
+  ],
+  "evidence": {
+    "automatedTestLog": "test-candidate-isolated.log",
+    "qwenInitialFull": "qwen4-max-review-full.json",
+    "qwenFollowupFull": "qwen4-max-followup-full.json",
+    "qwenInitialPrompt": "qwen4-max-review-prompt.md",
+    "qwenFollowupPrompt": "qwen4-max-followup-prompt.md"
+  }
+}
