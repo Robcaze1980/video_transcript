@@ -4,19 +4,20 @@ import {randomUUID} from 'node:crypto';
 import {firestoreHttp} from './firestoreHttp';
 import {AiFault,FirestoreAi} from './firestoreAi';
 import {LedgerFault,type FirestoreBackend} from './firestoreBackend';
-import {AI_CATALOG_VERSION,AiContractFault} from './aiContracts';
+import {AI_CATALOG_VERSION,AiContractFault,aiOperation} from './aiContracts';
 import {reserveWithRecovery} from './cloudEnqueueRecovery';
-const enqueueWithRecovery=(ai:FirestoreAi,account:string,data:{inputId:string;operation:unknown;expectedRevision:number;requestKey:string})=>reserveWithRecovery(ai,account,data,()=>ai.enqueue(account,data.inputId,data.operation,data.expectedRevision,data.requestKey),error=>error instanceof AiFault||error instanceof LedgerFault||error instanceof AiContractFault);
+const enqueueWithRecovery=(ai:FirestoreAi,account:string,data:{inputId:string;operation:unknown;expectedRevision:number;requestKey:string})=>reserveWithRecovery(ai,account,data,()=>ai.enqueue(account,data.inputId,data.operation,data.expectedRevision,data.requestKey),error=>error instanceof AiFault||error instanceof LedgerFault||error instanceof AiContractFault,()=>ai.backend.priorSimulatedRequestForEnqueue(account,data.inputId,data.requestKey,aiOperation(data.operation),data.expectedRevision,AI_CATALOG_VERSION));
 
 it('AI POST returns the durable job after commit ACK is lost without a second enqueue',async()=>{
- const account=randomUUID(),input=randomUUID(),jobId=randomUUID(),requestKey='same-key-after-ack-loss';let committed=false,enqueueCalls=0;
- const backend={accountForUid:async()=>account,priorRequest:async()=>committed?jobId:null,job:async()=>({accountId:account,inputId:input,operation:'narration:en:female',revision:1,requestKey,aiProfile:AI_CATALOG_VERSION}),reserve:async()=>{enqueueCalls++;committed=true;throw Object.assign(new Error('synthetic-private-error'),{code:4});}};
- const ai=new FirestoreAi({} as never,{} as never,backend as unknown as FirestoreBackend,{} as never);ai.enabled=async()=>undefined;ai.quote=async()=>({units:1,operation:'narration:en:female'} as never);
+ const account=randomUUID(),input=randomUUID(),jobId=randomUUID(),requestKey='same-key-after-ack-loss',operation='translation:en';let committed=false,enqueueCalls=0;
+ const priorRequest=async()=>committed?jobId:null;
+ const backend={accountForUid:async()=>account,priorRequest,priorSimulatedRequestForEnqueue:priorRequest,priorSimulatedRequestForEnqueueForUid:priorRequest,jobForUid:async()=>({accountId:account,inputId:input,operation,revision:1,requestKey,aiProfile:AI_CATALOG_VERSION}),reserveSimulatedAiForUid:async()=>{enqueueCalls++;committed=true;throw Object.assign(new Error('synthetic-private-error'),{code:4});}};
+ const ai=new FirestoreAi({} as never,{} as never,backend as unknown as FirestoreBackend,{} as never);ai.enabled=async()=>undefined;(ai as any).enabledForUid=async()=>undefined;ai.quoteForUid=async()=>({units:1,operation} as never);
  const log=vi.spyOn(console,'error').mockImplementation(()=>undefined);
  const server=createServer(firestoreHttp({backend:backend as unknown as FirestoreBackend,ai:ai as unknown as FirestoreAi,origin:'http://127.0.0.1',identity:{verifyIdToken:async()=>({uid:'synthetic-owner',email_verified:true} as unknown as import('firebase-admin/auth').DecodedIdToken)}}));
  await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));
  try{
-  const port=(server.address() as {port:number}).port,response=await fetch('http://127.0.0.1:'+port+'/api/cloud/ai/jobs',{method:'POST',headers:{Authorization:'Bearer synthetic-only','Content-Type':'application/json'},body:JSON.stringify({inputId:input,operation:'narration:en:female',expectedRevision:1,requestKey})});
+  const port=(server.address() as {port:number}).port,response=await fetch('http://127.0.0.1:'+port+'/api/cloud/ai/jobs',{method:'POST',headers:{Authorization:'Bearer synthetic-only','Content-Type':'application/json'},body:JSON.stringify({inputId:input,operation,expectedRevision:1,requestKey})});
   expect(response.status).toBe(202);expect(await response.json()).toEqual({id:jobId});expect(enqueueCalls).toBe(1);
   expect(log).toHaveBeenCalledTimes(1);const trace=JSON.parse(log.mock.calls[0][0]);
   expect(trace.event).toBe('cloud-http-recovered');expect(trace.status).toBe(202);expect(trace.enqueueFailure).toEqual({type:'Error',code:4});expect(trace.enqueueRecovered).toBe(true);expect(trace.traceId).toBe(response.headers.get('x-vistavo-trace'));
@@ -27,7 +28,7 @@ it('AI POST returns the durable job after commit ACK is lost without a second en
 function recoveryFixture(){
  const account=randomUUID(),input=randomUUID(),jobId=randomUUID(),data={inputId:input,operation:'narration:en:female',expectedRevision:1,requestKey:'original-request'},error=Object.assign(new Error('private-original'),{code:4});
  const job={accountId:account,inputId:input,operation:data.operation,revision:1,requestKey:data.requestKey,aiProfile:AI_CATALOG_VERSION};
- const backend={priorRequest:vi.fn(async()=>jobId as string|null),job:vi.fn(async()=>job)},enabled=vi.fn(async()=>undefined),enqueue=vi.fn(async()=>{throw error;});
+ const priorRequest=vi.fn(async()=>jobId as string|null),backend={priorRequest,priorSimulatedRequestForEnqueue:priorRequest,job:vi.fn(async()=>job)},enabled=vi.fn(async()=>undefined),enqueue=vi.fn(async()=>{throw error;});
  return {account,input,jobId,data,error,job,backend,enabled,enqueue,ai:{backend,enabled,enqueue} as unknown as FirestoreAi};
 }
 it('a successful enqueue performs no recovery reads',async()=>{
@@ -43,7 +44,7 @@ it('an unavailable recovery read preserves the original ambiguous failure',async
  const c=recoveryFixture();c.backend.priorRequest.mockRejectedValueOnce(Object.assign(new Error('private-secondary'),{code:14}));await expect(enqueueWithRecovery(c.ai,c.account,c.data)).rejects.toBe(c.error);expect(c.backend.job).not.toHaveBeenCalled();expect(c.enqueue).toHaveBeenCalledTimes(1);
 });
 it('lookup binds the exact original request identity and AI profile',async()=>{
- const c=recoveryFixture();expect(await enqueueWithRecovery(c.ai,c.account,c.data)).toBe(c.jobId);expect(c.backend.priorRequest).toHaveBeenCalledExactlyOnceWith(c.account,c.input,c.data.requestKey,c.data.operation,c.data.expectedRevision,AI_CATALOG_VERSION);
+ const c=recoveryFixture();expect(await enqueueWithRecovery(c.ai,c.account,c.data)).toBe(c.jobId);expect(c.backend.priorRequest).toHaveBeenCalledTimes(2);for(const call of c.backend.priorRequest.mock.calls)expect(call).toEqual([c.account,c.input,c.data.requestKey,c.data.operation,c.data.expectedRevision,AI_CATALOG_VERSION]);
 });
 it.each(['before-read','after-read'])('revocation %s denies recovered acknowledgement',async point=>{
  const c=recoveryFixture();if(point==='before-read')c.enabled.mockRejectedValueOnce(new AiFault('disabled'));else c.enabled.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new AiFault('disabled'));
@@ -57,7 +58,7 @@ it('conflicting same-key fingerprint is not acknowledged as the original operati
 });
 it('an unexpected quote failure performs no ACK recovery lookup or reservation',async()=>{
  const account=randomUUID(),input=randomUUID(),original=Object.assign(new Error('private-quote-SDK-error'),{code:14});
- const backend={priorRequest:vi.fn(async()=>null),reserve:vi.fn(async()=>randomUUID()),job:vi.fn(async()=>({}))};
+ const priorRequest=vi.fn(async()=>null),backend={priorRequest,priorSimulatedRequestForEnqueue:priorRequest,reserve:vi.fn(async()=>randomUUID()),job:vi.fn(async()=>({}))};
  const ai=new FirestoreAi({} as never,{} as never,backend as unknown as FirestoreBackend,{} as never);ai.enabled=async()=>undefined;ai.quote=async()=>{throw original;};
  await expect(ai.enqueue(account,input,'narration:en:female',1,'quote-fails')).rejects.toBe(original);expect(backend.priorRequest).toHaveBeenCalledTimes(1);expect(backend.reserve).not.toHaveBeenCalled();expect(backend.job).not.toHaveBeenCalled();
 });

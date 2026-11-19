@@ -7,15 +7,16 @@ import {processOnDemand,dispatchPending} from './firestoreWorker.ts';
 import {createServer} from 'node:http';
 import {firestoreHttp} from './firestoreHttp.ts';
 import {cloudRunDispatch} from './cloudRunDispatch.ts';
+import {prepareFinancialFixture,cleanupFinancialFixture} from './financialFixtureSafety.mjs';
 function createLocalFirestoreLedger(){
  if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8185')throw Error('Dedicated emulator required');
  const db=new Firestore({projectId:'demo-vistavo-ledger',host:'127.0.0.1:8185',ssl:false,
-  preferRest:process.env.VISTAVO_TEST_TRANSPORT!=='grpc'});
+  preferRest:process.env.LV_FINANCIAL_REGRESSION==='1'?false:process.env.VISTAVO_TEST_TRANSPORT!=='grpc'});
  const root=db.collection('vistavo_backend_test').doc(randomUUID());
  const ledger=new FirestoreBackend(db,root,{allowUnverifiedInputsForTests:true});
  const credit=ledger.creditVerifiedPurchase.bind(ledger);ledger.creditVerifiedPurchase=(...args)=>credit(...args,'merchant-test','sandbox');
  const reserve=ledger.reserve.bind(ledger);ledger.reserve=(...args)=>args.length===4?reserve(...args,'transcript:v1'):reserve(...args);
- return {ledger,db,root,projectId:'demo-vistavo-ledger',close:async()=>{await db.recursiveDelete(root);await db.terminate();}};
+ return {ledger,db,root,projectId:'demo-vistavo-ledger'};
 }
 const contexts=[];
 const sha='a'.repeat(64);
@@ -23,8 +24,8 @@ before(async()=>{
  assert.equal(process.env.FIRESTORE_EMULATOR_HOST,'127.0.0.1:8185','Dedicated emulator required; no fallback');
  await fetch('http://127.0.0.1:8185/');
 });
-afterEach(async()=>{for(const c of contexts.splice(0))await c.close();});
-async function fixture(credits=3){const c=createLocalFirestoreLedger();assert.equal(c.projectId,'demo-vistavo-ledger');contexts.push(c);const account=await c.ledger.createAccount();if(credits)await c.ledger.creditVerifiedPurchase(account,'fixture-'+randomUUID(),credits,100);const input=await c.ledger.addInput(account,Date.now()+120000,sha);return{...c,account,input};}
+afterEach(async()=>{for(const c of contexts.splice(0))try{await cleanupFinancialFixture(c,'vistavo_backend_test');}finally{await c.db.terminate();}});
+async function fixture(credits=3){const c=createLocalFirestoreLedger();assert.equal(c.projectId,'demo-vistavo-ledger');contexts.push(c);await prepareFinancialFixture(c,'vistavo_backend_test');const account=await c.ledger.createAccount();if(credits)await c.ledger.creditVerifiedPurchase(account,'fixture-'+randomUUID(),credits,100);const input=await c.ledger.addInput(account,Date.now()+120000,sha);return{...c,account,input};}
 const ref=(c,name,id)=>c.root.collection(name).doc(id);
 const reject=(promise,code)=>assert.rejects(promise,error=>error.code===code);
 async function claim(c,...args){const a=await c.ledger.claim(...args);if(a)assert.equal(await c.ledger.beginInvocation(args[0],args[1],a.attemptId),true);return a;}

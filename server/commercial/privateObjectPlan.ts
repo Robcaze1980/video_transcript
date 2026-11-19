@@ -4,8 +4,8 @@ export const privateBucket = 'vistavo-prod-107404655346-media' as const;
 export const privateChunkBytes = 8*1024*1024;
 export interface ObjectPlan {chunks: string[]; groups: string[]; final: string}
 export interface PrivateInputBinding {bucket: typeof privateBucket; key: string; generation: string; size: number; sha256: string}
-export const privateUuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
-export const privateSha = /^[a-f0-9]{64}$/;
+export const privateUuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}(?![\s\S])/i;
+export const privateSha = /^[a-f0-9]{64}(?![\s\S])/;
 export function objectPlan(id:string,size:number,chunkBytes=privateChunkBytes):ObjectPlan {
   if(typeof id!=='string'||!privateUuid.test(id)||!Number.isSafeInteger(size)||size<1||size>500000000||
       !Number.isSafeInteger(chunkBytes)||chunkBytes<1||chunkBytes>privateChunkBytes)throw Error('Invalid object plan');

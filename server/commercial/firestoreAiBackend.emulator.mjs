@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';import {test,before,afterEach} from 'node:test';import {randomUUID} from 'node:crypto';import {Firestore} from 'firebase-admin/firestore';
 import {FirestoreBackend} from './firestoreBackend.ts';import {AI_CATALOG_VERSION,AI_TEXT_BUDGET,AI_STORAGE_LIMIT} from './aiContracts.ts';
+import {prepareFinancialFixture,cleanupFinancialFixture} from './financialFixtureSafety.mjs';
 const contexts=[],sha='b'.repeat(64),profile=AI_CATALOG_VERSION;
 before(async()=>{assert.equal(process.env.FIRESTORE_EMULATOR_HOST,'127.0.0.1:8185');assert.equal((await fetch('http://127.0.0.1:8185/')).status,200);});
-afterEach(async()=>{for(const c of contexts.splice(0)){await c.db.recursiveDelete(c.root);await c.db.terminate();}});
+afterEach(async()=>{for(const c of contexts.splice(0))try{await cleanupFinancialFixture(c,'vistavo_ai_backend_test');}finally{await c.db.terminate();}});
 const ref=(c,name,id)=>c.root.collection(name).doc(id);const reject=(promise,code)=>assert.rejects(promise,e=>e.code===code);
 async function fixture(){
- const db=new Firestore({projectId:'demo-vistavo-ledger',host:'127.0.0.1:8185',ssl:false,preferRest:true}),root=db.collection('vistavo_ai_backend_test').doc(randomUUID()),backend=new FirestoreBackend(db,root),account=await backend.createAccount(),input=randomUUID();const c={db,root,backend,account,input};contexts.push(c);
+ const db=new Firestore({projectId:'demo-vistavo-ledger',host:'127.0.0.1:8185',ssl:false,preferRest:process.env.LV_FINANCIAL_REGRESSION!=='1'}),root=db.collection('vistavo_ai_backend_test').doc(randomUUID()),backend=new FirestoreBackend(db,root),input=randomUUID();const c={db,root,backend,input};contexts.push(c);await prepareFinancialFixture(c,'vistavo_ai_backend_test');const account=await backend.createAccount();c.account=account;
  await ref(c,'accounts',account).update({aiPilot:true,simulationOnly:true,storageReservedBytes:0,storageCommittedBytes:100,activeUploads:0,customFlag:'preserve'});
  await backend.creditVerifiedPurchase(account,'test-'+randomUUID(),10,1,'fixture','sandbox');
  await ref(c,'inputs',input).create({accountId:account,expiresAtMs:Date.now()+3600000,sha256:sha,deleted:false,ready:true,unknownCount:0,metadata:{duration:2,audioTracks:1},storage:{bucket:'vistavo-prod-107404655346-media',key:'candidate-files-v1/'+input+'/video.mp4',generation:'9007199254740993',size:100,sha256:sha}});

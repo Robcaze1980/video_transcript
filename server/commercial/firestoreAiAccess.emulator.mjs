@@ -60,7 +60,7 @@ test('revocation after a discarded SDK transaction attempt is rechecked on downl
  // Instance-scoped harness only: actual SDK rolls back the first real read transaction.
  // Revoke after rollback, before the retry reads. No private SDK internals or global monkeypatch.
  c.db.runTransaction=(callback,options)=>run(async tx=>{attempts++;if(attempts===2)await ref(c,'accounts',c.account).update({aiPilot:false});const result=await callback(tx);if(attempts===1){const error=new Error('Synthetic controlled ABORTED');error.code=10;throw error;}return result;},options);
- try{await assert.rejects(async()=>{const authorized=await c.ai.download(c.account,c.jobId,'translation-en.txt');await c.objects.read(authorized.object);},e=>e.code==='disabled');assert.equal(attempts,2);assert.equal(c.objects.reads,0);}finally{c.db.runTransaction=run;}
+ try{await assert.rejects(async()=>{const authorized=await c.ai.download(c.account,c.jobId,'translation-en.txt',c.uid);await c.objects.read(authorized.object);},e=>e.code==='disabled');assert.equal(attempts,2);assert.equal(c.objects.reads,0);}finally{c.db.runTransaction=run;}
  await unchanged(c);
 });
 
@@ -76,7 +76,7 @@ test('real account revocation commits after outer HTTP check but before transact
 test('status authorization also rechecks simulation grant on a discarded real SDK attempt',async()=>{
  const c=await fixture(),run=c.db.runTransaction.bind(c.db);let attempts=0;
  c.db.runTransaction=(callback,options)=>run(async tx=>{attempts++;if(attempts===2)await ref(c,'accounts',c.account).update({simulationOnly:false});const result=await callback(tx);if(attempts===1){const error=new Error('Synthetic controlled ABORTED');error.code=10;throw error;}return result;},options);
- try{await assert.rejects(c.ai.status(c.account,c.jobId),e=>e.code==='disabled');assert.equal(attempts,2);}finally{c.db.runTransaction=run;}
+ try{await assert.rejects(c.ai.status(c.account,c.jobId,c.uid),e=>e.code==='disabled');assert.equal(attempts,2);}finally{c.db.runTransaction=run;}
  assert.equal(c.objects.reads,0);await unchanged(c);
 });
 

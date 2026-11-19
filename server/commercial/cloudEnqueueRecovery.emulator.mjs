@@ -42,9 +42,9 @@ test('actual AI HTTP failure before commit remains500 with no durable reservatio
  const log=JSON.parse(c.logs[0][0]);assert.equal(log.enqueueRecovered,false);assert.equal(log.enqueueFailure.code,14);assert.equal(log.event,'cloud-http-internal');
 }));
 test('actual AI HTTP unavailable recovery read remains500; later exact replay recovers one committed reservation',()=>fixture(async c=>{
- const reserve=c.backend.reserve.bind(c.backend),prior=c.backend.priorRequest.bind(c.backend);let mutations=0,lookups=0;
+ const reserve=c.backend.reserve.bind(c.backend),prior=c.backend.priorSimulatedRequestForEnqueue.bind(c.backend);let mutations=0,lookups=0;
  c.backend.reserve=async(...args)=>{mutations++;await reserve(...args);throw Object.assign(new Error('SYNTHETIC_ACK_FAILURE'),{code:4});};
- c.backend.priorRequest=async(...args)=>{lookups++;if(lookups===2)throw Object.assign(new Error('SYNTHETIC_READ_UNAVAILABLE'),{code:14});return prior(...args);};
+ c.backend.priorSimulatedRequestForEnqueue=async(...args)=>{lookups++;if(lookups===2)throw Object.assign(new Error('SYNTHETIC_READ_UNAVAILABLE'),{code:14});return prior(...args);};
  const uncertain=await c.call();assert.equal(uncertain.status,500);assert.deepEqual(await uncertain.json(),{error:'internal'});
  const replay=await c.call();assert.equal(replay.status,202);const id=(await replay.json()).id;assert.equal(mutations,1);assert.equal((await c.root.collection('jobs').get()).size,1);assert.equal((await c.root.collection('movements').where('kind','==','reserve').get()).size,1);
  const log=JSON.parse(c.logs[0][0]);assert.equal(log.enqueueFailure.code,4);assert.equal(log.code,4);assert.equal(log.enqueueRecovered,false);await c.backend.cancel(c.account,id);

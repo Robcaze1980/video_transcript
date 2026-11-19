@@ -1,5 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {FieldPath,type DocumentReference,type Firestore,type Transaction} from 'firebase-admin/firestore';
+import {verifiedUidAccountInTransaction} from './firestoreBackend';
 import type {CloudObject,CloudObjects} from './gcsObjects';
 import {ObjectFault} from './gcsObjects';
 import {objectPlan,privateBucket,privateChunkBytes,privateSha,privateUuid,readyPrivateInput,type ObjectPlan} from './privateObjectPlan';
@@ -60,12 +61,22 @@ export class FirestoreFiles {
   private live(u:Upload){if(u.expiresAtMs<=Date.now())throw new FileFault('expired');if(['deleting','deleted'].includes(u.state))throw new FileFault('not_found');}
   private dto(u:Upload):FileStatus {return {id:u.id,name:u.name,size:u.size,offset:u.offset,state:u.state,expiresAtMs:u.expiresAtMs,
     ...(u.state==='ready'&&u.receipt?{sha256:u.receipt.sha256,metadata:u.receipt.video}:{}),...(u.failure?{failure:u.failure}:{})};}
-  async begin(accountId:string,name:string,size:number,expectedSha:string,requestKey:string){
+  private requiredUid(uid:unknown):string {if(typeof uid!=='string'||!uid||uid.length>128)throw new FileFault('not_found');return uid;}
+  private async checkRequester(tx:Transaction,accountId:string,uid?:string){
+    if(uid!==undefined&&!await verifiedUidAccountInTransaction(tx,this.root,accountId,uid))throw new FileFault('not_found');
+  }
+  /** Trusted internal path; customer requests must use beginForUid. */
+  async begin(accountId:string,name:string,size:number,expectedSha:string,requestKey:string){return this.beginAs(accountId,name,size,expectedSha,requestKey);}
+  async beginForUid(accountId:string,name:string,size:number,expectedSha:string,requestKey:string,uid:string){
+    return this.beginAs(accountId,name,size,expectedSha,requestKey,this.requiredUid(uid));
+  }
+  private async beginAs(accountId:string,name:string,size:number,expectedSha:string,requestKey:string,uid?:string){
     id(accountId);if(typeof name!=='string'||!name.trim()||name.length>255||/[\x00-\x1f\x7f]/.test(name)||
       typeof expectedSha!=='string'||!privateSha.test(expectedSha)||typeof requestKey!=='string'||!requestKey.trim()||requestKey.length>200)throw new FileFault('invalid');
     let plan:ObjectPlan;const uploadId=randomUUID();try{plan=objectPlan(uploadId,size,this.limits.chunkBytes);}catch{throw new FileFault('invalid');}
     const fingerprint=hash([name,size,expectedSha]);const request=this.ref('fileRequests',hash([accountId,requestKey]));
     return this.db.runTransaction(async tx=>{
+      await this.checkRequester(tx,accountId,uid);
       const account=this.ref('accounts',accountId),[a,prior]=await tx.getAll(account,request);
       if(!a.exists)throw new FileFault('not_found');
       if(prior.exists){if(prior.get('fingerprint')!==fingerprint)throw new FileFault('conflict');return this.dto(this.decode(await tx.get(this.ref('uploads',prior.get('id'))),accountId));}
@@ -78,12 +89,21 @@ export class FirestoreFiles {
       tx.create(this.ref('uploads',uploadId),u);tx.create(request,{accountId,id:uploadId,fingerprint});return this.dto(u);
     });
   }
+  /** Trusted internal path; customer requests must use statusForUid. */
   async status(accountId:string,uploadId:string){id(accountId);id(uploadId);const u=this.decode(await this.ref('uploads',uploadId).get(),accountId);
     if(!['deleting','deleted'].includes(u.state))this.live(u);return this.dto(u);}
-  async append(accountId:string,uploadId:string,offset:number,bytes:Buffer){
+  async statusForUid(accountId:string,uploadId:string,uid:string){id(accountId);id(uploadId);uid=this.requiredUid(uid);return this.db.runTransaction(async tx=>{
+    await this.checkRequester(tx,accountId,uid);const u=this.decode(await tx.get(this.ref('uploads',uploadId)),accountId);
+    if(!['deleting','deleted'].includes(u.state))this.live(u);return this.dto(u);
+  });}
+  /** Trusted internal path; customer requests must use appendForUid. */
+  async append(accountId:string,uploadId:string,offset:number,bytes:Buffer){return this.appendAs(accountId,uploadId,offset,bytes);}
+  async appendForUid(accountId:string,uploadId:string,offset:number,bytes:Buffer,uid:string){return this.appendAs(accountId,uploadId,offset,bytes,this.requiredUid(uid));}
+  private async appendAs(accountId:string,uploadId:string,offset:number,bytes:Buffer,uid?:string){
     id(accountId);id(uploadId);if(!Number.isSafeInteger(offset)||offset<0||!Buffer.isBuffer(bytes)||!bytes.length||bytes.length>this.limits.chunkBytes)throw new FileFault('invalid');
     const digest=bytesHash(bytes),token=randomUUID(),ref=this.ref('uploads',uploadId);
     const prepared=await this.db.runTransaction(async tx=>{
+      await this.checkRequester(tx,accountId,uid);
       const u=this.decode(await tx.get(ref),accountId);this.live(u);
       if(offset<u.offset){const chunk=u.chunks.find(c=>c.index*u.chunkBytes===offset);
         if(!chunk||chunk.size!==bytes.length||chunk.sha256!==digest)throw new FileFault('conflict');return {done:true as const,u};}
@@ -99,6 +119,9 @@ export class FirestoreFiles {
       if(e instanceof ObjectFault&&e.code==='conflict')throw new FileFault('conflict');throw new FileFault('unavailable');
     }
     return this.db.runTransaction(async tx=>{
+      // An object write already in flight cannot be revoked. Revalidate before
+      // recording it; a denied or interrupted attempt remains for recovery.
+      await this.checkRequester(tx,accountId,uid);
       const u=this.decode(await tx.get(ref),accountId);this.live(u);
       if(u.offset>offset){const prior=u.chunks[index];if(prior?.sha256===digest&&prior.size===bytes.length&&prior.generation===object.generation)return this.dto(u);}
       if(u.state!=='uploading'||u.leaseToken!==token||u.offset!==offset)throw new FileFault('conflict');
@@ -106,7 +129,11 @@ export class FirestoreFiles {
       tx.update(ref,{offset:next.offset,chunks:next.chunks,leaseToken:null,leaseUntil:null});return this.dto(next);
     });
   }
-  async complete(accountId:string,uploadId:string){id(accountId);id(uploadId);return this.db.runTransaction(async tx=>{
+  /** Trusted internal path; customer requests must use completeForUid. */
+  async complete(accountId:string,uploadId:string){return this.completeAs(accountId,uploadId);}
+  async completeForUid(accountId:string,uploadId:string,uid:string){return this.completeAs(accountId,uploadId,this.requiredUid(uid));}
+  private async completeAs(accountId:string,uploadId:string,uid?:string){id(accountId);id(uploadId);return this.db.runTransaction(async tx=>{
+    await this.checkRequester(tx,accountId,uid);
     const ref=this.ref('uploads',uploadId),u=this.decode(await tx.get(ref),accountId);this.live(u);
     if(['queued','verifying','cleaning','ready'].includes(u.state))return this.dto(u);
     if(u.state!=='uploading'||u.offset!==u.size||u.chunks.length!==u.plan.chunks.length||u.leaseToken)throw new FileFault('conflict');
@@ -114,7 +141,7 @@ export class FirestoreFiles {
     tx.set(this.ref('fileOutbox',uploadId),{state:'pending',nextAttemptAt:Date.now(),dispatchToken:null,dispatchLeaseUntil:null});
     return this.dto({...u,state:'queued'});
   });}
-  async remove(accountId:string,uploadId:string,failure:string|null=null){id(accountId);id(uploadId);return this.db.runTransaction(async tx=>{
+  private async removeInTransaction(tx:Transaction,accountId:string,uploadId:string,failure:string|null){
     const ref=this.ref('uploads',uploadId),inputRef=this.ref('inputs',uploadId);
     const [doc,input]=await tx.getAll(ref,inputRef),u=this.decode(doc,accountId);
     if(['deleting','deleted'].includes(u.state))return this.dto(u);
@@ -122,12 +149,26 @@ export class FirestoreFiles {
     if(input.exists){if(input.get('accountId')!==accountId)throw new FileFault('invariant');tx.update(inputRef,{deleted:true,ready:false});}
     tx.set(this.ref('fileOutbox',uploadId),{state:'pending',nextAttemptAt:Date.now(),dispatchToken:null,dispatchLeaseUntil:null});
     return this.dto({...u,state:'deleting',name:'',failure});
+  }
+  /** Trusted internal cleanup path; customer requests must use removeForUid. */
+  async remove(accountId:string,uploadId:string,failure:string|null=null){id(accountId);id(uploadId);return this.db.runTransaction(tx=>this.removeInTransaction(tx,accountId,uploadId,failure));}
+  /** uid must come from the verified token, never the request body. */
+  async removeForUid(accountId:string,uploadId:string,uid:string){id(accountId);id(uploadId);return this.db.runTransaction(async tx=>{
+    if(!await verifiedUidAccountInTransaction(tx,this.root,accountId,uid))throw new FileFault('not_found');
+    return this.removeInTransaction(tx,accountId,uploadId,null);
   });}
-  async download(accountId:string,uploadId:string){id(accountId);id(uploadId);return this.db.runTransaction(async tx=>{
+  private async downloadInTransaction(tx:Transaction,accountId:string,uploadId:string){
     const [doc,input]=await tx.getAll(this.ref('uploads',uploadId),this.ref('inputs',uploadId));const u=this.decode(doc,accountId);this.live(u);
     if(u.state!=='ready'||!u.receipt||!input.exists||input.get('accountId')!==accountId||input.get('deleted')||input.get('expiresAtMs')<=Date.now()||
       !readyPrivateInput(input.data(),uploadId)||input.get('storage').generation!==u.receipt.object.generation)throw new FileFault('not_found');
     return {status:this.dto(u),object:u.receipt.object};
+  }
+  /** Trusted internal access path; customer requests must use downloadForUid. */
+  async download(accountId:string,uploadId:string){id(accountId);id(uploadId);return this.db.runTransaction(tx=>this.downloadInTransaction(tx,accountId,uploadId));}
+  /** uid must come from the verified token, never from the request body. */
+  async downloadForUid(accountId:string,uploadId:string,uid:string){id(accountId);id(uploadId);return this.db.runTransaction(async tx=>{
+    if(!await verifiedUidAccountInTransaction(tx,this.root,accountId,uid))throw new FileFault('not_found');
+    return this.downloadInTransaction(tx,accountId,uploadId);
   });}
   async claimDispatch(uploadId:string){id(uploadId);const token=randomUUID();return this.db.runTransaction(async tx=>{
     const event=this.ref('fileOutbox',uploadId),[e,d]=await tx.getAll(event,this.ref('uploads',uploadId));

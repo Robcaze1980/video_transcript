@@ -1,6 +1,8 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {AccountFault,type AccountStore,uuid} from './backend';
 export type IdentityVerifier={verifyIdToken:(token:string,checkRevoked:true)=>Promise<{uid:string;email_verified?:boolean}>};
+export type ServiceIdentityVerifier={verifyIdToken:(token:string,audience:string)=>Promise<{email?:string;email_verified?:boolean}>};
+export type InternalServicePolicy={audience:string;allowedEmails:readonly string[];reservationCaller:string;settlementCaller:string;verifier:ServiceIdentityVerifier};
 class HttpFault extends Error {constructor(readonly status:number,readonly code:string){super(code);}}
 async function json(req:IncomingMessage,allowed:string[]){
  if(req.headers['content-type']?.split(';')[0]!=='application/json')throw new HttpFault(415,'content_type');
@@ -11,13 +13,57 @@ async function json(req:IncomingMessage,allowed:string[]){
  if(!data||typeof data!=='object'||Array.isArray(data)||Object.keys(data).some(k=>!allowed.includes(k)))throw new HttpFault(400,'invalid');return data;
 }
 /** Public transport; every account route still authenticates the real Firebase user. */
-export function accountHttp(store:AccountStore,identity:IdentityVerifier,origin='https://vistavo.app'){
+export function accountHttp(store:AccountStore,identity:IdentityVerifier,origin='https://vistavo.app',internal?:InternalServicePolicy){
  if(origin!=='https://vistavo.app'&&origin!=='http://127.0.0.1:3001'&&origin!=='http://127.0.0.1:3003')throw Error('Account origin boundary');
  return async(req:IncomingMessage,res:ServerResponse)=>{
   const send=(status:number,value:unknown)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store','Vary':'Authorization','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'; base-uri 'none'"});res.end(JSON.stringify(value));};
   try{
    const url=new URL(req.url??'/',origin);if(url.origin!==origin)throw new HttpFault(403,'origin');
    if(url.pathname==='/healthz'&&req.method==='GET'){send(200,{status:'ok'});return;}
+   if(url.pathname.startsWith('/api/internal/video/')){
+    if(!internal||req.method!=='POST'||req.headers.origin)throw new HttpFault(404,'not_found');
+    const serviceToken=/^Bearer ([A-Za-z0-9_.-]+)$/.exec(req.headers.authorization??'')?.[1];
+    if(!serviceToken||serviceToken.length>7000)throw new HttpFault(401,'unauthorized');
+    let caller;try{caller=await internal.verifier.verifyIdToken(serviceToken,internal.audience);}catch{throw new HttpFault(401,'unauthorized');}
+    if(caller.email_verified!==true||typeof caller.email!=='string'||!internal.allowedEmails.includes(caller.email))throw new HttpFault(403,'forbidden');
+    if(url.pathname==='/api/internal/video/reservations'){
+     if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');
+     const b=await json(req,['identityKey','reservationId','seconds']);
+     if(caller.email!==internal.reservationCaller)throw new HttpFault(403,'forbidden');
+     const result=await store.reserveVideo(b.identityKey as string,b.reservationId as string,b.seconds as number);send(result.created?201:200,{...result,reservationId:b.reservationId});return;
+    }
+    if(url.pathname==='/api/internal/video/balance'){
+     if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');const b=await json(req,['identityKey']);
+     if(caller.email!==internal.reservationCaller)throw new HttpFault(403,'forbidden');send(200,await store.videoBalance(b.identityKey as string));return;
+    }
+    if(url.pathname==='/api/internal/video/billing-holds'||url.pathname==='/api/internal/video/billing-holds/status'){
+     if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');
+     if(!url.pathname.endsWith('/status')&&caller.email!==internal.settlementCaller)throw new HttpFault(403,'forbidden');
+     const b=await json(req,['identityKey','incidentId']);
+     if(typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey)||typeof b.incidentId!=='string'||!(uuid.test(b.incidentId)||/^[a-f0-9]{64}(?![\s\S])/.test(b.incidentId)))throw new HttpFault(400,'invalid');
+     if(url.pathname.endsWith('/status')){send(200,await store.videoBillingHold(b.identityKey,b.incidentId));return;}
+     const result=await store.blockVideoBilling(b.identityKey,b.incidentId);send(result.created?201:200,result);return;
+    }
+    const match=/^\/api\/internal\/video\/reservations\/([a-f0-9-]{36})\/(status|resolution|capture|release|seal|admit)$/.exec(url.pathname);
+    if(match){
+     if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');
+     const action=match[2];
+     if(action!=='status'&&caller.email!==internal.settlementCaller)throw new HttpFault(403,'forbidden');
+     const fields=action==='status'?['identityKey']:action==='admit'?['identityKey','seconds','jobId','attemptId','callKey','model','requestSha256']:action==='capture'?['identityKey','seconds','jobId','attemptId']:['identityKey','seconds'];
+     const b=await json(req,fields);
+     if(!uuid.test(match[1])||typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey))throw new HttpFault(400,'invalid');
+     if(action!=='status'&&(!Number.isSafeInteger(b.seconds)||Number(b.seconds)<1||Number(b.seconds)>600))throw new HttpFault(400,'invalid');
+     if((action==='capture'||action==='admit')&&(typeof b.jobId!=='string'||!uuid.test(b.jobId)||typeof b.attemptId!=='string'||!uuid.test(b.attemptId)))throw new HttpFault(400,'invalid');
+     if(action==='admit'&&(typeof b.callKey!=='string'||!(/^(text-window|voice-chunk):\d{4}(?![\s\S])/.test(b.callKey))||typeof b.requestSha256!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.requestSha256)||b.model!==(b.callKey.startsWith('text-window:')?'gemini-3.8-flash':'gemini-3.8-flash-tts')))throw new HttpFault(400,'invalid');
+     if(action==='status'){const result=await store.videoReservation(b.identityKey,match[1]);send(200,{...result,reservationId:match[1]});return;}
+     if(action==='resolution'){const result=await store.videoReservationResolution(b.identityKey,match[1],b.seconds as number);send(200,result);return;}
+     if(action==='seal'){const result=await store.sealVideoReservation(b.identityKey,match[1],b.seconds as number);send(result.created?201:200,result);return;}
+     if(action==='admit'){const result=await store.admitVideoCall(b.identityKey,match[1],b.seconds as number,b.jobId as string,b.attemptId as string,b.callKey as string,b.model as string,b.requestSha256 as string);send(result.created?201:200,result);return;}
+     const admission=action==='capture'?{jobId:b.jobId as string,attemptId:b.attemptId as string}:undefined;
+     const result=await store.settleVideo(b.identityKey,match[1],action as 'capture'|'release',b.seconds as number,admission);send(200,{...result,reservationId:match[1]});return;
+    }
+    throw new HttpFault(404,'not_found');
+   }
    if(!url.pathname.startsWith('/api/account/'))throw new HttpFault(404,'not_found');
    if(req.headers.origin&&req.headers.origin!==origin)throw new HttpFault(403,'origin');
    const token=/^Bearer ([A-Za-z0-9_.-]+)$/.exec(req.headers.authorization??'')?.[1];if(!token||token.length>7000)throw new HttpFault(401,'unauthorized');
@@ -43,7 +89,7 @@ export function accountHttp(store:AccountStore,identity:IdentityVerifier,origin=
   }catch(error){
    req.resume();if(res.headersSent){res.destroy();return;}
    if(error instanceof HttpFault){send(error.status,{error:error.code});return;}
-   if(error instanceof AccountFault){const statuses={invalid:400,not_found:404,account_not_provisioned:404,conflict:409,deleted:410,quota:429,invariant:503};send(statuses[error.code],{error:error.code==='invariant'?'unavailable':error.code});return;}
+   if(error instanceof AccountFault){const statuses={invalid:400,not_found:404,account_not_provisioned:404,conflict:409,deleted:410,quota:429,insufficient:402,invariant:503};send(statuses[error.code],{error:error.code==='invariant'?'unavailable':error.code});return;}
    // No user identifiers, bodies, URLs, token contents, SDK errors or content in logs.
    send(503,{error:'unavailable'});
   }

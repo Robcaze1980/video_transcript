@@ -1,4 +1,4 @@
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {describe,it,expect,vi} from 'vitest';
 import {FirestoreAi} from './firestoreAi';
 import {privateBucket,objectPlan} from './privateObjectPlan';
@@ -7,7 +7,7 @@ function setup(duration:number,draft='A short English narration.',limits={maxSou
  const account=randomUUID(),inputId=randomUUID(),sha='a'.repeat(64);
  const input={ready:true,sha256:sha,expiresAtMs:Date.now()+60000,metadata:{duration,audioTracks:1},storage:{bucket:privateBucket,key:objectPlan(inputId,10).final,generation:'1',size:10,sha256:sha}};
  const root={collection:()=>({doc:()=>({get:async()=>({exists:true,get:(key:string)=>key==='aiPilot'||key==='simulationOnly',data:()=>input})})})};
- const backend={readProject:vi.fn(async()=>({revision:1,draft})),priorRequest:vi.fn(async()=>null),reserve:vi.fn(async()=>({id:'reserved'}))};
+ const priorRequest=vi.fn(async()=>null),backend={readProject:vi.fn(async()=>({revision:1,draft,reviewedTextRevision:1,reviewedTextSha256:createHash('sha256').update(draft).digest('hex')})),priorRequest,priorSimulatedRequestForEnqueue:priorRequest,reserve:vi.fn(async()=>({id:'reserved'}))};
  const ai=new FirestoreAi({} as any,root as any,backend as any,{} as any,limits);
  return {ai,backend,account,inputId};
 }

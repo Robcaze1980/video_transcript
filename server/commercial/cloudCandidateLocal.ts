@@ -87,7 +87,7 @@ export async function createLocalCloudRuntime(){
  try{
   const marker=(await root.get()).data();if(marker?.schemaVersion!==2||marker.service!=='vistavo'||marker.environment!=='candidate'||marker.storageProtocol!=='immutable-chunks-v1')throw Error('Cloud schema boundary');
   const backend=new FirestoreBackend(db,root),objects=new GcsObjects({bucket:privateBucket,projectId:project,accessToken}),ai=new FirestoreAi(db,root,backend,objects,{maxSourceSeconds:30,maxNarrationChars:600,maxVoiceChunks:3}),files=new FirestoreFiles(db,root,objects,{},(accountId,inputId)=>ai.purgeInput(accountId,inputId));
-  return {web,apiForOrigin:(origin:string)=>firestoreHttp({origin,backend,identity:getAuth(app),authorizeUser:existingPilotAuthorization(root),files,ai}),close:async()=>{await db.terminate();await deleteApp(app);}};
+  return {web,apiForOrigin:(origin:string)=>firestoreHttp({origin,backend,identity:getAuth(app),authorizeUser:existingPilotAuthorization(root),requirePilotBalance:true,files,ai}),close:async()=>{await db.terminate();await deleteApp(app);}};
  }catch(error){await db.terminate();await deleteApp(app);throw error;}
 }
 export async function startCloudCandidateLocal(){

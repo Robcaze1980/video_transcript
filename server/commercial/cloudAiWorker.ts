@@ -11,6 +11,8 @@ export async function processCloudAi(ai:FirestoreAi,accountId:string,jobId:strin
  try{
   const job=await backend.job(accountId,jobId);localFence=job.operation==='translation:en';
   if(job.state!=='running'||job.attemptId!==attempt.attemptId)return job.state;
+  // A durable job is never enough by itself: the independent account reservation must still be held.
+  if(job.externalBilling)await ai.assertExternalReservation(job,jobId);
   if(!job.aiProfile||!job.snapshot||!job.inputStorage||job.operation==='translation:en'&&job.invocationPhase!=='local_check')throw Error('Invalid AI snapshot');await ai.enabled(accountId);
   const input=(await ai.root.collection('inputs').doc(job.inputId).get()).data();if(!input||input.accountId!==accountId||input.deleted||input.expiresAtMs<=Date.now()||!readyPrivateInput(input,job.inputId)||input.storage.generation!==job.inputStorage.generation)throw Error('Input not available');
   if(job.operation==='translation:en'){

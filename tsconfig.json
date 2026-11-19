@@ -26,5 +26,6 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": ["node_modules", "bower_components", "jspm_packages", "out", "dist", "dist-ssr", "account-dist", "cloud-dist", "outputs"]
 }

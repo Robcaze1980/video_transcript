@@ -8,6 +8,7 @@ import {GcsObjects} from './gcsObjects';
 import {privateBucket,privateUuid} from './privateObjectPlan';
 import {privateVideoProbe} from './privateVideoProbe';
 import {firestoreHttp} from './firestoreHttp';
+import {AccountBillingClient} from './accountBillingClient';
 
 const accounts={api:'vistavo-files-api',validate:'vistavo-files-validator',cleanup:'vistavo-files-cleaner',maintenance:'vistavo-files-maintenance',proof:'vistavo-bootstrap',ai:'vistavo-runtime'} as const;
 export async function cloudFilesRuntime(role:keyof typeof accounts){
@@ -21,7 +22,7 @@ export async function cloudFilesRuntime(role:keyof typeof accounts){
   const marker=(await runtime.root.get()).data();
   if(marker?.schemaVersion!==2||marker?.service!=='vistavo'||marker?.environment!=='candidate'||marker?.storageProtocol!=='immutable-chunks-v1')throw Error('Schema boundary');
   const objects=new GcsObjects({bucket:privateBucket,projectId:'vistavo-prod',accessToken:runtime.accessToken});
-  const ai=new FirestoreAi(runtime.db,runtime.root,runtime.backend,objects);
+  const ai=new FirestoreAi(runtime.db,runtime.root,runtime.backend,objects,undefined,new AccountBillingClient());
   const files=new FirestoreFiles(runtime.db,runtime.root,objects,{},(accountId,inputId)=>ai.purgeInput(accountId,inputId));
   const dispatch=async(id:string,timeoutMs=20000)=>{
    if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>20000)throw Error('Invalid dispatch timeout');
@@ -56,11 +57,14 @@ export async function cloudFilesRuntime(role:keyof typeof accounts){
 }
 export async function filesMain(){
  const mode=process.env.VISTAVO_FILES_MODE;
+ if(mode==='billing'){
+  const runtime=await cloudFilesRuntime('ai');try{const holdsBefore=await runtime.ai.drainExternalHolds(100),result=await runtime.ai.drainExternalBilling(100),holdsAfter=await runtime.ai.drainExternalHolds(100);console.log(JSON.stringify({event:'video-billing-drain',...result,holdsBefore,holdsAfter}));if(result.failed||result.intentsFailed||holdsBefore.failed||holdsBefore.review||holdsAfter.failed||holdsAfter.review)throw Error('Billing settlement needs retry or review');}finally{await runtime.close();}return;
+ }
  if(mode==='ai'){
   const runtime=await cloudFilesRuntime('ai');
   try{const accountId=process.env.VISTAVO_ACCOUNT_ID,jobId=process.env.VISTAVO_JOB_ID,key=process.env.VISTAVO_GEMINI_KEY;
    if(!accountId||!jobId||!privateUuid.test(accountId)||!privateUuid.test(jobId)||!key||key.length<20)throw Error('AI worker configuration unavailable');
-   const state=await processCloudAi(runtime.ai,accountId,jobId,key);console.log(JSON.stringify({event:'ai-worker',state,jobId}));
+   const state=await processCloudAi(runtime.ai,accountId,jobId,key),billing=await runtime.ai.drainExternalBilling(),holds=await runtime.ai.drainExternalHolds();console.log(JSON.stringify({event:'ai-worker',state,jobId,billing,holds}));
   }finally{await runtime.close();}return;
  }
  if(mode==='validate'||mode==='cleanup'){

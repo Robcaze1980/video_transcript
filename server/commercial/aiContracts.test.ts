@@ -20,6 +20,12 @@ describe('AI private candidate artifact contracts',()=>{
   for(const duration of [0,-1,NaN,Infinity,600.01])expect(()=>simulatedAiPrice('translation:en',duration)).toThrow();
   expect(()=>artifactPlan(jobId,inputId,'render:mp4' as never)).toThrow();expect(()=>artifactPlan('../job',inputId,'translation:en')).toThrow();
  });
+ it('rounds the represented source duration up at the whole-second boundary',()=>{
+  expect(simulatedAiPrice('translation:en',1.9999999999999998)).toBe(2);
+  expect(simulatedAiPrice('translation:en',2)).toBe(2);
+  expect(simulatedAiPrice('translation:en',2.0000000000000004)).toBe(3);
+  expect(simulatedAiPrice('translation:en',2.0004)).toBe(3);
+ });
  it('reconstructs persisted plans, rejecting weakened limits and path/config injection',()=>{
   const p=plan(),reordered={artifacts:p.artifacts.map(x=>({maxBytes:x.maxBytes,mimeType:x.mimeType,key:x.key,name:x.name})),budgetBytes:p.budgetBytes,operation:p.operation,inputId:p.inputId,jobId:p.jobId,version:p.version};
   expect(artifactPlanHash(reordered)).toBe(artifactPlanHash(p));expect(validateArtifactPlan(JSON.parse(JSON.stringify(p)))).toEqual(p);

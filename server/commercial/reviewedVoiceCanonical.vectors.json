@@ -1,0 +1,300 @@
+{
+  "version": 1,
+  "vectors": [
+    {
+      "name": "unicode-two-cues",
+      "evidence": {
+        "accountId": "11111111-1111-4111-8111-111111111111",
+        "inputId": "22222222-2222-4222-8222-222222222222",
+        "textJobId": "33333333-3333-4333-8333-333333333333",
+        "revision": 2,
+        "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+        "review": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "revision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "2c3c819ec898ef85bef3d176bce1a64023a41076c0ae95866f8e203e639b9ce9",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "receiptId": "f24edaadc1410c2d1679be4a6eb951dac97191ce6361752f2024c9d5f622d619",
+          "payload": "{\"durationMs\":5000,\"cues\":[{\"id\":\"c609212686cc7bb039dd4c6bad8b8eb04701e49b0ede4b0a8ccad0c9a544f0b8\",\"index\":0,\"startMs\":0,\"endMs\":1500,\"es\":\"José mide cinco centímetros.\",\"en\":\"José measures 5 cm.\"},{\"id\":\"31d745e6cc6c5cfa9a0e84331e78818e6d313c307117693edd6ff33651690a50\",\"index\":1,\"startMs\":1600,\"endMs\":4000,\"es\":\"El café está listo.\",\"en\":\"Café is ready.\"}]}",
+          "payloadSha256": "7e3b95b9d440201e85152b4a4f7022be7e3b42bd1b6098451494e3a49b091c0a",
+          "voiceSha256": "80911cfcdc3f7aec6bf330f5bd7a929052ab42c20eb678d4d911e573c1e6dded",
+          "createdAtMs": 1700000000000
+        },
+        "receiptId": "f24edaadc1410c2d1679be4a6eb951dac97191ce6361752f2024c9d5f622d619",
+        "receipt": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "committedRevision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "2c3c819ec898ef85bef3d176bce1a64023a41076c0ae95866f8e203e639b9ce9",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+          "payloadSha256": "7e3b95b9d440201e85152b4a4f7022be7e3b42bd1b6098451494e3a49b091c0a",
+          "voiceSha256": "80911cfcdc3f7aec6bf330f5bd7a929052ab42c20eb678d4d911e573c1e6dded",
+          "createdAtMs": 1700000000000
+        }
+      },
+      "operation": "narration:en:female",
+      "model": "gemini-3.8-flash-tts",
+      "voiceId": "Kore",
+      "voiceTextSha256": "80911cfcdc3f7aec6bf330f5bd7a929052ab42c20eb678d4d911e573c1e6dded",
+      "payloadSha256": "7e3b95b9d440201e85152b4a4f7022be7e3b42bd1b6098451494e3a49b091c0a",
+      "chunkCount": 1,
+      "calls": [
+        {
+          "callKey": "voice-chunk:0000",
+          "body": "{\"contents\":[{\"parts\":[{\"text\":\"José measures 5 cm. Café is ready.\",\"speech_metadata\":{\"style\":\"English narration in a clear, neutral standard voice. Read all the supplied text faithfully, including names, numbers and units. Preserve Spanish pronunciation of Spanish personal names. Do not add commentary.\"}}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"voice\":\"Kore\"}}}}",
+          "requestSha256": "0fecceaa0109fa3070b411b1724d7ce45bf7a24b61f6e5ef88aa2fc2710ede5a"
+        }
+      ]
+    },
+    {
+      "name": "utf16-boundary",
+      "evidence": {
+        "accountId": "11111111-1111-4111-8111-111111111111",
+        "inputId": "22222222-2222-4222-8222-222222222222",
+        "textJobId": "33333333-3333-4333-8333-333333333333",
+        "revision": 2,
+        "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+        "review": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "revision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "40c313e75280f06967cb3ded987e3971c676e673203ff7638403ac94bd1471f9",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "receiptId": "d6b66ca8c96866dbf4f4a398c406ba7fec133a8f913d47f6b17141da65f5e580",
+          "payload": "{\"durationMs\":5000,\"cues\":[{\"id\":\"c609212686cc7bb039dd4c6bad8b8eb04701e49b0ede4b0a8ccad0c9a544f0b8\",\"index\":0,\"startMs\":0,\"endMs\":4000,\"es\":\"Medida de la válvula.\",\"en\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA 9 mm.\"}]}",
+          "payloadSha256": "bb8e4a8b1cbb63f759763df0ad6ad56a5e6d9b9e5f0cd8297bec17c22dce2940",
+          "voiceSha256": "795cc6b9f8ec22248e9b789fd87ebda994a15f74627eac068aa238719c6e019a",
+          "createdAtMs": 1700000000000
+        },
+        "receiptId": "d6b66ca8c96866dbf4f4a398c406ba7fec133a8f913d47f6b17141da65f5e580",
+        "receipt": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "committedRevision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "40c313e75280f06967cb3ded987e3971c676e673203ff7638403ac94bd1471f9",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+          "payloadSha256": "bb8e4a8b1cbb63f759763df0ad6ad56a5e6d9b9e5f0cd8297bec17c22dce2940",
+          "voiceSha256": "795cc6b9f8ec22248e9b789fd87ebda994a15f74627eac068aa238719c6e019a",
+          "createdAtMs": 1700000000000
+        }
+      },
+      "operation": "narration:en:male",
+      "model": "gemini-3.8-flash-tts",
+      "voiceId": "Charon",
+      "voiceTextSha256": "795cc6b9f8ec22248e9b789fd87ebda994a15f74627eac068aa238719c6e019a",
+      "payloadSha256": "bb8e4a8b1cbb63f759763df0ad6ad56a5e6d9b9e5f0cd8297bec17c22dce2940",
+      "chunkCount": 2,
+      "calls": [
+        {
+          "callKey": "voice-chunk:0000",
+          "body": "{\"contents\":[{\"parts\":[{\"text\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"speech_metadata\":{\"style\":\"English narration in a clear, neutral standard voice. Read all the supplied text faithfully, including names, numbers and units. Preserve Spanish pronunciation of Spanish personal names. Do not add commentary.\"}}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"voice\":\"Charon\"}}}}",
+          "requestSha256": "90fe0ed20591a63a8ab564cbbd9306705f56f2ab2afb104db485e71c6564eb64"
+        },
+        {
+          "callKey": "voice-chunk:0001",
+          "body": "{\"contents\":[{\"parts\":[{\"text\":\"9 mm.\",\"speech_metadata\":{\"style\":\"English narration in a clear, neutral standard voice. Read all the supplied text faithfully, including names, numbers and units. Preserve Spanish pronunciation of Spanish personal names. Do not add commentary.\"}}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"voice\":\"Charon\"}}}}",
+          "requestSha256": "f308cfbcce70a59727c73e96bfb9fee4b16392fdda3453f4363c274eda8baa89"
+        }
+      ]
+    },
+    {
+      "name": "utf16-emoji-boundary",
+      "evidence": {
+        "accountId": "11111111-1111-4111-8111-111111111111",
+        "inputId": "22222222-2222-4222-8222-222222222222",
+        "textJobId": "33333333-3333-4333-8333-333333333333",
+        "revision": 2,
+        "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+        "review": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "revision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "c2a8fb8ba47d3885199416acfe709fbd75a1b050b993666f22cd1d03a4f6a2a1",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "receiptId": "63fc10a83b4d2152a5417ae6a370b78ea71ea7f09a2ce3d8e0784c5fa2ee12de",
+          "payload": "{\"durationMs\":5000,\"cues\":[{\"id\":\"c609212686cc7bb039dd4c6bad8b8eb04701e49b0ede4b0a8ccad0c9a544f0b8\",\"index\":0,\"startMs\":0,\"endMs\":4000,\"es\":\"Revisión de válvula.\",\"en\":\"🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀 9 mm.\"}]}",
+          "payloadSha256": "4cfdad7a1486fd6fd98550b19c60f7d44a1a34baf8bd848da2bea12e007451bb",
+          "voiceSha256": "86d2572c4d21f65e1d0b6f714a8d99125ead71cefeb05296c3333832a5bfd875",
+          "createdAtMs": 1700000000000
+        },
+        "receiptId": "63fc10a83b4d2152a5417ae6a370b78ea71ea7f09a2ce3d8e0784c5fa2ee12de",
+        "receipt": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "committedRevision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "c2a8fb8ba47d3885199416acfe709fbd75a1b050b993666f22cd1d03a4f6a2a1",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+          "payloadSha256": "4cfdad7a1486fd6fd98550b19c60f7d44a1a34baf8bd848da2bea12e007451bb",
+          "voiceSha256": "86d2572c4d21f65e1d0b6f714a8d99125ead71cefeb05296c3333832a5bfd875",
+          "createdAtMs": 1700000000000
+        }
+      },
+      "operation": "narration:en:female",
+      "model": "gemini-3.8-flash-tts",
+      "voiceId": "Kore",
+      "voiceTextSha256": "86d2572c4d21f65e1d0b6f714a8d99125ead71cefeb05296c3333832a5bfd875",
+      "payloadSha256": "4cfdad7a1486fd6fd98550b19c60f7d44a1a34baf8bd848da2bea12e007451bb",
+      "chunkCount": 2,
+      "calls": [
+        {
+          "callKey": "voice-chunk:0000",
+          "body": "{\"contents\":[{\"parts\":[{\"text\":\"🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\",\"speech_metadata\":{\"style\":\"English narration in a clear, neutral standard voice. Read all the supplied text faithfully, including names, numbers and units. Preserve Spanish pronunciation of Spanish personal names. Do not add commentary.\"}}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"voice\":\"Kore\"}}}}",
+          "requestSha256": "aeaa2c596a5d930494f1832370e5c66cb397666d66186cecb7d96964ae9ccd8b"
+        },
+        {
+          "callKey": "voice-chunk:0001",
+          "body": "{\"contents\":[{\"parts\":[{\"text\":\"9 mm.\",\"speech_metadata\":{\"style\":\"English narration in a clear, neutral standard voice. Read all the supplied text faithfully, including names, numbers and units. Preserve Spanish pronunciation of Spanish personal names. Do not add commentary.\"}}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"voice\":\"Kore\"}}}}",
+          "requestSha256": "729041599d82ee31b9c671f834e397568985afb1a77b1f787273a49ecaccccea"
+        }
+      ]
+    },
+    {
+      "name": "lf-preserved",
+      "evidence": {
+        "accountId": "11111111-1111-4111-8111-111111111111",
+        "inputId": "22222222-2222-4222-8222-222222222222",
+        "textJobId": "33333333-3333-4333-8333-333333333333",
+        "revision": 2,
+        "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+        "review": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "revision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "46599f4ce3b719ad8c3108fd02917fd4fbd23aeed27c97a501eb9676e11067f4",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "receiptId": "1a0857dc7cbbcde6acb94cf4ca72f70263f4977faa29e1a84b058b610682020d",
+          "payload": "{\"durationMs\":5000,\"cues\":[{\"id\":\"c609212686cc7bb039dd4c6bad8b8eb04701e49b0ede4b0a8ccad0c9a544f0b8\",\"index\":0,\"startMs\":0,\"endMs\":1500,\"es\":\"La válvula está abierta\",\"en\":\"The valve is open\"},{\"id\":\"31d745e6cc6c5cfa9a0e84331e78818e6d313c307117693edd6ff33651690a50\",\"index\":1,\"startMs\":1600,\"endMs\":4000,\"es\":\"Revisa cinco centímetros.\",\"en\":\"Check 5 cm.\"}]}",
+          "payloadSha256": "dfe5166e5f96140daf1ec0b04d0324a7e65f84ba05859807bd8ba537e4d979d9",
+          "voiceSha256": "496380623f46d45dbb65f8a07ef4b69405215a8f6eb8fd4176715a79867b41f5",
+          "createdAtMs": 1700000000000
+        },
+        "receiptId": "1a0857dc7cbbcde6acb94cf4ca72f70263f4977faa29e1a84b058b610682020d",
+        "receipt": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "committedRevision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "46599f4ce3b719ad8c3108fd02917fd4fbd23aeed27c97a501eb9676e11067f4",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+          "payloadSha256": "dfe5166e5f96140daf1ec0b04d0324a7e65f84ba05859807bd8ba537e4d979d9",
+          "voiceSha256": "496380623f46d45dbb65f8a07ef4b69405215a8f6eb8fd4176715a79867b41f5",
+          "createdAtMs": 1700000000000
+        }
+      },
+      "operation": "narration:en:male",
+      "model": "gemini-3.8-flash-tts",
+      "voiceId": "Charon",
+      "voiceTextSha256": "496380623f46d45dbb65f8a07ef4b69405215a8f6eb8fd4176715a79867b41f5",
+      "payloadSha256": "dfe5166e5f96140daf1ec0b04d0324a7e65f84ba05859807bd8ba537e4d979d9",
+      "chunkCount": 1,
+      "calls": [
+        {
+          "callKey": "voice-chunk:0000",
+          "body": "{\"contents\":[{\"parts\":[{\"text\":\"The valve is open\\nCheck 5 cm.\",\"speech_metadata\":{\"style\":\"English narration in a clear, neutral standard voice. Read all the supplied text faithfully, including names, numbers and units. Preserve Spanish pronunciation of Spanish personal names. Do not add commentary.\"}}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"voice\":\"Charon\"}}}}",
+          "requestSha256": "41eafe329080ac0ad805babc83ab90ecf036e1d18e63f4ced9d04c8b58bd4fa3"
+        }
+      ]
+    },
+    {
+      "name": "combining-boundary",
+      "evidence": {
+        "accountId": "11111111-1111-4111-8111-111111111111",
+        "inputId": "22222222-2222-4222-8222-222222222222",
+        "textJobId": "33333333-3333-4333-8333-333333333333",
+        "revision": 2,
+        "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+        "review": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "revision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "11a1bdd3ebbeff67572926097d13e52c489c5a76f488c37cba84615c996ec5f4",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "receiptId": "810dbdabd49beb08576a8210e9514d20ef278031c72536a757fdb21f246795b9",
+          "payload": "{\"durationMs\":5000,\"cues\":[{\"id\":\"c609212686cc7bb039dd4c6bad8b8eb04701e49b0ede4b0a8ccad0c9a544f0b8\",\"index\":0,\"startMs\":0,\"endMs\":4000,\"es\":\"Revisa el indicador.\",\"en\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAé 9 mm.\"}]}",
+          "payloadSha256": "c24ad890f79e28cb3445ad03408d307f91e562298a0386b132ddcf55dc20a94b",
+          "voiceSha256": "a5cfa1cc844c173c5de523ba7040d8db205a2cb3e5ff6a050d5fe2f46019750b",
+          "createdAtMs": 1700000000000
+        },
+        "receiptId": "810dbdabd49beb08576a8210e9514d20ef278031c72536a757fdb21f246795b9",
+        "receipt": {
+          "version": 1,
+          "accountId": "11111111-1111-4111-8111-111111111111",
+          "inputId": "22222222-2222-4222-8222-222222222222",
+          "jobId": "33333333-3333-4333-8333-333333333333",
+          "expectedRevision": 1,
+          "committedRevision": 2,
+          "bindingHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fingerprint": "11a1bdd3ebbeff67572926097d13e52c489c5a76f488c37cba84615c996ec5f4",
+          "baseHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "reviewId": "ad4ff8435429662e783dc0421237f297ac0bc15ab9d098041e6240e9e24178dc",
+          "payloadSha256": "c24ad890f79e28cb3445ad03408d307f91e562298a0386b132ddcf55dc20a94b",
+          "voiceSha256": "a5cfa1cc844c173c5de523ba7040d8db205a2cb3e5ff6a050d5fe2f46019750b",
+          "createdAtMs": 1700000000000
+        }
+      },
+      "operation": "narration:en:female",
+      "model": "gemini-3.8-flash-tts",
+      "voiceId": "Kore",
+      "voiceTextSha256": "a5cfa1cc844c173c5de523ba7040d8db205a2cb3e5ff6a050d5fe2f46019750b",
+      "payloadSha256": "c24ad890f79e28cb3445ad03408d307f91e562298a0386b132ddcf55dc20a94b",
+      "chunkCount": 2,
+      "calls": [
+        {
+          "callKey": "voice-chunk:0000",
+          "body": "{\"contents\":[{\"parts\":[{\"text\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAé\",\"speech_metadata\":{\"style\":\"English narration in a clear, neutral standard voice. Read all the supplied text faithfully, including names, numbers and units. Preserve Spanish pronunciation of Spanish personal names. Do not add commentary.\"}}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"voice\":\"Kore\"}}}}",
+          "requestSha256": "2e8576b1fd322cfe31fef244fdd4b2d1e9e2f2816ade93de686949a524bb6cc5"
+        },
+        {
+          "callKey": "voice-chunk:0001",
+          "body": "{\"contents\":[{\"parts\":[{\"text\":\"9 mm.\",\"speech_metadata\":{\"style\":\"English narration in a clear, neutral standard voice. Read all the supplied text faithfully, including names, numbers and units. Preserve Spanish pronunciation of Spanish personal names. Do not add commentary.\"}}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"voice\":\"Kore\"}}}}",
+          "requestSha256": "729041599d82ee31b9c671f834e397568985afb1a77b1f787273a49ecaccccea"
+        }
+      ]
+    }
+  ]
+}

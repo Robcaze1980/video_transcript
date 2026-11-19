@@ -2,15 +2,62 @@ import {createHash,randomUUID} from 'node:crypto';
 import {FieldPath,type Firestore,type DocumentReference,type Transaction,type DocumentSnapshot} from 'firebase-admin/firestore';
 import type {AccountView,AccountProject,ProjectKind,ProjectPage,ProjectSummary,LedgerPage} from './contracts';
 
-export class AccountFault extends Error {constructor(readonly code:'invalid'|'not_found'|'account_not_provisioned'|'conflict'|'deleted'|'quota'|'invariant'){super(code);}}
+export class AccountFault extends Error {constructor(readonly code:'invalid'|'not_found'|'account_not_provisioned'|'conflict'|'deleted'|'quota'|'insufficient'|'invariant'){super(code);}}
 const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
-export const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+function ledgerId(value:unknown){const chars=hash(value).slice(0,32).split('');chars[12]='4';chars[16]='89ab'[parseInt(chars[16],16)%4];const h=chars.join('');return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);}
+export const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/;
 const limits={projectBytes:65536,projectCount:100,titleCharacters:120};
+const maxActiveVideoReservations=3;
 const bad=()=>{throw new AccountFault('invalid');};
 const invariant=()=>{throw new AccountFault('invariant');};
 function uidKey(uid:string){if(typeof uid!=='string'||!uid||uid.length>128)bad();return hash(['firebase',uid]);}
 function id(value:string){if(typeof value!=='string'||!uuid.test(value))bad();return value;}
 function integer(n:unknown,min=0):n is number{return Number.isSafeInteger(n)&&Number(n)>=min;}
+function incidentId(value:string){if(typeof value!=='string'||!(uuid.test(value)||value.length===64&&/^[a-f0-9]{64}$/.test(value)))bad();return value;}
+export type VideoProviderAdmission={jobId:string;attemptId:string};
+type VideoCallIdentity=VideoProviderAdmission&{callKey:string;model:string;requestSha256:string};
+const callKeyValid=(value:unknown):value is string=>typeof value==='string'&&value.length===16&&/^(text-window|voice-chunk):\d{4}$/.test(value)&&Number(value.slice(-4))<1000;
+const modelValid=(value:unknown):value is string=>value==='gemini-3.8-flash'||value==='gemini-3.8-flash-tts';
+const modelMatchesKey=(callKey:string,model:string)=>callKey.startsWith('text-window:')?model==='gemini-3.8-flash':model==='gemini-3.8-flash-tts';
+const digestValid=(value:unknown):value is string=>typeof value==='string'&&value.length===64&&/^[a-f0-9]{64}$/.test(value);
+const callDocId=(callKey:string)=>hash(['provider-call-v2',callKey]);
+function admission(value:unknown):VideoProviderAdmission{
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).sort().join(',')!=='attemptId,jobId')bad();
+ const data=value as Record<string,unknown>;
+ if(typeof data.jobId!=='string'||typeof data.attemptId!=='string')bad();
+ return {jobId:id(data.jobId as string),attemptId:id(data.attemptId as string)};
+}
+function billingHold(doc:DocumentSnapshot,accountId:string,identityKey:string){
+ if(!doc.exists)return false;const value=doc.data();
+ if(!value||value.ownerAccountId!==accountId||value.identityKey!==identityKey||value.blocked!==true||!integer(value.incidentCount,1)||!integer(value.epoch,1)||!integer(value.createdAtMs)||!integer(value.updatedAtMs))invariant();
+ return true;
+}
+function sameAdmission(value:unknown,key:VideoProviderAdmission){
+ if(!value||typeof value!=='object'||Array.isArray(value))return false;const data=value as Record<string,unknown>;
+ return data.jobId===key.jobId&&data.attemptId===key.attemptId;
+}
+function storedAdmission(doc:DocumentSnapshot){
+ const value=doc.get('providerAdmission');if(value===undefined)return null;
+ if(!value||typeof value!=='object'||Array.isArray(value)||typeof value.jobId!=='string'||!uuid.test(value.jobId)||typeof value.attemptId!=='string'||!uuid.test(value.attemptId)||!integer(value.admittedAtMs))invariant();
+ return value as VideoProviderAdmission & {admittedAtMs:number};
+}
+function firstCall(admitted:ReturnType<typeof storedAdmission>):VideoCallIdentity{
+ if(!admitted)invariant();const value=admitted as NonNullable<typeof admitted>&Record<string,unknown>;
+ if(!callKeyValid(value.firstCallKey)||!modelValid(value.firstModel)||!modelMatchesKey(value.firstCallKey as string,value.firstModel as string)||!digestValid(value.firstRequestSha256))invariant();
+ return {jobId:value.jobId,attemptId:value.attemptId,callKey:value.firstCallKey as string,model:value.firstModel as string,requestSha256:value.firstRequestSha256 as string};
+}
+function storedCall(doc:DocumentSnapshot,accountId:string,identityKey:string,reservationId:string,seconds:number):VideoCallIdentity{
+ const value=doc.data();
+ if(!doc.exists||!value||value.admissionProtocol!==2||value.ownerAccountId!==accountId||value.identityKey!==identityKey||value.reservationId!==reservationId||value.seconds!==seconds||!integer(value.admittedAtMs)||typeof value.jobId!=='string'||!uuid.test(value.jobId)||typeof value.attemptId!=='string'||!uuid.test(value.attemptId)||!callKeyValid(value.callKey)||!modelValid(value.model)||!modelMatchesKey(value.callKey,value.model)||!digestValid(value.requestSha256))invariant();
+ return value as VideoCallIdentity;
+}
+function sameCall(a:VideoCallIdentity,b:VideoCallIdentity){return a.jobId===b.jobId&&a.attemptId===b.attemptId&&a.callKey===b.callKey&&a.model===b.model&&a.requestSha256===b.requestSha256;}
+function sealedReservation(doc:DocumentSnapshot,accountId:string,identityKey:string,reservationId:string,seconds:number){
+ if(!doc.exists)return false;
+ if(doc.get('ownerAccountId')!==accountId||doc.get('identityKey')!==identityKey||doc.get('reservationId')!==reservationId||doc.get('state')!=='sealed'||!integer(doc.get('seconds'),1)||!integer(doc.get('createdAtMs')))invariant();
+ if(doc.get('seconds')!==seconds)throw new AccountFault('conflict');
+ return true;
+}
 function draft(title:unknown,content:unknown){
  if(typeof title!=='string'||!title.trim()||[...title].length>limits.titleCharacters||/[\p{Cc}\p{Cf}]/u.test(title)||/[\uD800-\uDFFF]/u.test(title))bad();
  if(typeof content!=='string'||Buffer.byteLength(content,'utf8')>limits.projectBytes||/[\uD800-\uDFFF]/u.test(content))bad();
@@ -42,11 +89,12 @@ const cursorFor=(owner:string,time:number,key:string)=>Buffer.from(JSON.stringif
 export class AccountStore {
  constructor(readonly db:Firestore,readonly root:DocumentReference,readonly now=()=>Date.now()){}
  private identity(uid:string){return {key:uidKey(uid),ref:this.root.collection('identities').doc(uidKey(uid))};}
- private async resolve(uid:string,tx?:Transaction){
-  const identity=this.identity(uid),d=await (tx?tx.get(identity.ref):identity.ref.get());
+ /** Bind identity and account to the caller's Account Firestore transaction. */
+ private async resolve(uid:string,tx:Transaction){
+  const identity=this.identity(uid),d=await tx.get(identity.ref);
   if(!d.exists)throw new AccountFault('account_not_provisioned');
   const a=d.get('accountId');if(d.get('uid')!==uid||typeof a!=='string'||!uuid.test(a))invariant();
-  const ref=this.root.collection('accounts').doc(a),record=await (tx?tx.get(ref):ref.get());return {accountId:a,ref,record:accountRecord(record,identity.key)};
+  const ref=this.root.collection('accounts').doc(a),record=await tx.get(ref);return {accountId:a,ref,record:accountRecord(record,identity.key)};
  }
  async bootstrap(uid:string){
   const identity=this.identity(uid),accountId=randomUUID(),createdAtMs=this.now();
@@ -58,7 +106,7 @@ export class AccountStore {
    return {created:true,account:view(accountId,account)};
   });
  }
- async me(uid:string){const a=await this.resolve(uid);return view(a.accountId,a.record);}
+ async me(uid:string){return this.db.runTransaction(async tx=>{const a=await this.resolve(uid,tx);return view(a.accountId,a.record);});}
  async create(uid:string,requestKey:string,title:unknown,kind:unknown,content:unknown){
   id(requestKey);if(kind!=='srt'&&kind!=='text')bad();const data=draft(title,content),fingerprint=hash([kind,data.title,data.content]),projectId=randomUUID(),time=this.now();
   return this.db.runTransaction(async tx=>{
@@ -71,13 +119,18 @@ export class AccountStore {
    return {created:true,project:value};
   });
  }
- async read(uid:string,projectId:string){id(projectId);const a=await this.resolve(uid),d=await this.root.collection('projects').doc(projectId).get();if(!d.exists||d.get('ownerAccountId')!==a.accountId||d.get('deleted')!==false)throw new AccountFault('not_found');return {project:project(d,a.accountId)};}
+ async read(uid:string,projectId:string){
+  id(projectId);return this.db.runTransaction(async tx=>{const a=await this.resolve(uid,tx),d=await tx.get(this.root.collection('projects').doc(projectId));
+   if(!d.exists||d.get('ownerAccountId')!==a.accountId||d.get('deleted')!==false)throw new AccountFault('not_found');return {project:project(d,a.accountId)};});
+ }
  async list(uid:string,limit?:unknown,cursor?:unknown):Promise<ProjectPage>{
-  const a=await this.resolve(uid),p=pageInput(a.accountId,limit,cursor);
-  let query=this.root.collection('projects').where('ownerAccountId','==',a.accountId).where('deleted','==',false).orderBy('createdAtMs','desc').orderBy(FieldPath.documentId(),'desc').select('ownerAccountId','deleted','title','kind','revision','createdAtMs','updatedAtMs').limit(p.count+1);
-  if(p.after)query=query.startAfter(p.after.time,p.after.id);
-  const data=await query.get(),items=data.docs.slice(0,p.count).map(d=>summary(d,a.accountId)),last=items.at(-1);
-  return {items,nextCursor:data.size>p.count&&last?cursorFor(a.accountId,last.createdAtMs,last.id):null};
+  return this.db.runTransaction(async tx=>{
+   const a=await this.resolve(uid,tx),p=pageInput(a.accountId,limit,cursor);
+   let query=this.root.collection('projects').where('ownerAccountId','==',a.accountId).where('deleted','==',false).orderBy('createdAtMs','desc').orderBy(FieldPath.documentId(),'desc').select('ownerAccountId','deleted','title','kind','revision','createdAtMs','updatedAtMs').limit(p.count+1);
+   if(p.after)query=query.startAfter(p.after.time,p.after.id);
+   const data=await tx.get(query),items=data.docs.slice(0,p.count).map(d=>summary(d,a.accountId)),last=items.at(-1);
+   return {items,nextCursor:data.size>p.count&&last?cursorFor(a.accountId,last.createdAtMs,last.id):null};
+  });
  }
  async save(uid:string,projectId:string,expectedRevision:unknown,title:unknown,content:unknown){
   id(projectId);if(!integer(expectedRevision,1)||expectedRevision>=Number.MAX_SAFE_INTEGER)bad();const data=draft(title,content),time=this.now();
@@ -100,8 +153,249 @@ export class AccountStore {
   });
  }
  async ledger(uid:string,limit?:unknown,cursor?:unknown):Promise<LedgerPage>{
-  const a=await this.resolve(uid),p=pageInput(a.accountId,limit,cursor);let q=this.root.collection('ledgerEntries').where('ownerAccountId','==',a.accountId).orderBy('createdAtMs','desc').orderBy(FieldPath.documentId(),'desc').limit(p.count+1);if(p.after)q=q.startAfter(p.after.time,p.after.id);
-  const data=await q.get(),items=data.docs.slice(0,p.count).map(d=>{const v=d.data();if(v.ownerAccountId!==a.accountId||!uuid.test(d.id)||!integer(v.createdAtMs)||!integer(v.seconds)||typeof v.kind!=='string'||v.kind.length>40)invariant();return {id:d.id,createdAtMs:v.createdAtMs,seconds:v.seconds,kind:v.kind};}),last=items.at(-1);
-  return {items,nextCursor:data.size>p.count&&last?cursorFor(a.accountId,last.createdAtMs,last.id):null};
+  return this.db.runTransaction(async tx=>{
+   const a=await this.resolve(uid,tx),p=pageInput(a.accountId,limit,cursor);let q=this.root.collection('ledgerEntries').where('ownerAccountId','==',a.accountId).orderBy('createdAtMs','desc').orderBy(FieldPath.documentId(),'desc').limit(p.count+1);if(p.after)q=q.startAfter(p.after.time,p.after.id);
+   const data=await tx.get(q),items=data.docs.slice(0,p.count).map(d=>{const v=d.data();if(v.ownerAccountId!==a.accountId||!uuid.test(d.id)||!integer(v.createdAtMs)||!integer(v.seconds)||typeof v.kind!=='string'||v.kind.length>40)invariant();return {id:d.id,createdAtMs:v.createdAtMs,seconds:v.seconds,kind:v.kind};}),last=items.at(-1);
+   return {items,nextCursor:data.size>p.count&&last?cursorFor(a.accountId,last.createdAtMs,last.id):null};
+  });
+ }
+
+ /** Stable pseudonymous key used only by the allowlisted internal video services. */
+ static identityKey(uid:string){return uidKey(uid);}
+ private identityFromKey(key:string){
+   if(!digestValid(key))bad();
+  return this.root.collection('identities').doc(key);
+ }
+ /** A hold is durable and idempotent per incident; reopening requires a separate audited protocol. */
+ async blockVideoBilling(identityKey:string,incident:string){
+  incidentId(incident);const identityRef=this.identityFromKey(identityKey),time=this.now();
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const account=this.root.collection('accounts').doc(accountId),guard=this.root.collection('videoBillingGuards').doc(accountId),record=this.root.collection('videoBillingIncidents').doc(hash([accountId,incident]));
+   const [stored,held,previous]=await tx.getAll(account,guard,record);accountRecord(stored,identityKey);const blocked=billingHold(held,accountId,identityKey);
+   if(previous.exists){
+    if(!blocked||previous.get('ownerAccountId')!==accountId||previous.get('identityKey')!==identityKey||previous.get('incidentId')!==incident||previous.get('state')!=='active'||!integer(previous.get('createdAtMs')))invariant();
+    return {blocked:true as const,recorded:true as const,created:false};
+   }
+   const count=blocked?Number(held.get('incidentCount'))+1:1,epoch=blocked?Number(held.get('epoch'))+1:1;
+   if(!integer(count,1)||!integer(epoch,1)||!integer(time))invariant();
+   tx.create(record,{ownerAccountId:accountId,identityKey,incidentId:incident,state:'active',createdAtMs:time});
+   if(blocked)tx.update(guard,{incidentCount:count,epoch,updatedAtMs:time});
+   else tx.create(guard,{ownerAccountId:accountId,identityKey,blocked:true,incidentCount:count,epoch,createdAtMs:time,updatedAtMs:time});
+   return {blocked:true as const,recorded:true as const,created:true};
+  });
+ }
+ /** Status/replay is read-only; absence of this particular incident does not mean the account is open. */
+ async videoBillingHold(identityKey:string,incident:string){
+  incidentId(incident);const identityRef=this.identityFromKey(identityKey);
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const [stored,guard,record]=await tx.getAll(this.root.collection('accounts').doc(accountId),this.root.collection('videoBillingGuards').doc(accountId),this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])));
+   accountRecord(stored,identityKey);const blocked=billingHold(guard,accountId,identityKey);
+   if(record.exists&&(!blocked||record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||record.get('state')!=='active'||!integer(record.get('createdAtMs'))))invariant();
+   return {blocked,recorded:record.exists};
+  });
+ }
+ /** Atomically prevent a future reserve or return the existing reservation's receipt. */
+ async sealVideoReservation(identityKey:string,reservationId:string,seconds:number){
+  id(reservationId);if(!integer(seconds,1)||seconds>600)bad();
+  const identityRef=this.identityFromKey(identityKey),time=this.now();
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const key=hash([accountId,reservationId]),reservationRef=this.root.collection('videoReservations').doc(key),tombRef=this.root.collection('videoReservationTombstones').doc(key);
+   const [stored,reservation,tomb]=await tx.getAll(this.root.collection('accounts').doc(accountId),reservationRef,tombRef);accountRecord(stored,identityKey);
+   const sealed=sealedReservation(tomb,accountId,identityKey,reservationId,seconds);
+   if(reservation.exists&&sealed)invariant();
+   if(reservation.exists){
+    if(reservation.get('ownerAccountId')!==accountId||reservation.get('identityKey')!==identityKey||reservation.get('reservationId')!==reservationId||!integer(reservation.get('seconds'),1))invariant();
+    if(reservation.get('seconds')!==seconds)throw new AccountFault('conflict');
+    const state=reservation.get('state');if(!['reserved','captured','released'].includes(state))invariant();
+    return {state:state as 'reserved'|'captured'|'released',reservationId,seconds,created:false};
+   }
+   if(sealed)return {state:'sealed' as const,reservationId,seconds,created:false};
+   if(!integer(time))invariant();
+   tx.create(tombRef,{ownerAccountId:accountId,identityKey,reservationId,seconds,state:'sealed',createdAtMs:time});
+   return {state:'sealed' as const,reservationId,seconds,created:true};
+  });
+ }
+ /** Reserve the verified source video's duration exactly once before provider dispatch. */
+ async reserveVideo(identityKey:string,reservationId:string,seconds:number){
+  id(reservationId);if(!integer(seconds,1)||seconds>600)bad();
+  const identityRef=this.identityFromKey(identityKey),time=this.now();
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);
+   if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');
+   if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const accountRef=this.root.collection('accounts').doc(accountId),reservationIdHash=hash([accountId,reservationId]);
+   const reservationRef=this.root.collection('videoReservations').doc(reservationIdHash),tombRef=this.root.collection('videoReservationTombstones').doc(reservationIdHash),guardRef=this.root.collection('videoBillingGuards').doc(accountId);
+   const [stored,reservation,tomb,guard]=await tx.getAll(accountRef,reservationRef,tombRef,guardRef);
+   const current=accountRecord(stored,identityKey),blocked=billingHold(guard,accountId,identityKey),sealed=sealedReservation(tomb,accountId,identityKey,reservationId,seconds);
+   if(reservation.exists&&sealed)invariant();
+   if(reservation.exists){
+    if(reservation.get('ownerAccountId')!==accountId||reservation.get('identityKey')!==identityKey||reservation.get('reservationId')!==reservationId||reservation.get('seconds')!==seconds)throw new AccountFault('conflict');
+    if(!integer(reservation.get('seconds'),1)||!['reserved','captured','released'].includes(reservation.get('state')))invariant();
+    if(reservation.get('state')!=='reserved')throw new AccountFault('conflict');
+    return {created:false,state:reservation.get('state'),seconds,account:view(accountId,current)};
+   }
+   if(sealed||blocked)throw new AccountFault('conflict');
+   if(current.active>=maxActiveVideoReservations)throw new AccountFault('quota');
+   if(current.available<seconds)throw new AccountFault('insufficient');
+   const next={...current,available:current.available-seconds,reserved:current.reserved+seconds,active:current.active+1};
+   if(![next.available,next.reserved,next.active].every(Number.isSafeInteger)||next.active<1)invariant();
+   tx.update(accountRef,next);
+    tx.create(reservationRef,{ownerAccountId:accountId,identityKey,reservationId,seconds,state:'reserved',admissionProtocol:2,createdAtMs:time,updatedAtMs:time});
+   tx.create(this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,'reserve'])),{ownerAccountId:accountId,createdAtMs:time,seconds,kind:'video_reserve'});
+   return {created:true,state:'reserved' as const,seconds,account:view(accountId,next)};
+  });
+ }
+ /** Retained only to reject old clients; a job-wide admission can bypass a later hold. */
+ async admitVideoProvider(_identityKey:string,_reservationId:string,_seconds:number,_jobId:string,_attemptId:string):Promise<{reservationId:string;seconds:number;jobId:string;attemptId:string;created:boolean;receiptOnly:boolean}>{
+  throw new AccountFault('conflict');
+ }
+ /** Each provider call needs its own durable admission; an exact replay is only a receipt. */
+ async admitVideoCall(identityKey:string,reservationId:string,seconds:number,jobId:string,attemptId:string,callKey:string,model:string,requestSha256:string){
+  id(reservationId);if(!integer(seconds,1)||seconds>600||!callKeyValid(callKey)||!modelValid(model)||!digestValid(requestSha256))bad();
+  const key:VideoCallIdentity={...admission({jobId,attemptId}),callKey,model,requestSha256};
+  const identityRef=this.identityFromKey(identityKey),time=this.now();
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const reservationKey=hash([accountId,reservationId]),reservationRef=this.root.collection('videoReservations').doc(reservationKey),calls=reservationRef.collection('providerCalls'),callRef=calls.doc(callDocId(callKey)),fenceRef=reservationRef.collection('providerCallFences').doc('first');
+   const [stored,reservation,tomb,guard,call,fence]=await tx.getAll(this.root.collection('accounts').doc(accountId),reservationRef,this.root.collection('videoReservationTombstones').doc(reservationKey),this.root.collection('videoBillingGuards').doc(accountId),callRef,fenceRef);
+   accountRecord(stored,identityKey);const blocked=billingHold(guard,accountId,identityKey),sealed=sealedReservation(tomb,accountId,identityKey,reservationId,seconds);
+   if(reservation.exists&&sealed)invariant();
+   if(!reservation.exists){if(sealed)throw new AccountFault('conflict');throw new AccountFault('not_found');}
+   if(reservation.get('ownerAccountId')!==accountId||reservation.get('identityKey')!==identityKey||reservation.get('reservationId')!==reservationId||!integer(reservation.get('seconds'),1))invariant();
+   if(reservation.get('seconds')!==seconds)throw new AccountFault('conflict');
+   const state=reservation.get('state');if(!['reserved','captured','released'].includes(state))invariant();
+   // A missing version does not prove that an older worker never contacted the provider.
+   if(reservation.get('admissionProtocol')!==2)throw new AccountFault('conflict');
+   const previous=storedAdmission(reservation),capturedWith=reservation.get('captureAdmission');
+   if(capturedWith!==undefined&&(state!=='captured'||!previous))invariant();
+   if(previous){
+    if(!sameAdmission(previous,key))throw new AccountFault('conflict');
+    if(state==='released')invariant();
+    if(state==='captured'&&!sameAdmission(capturedWith,key))invariant();
+    const first=firstCall(previous),firstRef=calls.doc(callDocId(first.callKey)),firstReceipt=firstRef.path===callRef.path?call:await tx.get(firstRef);
+    if(!sameCall(storedCall(fence,accountId,identityKey,reservationId,seconds),first)||fence.get('admittedAtMs')!==previous.admittedAtMs)invariant();
+    if(!sameCall(storedCall(firstReceipt,accountId,identityKey,reservationId,seconds),first)||firstReceipt.get('admittedAtMs')!==previous.admittedAtMs)invariant();
+    if(first.callKey.split(':')[0]!==callKey.split(':')[0]||first.model!==model)throw new AccountFault('conflict');
+   }else if(call.exists||fence.exists)invariant();
+   if(call.exists){
+    if(!sameCall(storedCall(call,accountId,identityKey,reservationId,seconds),key))throw new AccountFault('conflict');
+    return {reservationId,seconds,...key,created:false,receiptOnly:true};
+   }
+   if(state!=='reserved'||blocked)throw new AccountFault('conflict');
+   if(!modelMatchesKey(callKey,model))throw new AccountFault('conflict');
+   if(!integer(time))invariant();
+   tx.create(callRef,{admissionProtocol:2,ownerAccountId:accountId,identityKey,reservationId,seconds,...key,admittedAtMs:time});
+   if(!previous){
+    tx.create(fenceRef,{admissionProtocol:2,ownerAccountId:accountId,identityKey,reservationId,seconds,...key,admittedAtMs:time});
+    tx.update(reservationRef,{providerAdmission:{jobId,attemptId,firstCallKey:callKey,firstModel:model,firstRequestSha256:requestSha256,admittedAtMs:time},updatedAtMs:time});
+   }
+   return {reservationId,seconds,...key,created:true,receiptOnly:false};
+  });
+ }
+ /** Capture requires the admitted attempt; release after admission remains closed for manual reconciliation. */
+ async settleVideo(identityKey:string,reservationId:string,action:'capture'|'release',expectedSeconds:number,providerAdmission?:VideoProviderAdmission){
+  id(reservationId);if((action!=='capture'&&action!=='release')||!integer(expectedSeconds,1)||expectedSeconds>600)bad();
+  const supplied=providerAdmission===undefined?null:admission(providerAdmission);if(action==='release'&&supplied)bad();
+  const identityRef=this.identityFromKey(identityKey),time=this.now();
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);
+   if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+    const reservationIdHash=hash([accountId,reservationId]),accountRef=this.root.collection('accounts').doc(accountId),reservationRef=this.root.collection('videoReservations').doc(reservationIdHash);
+    const [stored,reservation,tomb,guard,fence]=await tx.getAll(accountRef,reservationRef,this.root.collection('videoReservationTombstones').doc(reservationIdHash),this.root.collection('videoBillingGuards').doc(accountId),reservationRef.collection('providerCallFences').doc('first'));
+    const current=accountRecord(stored,identityKey),blocked=billingHold(guard,accountId,identityKey),sealed=sealedReservation(tomb,accountId,identityKey,reservationId,expectedSeconds);
+    if(reservation.exists&&sealed)invariant();
+   if(!reservation.exists)throw new AccountFault('not_found');
+   if(reservation.get('ownerAccountId')!==accountId||reservation.get('identityKey')!==identityKey||reservation.get('reservationId')!==reservationId||!integer(reservation.get('seconds'),1))invariant();
+   const state=reservation.get('state'),seconds=reservation.get('seconds') as number;
+   if(!['reserved','captured','released'].includes(state))invariant();
+   if(seconds!==expectedSeconds)throw new AccountFault('conflict');
+     const previous=storedAdmission(reservation),capturedWith=reservation.get('captureAdmission'),protocol=reservation.get('admissionProtocol');
+     if(protocol!==undefined&&protocol!==1&&protocol!==2)invariant();
+     if(protocol===2){
+      const calls=reservationRef.collection('providerCalls');
+       if(previous){const first=firstCall(previous),receipt=await tx.get(calls.doc(callDocId(first.callKey)));if(!sameCall(storedCall(fence,accountId,identityKey,reservationId,seconds),first)||fence.get('admittedAtMs')!==previous.admittedAtMs||!sameCall(storedCall(receipt,accountId,identityKey,reservationId,seconds),first)||receipt.get('admittedAtMs')!==previous.admittedAtMs)invariant();}
+       else if(state==='captured'||fence.exists)invariant();
+     }
+    if(state===action+'d'){
+     if(action==='capture'){
+      if(previous){if(!supplied||!sameAdmission(previous,supplied)||!sameAdmission(capturedWith,supplied))throw new AccountFault('conflict');}
+      else if(supplied||capturedWith!==undefined)throw new AccountFault('conflict'); // Legacy terminal receipt, never an admission.
+     }else if(previous||capturedWith!==undefined)invariant();
+     return {settled:false,state,seconds,account:view(accountId,current)};
+    }
+   if(state!=='reserved')throw new AccountFault('conflict');
+     // Legacy active reservations cannot prove the absence of earlier provider calls.
+     if(protocol!==2)throw new AccountFault('conflict');
+    if(capturedWith!==undefined)invariant();
+    if(blocked)throw new AccountFault('conflict');
+    if(action==='capture'&&(!previous||!supplied||!sameAdmission(previous,supplied)))throw new AccountFault('conflict');
+    if(action==='release'&&previous)throw new AccountFault('conflict');
+   if(current.reserved<seconds||current.active<1)invariant();
+   const next={...current,reserved:current.reserved-seconds,available:current.available+(action==='release'?seconds:0),consumed:current.consumed+(action==='capture'?seconds:0),active:current.active-1};
+   if(![next.reserved,next.available,next.consumed,next.active].every(Number.isSafeInteger)||next.active<0||next.credited!==next.available+next.reserved+next.consumed)invariant();
+    tx.update(accountRef,next);tx.update(reservationRef,{state:action+'d',updatedAtMs:time,...(action==='capture'?{captureAdmission:supplied}: {})});
+   tx.create(this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,action])),{ownerAccountId:accountId,createdAtMs:time,seconds,kind:action==='capture'?'video_capture':'video_release'});
+   return {settled:true,state:action+'d',seconds,account:view(accountId,next)};
+  });
+ }
+ /** Read the resolution evidence without creating a tombstone or moving balance. */
+ async videoReservationResolution(identityKey:string,reservationId:string,seconds:number){
+  id(reservationId);if(!integer(seconds,1)||seconds>600)bad();const identityRef=this.identityFromKey(identityKey);
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const key=hash([accountId,reservationId]),[stored,reservation,tomb]=await tx.getAll(this.root.collection('accounts').doc(accountId),this.root.collection('videoReservations').doc(key),this.root.collection('videoReservationTombstones').doc(key));
+   accountRecord(stored,identityKey);const sealed=sealedReservation(tomb,accountId,identityKey,reservationId,seconds);
+   if(reservation.exists&&sealed)invariant();
+   if(sealed)return {reservationId,seconds,state:'sealed' as const};
+   if(!reservation.exists)throw new AccountFault('not_found');
+   if(reservation.get('ownerAccountId')!==accountId||reservation.get('identityKey')!==identityKey||reservation.get('reservationId')!==reservationId||!integer(reservation.get('seconds'),1))invariant();
+   if(reservation.get('seconds')!==seconds)throw new AccountFault('conflict');
+   const state=reservation.get('state');if(!['reserved','captured','released'].includes(state))invariant();
+   return {reservationId,seconds,state:state as 'reserved'|'captured'|'released'};
+  });
+ }
+ async videoReservation(identityKey:string,reservationId:string){
+  id(reservationId);const identityRef=this.identityFromKey(identityKey);
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);
+   if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const d=await tx.get(this.root.collection('videoReservations').doc(hash([accountId,reservationId])));
+   if(!d.exists)throw new AccountFault('not_found');
+   if(d.get('ownerAccountId')!==accountId||d.get('identityKey')!==identityKey||d.get('reservationId')!==reservationId)invariant();
+   const seconds=d.get('seconds'),state=d.get('state');if(!integer(seconds,1)||!['reserved','captured','released'].includes(state))invariant();
+   return {reservationId,seconds,state};
+  });
+ }
+ async videoBalance(identityKey:string){
+  const identityRef=this.identityFromKey(identityKey);
+  // Both reads share Account Firestore's transaction, not a transaction with
+  // the separate video database. A later revocation cannot retract a response.
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);
+   if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const account=await tx.get(this.root.collection('accounts').doc(accountId)),current=accountRecord(account,identityKey);
+   return {unit:'video_seconds' as const,credited:current.credited,available:current.available,reserved:current.reserved,consumed:current.consumed,active:current.active};
+  });
  }
 }

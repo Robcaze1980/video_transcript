@@ -1,6 +1,8 @@
 import {FirestoreAi,AiFault} from './firestoreAi';
 import {AiContractFault} from './aiContracts';
 import {aiHttp} from './firestoreAiHttp';
+import {reviewedTranslationHttp,type ReviewedTranslationHttpService} from './reviewedTranslationHttp';
+import {AccountBillingFault} from './accountBillingClient';
 import type {IncomingMessage, ServerResponse} from 'node:http';
 import type {FirebaseIdentity} from './firebaseAccess';
 import {verifiedFirebaseUser} from './firebaseAccess';
@@ -38,8 +40,12 @@ export function firestoreHttp(options: {
   files?:FirestoreFiles;
   nudgeFile?:(uploadId:string,role:'validate'|'cleanup')=>Promise<void>;
   ai?:FirestoreAi;
+  // Opt-in injection for an isolated candidate; production runtime does not register it.
+  reviewedTranslation?:ReviewedTranslationHttpService;
   textFixture?:LocalTextFixture;
   authorizeUser?:(uid:string)=>Promise<boolean>;
+  // The local pilot's access policy must remain true in the balance snapshot.
+  requirePilotBalance?:true;
 }) {
   const origin = new URL(options.origin);
   if (origin.origin !== options.origin || (origin.protocol !== 'https:' && origin.hostname !== '127.0.0.1')) throw Error('Invalid API origin');
@@ -60,32 +66,46 @@ export function firestoreHttp(options: {
       if (!verifiedFirebaseUser(user)) throw new HttpFault(403);
       if(options.authorizeUser&&!await diagnosticStage('authorization',()=>options.authorizeUser!(user.uid)))throw new HttpFault(403);
       const accountId = await options.backend.accountForUid(user.uid);
-      if(options.ai&&await diagnosticStage('routing',()=>aiHttp(req,res,accountId,options.ai!,body,send)))return;
+      // Review paths are a subset of /ai; check them first after verifying the token.
+      if(options.ai&&options.reviewedTranslation&&await diagnosticStage('routing',()=>reviewedTranslationHttp(req,res,{accountId,uid:user.uid},options.reviewedTranslation!)))return;
+      if(options.ai&&await diagnosticStage('routing',()=>aiHttp(req,res,accountId,user.uid,options.ai!,body,send)))return;
       if(options.textFixture&&await options.textFixture.handle(req,res,accountId,body,send))return;
-      if (pathname === '/api/cloud/me' && req.method === 'GET') {send(200,{id:accountId,balance:await options.backend.readBalance(accountId)});return;}
+      if (pathname === '/api/cloud/me' && req.method === 'GET') {
+        let localBalance=await options.backend.readBalanceForUid(accountId,user.uid,options.requirePilotBalance===true);
+        let accountBalance:Awaited<ReturnType<FirestoreAi['accountBalance']>>|undefined;
+        if(options.ai){
+          accountBalance=await options.ai.accountBalance(user.uid);
+          if(options.ai.accountBilling&&accountBalance==null)throw new AccountBillingFault('unavailable');
+          if(options.authorizeUser&&!await diagnosticStage('authorization',()=>options.authorizeUser!(user.uid)))throw new HttpFault(403);
+          // A remote query cannot be cancelled retroactively. Recheck before
+          // revealing its result; the actual debit is authorized separately.
+          localBalance=await options.backend.readBalanceForUid(accountId,user.uid,options.requirePilotBalance===true);
+        }
+        send(200,{id:accountId,balance:accountBalance??localBalance});return;
+      }
       const files=options.files;
       const nudge=async(id:string,role:'validate'|'cleanup')=>{try{await options.nudgeFile?.(id,role);}catch{/* Durable outbox is recovered independently. */}};
       if(files&&pathname==='/api/cloud/uploads'&&req.method==='POST'){
-        const data=await body(req,['name','size','sha256','requestKey']);send(201,await files.begin(accountId,data.name,data.size,data.sha256,data.requestKey));return;
+        const data=await body(req,['name','size','sha256','requestKey']);send(201,await files.beginForUid(accountId,data.name,data.size,data.sha256,data.requestKey,user.uid));return;
       }
       const upload=/^\/api\/cloud\/uploads\/([a-f0-9-]{36})(?:\/(chunks|complete|content))?$/.exec(pathname);
       if(files&&upload){
         const id=upload[1],action=upload[2];
-        if(!action&&req.method==='GET'){send(200,await files.status(accountId,id));return;}
-        if(!action&&req.method==='DELETE'){const value=await files.remove(accountId,id);await nudge(id,'cleanup');send(202,value);return;}
+        if(!action&&req.method==='GET'){send(200,await files.statusForUid(accountId,id,user.uid));return;}
+        if(!action&&req.method==='DELETE'){const value=await files.removeForUid(accountId,id,user.uid);await nudge(id,'cleanup');send(202,value);return;}
         if(action==='chunks'&&req.method==='PUT'){
           const declared=Number(req.headers['content-length']);if(declared>files.limits.chunkBytes){req.resume();throw new HttpFault(413);}
           if(req.headers['content-type']!=='application/octet-stream'){req.resume();throw new HttpFault(415);}
           const offset=new URL(req.url!,options.origin).searchParams.get('offset');if(!offset||!/^\d+$/.test(offset))throw new HttpFault(400);
           let count=0;const chunks:Buffer[]=[];
           for await(const part of req.iterator({destroyOnReturn:false})){count+=part.length;if(count>files.limits.chunkBytes){req.resume();throw new HttpFault(413);}chunks.push(part);}
-          send(200,await files.append(accountId,id,Number(offset),Buffer.concat(chunks)));return;
+          send(200,await files.appendForUid(accountId,id,Number(offset),Buffer.concat(chunks),user.uid));return;
         }
         if(action==='complete'&&req.method==='POST'){
-          await body(req,[]);const value=await files.complete(accountId,id);await nudge(id,'validate');send(202,value);return;
+          await body(req,[]);const value=await files.completeForUid(accountId,id,user.uid);await nudge(id,'validate');send(202,value);return;
         }
         if(action==='content'&&['GET','HEAD'].includes(req.method!)){
-          const value=await files.download(accountId,id),size=value.object.size,etag='"gcs-'+value.object.generation+'"';
+          const value=await files.downloadForUid(accountId,id,user.uid),size=value.object.size,etag='"gcs-'+value.object.generation+'"';
           const raw=req.headers['if-range']&&req.headers['if-range']!==etag?undefined:req.headers.range;
           let range:{start:number;end:number}|undefined;
           if(raw){const m=typeof raw==='string'?/^bytes=(\d*)-(\d*)$/.exec(raw):null;
@@ -106,19 +126,19 @@ export function firestoreHttp(options: {
         }
       }
       const project = /^\/api\/cloud\/projects\/([a-f0-9-]{36})$/.exec(pathname);
-      if (project && req.method === 'GET') {send(200,await options.backend.readProject(accountId,project[1]));return;}
+      if (project && req.method === 'GET') {send(200,await options.backend.readProjectForUid(accountId,project[1],user.uid));return;}
       if (project && req.method === 'PUT') {
         const data=await body(req,['expectedRevision','draft']);
-        send(200,await options.backend.saveProject(accountId,project[1],data.expectedRevision,data.draft));return;
+        send(200,await options.backend.saveProjectForUid(accountId,project[1],data.expectedRevision,data.draft,user.uid));return;
       }
       const job = /^\/api\/cloud\/jobs\/([a-f0-9-]{36})$/.exec(pathname);
       if (job && req.method === 'GET') {
-        const value=await options.backend.job(accountId,job[1]);
+        const value=await options.backend.jobForUid(accountId,job[1],user.uid);
         send(200,{id:job[1],inputId:value.inputId,state:value.state,price:value.price});return;
       }
       if (job && req.method === 'DELETE') {
-        await options.backend.cancel(accountId,job[1]);
-        const value=await options.backend.job(accountId,job[1]);
+        await options.backend.cancelForUid(accountId,job[1],user.uid);
+        const value=await options.backend.jobForUid(accountId,job[1],user.uid);
         send(200,{cancelled:value.state === 'cancelled',state:value.state});return;
       }
       if (pathname === '/api/cloud/jobs' && req.method === 'POST') {
@@ -126,18 +146,23 @@ export function firestoreHttp(options: {
         const data = await body(req,['inputId','requestKey','operation','expectedRevision']);
         if (!['transcript:es','translation:en','narration:en:female','narration:en:male'].includes(data.operation) ||
             typeof data.expectedRevision !== 'number') throw new HttpFault(400);
-        const prior = await options.backend.priorRequest(accountId,data.inputId,data.requestKey,data.operation,data.expectedRevision);
+        if(data.operation.startsWith('narration:')){
+          await options.backend.readProjectForUid(accountId,data.inputId,user.uid);
+          throw new AiFault('disabled');
+        }
+        const prior = await options.backend.priorRequestForUid(accountId,data.inputId,data.requestKey,data.operation,data.expectedRevision,user.uid);
         if (prior) {send(202,{id:prior});return;}
         // Owner check before quote; expectedRevision is rechecked atomically with reservation.
-        await options.backend.readProject(accountId,data.inputId);
+        await options.backend.readProjectForUid(accountId,data.inputId,user.uid);
         const price = await options.quote(accountId,data.inputId,data.operation);
-        const id = await options.backend.reserve(accountId,data.inputId,data.requestKey,price,data.operation,data.expectedRevision);
+        const id = await options.backend.reserveForUid(accountId,data.inputId,data.requestKey,price,data.operation,data.expectedRevision,user.uid);
         send(202,{id});return;
       }
       throw new HttpFault(404);
     } catch (error) {
       if(res.headersSent){cloudDiagnosticError(error);res.destroy();return;}
       if(error instanceof AiFault){const codes={invalid:400,not_found:404,conflict:409,disabled:503,unknown:409};send(codes[error.code],{error:error.code});return;}
+      if(error instanceof AccountBillingFault){const codes={invalid:400,not_found:404,conflict:409,insufficient:402,quota:429,forbidden:403,unavailable:503};send(codes[error.code],{error:error.code});return;}
       if(error instanceof AiContractFault){send(error.code==='quota'?429:400,{error:error.code});return;}
       if(error instanceof FileFault){const codes={invalid:400,not_found:404,conflict:409,expired:410,quota:429,invariant:500,unavailable:503};send(codes[error.code],{error:error.code==='invariant'?'internal':error.code});return;}
       if(error instanceof ObjectFault){send(error.code==='missing'?404:503,{error:'unavailable'});return;}
