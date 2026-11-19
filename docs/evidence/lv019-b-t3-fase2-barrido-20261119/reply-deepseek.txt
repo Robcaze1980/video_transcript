@@ -1,0 +1,8 @@
+Thread mcp:36150539-e328-4695-a32d-83b484d36c4f
+Riesgos: (1) B necesita orden total estable con tiebreaker; sin él hay saltos o repeticiones bajo inserciones, el mismo fallo que el muestreo por tandas. (2) C debe persistir «visto por primera vez» y deduplicar por (reserva, acción, umbral); si no, el reloj de antigüedad y la ventana interactúan y re-alertan. (3) Bloqueo: una reserva bajo incidente no es terminal, así que B la reporta indefinidamente y C alerta en falso, con fatiga. Separar «bloqueada» de «abandonada» y definir si D resuelve bajo bloqueo (override auditado) o queda en cola. (4) Carrera C→D: revalidar estado terminal al emitir y al mostrar la alerta. (5) Sin A, falta modo degradado explícito: quién ve el fallo ruidoso del barrido. (6) Resultado desconocido: la unicidad del libro debe cubrir también la acción de reconciliación, no solo captura o liberación, para impedir doble cierre.
+
+Prueba exigida: soak concurrente (B+C+D+bloqueo) comparando la unión del barrido contra el libro y verificando cierre único.
+
+Criterio observable de cierre: unión del barrido = libro (cero filas perdidas), cero no terminales sobre el umbral fijado por el dueño, y exactamente una alerta y un registro de auditoría por reserva.
+
+RESULTADO: PASS

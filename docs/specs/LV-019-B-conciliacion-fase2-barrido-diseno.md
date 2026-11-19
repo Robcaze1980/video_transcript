@@ -1,6 +1,6 @@
 # LV-019.B · Conciliación de saldo · Fase 2: diseño del barrido y la alerta (BORRADOR)
 
-**Estado:** diseño del 19 nov 2026, **sin código, sin cambios de nube, sin mover saldo**. Parte de la [máquina de estados (fase 0 aprobada, respuestas de fase 1 en §4.3)](LV-019-B-conciliacion-fase0-maquina-de-estados.md). La voz sigue cerrada. **No tiene revisión T3 todavía.** No se fija ningún número (tiempos, topes): se miden primero (§5).
+**Estado:** diseño del 19 nov 2026, **sin código, sin cambios de nube, sin mover saldo**. Parte de la [máquina de estados (fase 0 aprobada, respuestas de fase 1 en §4.3)](LV-019-B-conciliacion-fase0-maquina-de-estados.md). La voz sigue cerrada. **Revisión T3 hecha (GLM y DeepSeek, PASS sobre un resumen): ver §6.1.** No se fija ningún número (tiempos, topes): se miden primero (§5).
 
 ## 1. Qué existe hoy (evidencia)
 | Pieza | Estado | Fuente |
@@ -39,6 +39,16 @@ Latencia y tasa de fallos reales de cada `drain`; distribución de antigüedad d
 - Dos barridos concurrentes no producen dos acciones sobre la misma reserva (I1).
 - Caída entre cualquier par de transacciones: tras reiniciar, B y el barrido convergen sin duplicar.
 - Un `needs_review` nunca sale de ese estado sin registro de auditoría.
+
+## 6.1 Añadidos tras la revisión T3 (19 nov; [recibo](../evidence/lv019-b-t3-fase2-barrido-20261119/RECIBO.md))
+- **Orden estable en B:** cursor persistente y reanudable con orden total (clave de desempate), tolerante a barridos solapados; B valida cada estado contra Cuenta/libro al leer.
+- **Bloqueada ≠ abandonada:** una reserva bajo incidente no es terminal; B y C la distinguen para no alertar en falso cada vez. Falta decidir (dueño, §7) si D puede resolver bajo bloqueo con una anulación auditada o queda en cola.
+- **Acción terminal fallida:** hoy solo reintenta sin tope (`retry_wait`); el diseño exige que el fallo por bloqueo o admisión llegue a `needs_review` y dispare C (la regla de cuándo se fija tras medir).
+- **Deduplicación de C** por (reserva, acción/motivo, estado): persistir «visto por primera vez» y re-alertar al **cambiar de estado**; revalidar estado terminal al emitir y al mostrar (carrera C→D).
+- **Fallos del barrido:** también generan alerta durable; sin la pieza A hace falta un modo degradado explícito (quién ve el fallo ruidoso).
+- **Reconciliación = captura o liberación:** no existe una tercera acción; usa la misma entrada de libro por reserva y acción, así que no puede haber doble cierre.
+- **Pruebas añadidas:** fallo inyectado tras la admisión (retener y alertar, nunca automático); doble resolución simultánea; reinicio a mitad de cursor; cambio de estado que re-dispara la alerta; soak concurrente B+C+D+bloqueo con «unión del barrido = libro».
+- **Criterio observable de cierre (adoptado):** ninguna reserva no terminal sin alerta activa o disposición auditada; cada fallo (de acción o de barrido) produce exactamente una alerta durable y un registro de auditoría; el umbral de antigüedad sale de la distribución medida por B.
 
 ## 7. Decisiones que necesito del dueño (no técnicas)
 Canal y responsable de la alerta; opción 1 u opción 2 de §3; y si autoriza más adelante el cambio de nube de la pieza A. Hasta entonces: solo documentos.

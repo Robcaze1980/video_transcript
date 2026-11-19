@@ -1,0 +1,13 @@
+Thread mcp:c3887ab3-e84e-4ff0-adb3-94773f894c9e
+Riesgos y huecos:
+- La acción terminal que falla por bloqueo o admisión debe generar `needs_review` y disparar C; ese camino no está declarado y la reserva envejece en silencio.
+- La deduplicación de C debe considerar reserva, motivo y estado, y re-alertar al cambiar el estado; si no, la re-escalada queda oculta.
+- B debe validar el estado contra el libro al leer y tolerar barridos solapados; el cursor debe ser persistente y reanudable, sin filas perdidas ni repetidas.
+- C debe alertar también los fallos del barrido: fallar ruidosamente sin destinatario no es observable.
+- D exige probar la unicidad del libro con barrido y resolución manual concurrentes sobre la misma reserva.
+
+Pruebas adicionales: fallo inyectado tras admisión (retener y alertar, nunca automático), doble resolución simultánea, reinicio del barrido a mitad de cursor, cambio de estado que re-dispara la alerta y alerta que distinga el motivo del bloqueo.
+
+Criterio observable de cierre: ninguna reserva no terminal sin alerta activa o disposición auditada; cada acción fallida y cada fallo del barrido producen exactamente una alerta durable; el umbral de antigüedad se fija con la distribución medida por B.
+
+RESULTADO: PASS
