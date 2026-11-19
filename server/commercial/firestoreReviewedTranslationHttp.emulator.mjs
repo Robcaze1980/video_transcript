@@ -19,7 +19,7 @@ import {privateBucket} from './privateObjectPlan.ts';
 import {encodeTextBundle} from './pipelineTextCodec.ts';
 import {textModel} from './pipelineTextProvider.ts';
 
-const project='demo-vistavo-ledger',host='127.0.0.1:8185',collection='vistavo_review_http_synthetic',testCount=8;
+const project='demo-vistavo-ledger',host='127.0.0.1:8185',collection='vistavo_review_http_synthetic',testCount=10;
 const contexts=[],sha=value=>createHash('sha256').update(value).digest('hex');let verifiedCleanups=0;
 const ref=(c,name,id)=>c.root.collection(name).doc(id);
 function assertSafeEnvironment(){
@@ -187,6 +187,30 @@ test('a verified user without access cannot read, edit or download the owner rev
   }
  }
  assert.equal(c.objects.reads,reads);assert.deepEqual(await state(c),before);assert.deepEqual(await financialState(c),c.baseline);
+});
+
+test('every saved revision downloads its own exact text; never a newer revision, the original, or a missing revision',async()=>{
+ const c=await fixture();await ownerSaved(c);
+ const second=[{id:c.cues[0].id,en:'The technician checks the pump twice.'},{id:c.cues[1].id,en:'It measures 7 cm.'}],secondTxt='The technician checks the pump twice.\nIt measures 7 cm.\n';
+ const saved=await c.call(reviewPath(c),{method:'PUT',data:body(c,{expectedRevision:2,edits:second})});assert.equal(saved.statusCode,200);assert.equal(JSON.parse(saved.body.toString()).committedRevision,3);
+ const at=(revision,format='txt',query={})=>`${reviewPath(c)}/download?inputId=${query.inputId??c.input}&revision=${revision}&format=${format}`;
+ const old=await c.call(at(2));assert.equal(old.statusCode,200);assert.equal(old.body.toString('utf8'),c.expectedTxt);assert.equal(old.headers['x-vistavo-revision'],'2');assert.equal(old.headers['cache-control'],'no-store');
+ const current=await c.call(at(3));assert.equal(current.statusCode,200);assert.equal(current.body.toString('utf8'),secondTxt);assert.equal(current.headers['x-vistavo-revision'],'3');
+ // Revision 1 is the original (never saved as a review) and 9 does not exist: no silent fallback to any other text.
+ for(const revision of [1,9]){const response=await c.call(at(revision));assert.ok([404,409].includes(response.statusCode),'revision '+revision+' got '+response.statusCode);assertNoContent(response,c);for(const text of [c.expectedTxt,secondTxt,c.cues[0].en])assert.equal(response.body.toString('utf8').includes(text),false);}
+ assert.deepEqual(await financialState(c),c.baseline);
+});
+
+test('review identifiers cannot be mixed: another input or job id with the owner token returns no content',async()=>{
+ const c=await fixture();await ownerSaved(c);const before=await state(c),reads=c.objects.reads;
+ const stranger=randomUUID();
+ const urls=[
+  `${reviewPath(c)}/download?inputId=${stranger}&revision=2&format=txt`,
+  `/api/cloud/ai/jobs/${stranger}/review/download?inputId=${c.input}&revision=2&format=txt`,
+  `/api/cloud/ai/jobs/${stranger}/review/download?inputId=${stranger}&revision=2&format=srt`,
+ ];
+ for(const url of urls){const response=await c.call(url);assert.ok([404,409].includes(response.statusCode),url+' got '+response.statusCode);assertNoContent(response,c);}
+ assert.equal(c.objects.reads,reads);assert.deepEqual(await state(c),before);
 });
 
 test('invalid or unverified tokens and forged body identities fail without content',async()=>{

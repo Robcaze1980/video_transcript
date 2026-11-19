@@ -19,7 +19,7 @@ import { build } from 'esbuild';
 
 const project = 'demo-vistavo-ledger';
 const host = '127.0.0.1:8185';
-const expectedTests = 8;
+const expectedTests = 10;
 const guardFile = 'scripts/reviewEmulatorNetworkGuard.cjs';
 const fixtureFile = 'server/commercial/firestoreReviewedTranslationHttp.emulator.mjs';
 const fixedTracked = Object.freeze([
@@ -139,6 +139,8 @@ function summary(stdout, stderr) {
     'verified owner edits, saves, reopens and downloads matching reviewed TXT and SRT',
     'another account cannot read, edit or download the owner review',
     'a verified user without access cannot read, edit or download the owner reviewed text',
+    'every saved revision downloads its own exact text; never a newer revision, the original, or a missing revision',
+    'review identifiers cannot be mixed: another input or job id with the owner token returns no content',
     'invalid or unverified tokens and forged body identities fail without content',
     ...['removed','reassigned','uid_changed'].map(mutation => `identity ${mutation} after routing denies read, save and download without disclosure`),
   ];
