@@ -1,0 +1,8 @@
+Thread mcp:7e3dde72-b6cf-4158-96b5-555ad21843e4
+Las tres razones son válidas: (a) un acknowledge repetido tras resolve es idempotencia sobre un hecho ya registrado; (b) con clave hash(tipo,fila,estado,motivo), misma clave implica misma situación, así que ignorar cambios de identidad en replay es correcto; (c) una disposición por alerta/acción con conflicto legible es diseño explícito.
+
+Bug real restante: `recordDisposition` usa `identity.rowId` en `doc(identity.rowId)` sin validar que sea id simple (sin '/', sin '.'/'..', sin controles), incumpliendo el criterio adoptado. Escenario: alerta almacenada con `rowId` corrupto o manipulado; con '/' se lee un documento anidado no previsto, con '.'/'..' o controles falla la lectura o se observa estado ajeno, contaminando `observedRowState` y el registro de auditoría, que además persiste ese `rowId` sin validar. Lugar: lectura de fila en la transacción, tras `alertIdentity`. Bloquea: sí, porque viola una decisión adoptada y afecta la integridad del contexto auditado; no es escritura a rutas arbitrarias, pero el gate exige el criterio.
+
+No veo otros bugs reales: la comparación de replay cubre los campos del payload y el orden de lecturas es correcto.
+
+RESULTADO: FALLA

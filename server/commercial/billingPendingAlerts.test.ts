@@ -4,33 +4,8 @@
 import {describe,expect,it} from 'vitest';
 import {buildPendingReport,type PendingRow} from './billingPendingReport';
 import {ALERT_COLLECTION,alertKey,clearResolvedAlerts,raisePendingAlerts,raiseSweepAlert} from './billingPendingAlerts';
+import {stub} from './billingFirestoreStub';
 
-function stub(initial:Record<string,Record<string,Record<string,unknown>>>={}){
-  const store=new Map<string,Record<string,unknown>>(),writes:string[]=[],reads:string[]=[];
-  for(const [c,docs] of Object.entries(initial))for(const [id,data] of Object.entries(docs))store.set(`${c}/${id}`,structuredClone(data));
-  const docRef=(c:string,id:string)=>({id,path:`${c}/${id}`,async get(){reads.push(`${c}/${id}`);const d=store.get(`${c}/${id}`);return {id,exists:!!d,data:()=>d?structuredClone(d):undefined};}});
-  const query=(c:string,filters:Array<[string,string,unknown]>,after:string|null,limit:number|null)=>({
-    where(f:string,op:string,v:unknown){return query(c,[...filters,[f,op,v]],after,limit);},
-    orderBy(){return query(c,filters,after,limit);},
-    startAfter(s:{id:string}){return query(c,filters,s.id,limit);},
-    limit(n:number){return query(c,filters,after,n);},
-    async get(){
-      let ids=[...store.keys()].filter(k=>k.startsWith(c+'/')).map(k=>k.slice(c.length+1)).sort();
-      ids=ids.filter(id=>filters.every(([f,op,v])=>{const d=store.get(`${c}/${id}`)!;return op==='=='?d[f]===v:Array.isArray(v)&&v.includes(d[f]);}));
-      if(after!==null)ids=ids.filter(id=>id>after!);if(limit!==null)ids=ids.slice(0,limit);
-      reads.push(`query:${c}`);
-      return {docs:ids.map(id=>({id,ref:docRef(c,id),data:()=>structuredClone(store.get(`${c}/${id}`)!)}))};
-    }
-  });
-  const root={collection:(c:string)=>({doc:(id:string)=>docRef(c,id),...query(c,[],null,null)})};
-  const db={async runTransaction<T>(fn:(tx:unknown)=>Promise<T>){
-    const staged:Array<()=>void>=[];
-    const tx={async get(ref:{path:string;id:string}){const d=store.get(ref.path);return {id:ref.id,exists:!!d,data:()=>d?structuredClone(d):undefined,get:(f:string)=>d?.[f]};},
-      create(ref:{path:string},data:Record<string,unknown>){if(store.has(ref.path)||staged.length>50)throw Error('ALREADY_EXISTS');staged.push(()=>{writes.push('create:'+ref.path);store.set(ref.path,structuredClone(data));});},
-      update(ref:{path:string},data:Record<string,unknown>){if(!store.has(ref.path))throw Error('NOT_FOUND');staged.push(()=>{writes.push('update:'+ref.path);store.set(ref.path,{...store.get(ref.path)!,...data});});}};
-    const result=await fn(tx);staged.forEach(f=>f());return result;}};
-  return {db,root,store,writes,reads};
-}
 const NOW=5_000_000;
 const row=(over:Partial<PendingRow>):PendingRow=>({kind:'hold',id:'h1',state:'needs_review',createdAtMs:1000,nextAttemptAt:null,attempts:0,lastErrorCode:null,accountId:'11111111-1111-4111-8111-111111111111',malformed:false,...over});
 const report=(rows:PendingRow[],now=NOW)=>buildPendingReport(rows,now);
@@ -81,6 +56,20 @@ describe('raisePendingAlerts',()=>{
     expect(s.store.get('accounts/x')).toEqual({available:5});
     const [,d]=alerts(s)[0];expect(Object.keys(d).sort()).toEqual(['accountId','alertKey','firstSeenAtMs','kind','lastSeenAtMs','reason','rowId','seenCount','state','status']);
     expect(JSON.stringify(d)).not.toMatch(/identityKey|uid|email/);
+  });
+});
+
+describe('a superseded alert whose condition comes back',()=>{
+  it('reopens with its history instead of failing as corrupt',async()=>{
+    const s=stub({billingHoldOutbox:{h1:{state:'needs_review'}}});
+    await raisePendingAlerts(s.db as never,s.root as never,report([row({state:'needs_review'})]),NOW);
+    const moved=report([row({state:'pending',malformed:true})]);await raisePendingAlerts(s.db as never,s.root as never,moved,NOW+1);
+    s.store.set('billingHoldOutbox/h1',{state:'pending',createdAtMs:'bad'});
+    await clearResolvedAlerts(s.db as never,s.root as never,moved,NOW+2);
+    expect(alerts(s).find(([,d])=>d.state==='needs_review')![1].status).toBe('superseded');
+    const back=await raisePendingAlerts(s.db as never,s.root as never,report([row({state:'needs_review'})]),NOW+3);
+    expect(back).toEqual({created:0,seen:1});
+    expect(alerts(s).find(([,d])=>d.state==='needs_review')![1]).toMatchObject({status:'open',reopenCount:1,seenCount:2});
   });
 });
 

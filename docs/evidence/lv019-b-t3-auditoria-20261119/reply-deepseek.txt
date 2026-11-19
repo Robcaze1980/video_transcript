@@ -1,0 +1,11 @@
+Thread mcp:d2514f21-b6fa-410c-b11b-12938beba4b9
+**Hallazgos (TypeScript/Firestore Admin)**
+
+- **Atribución falsificable** (`recordDisposition`/`clean`): `authorizedBy` es un string del llamador, sin vínculo con el principal autenticado ni permiso sobre `accountId`/alerta. Cualquiera puede sellar un acto a nombre de otro. Bloquea.
+- **Replay sin estado** (bloque `if(existing.exists)`): se resuelve antes de `identity.status!=='open'`, así que un `acknowledge` repetido tras una `resolve` devuelve `{replayed:true}` como éxito aunque la alerta ya no lo refleje. No bloquea, pero es replay incorrecto.
+- **Colisión de actores** (`auditId`, clave `(alertKey,action)`): dos personas distintas con la misma acción chocan; la segunda recibe `conflict` y su decisión no queda registrada. Escenario: María y Juan reconocen a la vez con notas distintas → solo una traza. Bloquea si se espera una traza por decisión.
+- **Lectura derivada de contenido** (`rowId`/`kind` de `alertIdentity`): se leen `source.collection`/`identity.rowId` sin validar el patrón de id; un `rowId` con `/` apunta a otro documento y su `state` se persiste en el registro. Bloquea revisión.
+- **Reloj del llamador** (`nowMs`): solo `>=0`; permite sellos retroactivos/futuros. No bloquea, debilita evidencia.
+- **Pruebas**: con transacción simulada nunca se ejecuta la colisión `ALREADY_EXISTS`; falta prueba de dos actores concurrentes y de replay tras cambio de estado, por lo que 2 y 3 pasarían.
+
+RESULTADO: FALLA

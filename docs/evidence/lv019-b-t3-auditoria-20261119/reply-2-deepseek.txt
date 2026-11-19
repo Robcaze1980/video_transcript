@@ -1,0 +1,10 @@
+Thread mcp:ddde997c-0f1a-4a7c-a292-bdc2bd430fdf
+Razones: (a) válida: el replay exige coincidencia del payload completo para el mismo alertKey+acción; repetir algo ya registrado no es una transición nueva. (b) válida: alertKey ya codifica la identidad; cambiarla en el mismo documento es corrupción, no un caso normal. (c) válida: una disposición por alerta+acción, con conflicto para la segunda, es un contrato defendible y conserva la traza.
+
+Hallazgos:
+- `doc(identity.rowId)`: no hay validación visible del id simple antes de construir la ruta. Si `alertIdentity` no la aplica (no está en el fragmento), rowId vacío, '.', '..' o con '/' lanza error del SDK, no `AuditFault('corrupt')`; con caracteres de control lee otro documento de la colección y falsea `observedRowState`. Bloquea: sí, incumple el criterio adoptado.
+- El replay se comprueba después de `alert.exists` y `alertIdentity`: si la alerta se borra o corrompe tras registrar, el reintento da `not_found`/`corrupt`, no `replayed:true`. Bloquea: no, salvo purga de alertas.
+- No se valida monotonía de `nowMs` frente a `acknowledgedAtMs`: el reloj del servidor puede producir un `dispositionedAtMs` anterior. Bloquea: no.
+- Si `root` es global y el alertKey no incluye cuenta, dos cuentas con misma fila/estado/motivo colisionan. Bloquea: condicional; confirmar alcance de `root`.
+
+RESULTADO: FALLA

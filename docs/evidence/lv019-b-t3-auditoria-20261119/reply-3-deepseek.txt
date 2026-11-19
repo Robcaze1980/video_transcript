@@ -1,0 +1,11 @@
+Thread mcp:09f4482b-33b5-45a9-a320-cf41622910ea
+Reviso con el código completo. Los tres bloques que se muestran son coherentes: `alertIdentity` sí valida `rowId` vía `validAlertShape`→`safeDocId`, y el hash se recalcula contra `snap.id`. No veo bug que bloquee.
+
+Hallazgos restantes (no bloquean):
+
+- `alertIdentity`/`validAlertShape`: `kind`, `state` y `reason` solo se comprueban como `string` y por coherencia del hash; no se validan contra los valores conocidos. Un documento con `state`/`reason` arbitrarios pero hash coincidente pasa como identidad válida. Requiere escritura en la raíz, así que no bloquea hoy.
+- `safeDocId`: acota a 1500 *caracteres*, no bytes. Un `rowId` multibyte superaría 1500 bytes y `doc(rowId)` fallaría luego con INVALID_ARGUMENT. No bloquea (los ids provienen de Firestore).
+- `validAlertShape`: no exige `lastSeenAtMs >= firstSeenAtMs`; una alerta con marcas invertidas se acepta. Cosmético.
+- Idempotencia: `id = auditId(alertKey, action)` no incluye autor/reloj; una re-disposición legítima tras reapertura externa con misma nota devolvería `replayed` y no escribiría. Fuera del estado actual del módulo.
+
+RESULTADO: PASS

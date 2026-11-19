@@ -1,0 +1,10 @@
+Thread mcp:14270913-9ac6-4332-a70a-febd7327ff21
+**Hallazgos**
+- `clean`: acepta propiedades extra en `disposition` y `recordDisposition` las ignora en replay. Una repetición con un campo adicional distinto devuelve `replayed:true` en lugar de `conflict`; viola el contrato. Bloquea.
+- `recordDisposition`: replay compara solo `alertKey/action/authorizedBy/evidenceRef/note`, no los campos actuales de identidad contra el registro existente. Si reaparece una alerta con la misma clave pero distinto `accountId` u otro contexto, puede devolver `replayed:true` sin actualizar la alerta nueva. Bloquea.
+- `recordDisposition`: `authorizedBy` pasa por un patrón sintáctico, pero no se vincula a un principal autenticado. Un llamador puede atribuir la decisión a otro actor. Bloquea si esta función es borde de entrada confiable del cliente.
+- `recordDisposition`: `nowMs` es controlado por el llamador; permite timestamps falsos o incoherentes en un registro supuestamente auditable. Bloquea si el reloj debe ser del servidor.
+- Las carreras de acciones iguales o distintas parecen correctas por transacción/`tx.create`; no detecté escritura de filas ni movimiento de saldo.
+- Pruebas basadas en flujos válidos no cubrirían campos extra, recreación de alertas con clave repetida ni identidad falsificada.
+
+RESULTADO: FALLA

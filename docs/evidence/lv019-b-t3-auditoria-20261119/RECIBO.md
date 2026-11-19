@@ -1,0 +1,18 @@
+# Recibo T3 · resolución auditada (pieza D) · 2026-11-19
+
+Código revisado: `server/commercial/billingPendingAudit.ts` (y `alertIdentity`/`validAlertShape` de `billingPendingAlerts.ts`). Vía: T3 local (instancia `linguistvision-openrouter`), servidor cerrado tras cada ronda. Modelos pedidos: `~z-ai/glm-flash-latest` y `deepseek/deepseek-v4.1-flash`; modelo servido, tokens y costo no observables. Se conservan todas las respuestas originales, también las FALLA.
+
+| Ronda | GLM | DeepSeek | Qué se hizo |
+|---|---|---|---|
+| 1 (`prompt.txt`) | **FALLA**: campos extra se ignoran en el replay; replay sin comparar identidad; autor no vinculado a un principal autenticado; reloj del llamador | **FALLA**: autor falsificable; replay antes de comprobar estado; una traza por acción; `rowId` con `/` apunta a otro documento; reloj del llamador | Adoptado: propiedades desconocidas rechazadas; `rowId` debe ser un id de documento simple para toda alerta (`safeDocId`); precondiciones del futuro endpoint escritas en el módulo (autor autenticado en lista permitida, reloj del servidor). No adoptado, con razón: el replay antes del estado es idempotencia correcta; la clave de alerta ya codifica la identidad; una disposición por alerta y acción es diseño intencional (el segundo recibe conflicto y puede leer el registro) |
+| 2 (`prompt-2.txt`) | **FALLA** | **FALLA** | Ambos dijeron que no se validaba el `rowId` antes de `doc()`, pero la validación vive en `alertIdentity` → `validAlertShape` → `safeDocId`, fuera del fragmento enviado: **no confirmado**. La mutación que quita `safeDocId` hace fallar la prueba. Ambos aceptaron las tres razones de lo no adoptado |
+| 3 (`prompt-3.txt`, con las funciones auxiliares) | **PASS** | **PASS** | Adoptado lo menor: marcas de tiempo invertidas y `rowId` multibyte demasiado largo cuentan como alerta corrupta. No adoptado: validar `state`/`reason` contra valores conocidos (exige escribir en la raíz con el hash recalculado) y la re-disposición tras reapertura externa (fuera del alcance actual) |
+
+Limitaciones de la vía: los revisores solo ven lo que se les envía; dos FALLA de la ronda 2 fueron falsos positivos por fragmento incompleto. Opinión de modelos, no prueba.
+
+## Contraste de Codex
+- Pruebas nuevas: 13 de D y 1 de regresión en C; suite completa 94 archivos, **1169 aprobadas, 113 omitidas**; tipos sin errores.
+- Un hallazgo propio, anterior a T3: al escribir la prueba de regresión salió que una alerta `superseded` cuya condición vuelve a aparecer fallaba como «documento corrupto» (la pieza C no aceptaba ese estado). Corregido: se reabre con su historia; una alerta `dispositioned` solo cuenta el avistamiento.
+- Mutaciones que hacen fallar pruebas: resolver sin evidencia, replay convertido en conflicto, omitir la comprobación de estado, editar la fila observada, que `acknowledge` cierre la alerta, y quitar `safeDocId`.
+- `scripts/checkBillingPendingAuditEmulator.mjs` en un emulador propio y aislado (datos sintéticos, limpieza verificada): 4 llamadas idénticas simultáneas producen exactamente una escritura; 4 personas distintas simultáneas, exactamente un ganador y las demás reciben conflicto o aborto del emulador; un registro de auditoría por alerta; cuentas y filas intactas. Las comprobaciones de reporte y alertas siguen pasando (con 20 escritores el emulador a veces aborta por `lock timeout`: se propaga, nunca duplica).
+- Límites: este módulo es una biblioteca sin ruta ni autenticación; la atribución solo es confiable cuando exista el endpoint con las precondiciones; el índice de nube de alertas abiertas no está verificado.

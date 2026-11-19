@@ -1,0 +1,9 @@
+Thread mcp:d8346b07-4a64-4b1f-80b5-b28254d7231d
+**Tercera revisión (código completo)**
+
+- `validAlertShape`: acepta `lastSeenAtMs < firstSeenAtMs`; un documento corrupto bien formado supera la validación y puede dispositionarse. Requiere escritura previa corrupta (hash de `snap.id` seguiría cuadrando solo si quien corrompió recalculó todo). No bloquea; corrección recomendada.
+- `alertIdentity`: el hash (`alertKey`) se recalcula con `kind/rowId/state/reason` y se compara contra `snap.id`, y `rowId` pasa por `safeDocId` antes de usarse en `doc()`. `kind` desconocido fuera de `sweep` falla como `corrupt` vía `PENDING_SOURCES`. Correcto.
+- `recordDisposition`: `create` sobre `auditId(alertKey,action)` hace re-ack imposible (conflicto) y replay determinista; replay con alerta ya dispositionada es idempotencia correcta, no bug. La transacción lee fila solo para contexto, sin escribir. `nowMs` y payload van por validación previa. Sin hallazgos.
+- `safeDocId` usa unidades UTF-16 (no bytes): irrelevante en la práctica porque un `rowId` real no pudo escribirse excediendo 1500 bytes.
+
+RESULTADO: PASS
