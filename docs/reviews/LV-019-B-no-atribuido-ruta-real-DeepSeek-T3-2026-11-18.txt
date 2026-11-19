@@ -1,0 +1,34 @@
+**Qué demuestra el fragmento**
+- La cuarentena no atribuida ya es real y es coherente: `owner` combina `account/identity/input/origin/guard` (+ intent, + `verifiedExternalJob` si hay request/marker); con el testigo de origen alterado, `owner=false` ⇒ `attribution:'unverified'`, `ownerBlocked:false`, sin `billingReviewIncidents`, sin `billingHoldOutbox`, sin `billingGuards.blocked`.
+- Lo único que sí se quarantena sin atribución es la guarda por intento: `if(validClearIntentAdmissionGuard(d.intentGuard,key))tx.update(...,'needs_review')` va **fuera** del bloque `if(attributed)`. Bloquea replay del mismo `requestKey`, no trabajo nuevo.
+- Por eso J2 pasa: `reserveAs`/`enqueue` consultan guarda **global** (`billingBlocked(guard)`) y la guarda del request **propio** (`intentGuard(requestId)`), nunca un agregado por identidad. J2 trae `requestId` nuevo ⇒ guarda `clear`, sin guarda global ⇒ autoriza. Coherente con lo observado; no es un bypass de usuario, es un alcance de cuarentena.
+
+**Barreras mínimas (sin condenar la cuenta equivocada)**
+- B1 Mantener B1.1/B1.2. Distinguir dos subcasos de “no atribuido”: (a) binding de cuenta **probable ahora** (`identity.uid/accountId` y `input.accountId` consistentes; sólo origin/marker/intent incoherentes) vs (b) `identity/account/input` incoherentes. Sólo en (a) procede cuarentena de cuenta; en (b) nunca de cuenta.
+- B2 Cuarentena de cuenta **suave y separada**: campo tipo `newOpsPaused` (no `blocked:true`), que rechaza **sólo** `reserve`/`admit` nuevos; no toca lecturas ni `release`. Escrita en el mismo tx del incidente **cuando se cumple (a)**, y reenviada por outbox. Requiere decisión comercial: cambia disponibilidad por seguridad.
+- B3 Hold duro **por reserva** `(identityKey, reservationId)` **siempre**, incluido no atribuido: ese par se fijó en `beginExternalBillingIntent`, cuando la identidad sí se verificó. Bloquea `admitVideoCall`/`settleVideo capture` de esa reserva sin exigir confiar en el origin actual.
+- B4 Autoridad primero: la barrera debe vivir en las tx de Cuenta (`reserveVideo`/`admitVideoCall` ya consultan `sealed`/`billingHold`). La cerca local (`billingBlocked`) es sólo pre-check; sólo local es evitable llamando a Cuenta directo.
+- B5 Control sistémico: gate de nuevas reservas/identidad por nº de incidentes no resueltos (p.ej. `>=1` ⇒ B2; umbral mayor ⇒ revisión), y `holdOutbox` idempotente por intent.
+- B6 Pureza de lecturas: `status()`/`download()` no crean holds; en el fragmento `status` sólo calcula `review`, correcto.
+
+**Carreras / límites**
+- Llamada ya en vuelo: con `admit` commiteado, `fetch` al proveedor no es revocable; `release` post-admisión está cerrado. La barrera sólo frena despacho **nuevo**; el resto queda para captura/reconciliación. Sin 2PC video↔Cuenta no se promete veto retroactivo.
+- `/reserve` POST en vuelo puede aterrizar tras la cuarentena local; sólo la comprobación dentro de Cuenta (B4, orden hold-antes-de-reserve) lo cubre.
+- Carrera enqueue vs hold: `reserveAs` lee `guard` en su propio tx; si el hold (B2) commitea antes, cierra J2; si commitea después, la reserva ya existió (la mitiga B3 a nivel reserva).
+- Falsa atribución: si se pausa la cuenta con (b), un origin alterado podría inducir DoS de cuenta; por eso (b) queda en alcance reserva/intent, no cuenta.
+- `incidentId` incluye `attemptId` ⇒ reobservaciones generan incidentes distintos; exige idempotencia del hold por intent.
+- Reentrada en `oldIncident.exists` con `directSnapshotHash` distinto lanza `invariant` (fail-closed, pero puede atascar reconciliación).
+
+**A probar**
+- Ruta no atribuida real (sin `guard.update` manual) genera B2/B3 (outbox>0, guarda de Cuenta) cuando (a).
+- (b) **no** pausa la cuenta (no falsa atribución) y aun así bloquea la reserva del intent afectado.
+- Lecturas (status/download de otro job) siguen operando cuarentenadas; repeticiones no crean holds ni cambian versión.
+- Orden hold vs reserve/admit concurrentes; idempotencia ante drenajes repetidos; camino de desbloqueo manual y que `release` de reservas existentes sigue permitido.
+- Decisión comercial de disponibilidad (pausar todas las operaciones nuevas de una identidad ante 1 incidente no atribuido, con ventana/SLA y responsable de liberar).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Los fragmentos confirman el estado diagnosticado: con origin alterado, `owner=false` ⇒ incidente `attribution:'unverified'`, `ownerBlocked:false`; hold/review/guarda global sólo dentro de `if(attributed)`; la guarda por intento sí pasa a `needs_review` incondicionalmente. Como `reserveAs`/`enqueue` sólo miran `billingBlocked(guard)` (global) y la guarda del request propio, J2 (request nuevo) autoriza; coherente con “J2 reservó/admitió y B quedó aislado”. `status()` es de sólo lectura.
+NEGATIVOS: (1) Cuarentena no atribuida queda en alcance intent; no hay barrera de cuenta/reserva para trabajo nuevo. (2) No se escribe `billingHoldOutbox` ni guarda de Cuenta en (a), así que un `/reserve` nuevo de la misma identidad no encuentra veto ni en local ni en autoridad. (3) La cerca local no cancela POST en vuelo; sin 2PC no hay veto retroactivo. (4) Pausar cuenta con identidad no demostrable (caso b) produciría falsa atribución/DoS. (5) Reobservación con distinto hash ⇒ `invariant`, wedging posible. (6) Faltan pruebas de la ruta no atribuida real, de no-bloqueo en (b), de pureza de lecturas y de idempotencia del hold.
+BLOQUEOS: Fragmentos no muestran `beginExternalBillingIntent`/`externalJobResultAllowed`/`aiDispatchEligible`/`videoBillingHold`/`blockVideoBilling` ni el procesamiento del outbox, así que la barrera de Cuenta y el despacho quedan inferidos. Requiere decisión comercial el coste de disponibilidad de B2 y la ventana/quien libera. No se promete transacción entre bases; HTTP externa apagada; no se declara producción lista.
+=== FIN RESUMEN ===

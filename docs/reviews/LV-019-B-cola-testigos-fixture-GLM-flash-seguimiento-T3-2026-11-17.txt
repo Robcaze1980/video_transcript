@@ -1,0 +1,8 @@
+Acepto la corrección. Retiro la observación sobre inclusión de `null`: la prueba en el emulador demuestra que la consulta `nextAttemptAt <= 1000` excluye filas con `nextAttemptAt: null`, devolviendo solo `['due-pending']`. No extrapolo ese comportamiento al servicio real sin evidencia adicional.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: 16 tests declarados alinean con los caminos de código revisados; atomicidad transaccional (createPair/claimNext/finish), validación hash intent→terminalId en witness, fail-closed ante campos corruptos/extra, lease con vencimiento y descarte 'stale', tope de generation/attempts/clock, incidentes duraderos con validación en replay. Prueba aislada en el emulador confirma que la consulta due excluye `nextAttemptAt:null`, devolviendo solo la fila pending con `nextAttemptAt:1000`.
+NEGATIVOS: Tests 16/16 no ejecutados ni verificados por el auditor; valores hash constantes del test 1 no verificados sin ejecución. La exclusión de `null` en el emulador no garantiza el mismo comportamiento en producción (Firestore) sin evidencia adicional. Pendiente medir justicia con más de 100 tareas y filas corruptas o invisibles por campo ausente; el selector puede fallar al encontrar una fila corrupta (p. ej., si `nextAttemptAt` está ausente o es de tipo inesperado, la fila no aparece en la consulta y el par queda invisible al claim). attach no valida campos exactos del marcador. snapshot no atómico (aceptable en fixture).
+BLOQUEOS: Ninguno para el alcance declarado.
+=== FIN RESUMEN ===

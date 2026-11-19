@@ -1,0 +1,8 @@
+Con el dominio declarado, no encuentro otro defecto bloqueante del códec. La comparación de huella es correcta si el helper: lee el marcador existente dentro de la misma transacción, lo valida con la misma cuenta/clave/operación, rechaza si existe pero es inválido, y solo permite replay cuando `fingerprint` es idéntico. `markerId` agrupa; la huella decide. La huella cubre todos los campos persistidos y `bindingHash`, pero no `canonicalEvidence`/`versions`; eso queda a cargo del testigo aparte. Falta también integrar ACK remoto y proveedor.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática del código proporcionado con el dominio declarado; sin ejecución, cambios ni delegación.
+NEGATIVOS: El códec actual no implementa replay contra marcador previo. El `catch` convierte errores internos en marcador inválido, lo que oculta diagnóstico aunque falla cerrado.
+BLOQUEOS: Ninguno para el códec; replay, testigo de versiones, ACK y proveedor son integración pendiente.
+=== FIN RESUMEN ===

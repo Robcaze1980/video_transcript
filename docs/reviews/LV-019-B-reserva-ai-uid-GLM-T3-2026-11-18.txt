@@ -1,0 +1,14 @@
+**LV-019.B — Revisión de extractos**
+
+- Bypass HTTP: en `aiHttp` solo `quoteForUid` y `enqueueForUid` reciben `uid`; el `quote` interno sin UID queda como contrato ("trusted internal") y no aparece cableado a rutas HTTP en los extractos.
+- UID: formato (string no vacío ≤128) y verificación UID/owner en transacción en `quoteForUid`, `priorSimulatedRequestForEnqueueForUid` (vía `verifiedUidAccountInTransaction`) y `reserveAs` (`requesterUid`), más `enabledForUid` en recuperación.
+- TOCTOU: cotización lee identidad/cuenta/input/proyecto atómicamente; la reserva relee y revalida precio contra metadata actual, revisión, draft narrado e integridad del input en la misma transacción. La recuperación solo lee, nunca reintenta `reserve`, y reconfirma `verifiedPrior`.
+- Doble reserva: `requests` con clave `hash([accountId,requestKey])`, `tx.create` que falla si existe, fingerprint + `jobAccounting==='simulation'`, tope `active>=3`; el replay devuelve el jobId existente de forma idempotente.
+- Fuga en recuperación: devuelve solo `jobId` validado con `privateUuid`, con chequeo de campos del job y gating UID antes y después; no expone datos del job.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Extractos de `aiHttp`, `quoteForUid`, `enqueueForUid`, `priorSimulatedRequestForEnqueueForUid`, `reserveSimulatedAiForUid`/`reserveAs` y `reserveWithRecovery`; barriers UID/owner verificadas dentro de transacción en los tres puntos de entrada; replay idempotente con clasificación contable; recuperación de solo lectura. Reporte declarado: 9 casos corregidos 12/12 con barreras equivalentes + 3 controles, limpieza 12/12, 102 pruebas focales.
+NEGATIVOS: (1) Rutas `/api/cloud/ai/*` no reconocidas ejecutan `enabled(accountId)` sin UID (extracto truncado después de esa línea): oráculo not_found/disabled de existencia/piloto, severidad baja. (2) Cuerpos de `verifiedUidAccountInTransaction`, `jobForUid`, `usable` y `simulatedAiPrice` no visibles en extractos: se aceptan por la barrera declarada, no verificables aquí. (3) Validación de duración condicionada a `candidateLimits`/`accountBilling`: sin `candidateLimits`, `simulatedAiPrice` opera sobre metadata sin validar duración. (4) Cuenta deshabilitada tras commit incierto: `priorSimulatedRequestForEnqueueForUid` valida flags de cuenta antes del prior y devuelve conflict aunque el job exista (nota de liveness, no bypass). (5) `quote` interno sin UID protegido solo por contrato/comentario. No se declara probado ACK, cobro, producción ni revocación Firebase; `aiPilot`/`simulationOnly` siguen siendo gates de piloto y la rama Account externa permanece cerrada en HTTP a propósito.
+BLOQUEOS: ninguno
+=== FIN RESUMEN ===

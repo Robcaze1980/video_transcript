@@ -1,0 +1,17 @@
+Releí el bloque exacto de la candata anterior. La rama `after_ack` sigue presente:
+
+```ts
+if(options.phase==='after_ack'&&current.exists&&current.get('state')==='settled'&&matchesOutboxSnapshot(current.data(),options.expected)){
+  const classified=jobDoc?.data() as Job|undefined;
+  if(classified&&await this.jobAccounting(tx,outboxId,classified)==='account_seconds')return {state:'already_settled',ownerBlocked:false};
+}
+```
+
+Esta rama precede a la creación de la incidencia y al bloqueo del dueño, por lo que el doble ACK con la misma tupla y clasificación retorna `already_settled` sin incidencia ni bloqueo, como resumí. No puedo rectificar a `needs_review` con este código visible; si existe otra versión que elimine la rama, no está en el bloque suministrado y no puedo auditarla sin herramientas.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: El bloque visible contiene la rama `after_ack` que retorna `{state:'already_settled',ownerBlocked:false}` si outbox settled + matchesOutboxSnapshot + jobAccounting `account_seconds`, antes de crear incidencia o bloquear dueño. Hashes backend d4c22b6e054ecba9d0e4414bb66e59eaa92a8dc3309eec424ab174db0dcdb5c6, AI 799090f6297ea91be514d2b13d4de51edf91f2cebc99d4effe2b8817cfb65340.
+NEGATIVOS: La versión descrita como "nueva" (rama eliminada) no está en el código suministrado; no puedo confirmar ni negar ese cambio. Si la rama se eliminara en otra versión, el doble ACK crearía incidencia, no modificaría la fila terminal y podría bloquear al dueño verificado, pero eso no es evidenciable aquí. No extrapolo idempotencia de Cuenta.
+BLOQUEOS: Necesito el bloque exacto de la versión con rama eliminada y su SHA para rectificar la conclusión.
+=== FIN RESUMEN ===

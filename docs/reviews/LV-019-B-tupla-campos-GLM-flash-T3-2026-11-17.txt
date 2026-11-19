@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Extracto backend SHA256=31d40ae5d3ef555897443e42545e1d27339087e3eb56f3cf1019216d6e0a2507. `validExternalBilling` limita proveedor, identidad, reservationId y `seconds`; `copyExternalBilling` conserva solo esos cuatro campos y begin/lectura/reserve copian y revalidan antes de transacción/await. `intentWitness` construye campos exactos; reserve valida input/proyecto/identidad, usa `jobId` local y crea job/outbox con ese valor. `settle` usa `c.jobRef.id` como clave de outbox y `copyExternalBilling` para la tupla. Idempotencia depende de fingerprint y comparaciones de intent, con `verifiedExternalJob`.
+NEGATIVOS: Revisión estática con extractos; los resultados 3/3 y 3/3 fueron informados, no ejecutados. No cubre todas las rutas de cobro, escritores privilegiados ni producción. No son visibles `billingIntent`, `verifiedExternalJob`, `validStoredIntentWitness`, `requestFingerprint` ni la construcción/lectura de `Context`.
+BLOQUEOS: Falta evidencia de que `c.job` corresponda a `c.jobRef` y de validación `c.job.accountId === c.accountRef.id` antes de `settle`; con el extracto actual no puede concluirse que un accountId alterado deje de determinar el accountId del outbox.
+=== FIN RESUMEN ===

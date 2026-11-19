@@ -1,0 +1,36 @@
+**Bloqueo de titular equivocado**
+- El paso 2 depende de un índice/época escrito “en la transacción de reserva”. Es forward-only: las reservas antiguas no lo tienen, y el documento no dice qué se hace con ellas. Si el reconciliador “reconstruye” el titular desde el vínculo actual, reproduce el bloqueo a B que el propio texto prohíbe.
+- A→B→A: “cuenta original” no es un dato estable de la persona; es un vínculo con ciclo de vida (retiro/reactivación/borrado). Pausar A cuando A ya no tiene el UID bloquea a un tercero; no bloquea a nadie útil si A fue borrada. Falta definir qué identifica a la persona, no a la cuenta.
+- No se especifica qué manda si el incidente de Video y el índice de Cuenta discrepan. “Quien escribe último” decide bloqueo/desbloqueo; eso es un vector de atribución falsa, no un criterio.
+
+**Carrera entre bases**
+- El texto lo admite: sin tx distribuida, la ventana detección(Video)→commit(Cuenta) es irreducible. Los “controles preventivos en la autoridad” quedan sin demostrar y, si son un pre-check, vuelven a ser TOCTOU.
+- Orden fence↔reserva en vuelo no está cerrado: sólo la tx de Cuenta puede rechazar; que el `/reserve` POST que aterriza tras la pausa sea rechazado exige que la pausa se lea en esa misma tx, no probado.
+- Pausar “la operación en revisión” es grano fino engañoso: el job puede emitir **nuevos callKeys** (siguiente ventana). Bloquear la operación debe cubrir admisiones nuevas del job, no sólo la llamada vista.
+
+**Lecturas históricas**
+- Las lecturas se condicionan a “propiedad verificada”, pero la propiedad se verifica contra el vínculo **actual**. Con UID reasignado, un lector puede ser autorizado sobre resultados/liquidaciones de otro: es el mismo problema de B, trasladado a descarga. El índice propuesto es por-operación, no cubre lectura; el texto no lo resuelve.
+- “No entregar resultados dudosos” no basta si el gate es la identidad actual: hace falta binding histórico también en lectura, o negar por defecto cuando no sea demostrable.
+
+**Pagos/admisiones en vuelo**
+- Correcto que una llamada admitida/enviada se conserve. Falta explicitar que un ACK perdido implica “efecto posible” y por tanto **no** habilita liberar; hoy el hold lo impide, pero un contrato futuro de liberación podría reinterpretarlo.
+- Un corte entre commit de `admit` y `fetch` deja admisión durable sin llamada; el texto no dice cómo se resuelve (retención vs captura). Es el caso que suele tentar a “liberar por inocuo”.
+
+**Afirmación sobre liberar bajo hold**
+- “Hoy un hold impide captura y liberación salvo lectura idempotente de terminal” es coherente. La extensión futura exige probar ausencia simultánea de admisión, cerca y escritor legacy: para reservas legacy y ACK perdido eso es **indemostrable**. Luego no puede haber liberación automática en esos casos; sólo decisión comercial (retención/compensación/SLA). El texto lo insinúa pero no lo cierra.
+
+**Requiere decisión de Rob**
+- Alcance de pausa: operación / cuenta original / global; y si se añade una tercera vía (`rate-limit`/cuota) no ofrecida.
+- Ruta de reservas legacy sin índice: ¿no atribuible ⇒ pausa global? es una decisión de disponibilidad, no técnica.
+- Política de retención/compensación y **quién** libera (rol nombrado + auditoría).
+- Umbral de pausa global (riesgo de caída de servicio).
+
+**Garantías aún no demostradas (no presentes)**
+- Época/generación y auth entre servicios; integridad del índice frente al mismo escritor privilegiado; contrato de liberación bajo pausa; binding histórico para lectura; resolución de conflicto video↔Cuenta; no-elusión por escritor legacy; entrega/idempotencia del outbox. Los tests propuestos (dos dominios locales) no tocan tx distribuidas ni reasignaciones reales.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: La propuesta acierta en lo demostrado: marca el estado como no aprobado, prohíbe bloquear B por suposición, declara la ventana Video→Cuenta y la ausencia de 2PC, no trata `reserved` posterior como ACK, mantiene hold bloqueando captura y liberación, y condiciona lecturas y desbloqueo a verificación/attributiony registro. Los riesgos materiales quedan en los puntos que el propio texto deja como pendientes (índice/época, protocolo de confirmación, contrato de liberación, controles preventivos).
+NEGATIVOS: (1) El índice es forward-only y no dice qué hacer con reservas legacy ⇒ riesgo de reconstruir el titular desde el vínculo actual y bloquear a B, o de no atribuir nunca. (2) “Cuenta original” no define la persona bajo A→B→A/retiro/borrado; falta ciclo de vida de identidad. (3) Sin criterio de conflicto entre incidente de Video e índice de Cuenta, el último escritor decide atribución. (4) Lecturas históricas siguen gateadas por identidad actual: posible entrega cruzada tras reasignación; el índice no cubre lectura. (5) Orden fence↔admisión/reserva en vuelo no cerrado; el pre-check en Cuenta es TOCTOU sin prueba. (6) La pausa por “operación” no cubre nuevos callKeys del mismo job. (7) Liberación bajo pausa es indemostrable para legacy/ACK perdido: no puede ser automática, y el ACK perdido debe seguir contando como efecto posible.
+BLOQUEOS: Decisiones de Rob sobre alcance de pausa (operación/cuenta/global y posible cuota), tratamiento de reservas legacy sin índice, política de retención/compensación y rol autorizado para liberar. Garantías no demostradas: época/generación, auth entre servicios, integridad del índice ante escritor privilegiado, contrato de liberación bajo hold, binding histórico de lectura, resolución de conflicto video↔Cuenta, no-elusión legacy y outbox. Pruebas de dos bases reales/IAM/red y de reasignación A→B→A pendientes. No se declara aprobación ni producción lista.
+=== FIN RESUMEN ===

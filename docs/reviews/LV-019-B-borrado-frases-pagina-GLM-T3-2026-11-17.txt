@@ -1,0 +1,13 @@
+Fecha: 17 nov 2026 (PST).
+Alcance: revision estatica del prototipo local desactivado de paginas de revisiones privadas; sin inicio, cierre, cuarentena, inventario ni integracion.
+T3: mcp:7620869a-035b-49c9-ae6f-cd74132a5294; proveedor linguistvision-openrouter; modelo solicitado ~z-ai/glm-flash-latest. Modelo efectivamente servido, tokens y costo: no medidos.
+La revision se hizo sobre el codigo y pruebas sinteticos incluidos en el prompt, sin acceso a herramientas solicitado. El PASS no acredita Firestore, IAM, indices, dinero real ni borrado completo.
+Prompt SHA-256: 22D1BBFFB4FE21501BC1CB95A309E4A60219FD1AAAD9E0A69F51ACCB603F8E38.
+
+Informe integro del revisor:
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/experiments/firestoreReviewedPurge.ts:1` — `processPage` mantiene el prototipo desactivado por omisión, valida lease/página antes de leer y, en transacción, confirma input/upload/control, dueño, generación y vencimiento; filtra y revalida por cuenta/input, elimina reviews o sobrescribe recibos con `{version:2,state:'retired',accountId}`, persiste cursor y no lee tras escribir. `server/commercial/experiments/firestoreReviewedPurge.test.ts:1` cubre fallo cerrado, sustitución exacta, aislamiento financiero/otras cuentas, cursor tras respuesta perdida, turno caducado/robado/concurrente, carrera de guardado y reutilización de clave retirada. Hashes declarados: `9213ea75cb3743987b218c316666b9ca008e0c14810ebcfbf6425cc7ebc6e912` y `f47b283f1b1a682e266620870c9591b4b3f5b879f040cdeec12523cd4fd75916`.
+NEGATIVOS: No demuestra Firestore/IAM/Firebase reales, índice desplegado, seguridad de escritores antiguos, migración/inventario, GCS ni cierre/verificación completa; filas sin `accountId`/`inputId` quedan fuera del filtro y son gate, no borrado final. El modelo en memoria aproxima reintentos/autorización y no prueba la semántica completa de consultas de Firestore. `endOfScan` permanece limitado a exploración hacia adelante.
+BLOQUEOS: Ninguno nuevo dentro del alcance; persisten los gates declarados: escritor antiguo ciego a input/recibo, índice/Firestore/IAM/emulador, inventario/datos antiguos, cierre/verificación final y etapas fuera de este prototipo.
+=== FIN RESUMEN ===

@@ -1,0 +1,8 @@
+Confirmado: la validación del servidor está en `firestoreFiles.ts:213-216`, no en `304-306` como escribí. La cita incorrecta provino de un contador desalineado en mi primera lectura fragmentada; la referencia verificada ahora es exacta y no cambia el dictamen. Mantengo PASS con la evidencia corregida.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: server/commercial/web/cloudCandidate.tsx:80-83,136; server/commercial/web/cloudCandidateApi.ts:12-17,146-156; server/commercial/web/cloudCandidateApi.test.ts:16-21; scripts/qaMobileDimensions.mjs:68-75,82-100,102-134; server/commercial/firestoreFiles.ts:213-216; server/commercial/firestoreAi.ts:35; outputs/lv019-b-mobile-dimensions-20261117/browser-result.json; outputs/lv019-b-mobile-dimensions-20261117/vitest.log
+NEGATIVOS: Chrome de escritorio con viewport móvil, API/identidad/medios sintéticos; no Safari, teléfonos físicos, HEVC, rotación ni red móvil. MP4/30 s y 1920 px son límites existentes, no soporte de MOV/4K/2–3 minutos. No ejecuté pruebas; leo el log reportado (1 archivo, 40/40 PASS) y no lo tomo como ejecución propia.
+BLOQUEOS: ninguno para este alcance acotado; la única corrección respecto a mi informe previo es la línea exacta del límite del servidor (213-216 en lugar de 304-306).
+=== FIN RESUMEN ===

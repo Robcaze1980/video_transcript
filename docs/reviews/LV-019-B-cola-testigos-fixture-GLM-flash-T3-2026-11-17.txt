@@ -1,0 +1,26 @@
+**Coherencia técnica:** El código y las afirmaciones son coherentes para el alcance limitado declarado. Verificado estáticamente:
+
+- Correlación SHA-256(intent, acción): `checkWitness` exige que `syntheticTerminalKey(row.intentId, row.action) === terminalId`; la acción corrupta en la tarea se detecta vía el witness (o vía hash si ambos están corruptos).
+- Creación/repetición atómica: `createPair` usa una transacción; el fallo sintético tras `tx.create(witness)` revierte todo (test 3 lo confirma). El replay valida witness, task e incidente antes de devolver `already_exists`.
+- Concurrencia: `claimNext` usa transacciones por candidato; dos workers simultáneos sobre el mismo doc → uno gana, el otro retrita y ve el lease nuevo → `null`.
+- Vencimiento: `task.lease.expiresAt > now` bloquea el reclamo; expirado permite re-clamar con generación incrementada.
+- Efectos tardíos: `finish` retorna `'stale'` si el lease no coincide o expiró; el path idempotente (`already_applied`) se evalúa antes y es correcto.
+- Campos corruptos: `exactFields` + `checkWitness`/`checkTask` fallan cerrado sobre acción, intent, campos extra, números fuera de rango.
+- Incidentes: duraderos, validados en replay y en re-`finish`; un incidente corrupto bloquea tanto `createPair` como `finish`.
+- Reintentos: backoff exponencial acotado (`100*2^n` → máx 1600); `attempts` ≤ 5.
+- Límites enteros: `time()` acota 0..1e9; `now+ttl > 1e9` rechaza; `generation` capado en `MAX_SAFE_INTEGER`; `nextAttemptAt` validado en cada estado.
+
+**Observaciones (no incumplen el criterio de aceptación):**
+
+1. La consulta `where('nextAttemptAt','<=',now)` incluye tareas `needs_review` con `nextAttemptAt=null` (en Firestore, `null` ordena primero y `<=` lo incluye). Se descartan dentro de la transacción (`state!=='pending'` → `null`), pero con >100 tareas `needs_review` la página de 100 podría agotarse antes de alcanzar una tarea `pending` vencida (inanición). No ejercitado por los 16 tests; limitación de escala del fixture, no falla del alcance declarado.
+2. `attach` valida los valores de `fixture` y `runId` pero no exige que el marcador tenga exactamente esos dos campos (acepta extras).
+3. `snapshot` realiza lecturas separadas (witness, task, incidentes) sin transacción: no atómico. Aceptable para fixture de prueba, no para verificación de producto.
+4. Los valores hash exactos del test 1 (`adeff713…`, `a585b769…`) no puedo verificarlos sin ejecutar; la estructura de la función es determinista y coherente.
+5. No ejecuté los 16 tests; solo revisé coherencia estática entre código y afirmaciones.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: 16 tests declarados alinean con los caminos de código revisados; atomicidad transaccional (createPair/claimNext/finish), validación hash intent→terminalId en witness, fail-closed ante campos corruptos/extra, lease con vencimiento y descarte 'stale', tope de generation/attempts/clock, incidentes duraderos con validación en replay. No hay manejo de ACK remoto ni operación de Cuenta; incidentes sin accountId.
+NEGATIVOS: Tests 16/16 no ejecutados ni verificados por el auditor; valores hash constantes del test 1 no verificados sin ejecución. Query de due incluye needs_review con nextAttemptAt=null (limitación de escala >100, no ejercitada). attach no valida campos exactos del marcador. snapshot no atómico (aceptable en fixture).
+BLOQUEOS: Ninguno para el alcance declarado.
+=== FIN RESUMEN ===

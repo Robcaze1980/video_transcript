@@ -1,0 +1,10 @@
+Corrijo: si el dueño obtiene 200 en las mismas rutas y el mismo job/input/revisión, el 404 del segundo usuario ya no puede explicarse por ruta inexistente; el PUT 404 con proyecto y recibos intactos confirma denegación real, y el fragmento completo cierra la aserción que estaba truncada. El 404 tras retirar el video refuerza que la ruta existe y el recurso no.
+
+Límites que persisten: 404 frente a 403 no distingue «ajeno» de «inexistente» y no se comprueba que el cuerpo no filtre datos; cabeceras solo vía log no-store, sin aserciones por cabecera; acceso directo SRT para usuario ajeno sin probar; sin conflicto de revisión/bloqueo optimista, token expirado ni concurrencia; sin proveedor, archivos reales, Chrome instalado ni móvil físico; editor solo en bundle de prueba con app publicada y runtime apagados; guardia/proxy no es firewall del SO.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Mismo job/input/revisión; dueño 200 en PUT /review y /review/download con contenido TXT/SRT exacto; segundo usuario 404 en GET, descarga y PUT con proyecto y recibos sin cambios; tras retirar el video, 404 y borrado del texto.
+NEGATIVOS: 404 vs 403 sin distinguir ajeno de inexistente; cabeceras solo por log no-store; SRT directo ajeno sin probar; sin conflicto de revisión, token expirado ni concurrencia; sin proveedor, archivos reales, Chrome instalado ni móvil.
+BLOQUEOS: Editor activo solo en bundle de prueba; app publicada y runtime apagados; guardia/proxy no es firewall del SO.
+=== FIN RESUMEN ===

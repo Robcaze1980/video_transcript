@@ -1,0 +1,15 @@
+Condiciones mínimas para integrar la reserva:
+
+- Fencing por época: `(accountId, reservationId)` con `slotVersion`/epoch de Cuenta y de ranura; sin él, un escritor antiguo con `attemptId` viejo cumple «misma ranura + mismas 14 versiones» y crea job incorrecto.
+- Idempotencia por cuenta no basta: la transacción de Cuenta dedupe por dueño, no si el UID se reasigna a otra cuenta; hace falta binding UID→cuenta inmutable o recibo global de `reservationId`.
+- Detección de ausencia: `{exists:false}` no prueba no-existencia; usar precondiciones de existencia/versión en el read-set para no perder crear/borrar entre lecturas.
+- Recibo de transición propio para el replay legítimo que muta `account`/`intent` y crea `request`/`jobMarker`; no confundirlo con el envío original.
+- Liveness como gate explícito: la ranura no caduca; la conciliación debe demostrarse y recuperar ranuras abandonadas (caída commit→POST, UNKNOWN) antes de abrir el endpoint.
+- ACK tardío preservado de forma determinista; UNKNOWN ≠ status; sin reembolso automático.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Auditoría del diseño descrito y hechos de código aportados por el usuario; sin ejecutar herramientas ni delegar, según lo pedido.
+NEGATIVOS: No inspeccioné el código real, las 14 versiones ni la transacción de Cuenta; no verifiqué la implementación de recibos ni de conciliación.
+BLOQUEOS: Endpoint apagado; faltan reconciliador y sincronización de revocación con Cuenta; faltan epoch/fencing de ranura y de Cuenta; detección de ausencia frágil; replay sin recibo de transición.
+=== FIN RESUMEN ===

@@ -1,0 +1,19 @@
+**Alcance**
+Auditoría del lector `terminalWitnessForRecovery` antes de consultar Cuenta. No evalúa validación posterior, incidentes durables, scheduler, migración legacy ni operación en la nube.
+
+**Hallazgos**
+- El lector cumple la regla central: origen con forma exacta, marcadores booleanos obligatorios, `false` con ambas ausencias, `true` con testigo y recuperación iniciales compatibles, vínculos por `intentId`, `terminalId` y acción.
+- Rechaza formato futuro, campos extra en origen o parejas, `historyProtocol` distinto, etapa distinta a `prepared`, recuperación inicial inválida y vínculo incoherente antes de devolver candidato.
+- No muta documentos y no deriva un marcador ausente como `false`.
+- `seal` y `release` pueden coexistir; la selección de acción exige coincidencia entre `terminalId`, acción declarada y marcador correspondiente.
+- La correlación identidad/cuenta/input se valida antes de contactar Cuenta. No observo bypass local demostrado: un candidato remoto requiere un conjunto coherente de origen, identidad, dueño, input y ambas parejas.
+- Límite concreto: `null` no distingue ausencia, legado, formato futuro, corrupción o falta de pareja; el llamante solo recibe `unverified`. Eso es fail-closed, pero no deja evidencia durable.
+- Cuenta e input no se validan con forma exacta completa; solo se usan campos mínimos. Si la política exige forma exacta también para esos documentos, falta esa validación.
+- No se relee el estado tras la transacción antes de la llamada remota; una carrera posterior no está cercada. La validación posterior y el manejo durable siguen pendientes.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `terminalWitnessForRecovery` valida transaccionalmente forma exacta de origen y de ambas parejas, marcadores `false`/`true`, vínculos de identidad, input, acción y `terminalId`, y no realiza escrituras. Los 64/64 casos del emulador respaldan los casos específicos probados; la suite completa sigue en marcha.
+NEGATIVOS: No es producción lista. No valida forma completa de cuenta/input, no deja incidencia durable para los casos `null`, no cercan el estado tras la transacción y no se demuestra resistencia frente a un escritor privilegiado que reemplace registros coherentes. La validación posterior a Cuenta, incidentes, scheduler, legacy y despliegue nube permanecen abiertos.
+BLOQUEOS: Completar la suite, definir clasificación durable de `unverified`, precisar validación de cuenta/input y relación temporal origen/parejas si se exige, e implementar validación posterior y conciliación antes de cualquier activación.
+=== FIN RESUMEN ===

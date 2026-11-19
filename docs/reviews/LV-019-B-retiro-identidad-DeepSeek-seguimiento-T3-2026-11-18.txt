@@ -1,0 +1,16 @@
+Sí: cierran mis tres observaciones como requisitos de diseño —anuncio honesto del cierre parcial, alta/reserva idempotentes con reintento vs. solicitud nueva, y retención declarada antes de activar—; los gates de implementación y prueba siguen pendientes.
+
+Condiciones imprescindibles aún omitidas:
+
+- Barrera durable e idempotente con estado por etapa, dueño, versión monotónica y lectura que rechace escritores viejos; fail-closed también al evaluar la barrera, no solo al alta, con ventana máxima y reconciliador/alertas del estado parcial.
+- Autoridad de identidad: qué pasa si no responde (coste de fallar cerrado) y un único registro de autoridad.
+- Idempotencia: vigencia de la clave de solicitud; tras expirar, un reintento tardío debe detectarse como tal, no como solicitud nueva.
+- Retención acotada a todas las copias (historial versionado, ambas bases, logs, respaldos, artefactos de revisión) y conflicto con derechos de supresión: qué se borra, qué se conserva y por qué.
+- Barrera ≠ revocación oficial, ni sustituto de la baja en Auth.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Contrato LV-019.B aportado; sin código, migración ni despliegue.
+NEGATIVOS: Atomicidad entre bases, vigencia de idempotencia, alcance de retención y autoridad única no cubiertos.
+BLOQUEOS: Migración, parada de escritores viejos y pruebas de concurrencia/fallo parcial/crash siguen sin ejecutar.
+=== FIN RESUMEN ===

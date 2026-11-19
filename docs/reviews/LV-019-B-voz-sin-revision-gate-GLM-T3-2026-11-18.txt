@@ -1,0 +1,8 @@
+La cerca es efectiva en el alcance declarado: `quoteForUid` valida identidad/flags/input/proyecto en transacción y falla antes de calcular cotización; `enqueueForUid` valida vía esa cotización y lanza `disabled` sin consultar replay ni reservar; la ruta genérica también valida propiedad y falla antes de quote/reserva. No observo fuga ni mutación de texto en esas rutas. Queda fuera del alcance la ejecución de trabajos antiguos o llamadas en vuelo.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `quoteForUid` rechaza `narration:*` tras validación transaccional; `enqueueForUid` no llega a prior/replay/reserva para voz; ruta genérica hace `readProjectForUid` y `disabled` sin quote/reserva; 17/17 pruebas permanentes incluyen voces, quote, HTTP, replay, ruta opcional y texto.
+NEGATIVOS: Ninguno dentro del alcance auditado.
+BLOQUEOS: Auditoría separada de trabajos antiguos encolados y llamadas a proveedor en vuelo.
+=== FIN RESUMEN ===

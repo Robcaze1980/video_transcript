@@ -1,0 +1,22 @@
+**Regresiones objetivo**
+- Cancelación vieja: `cancel` y `resolveCancellation` capturan `generation` y revalidan con `assertCurrentCancellation` (señal, `withdrawnInputs`, `currentInputGeneration`, `cancelPending===id`) antes de `observedJob`/`confirmCancel`; además `markCancel`+`sameMark` antes del request y `lastJobResponse===ticket` en el resolve. Una respuesta tardía ahora lanza 409 en vez de borrar la marca. Cierra el fallo 1.
+- Revisión no desmonta: `key=uid:input:jobId` estable y `suspended` devuelve un aviso conservando `source`/`edits` en memoria; se destruye al denegar acceso (`wipe`+`onAccessLost`) y al cambiar usuario (cambia `key`). Cierra el fallo 2.
+- Retirada 202: `remove` marca acceso perdido y limpia input/jobs antes de la contabilidad local; un throw de `retireUpload` cae en `localCleanupFailed` e informa.
+- `cancellationSettled` exige terminal + `settled` + `account_seconds`/`video_seconds`; modo simulado queda pendiente, como se pidió.
+
+**Defectos**
+- `structuredAccess.current` se pone `{lost:true}` en `loseStructuredAccess` y en `deleteInput` pero, en lo aportado, nunca vuelve a `false`: tras borrar o perder acceso, `assertCurrentResult` devuelve 404 a todo job posterior de la sesión hasta recargar. Fail-closed, pero rompe la función.
+- `structuredBlocked` solo se escribe (`onBlockingChange`), no se lee: un borrador sucio no bloquea regenerar/subir/borrar; solo protege `beforeunload`. Al cambiar de job, la nueva `key` destruye la edición en silencio.
+- DELETE ambiguo (`response_unconfirmed`) lanza antes de ocultar: el texto sigue visible hasta que un sondeo posterior dé 404, y solo la vía job `translation:en` llama a `loseStructuredAccess`.
+- `rememberJob` escribe job y borra pending sin la relectura que sí usan otros métodos: un fallo silencioso deja revisión pendiente obsoleta.
+- `cancellationSettled` no excluye `state==='unknown'`; depende de que `terminalJobs` no lo incluya.
+
+**Límites**
+`coordinated`, `cancelPending/markCancel/confirmCancel`, `reviewMark`, `withdrawnInputs` y `terminalJobs` están elididos: no se puede verificar el lock, la semántica de la marca ni que `withdrawnInputs` se reinicie por sesión. El guardia entre pestañas solo cubre clientes participantes: no protege contra código viejo en otra pestaña ni contra una escritura fallida más allá de la relectura por escritura. Sin teléfono, IAM, proveedor, nube ni producción; sin evidencia de prueba en el extracto para estas dos regresiones.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Ambas regresiones quedan cerradas en el código mostrado: generación + `cancelPending` + `withdrawnInputs` + `markCancel`/`sameMark` y ticket de observación impiden que una respuesta vieja de cancelación borre la marca; `key` estable más `suspended` conservan `source`/`edits` en memoria durante revisión, con `wipe` en acceso denegado y cambio de usuario; retirada 202 oculta contenido antes de la limpieza local e informa si `localCleanupFailed`; confirmación de cancelación exige `settled` + `account_seconds`/`video_seconds`.
+NEGATIVOS: `structuredAccess.current` nunca vuelve a `lost:false` (editor deniega todo job posterior hasta recargar); `structuredBlocked` escrito y no leído, así que un borrador sucio no bloquea acciones que lo destruyen; DELETE ambiguo deja el texto visible hasta un sondeo posterior; `rememberJob` sin relectura; `cancellationSettled` no excluye `unknown`; sin prueba de código viejo en otra pestaña ni de escritura fallida.
+BLOQUEOS: `coordinated`, `cancelPending`/`markCancel`/`confirmCancel`, `reviewMark`, `withdrawnInputs` y `terminalJobs` elididos; cancelación en modo simulado sigue pendiente por diseño; sin móvil físico, IAM, proveedor, nube ni producción.
+=== FIN RESUMEN ===

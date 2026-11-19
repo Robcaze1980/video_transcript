@@ -1,0 +1,36 @@
+# Revisión de diseño LV-019.B — Carreras en liberación de lease
+
+**Advertencia previa:** el mensaje parece truncado. Solo recibí el fragmento final (`retryAt,` + borrado de `leaseToken/leaseUntil/leaseOwner` + `return true;`) y no veo el borrador completo ni las guardas previas. Reviso lo visible y marco explícitamente lo que no puedo evaluar. Sin herramientas, como pediste.
+
+## Carreras detectables con el fragmento
+
+**R1 — Liberación sin guarda de token (dueño viejo borra lease del dueño nuevo).**
+El extracto muestra `FieldValue.delete()` sobre los tres campos de lease, pero no se ve la condición que verifica que el token que se borra es el del llamador (`if (doc.leaseToken === miToken)`). Si esa guarda no existe dentro de la misma transacción, o se evalúa contra una lectura hecha *fuera* de la transacción, ocurre la secuencia clásica: A expira → B adquiere → A termina y libera → borra el lease de B → C adquiere mientras B sigue trabajando. Firestore serializa transacciones, pero solo protege si la lectura y la comparación ocurren dentro del callback.
+
+**R2 — Completación sin registro (re-procesamiento duplicado).**
+La liberación visible solo borra campos de lease; no hay evidencia de que escriba un marcador de resultado (`status`, `completedAt`, `lastError`). Si A terminó con éxito pero su lease expiró y B lo re-adquirió antes de que A liberara, la guarda de token (si existe) haría que A retorne sin registrar nada → B re-procesa el mismo trabajo. Si no existe idempotencia externa, es doble ejecución.
+
+**R3 — `retryAt` y backoff sobrescrito.**
+El fragmento menciona `retryAt` al inicio — presumiblemente se fija en la misma transacción de liberación. Riesgo: si la ruta de adquisición valida `retryAt <= now` con una lectura previa a la transacción (o con una consulta paginada stale) y luego fija el lease, puede romper el backoff que la liberación acababa de fijar. La serialización de Firestore solo ayuda si la lectura de `retryAt` está dentro de la transacción.
+
+**R4 — Escrituras no transaccionales sobre los mismos campos.**
+`FieldValue.delete()` en transacción protege contra otras *transacciones*, no contra `update()`/`set()` directos (cron, admin, otro servicio). Si cualquier otra ruta toca `leaseUntil` o `retryAt` sin transacción, la liberación puede dejar el documento inconsistente: lease borrado pero `retryAt` viejo → adquisición inmediata no deseada.
+
+**R5 — Semántica del `return true` según SDK.**
+Dentro del callback de una transacción: en Admin SDK (Node) devolver `true` es válido y se propaga como resultado; en el SDK web modular el callback debe devolver una Promise — devolver `true` sincrónico rompe y puede hacer que el llamador interprete éxito sin que la transacción se ejecute. No es una carrera en sí, pero altera el comportamiento de la guarda bajo reintentos. **No puedo confirmar el SDK con el fragmento.**
+
+**R6 — Token capturado fuera del reintentо del callback.**
+Firestore reintenta el callback completo en conflicto, lo cual es correcto **solo si** el token se re-lee dentro del callback en cada reintento. Si el token se capturó como constante en el closure antes de llamar `runTransaction`, la guarda puede pasar con datos stale y reproducir R1 a través de un reintento.
+
+**R7 — Comparación de expiración con reloj local.**
+No se ve cómo se compara `leaseUntil`. Si la decisión de "expirado" usa el reloj del cliente, el skew entre workers permite adquisición temprana mientras el dueño anterior sigue vivo. Debe compararse contra hora de servidor dentro de la transacción.
+
+## Lo que necesito para completar la revisión
+
+1. La función `releaseLease` completa (guarda de token, lecturas dentro de la transacción).
+2. La transacción de `acquire` y cómo valida `retryAt` y expiración.
+3. El SDK objetivo (Admin vs. web modular).
+4. Si existe alguna ruta que escriba estos campos fuera de transacción.
+5. La definición del documento (¿hay campo de estado/completación independiente del lease?).
+
+Sin ese material, los puntos R1, R2 y R3 son riesgos confirmables solo hipotéticamente; los demás son observaciones estructurales del patrón.

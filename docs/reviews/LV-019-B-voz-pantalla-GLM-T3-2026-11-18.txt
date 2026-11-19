@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `NEW_VOICE_AVAILABLE=false`; `chooseVoice(true)` se ignora; `quote` y `generate` lanzan `voice_unavailable` antes de llamar al API; los botones de cotización/generación no se renderizan para voz. Trabajos previos conservan consulta, descargas y audio cuando `job.results` existe y no requieren revisión.
+NEGATIVOS: Revisión estática solo. No se verificó móvil físico, audio real ni backend. Si `wantsVoice` persiste en `true`, el radio podría seguir marcado aunque no permita generación.
+BLOQUEOS: Ninguno para esta revisión; backend/audio real/móvil físico quedan fuera del alcance indicado.
+=== FIN RESUMEN ===

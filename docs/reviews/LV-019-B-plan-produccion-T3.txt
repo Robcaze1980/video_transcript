@@ -1,0 +1,35 @@
+**Alcance.** Auditoría del texto suministrado de LV-019.B (8b8e3e4 + árbol de trabajo; SHA256 declarado, no recalculado: sin herramientas por instrucción). Evalúo aptitud del PLAN, no aceptación de producción. No reabro precios ni invento umbrales.
+
+**Secuencia** — orden macro correcto (cierre financiero local → readback → gateway → procesamiento → publicar), con dos defectos:
+- **P1.** El criterio «cobro registrado sin trabajo asociado antes del gateway» no está anclado a un paso numerado ni tiene responsable/evidencia de cierre propios; queda como nota suelta junto al paso 1. Convertirlo en subtarea explícita de 1–2 con criterio de cierre (dos solicitudes simultáneas, caída tras cobro, descarga tras captura, recuperación sin visitas ya listados: elevarlos a evidencia obligatoria del paso).
+- **P1.** Contradicción de dependencias: el paso 4 exige «límites de tamaño/duración/costo» pero «límites para videos largos/MP4» vive en Cierre operativo PENDIENTE (paralelo). Mover la definición de esos límites como precondición del paso 4.
+- **P2.** Explicitar que el flag permanece apagado hasta cerrar el paso 5; hoy solo se dice «probar antes de habilitar» en el paso 3, con el procesamiento real aún sin cablear en el paso 4.
+
+**Controles de saldo** — reserva previa, terminales con outbox, UNKNOWN retiene: base sólida. Faltan contratos:
+- **P1.** Semántica por servicio implícita. Exigir contrato y prueba: texto OK + voz falla → captura solo texto, libera voz, reintento de voz sin doble cargo. Negativo: caída entre las dos capturas.
+- **P1.** Idempotencia de captura en la Account API no declarada (solo outbox del worker). Negativo: captura duplicada tras ACK perdido se aplica una sola vez; el saldo posterior cuadra con el registro del job.
+- **P2.** UNKNOWN tiene alerta pero no procedimiento: quién reconcilia, con qué evidencia y qué se comunica al usuario mientras retiene. La decisión de Rob cubre solo el video sin voz; definir el resto sin fijar plazos inventados.
+- El ejemplo de redondeo (130/260 s; 0.22+0.22 presentación) es coherente; mantener la unidad del libro en segundos y el contraste saldo↔job ya exigido.
+
+**Permisos** — diseño correcto (identidad mínima, OIDC exacta, sin UID de formulario, gateway sin acceso a bases, API privada). 
+- **P2.** «Accesos permitidos y denegados» es genérico: enumerar matriz negativa del paso 3 — token expirado/inválido, audiencia OIDC incorrecta, acceso directo al servicio privado saltando el gateway, ID de job/artefacto de otro usuario, descarga tras revocación con job en curso. Falta definir caducidad de las URLs de descarga de TXT/SRT.
+
+**Escalado** — carga por etapas 1/5/10 min, p95, memoria, primer límite y capacidad dentro de lo probado: bien.
+- **P2.** Añadir criterio de equidad por usuario (un usuario no agota cuota del proveedor) y backpressure explícito de cola hacia proveedores; registrar la concurrencia efectivamente ensayada como techo, no como supuesto.
+
+**Coste** — estimación aprobada como base y parada ante desviación material: correcto.
+- **P2.** Alertas cubren reservas antiguas/cola/errores pero no gasto; añadir aviso de coste derivado del presupuesto aprobado (valor a fijar con Rob). Registrar el costo de proveedor absorbido en jobs fallidos con saldo liberado, y un límite de invocaciones por job para tormentas de reintento.
+
+**Rollback** — el ensayo existe pero no especifica mecanismo ni estado en vuelo.
+- **P1.** Definir el flag como primera palanca de apagado; ensayar apagado a mitad de ráfaga con capturas pendientes en outbox y verificar: sin cargos duplicados, sin capturas perdidas, saldos y archivos conciliados tras restaurar. Declarar compatibilidad hacia atrás de las colecciones nuevas (outbox/intenciones) para que revertir el servicio no las rompa.
+
+**Plan vs. producción.** El plan distingue bien: evidencia sintética local ≠ aceptación, «No aceptar LV-019.B aún», LV-E55 INCONCLUYENTE sin reinterpretar. La aceptación de producción no es evaluable con este texto y el plan no la pretende; los hitos del paso 5 y los criterios del 17 nov son la puerta correcta.
+
+**Veredicto.** FALLA de aptitud del plan por los cuatro P1 (incidente pre-gateway sin anclar, límites diferidos que el paso 4 exige, captura por servicio/idempotencia sin contrato, rollback sin mecanismo ni prueba en vuelo). Son correcciones de texto del plan, no rediseño: la arquitectura y la secuencia macro se conservan.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Solo el texto del plan suministrado (Robcaze1980/video_transcript 8b8e3e4 + árbol de trabajo; SHA256 B23F97B5E6AB8140BF3D8727F519644B091C9320B6DC66E700743F578271B16A declarado, no verificado por restricción de no usar herramientas). Outputs y revisiones citados no inspeccionados. Exigir para el cierre: prueba de captura idempotente tras ACK perdido, prueba texto-OK/voz-falla con liberación parcial, evidencia del incidente cobro-sin-trabajo con las cuatro pruebas ya listadas, acta de ensayo de apagado de flag en vuelo con conciliación de saldos/archivos.
+NEGATIVOS: Captura duplicada tras ACK perdido; caída entre captura de texto y de voz; dos solicitudes simultáneas del mismo video; token expirado/audiencia OIDC errónea; acceso directo al servicio privado sin gateway; job/artefato de otro usuario; descarga tras revocación con job en curso; despacho con reserva ausente; apagado de flag a mitad de ráfaga con outbox pendiente; reserva UNKNOWN retenida sin resolución.
+BLOQUEOS: P1-1 anclar el incidente cobro-sin-trabajo a paso numerado con responsable y evidencia; P1-2 definir límites de tamaño/duración/costo antes del paso 4 (hoy diferidos a Cierre operativo); P1-3 contrato de captura/liberación por servicio e idempotencia de captura en Account API con pruebas; P1-4 rollback con flag como palanca, ensayo en vuelo y compatibilidad de colecciones nuevas. P2 restantes (matriz de permisos, TTL de descargas, procedimiento UNKNOWN, equidad/backpressure, alertas de coste) no bloquean el inicio pero sí el cierre del paso 5.
+=== FIN RESUMEN ===

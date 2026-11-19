@@ -1,0 +1,22 @@
+**Contradicción a resolver**
+- “Antes de cada `status` se toma una captura nueva” y “una repetición del mismo intento utiliza la captura original” pueden leerse en conflicto. Falta una regla de precedencia explícita: nueva captura solo para llamada lógica nueva; el reintento del mismo intento reutiliza captura e identificador originales.
+
+**Lagunas concretas**
+- No se define el tratamiento de `seal:404`, ni de `release:sealed` u otros estados no listados. Ambos deben clasificarse como inciertos o inesperados sin ACK.
+- `seal:released` sin historia de `seal` (por ejemplo `release` preparada y en vuelo) no tiene ruta explícita en la tabla; debe conservarse como observación para conciliación sin fabricar testigo ni ACK.
+- No se define qué documentos exigen versión obligatoria ni qué ocurre si la fuente no expone `createTime`/`updateTime`; “versión necesaria” queda ambiguo para implementar.
+- Para `status:reserved`, falta decir si la captura y el intento pueden servir de base para una creación de trabajo posterior o si esa creación exige intento y captura propios.
+
+**Puntos correctos**
+- Cierre de `status:released` con marcadores `false` está condicionado a respuesta autenticada, tupla exacta, dueño/guard, intención, ausencia de trabajo e historia sin cambios; no fabrica testigo.
+- `seal_status:released` cierra solo con historia `seal` y validación completa; no se presenta como ACK de `release`.
+- `404` y `reserved` no prueban ausencia ni autorizan acciones; `captured` exige revisión prioritaria sin reembolso automático.
+- Trabajo concurrente no se interpreta como cancelación; las confirmaciones con historia cambiada se conservan y la atribución/bloqueo dependen de dueño verificable.
+- La distinción entre captura en memoria para un ensayo local y persistencia/idempotencia durable como gate de producción es clara; la captura no autentica ni demuestra envío o ACK.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: La especificación acotada define identidad de llamada, captura con documentos y versiones, validación transaccional de marcadores/parejas, cierre condicionado por fuente, separación `seal_status`/`release_ack`, tratamiento incierto de `404`/`reserved`, revisión de `captured`, no inferencia sobre POST en vuelo, conservación de observaciones y gates durables de producción. El contrato existente de `seal` respalda el cierre condicionado de `seal_status:released`.
+NEGATIVOS: Persiste ambigüedad entre captura nueva por `status` y captura original en reintentos; faltan mapas para `seal:404`, `release:sealed`, `seal:released` sin historia `seal`, definición de versiones obligatorias y relación entre `status:reserved` y una creación posterior. No está implementada ni probada; persistencia, idempotencia remota, scheduler, IAM y legacy siguen pendientes.
+BLOQUEOS: Añadir precedencia captura/reintento, clasificación de estados faltantes, esquema durable de captura/incidencias y pruebas de idempotencia y caída antes de cualquier activación. No es producción lista.
+=== FIN RESUMEN ===

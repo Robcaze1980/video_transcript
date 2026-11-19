@@ -1,0 +1,8 @@
+**Sin defectos concretos restantes para el prototipo.** El caso de barrera/entrada no coincidente queda cerrado: la transacción de página falla sin sobrescribir ni avanzar, el diagnóstico es separado y su fallo impide declarar completado el barrido. Los bloqueos previos (`unverified`→`needs_review`, umbral sintético de cinco intentos, lease/CAS de barrido) están cubiertos. La especificación del prototipo en emulador con reloj sintético es coherente y completa para su alcance declarado.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: «si la barrera o entrada ya existente no coincide, la transacción de página falla sin sobrescribirla ni avanzar el cursor»; «se intenta un diagnóstico por separado… se devuelve error y nunca se declara completado el barrido»; «Tras confirmar esa incidencia, mover la entrada a needs_review» (unverified); «umbral sintético de cinco intentos» (not_found); «cada barrido obtiene un único lease de control» (barrido); «La fuente de tiempo de producción… sigue sin decidir».
+NEGATIVOS: revisión solo textual; sin implementación ni pruebas de emulador ejecutadas; PASS limitado a la especificación del prototipo, no a código ni a producción.
+BLOQUEOS: ninguno para este alcance. Producción, reloj real, scheduler y costos permanecen bloqueados por decisión pendiente, no por defecto de la especificación.
+=== FIN RESUMEN ===

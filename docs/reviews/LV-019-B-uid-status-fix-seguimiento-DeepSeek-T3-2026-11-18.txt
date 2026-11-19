@@ -1,0 +1,21 @@
+**Re-chequeo de mis observaciones (con cliente/retorno reales)**
+- `sealed`/`not_found` como estado de status: NO aplica. `status()` valida `reservation(...,['reserved','captured','released'])` y mapea HTTP 404 → `AccountBillingFault('not_found')`. Un `sealed` daría `unavailable`; `not_found` nunca llega como estado. Mi #3 queda refutado para `status()`: en el drenador la única rama que llama `recordReservedStatusUncertainty` exige `held.seconds===row.seconds` y no `captured`/`released`, luego `held.state==='reserved'`, coherente con lo etiquetado.
+- `priorIntent` con intentId: NO aplica. `beginExternalBillingIntent` devuelve `jobId` (vía `verifiedExternalJob`) o `null`, no un intentId; `previous()` (`priorExternalRequestForEnqueue`) también devuelve jobId. Así `verified!==priorIntent` es jobId-vs-jobId. Mi #5 queda refutado; solo el nombre del campo induce a error.
+
+**Procedencia de `release_pending` / `releaseAfter`**
+- `fenceExternalBillingRelease` es la vía explícita “separately authorized” (`reserve_pending`→`release_pending`).
+- Pero `prepareTerminalFromDirectObservation` también promueve `reserve_pending`→`release_pending` en la misma transacción de reconciliación. Por tanto `releaseAfter(...,'status_reserved'|'seal_reserved')` puede autohabilitarse durante el drenaje, sin artefacto de autorización aparte. Contraejemplo concreto: status `not_found` → `seal` remoto → `sealed.state==='reserved'` → `releaseAfter(sealSnapshot,'seal_reserved')` para un intent en `reserve_pending` sin ACK; prepara fence, captura y llama `settle(...,'release')`. Es liberación (no crea job), pero mueve saldo sin decisión externa visible.
+
+**Lo que sigue sin probarse**
+- Cerca local ≠ cancelación remota. El propio comentario lo admite (“not a distributed fence: the guard may change after this transaction and before the remote call”). Localmente `reserveAs` bloquea job si `intent.state!=='reserve_pending'`, pero no impide que un POST `/reserve` en vuelo aterrice tras el fence → reserva remota sin job local, que el drenaje liberaría.
+- El `not_found`/cambio remoto no se persiste como evidencia: el seal se apoya en la observación local tomada ANTES de `status()`, exigiendo `matchingDirectObservation`; la discrepancia remoto/local no queda como observación durable.
+- Carrera UID: el 3/3 es sintético; status-only sigue corriendo ⇒ concurrencia reserve-vs-fence no cerrada. En el drenador, el cierre UID depende de `externalIntentWitness` (fragmento cortado).
+- `seal`/`settle` (y los `states` aceptados) no están incluidos; no puedo confirmar `'sealed'` ni la semántica de `settle('release')`.
+- ACK directo legacy (`enqueue`→`return this.backend.reserve(...,undefined,uid)`) sigue sin evidencia durable suficiente; HTTP externa apagada.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Cliente real: `reserve` valida `['reserved']`+`seconds`; `status` valida `['reserved','captured','released']`; 404→`not_found` como fault. `beginExternalBillingIntent` retorna `jobId` o `null`. `release_pending` lo producen `fenceExternalBillingRelease` y `prepareTerminalFromDirectObservation` (este desde `reserve_pending`). Drenador: reservado sin match → `recordReservedStatusUncertainty`+`intentsFailed++`; `reserveAs` con `statusSnapshot` retorna `null`⇒`conflict`; `reserveAs` externo exige `intent.state==='reserve_pending'`.
+NEGATIVOS: (1) `releaseAfter`/`settle('release')` autohabilitado por reconciliación sin autorización separada verificable (not_found→seal reserved→release). (2) El `not_found`/cambio remoto no se persiste; la evidencia del seal es local previa. (3) Fence local no cancela POST remoto; reserva sin job puede quedar para drenaje. (4) `seal`/`settle` no visibles. (5) Mis #3 (`sealed`/`not_found`) y #5 (`priorIntent`/intentId) quedan refutados por el cliente/retorno reales.
+BLOQUEOS: status-only aún en ejecución; `externalIntentWitness`/`matchingDirectObservation`/`seal`/`settle` no incluidos; API HTTP externa apagada; ACK directo legacy sin evidencia durable; no se declara producción lista.
+=== FIN RESUMEN ===

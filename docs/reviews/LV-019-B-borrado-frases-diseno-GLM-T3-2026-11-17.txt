@@ -1,0 +1,15 @@
+Revisión realizada solo sobre el diseño aportado, sin herramientas ni ediciones, según lo pedido.
+
+El diseño está bien acotado y honesto en sus precondiciones, pero deja huecos concretos: la garantía de «sin ventana» en la lápida y el cierre final dependen de una transaccionalidad del guardado que el contrato no exige; hay casos de carrera y estancamiento no cubiertos; y el chequeo financiero queda demasiado vago para implementarse o probarse tal como está escrito.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Contrato puntos 2-5, sección de lápida y pruebas 3, 5 y 7 del documento aportado en el prompt. Sin acceso a código por instrucción expresa.
+NEGATIVOS: 1) El contrato afirma que «no debe existir una ventana» en la conversión a lápida y que el cierre detecta toda fila, pero no exige que el guardado sea transaccional leyendo el recibo y el input: si el guardado no es transaccional, una escritura tardía puede pisar la lápida (mismo ID derivado accountId+requestKey) o crear revisión tras el cierre final, y la transacción de cierre no entraría en conflicto con ella. Debe exigirse explícitamente que el guardado lea transaccionalmente el documento de recibo y el input, y que el cierre final escriba un documento que esos saves lean.
+2) «Recibo activo» no está definido: los recibos no activos contienen huellas de contenido (baseHash, bindingHash, payloadSha256, voiceSha256) y, si solo se convierten los activos, esas huellas sobreviven al barrido; brecha de privacidad directa frente al objetivo del punto 3.
+3) La vigencia de la concesión es una comparación de reloj, no una mutación de documento: una transacción que leyó concesión válida puede confirmar después de que expire. Falta mecanismo: renovación/heartbeat dentro del lote transaccional o ventana de concesión con margen demostrado sobre el peor caso de transacción.
+4) Un documento anómalo persistente (propietario o input distintos) produce «revisión/reintento» indefinido sobre la misma página: la paginación se estanca, `deleting` queda eterno y el trabajador gira sin progreso ni alerta. Falta tope de reintentos por documento con estado de error durable y señal, sin declarar cierre.
+5) El cierre exige «barreras confirmadas» y purga AI terminada, pero el contrato no define que existan marcadores durables de paso completado del limpiador actual; sin ellos esa verificación no es implementable tal como está escrita.
+6) El chequeo de consistencia financiera es vago («se verifica su consistencia») y la prueba 7 (comparar saldo antes/después) choca con la liquidación legítima que el propio contrato permite durante la limpieza: debe validarse un invariante concreto (p. ej., todo trabajo unknown conserva movimiento y testigo), no igualdad de saldo.
+BLOQUEOS: Ninguno para esta revisión. El barrido permanece candidato: deben cerrarse los negativos 1-4 en el contrato antes de implementación, además de las precondiciones ya declaradas (índices, datos malformados, marcador de purga para uploads viejos).
+=== FIN RESUMEN ===

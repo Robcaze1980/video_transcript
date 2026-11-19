@@ -1,0 +1,22 @@
+La sección captura el diseño corregido y evita las trampas principales.
+
+- Autoridad en Cuenta, barrera por identidad y confirmación en ambos servicios antes de considerarla aplicada: `docs/specs/LV-019-B-video-text.md:42`.
+- No cierra por `404`; exige tombstone transaccional que compite con `reserve`, con ambos resultados posibles: `:43`.
+- Prohíbe liberar tras `provider_admitted` sin evidencia verificable, conserva UNKNOWN/ambiguo y no compensa captura dudosa: `:44`.
+- Idempotencia, ACK perdido, scheduler autenticado, equidad, backoff y documentos legacy: `:45`.
+- Pruebas de ambos órdenes para barrera/reserva, tombstone/reserva, admisión/release, ACK perdido y dos teléfonos: `:46`.
+- Declara expresamente que no hay transacción atómica entre bases y que el diseño está pendiente: `:42`, `:46`.
+
+Cambios mínimos antes de implementar:
+- Explicitar que la barrera bloquea también `admit_provider` y `capture`, además de `reserve`; ya se implica en “reservas, admisiones o capturas”, pero conviene nombrarlo en pruebas.
+- Definir el contrato de evidencia verificable mínima para release tras admisión (por ejemplo, certificado de no llamada o terminación fallida con receipts coherentes). El texto la exige pero no define su forma.
+- Añadir permisos internos como criterio: solo el worker autenticado puede admitir/capturar/release; solo el servicio de Video puede solicitar barrera, y status puede ser leído por el worker. La sección menciona autenticación, no separación de permisos.
+- Especificar el orden de propagación de hold: Video marca incidencia/guard local primero, solicita hold idempotente, y solo al ACK marca la barrera activa en ambos. El texto lo sugiere pero no define el estado local si Account no responde.
+- Añadir replay bajo hold como caso nominal: una petición preexistente/idempotente puede consultar su job, pero no debe admitir nueva reserva/captura.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática de `docs/specs/LV-019-B-video-text.md:40` a `:46`. La sección coincide con el diseño corregido: tombstone vs reserve en vuelo (`:43`), `provider_admitted` transaccional y prohibición de release post-admisión sin evidencia verificable (`:44`), recuperación idempotente por ACK (`:45`), ambos órdenes de carreras (`:46`), conservación de UNKNOWN (`:44`) y ausencia de atomicidad distribuida (`:42`). No edité ni consulté cloud.
+NEGATIVOS: El texto aún no define la forma exacta de la evidencia verificable para release tras admisión, ni el estado local si el ACK de hold no llega; falta separación explícita de permisos internos por endpoint y un caso nominal de replay idempotente bajo hold. Es diseño pendiente, no implementación.
+BLOQUEOS: Contrato de evidencia verificada; matriz de permisos por endpoint; estado local ante hold sin ACK; replay bajo hold; implementación, scheduler y pruebas de carreras; validación con dinero real.
+=== FIN RESUMEN ===

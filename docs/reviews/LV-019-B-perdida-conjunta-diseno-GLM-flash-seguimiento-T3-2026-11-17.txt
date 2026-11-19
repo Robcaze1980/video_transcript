@@ -1,0 +1,43 @@
+**Hechos del extracto**
+- `validStoredIntentWitness` sí exige `historyProtocol === 1`, `baseline === 'before_reservation'`, identidad compatible y `createdAtMs` válido.
+- `text()` ya impone cadena no vacía y máximo 200 caracteres para `requestKey` y `operation`; no debe afirmarse que falta ese límite.
+- `prepareExternalIntentTerminal` lee cuenta, identidad, input, intención, origen, request, job marker, guard, testigo de acción y recuperación dentro de una transacción.
+- En el código actual, `request.exists` devuelve `job_created` tras verificar el job sin reconciliar el par terminal/recuperación.
+- `sealVideoReservation` puede devolver `reserved`, `captured` o `released` si la reserva existía y ganó la carrera; `sealed` solo cuando crea o encuentra el tombstone sin reserva activa. Por eso no es demostrable que `seal` y `release` sean excluyentes.
+
+**Código actual**
+- La FALLA por pérdida conjunta se mantiene: si `terminal` y `recovery` desaparecen juntos, `prepareExternalIntentTerminal` los trata como ausentes y puede recrearlos. Si además desaparecen intención y origen, el flujo puede parecer una intención nueva.
+- La causa no es ausencia de validación del protocolo de origen: esa validación existe. La causa es que no hay un marcador durable e independiente de la existencia del par.
+- Si solo falta origen o el testigo guardado no es compatible, el camino actual falla cerrado; no adopta por inferencia.
+- El par terminal/recuperación solo acepta recuperación inicial. Si una operación ya avanzó, la repetición de la preparación se clasificaría como corrupta aunque fuera coherente.
+
+**Evaluación del diseño limitado**
+- Condición propuesta válida: crear el origen antes de contactar Cuenta, con protocolo explícito, y mutar marcador y par en el mismo commit reduce el caso “marcador true, par ausente” a revisión.
+- Condición propuesta válida: el legado sin origen verificable no debe completarse por inferencia; requiere inventario, conciliación y preservar operaciones en curso.
+- Condición propuesta válida: la detección cubre pérdida del par solo mientras el marcador independiente persista íntegro. No protege frente a un escritor privilegiado que borre o sustituya origen, marcadores, intención o todos los registros.
+- Defecto 1: el diseño no define dónde viven los marcadores. Si están en el documento de origen, debe prohibirse sobrescribirlo con un snapshot viejo y exigir actualización transaccional por campo. Si están en documentos separados, deben tener vínculo al origen, versión/protocolo y leerse en la misma transacción.
+- Defecto 2: “tarea” y “par” necesitan definición exacta. Debe especificarse si la tarea es `requests`, `billingIntentJobMarkers` u otro documento, y qué combinaciones de task/job marker/testigo/recuperación son válidas.
+- Defecto 3: falta el estado posterior a la preparación. `prepared` no prueba envío ni resultado. El diseño necesita reclamación/lease, clave idempotente, generación, intentos, retroceso, tope y registro explícito de `sent`, resultado y `needs_review`.
+- Defecto 4: en `job_created`, no cerrar ni cancelar el testigo solo porque exista job: el POST puede estar en vuelo. La lectura idempotente debe seguir devolviendo `job_created`; si hay par o marcador inconsistente, dejar evidencia de conciliación sin inferir el resultado ni enviar la acción.
+- Defecto 5: `seal` y `release` no deben declararse excluyentes. Ambos marcadores pueden conservarse; cada llamada debe registrar el resultado real de Cuenta (`reserved`, `captured`, `released`, `sealed`) y reconciliar sin concluir que un POST fue cancelado.
+- Defecto 6: la validación de input expirado, borrado o con revisión distinta debe impedir operaciones nuevas, pero no bloquear por sí sola la recuperación de una operación ya iniciada. El guard también debe distinguir bloqueo de operaciones nuevas de conciliación de trabajo en curso.
+- Defecto 7: corrupción y lectura parcial requieren reglas cerradas: campos extra o faltantes, vínculos cruzados inválidos, marcador inconsistente con el par, `createdAtMs` inválido, origen alterado o ausente, y lectores fuera de transacción no deben atribuir ni cerrar por un documento aislado.
+- Defecto 8: retención y borrado quedan fuera del diseño. No debe permitirse purga física de origen, par o marcadores antes de reconciliación y auditoría; usar tombstones o registro de cierre.
+
+**Correcciones y pruebas mínimas**
+- Definir almacenamiento, esquema y actualización transaccional de los dos marcadores, preservando el otro marcador y los campos de identidad.
+- Definir máquina de estados y compatibilidad del par, incluyendo recuperación avanzada tras envío.
+- En `job_created`, devolver el resultado idempotente y registrar necesidad de conciliación; nunca cancelar ni inferir.
+- Probar pérdida conjunta del par con marcador `true`; falta individual; corrupción de campos y vínculos; origen ausente o alterado; intención y origen ausentes.
+- Probar preparación concurrente de la misma acción y de ambas acciones en ambos órdenes.
+- Probar crash antes y después del commit, POST en vuelo, reintentos y tope alcanzado.
+- Probar `job_created` con par pendiente o inconsistente.
+- Probar legado sin origen, guard cambiado, dueño modificado e input expirado/borrado separando operación nueva de recuperación.
+- Probar resultados `reserved`, `captured`, `released` y `sealed` sin asumir exclusividad ni cancelación.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: El diseño limitado acierta al exigir origen previo a Cuenta, marcadores por acción, commit atómico y legado sin inferencia, pero no define ubicación y mutación segura de los marcadores, el significado exacto de “tarea” y “par”, estados posteriores al envío, conciliación de `job_created` y resultados `reserved`/`captured`/`released`, ni reglas de corrupción, lectura parcial, origen eliminado y retención. En el código actual, la pérdida conjunta de `terminal` y `recovery` puede recrearse; `validStoredIntentWitness` ya valida `historyProtocol=1` y `baseline='before_reservation'`, y `text()` ya limita a 200 caracteres.
+NEGATIVOS: La pérdida conjunta puede parecer intención nueva o preparación ausente si los registros requeridos desaparecen; un job no prueba que un POST terminal no esté en vuelo; `seal` y `release` no son excluyentes por demostración; la expiración o borrado del input no debe bloquear por sí solo la conciliación de una operación iniciada.
+BLOQUEOS: Especificar marcadores durables y su commit, máquina de estados de envío y reintentos, conciliación sin inferencia, compatibilidad de recuperación avanzada, reglas de corrupción/origen alterado, separación de operación nueva frente a recuperación, retención segura y las pruebas mínimas. Esto no declara producción lista.
+=== FIN RESUMEN ===

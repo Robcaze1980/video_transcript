@@ -1,0 +1,20 @@
+La mitigación acotada funciona para el intercalado probado.
+
+- `recheckExternalBillingAdmission` relee en una transacción cuenta, guard, intención y request; rechaza guard bloqueado, exige `reserve_pending` sin job y devuelve un job correlacionado solo si request, intención y billing coinciden (`server/commercial/firestoreBackend.ts:215`).
+- `enqueue` ejecuta esa revalidación después de `begin` e inmediatamente antes del POST remoto (`server/commercial/firestoreAi.ts:47`).
+- El test reproduce exactamente la FALLA: A crea intención; B activa `needs_review` con otra clave; A se desbloquea y falla en recheck antes de llamar a Account, sin jobs ni llamadas remotas (`server/commercial/firestoreAi.emulator.mjs:112`).
+- Datos antiguos: el recheck verifica el estado vigente de la intención/request y no confía en el resultado previo de `begin`; un job correlacionado se verifica con `verifiedExternalJob` antes de devolver su ID (`server/commercial/firestoreBackend.ts:222`).
+
+Riesgos no resueltos:
+- El intervalo entre recheck y POST remoto sigue abierto; no es un cerrojo distribuido y otra base puede activar guard en ese instante. Solo reduce la ventana.
+- Provider ya en vuelo no se detiene; la cerca local no cancela acciones enviadas.
+- `release_pending` de otra clave sigue sin bloquear toda la cuenta (`server/commercial/firestoreBackend.ts:251`).
+- Outbox tras ACK ya cuarentena cambios/borrados, pero no recupera automáticamente el movimiento remoto ya ocurrido.
+- Scheduler/equidad y conciliación real siguen pendientes.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: HEAD `8b8e3e4`. `recheckExternalBillingAdmission` en `server/commercial/firestoreBackend.ts:215`; llamada inmediata antes de reserve en `server/commercial/firestoreAi.ts:47`; test del intercalado guard-after-begin en `server/commercial/firestoreAi.emulator.mjs:112`, verificando cero llamadas Account y cero jobs. Codex observó 21/21 focalizados en emulador con Cuenta simulada; yo no ejecuté pruebas.
+NEGATIVOS: PASS limitado a la mitigación de admisión. El intervalo recheck→POST remoto permanece no resuelto por diseño de dos bases/servicios; no detiene provider en vuelo, release_pending de otra clave no bloquea toda la cuenta, y outbox tras ACK preserva evidencia pero no compensa automáticamente.
+BLOQUEOS: Transacción/cerrojo entre bases para admisión; scheduler y equidad; conciliación real; resolución operativa de incidencias; ensayos y pagos reales.
+=== FIN RESUMEN ===

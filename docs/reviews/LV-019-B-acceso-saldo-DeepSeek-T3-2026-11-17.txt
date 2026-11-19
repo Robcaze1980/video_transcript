@@ -1,0 +1,23 @@
+Thread mcp:9d062378-e8ad-4ed2-9fab-828863c09fc3
+Auditoría acotada de solo lectura completada sobre HEAD `8b8e3e4` con los cambios locales del árbol de trabajo. No edité archivos, no ejecuté pruebas y no consulté cloud.
+
+Verificación 1 — `server/account/http.ts` + `http.test.ts` (billing-holds y status)
+- `billing-holds` (POST) exige `internal.settlementCaller` antes de tocar el store (`http.ts:41`, `:45`); `billing-holds/status` omite esa exigencia y queda limitada a `internal.allowedEmails` vía `verifyIdToken`+`email_verified`+lista (`http.ts:24-28`, `:44`). Coincide con lo pedido.
+- Rutas internas cerradas por diseño: requieren `internal` configurado, método POST y ausencia de `Origin` (`http.ts:24`); sin política OIDC → 404 (`entry.ts:7`, `runtime.ts:43-52`). Autenticación previa al store en todas las ramas.
+- Cobertura en `http.test.ts:30-59`: token inválido 401, `Origin` 404, api no puede escribir hold 403, campo `blocked` 400, `incidentId` inválido 400, y happy-path 201/200. Coteja args exactos del settle (`http.test.ts:57-58`).
+- Huecos de cobertura (no bloqueantes): no hay negativo de `identityKey` no-hex ni de método distinto de POST para `billing-holds`; tampoco un token de servicio válido pero fuera de `allowedEmails` (el verificador del test solo emite api/worker, así que la rama 403 de línea 28 se prueba en otras rutas, no aquí).
+
+Verificación 2 — `resultContext` y el test «a settled capture cannot unlock downloads…»
+- `resultContext` (`firestoreAi.ts:210-221`) exige coherencia total antes de habilitar: `billing.state==='settled'`, `jobId`/`accountId`, `provider==='account_seconds'`, `identityKey`, `reservationId`, `seconds`, `external.seconds===job.price`, y en el movimiento terminal `accountId===accountId`, `reference===jobId`, `credits===external.seconds`, `kind==='external_'+action`; más `completedAttemptId`/`attemptId` ligados al intento y al artefacto. La descarga usa `captureSettled` (`firestoreAi.ts:203`, `:222-223`), que además exige `action==='capture'` y `job.state==='succeeded'`.
+- El caso emulado (`firestoreAi.emulator.mjs:372-380`) muta `credits` a 3 y demuestra `billingState='pending'`, `results=[]` y `download`→`not_found`. La coherencia de acción/kind queda cubierta indirectamente por `firestoreAi.emulator.mjs:446-455` (release no desbloquea; voltear a capture sí).
+- No hallé falla de seguridad accionable: no existe ruta alterna de descarga ni llamada a `availableManifest` sin el gate `captureSettled`. Cobertura inexistente: el test no muta `terminal.accountId` (dueño) ni `terminal.reference`, ni los campos del outbox (`identityKey`/`reservationId`/`provider`/`seconds`) en el punto de descarga; esas cláusulas están en código pero sin negativo emulado que las aísle.
+- Nota de contexto: en el árbol actual no queda ningún regex `\d{64}` en `server/` (el P0-1 previo de `firestoreBackend.reserve` aparece corregido a `[a-f0-9]{64}`), lo que hace alcanzable el camino de saldo real que este gate gobierna.
+
+No afirmo haber ejecutado pruebas; el resultado es estático y local, acotado a los dos puntos solicitados.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: HEAD 8b8e3e4 con cambios locales; HTTP `server/account/http.ts:24-28,41,44-45` limitan billing-holds a settlementCaller y status a identidades internas autorizadas, con negativos en `server/account/http.test.ts:34-38,51-52`; gate de descarga `server/commercial/firestoreAi.ts:210-223` exige captura asentada y movimiento terminal coherentes en dueño, referencia, duración y acción, cubierto por `server/commercial/firestoreAi.emulator.mjs:372-380` y `:446-455`; sin ruta alterna de descarga ni uso de availableManifest sin el gate.
+NEGATIVOS: PASS estático y local; no ejecuté pruebas ni validé producción ni dinero real. Cobertura inexistente: el caso emulado muta solo `credits`; no hay negativo que aísle mutaciones de `terminal.accountId`, `terminal.reference`, ni de `billingOutbox.identityKey/reservationId/provider/seconds` en descarga, ni de identidad de servicio válida fuera de allowedEmails o de método no-POST en billing-holds.
+BLOQUEOS: scheduler y autorización real siguen abiertos; legacy y certificación de producción fuera de alcance; conciliación real, `needs_review` y proveedor en vuelo no verificados.
+=== FIN RESUMEN ===

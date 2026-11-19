@@ -1,0 +1,14 @@
+**Veredicto corto**
+Los datos respaldan la devolución sintética para silencio *ya clasificado* como digital y decidido **antes** de que la Cuenta admita/capture; no respaldan todavía la afirmación completa, porque el caso que la frase más necesita —proveedor responde `hasSpeech:false` **después** de la admisión— no se ejecuta (la IA no corrió) y el negativo #3 sugiere que ahí el release queda bloqueado.
+
+**Riesgos / pruebas faltantes**
+- `hasSpeech:false` post-admisión: el fixture nunca llama al proveedor ni inyecta su respuesta; el negativo «admisión previa impide release» implica que, si la captura ya ocurrió, la devolución no procede. Falta prueba de integración que enrute la respuesta real del proveedor por la máquina de admisión y afirme devolución, o evidencia de que el orden garantiza silencio conocido antes de admitir en todos los caminos.
+- Silencio como *entrada*, no como *salida*: `completeDigitalSilence` se invoca directo sobre PCM cero artificial de fuente ficticia, así que la clasificación no se observa; nada prueba que un asset silencioso real (decode/FFmpeg/contenedor) llegue a ese estado ni que uno no silencioso quede excluido.
+- Emulador Firestore demo, dos raíces, transporte en memoria, un proceso: cubre el outbox local, no transacciones/idempotencia reales, contención entre raíces ni exactly-once entre instancias; «10 raíces limpiadas» y «sin saltos» son higiene del fixture, no cobertura de la rama proveedor→devolución. Sin IAM ni saldo productivo y con la UI de video apagada, no hay ruta end-to-end.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: 5/5 en emulador con Cuenta real y transporte en memoria; reserva `released`, outbox `settled`, saldo devuelto, un solo movimiento, sin captura/proveedor, segunda cuenta intacta; repetición y ACK perdido tras commit con retry ~2 s dan un único movimiento. Respalda solo el subcaso «silencio digital decidido antes de admisión».
+NEGATIVOS: los tres negativos son válidos y bien orientados, pero el #3 (admisión previa impide release) es justo el que deja sin cubrir `hasSpeech:false` posterior a admisión.
+BLOQUEOS: sin ejecución de proveedor/IA ni asset real; sin Firestore real, IAM ni saldo productivo; UI externa de video apagada. Requiere prueba de integración proveedor→devolución y verificación del detector real antes de declarar la afirmación completa.
+=== FIN RESUMEN ===

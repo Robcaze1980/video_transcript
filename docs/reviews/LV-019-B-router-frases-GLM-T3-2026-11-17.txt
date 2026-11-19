@@ -1,0 +1,8 @@
+La revisión se realiza solo sobre los fragmentos suministrados (estática, sin ejecución ni verificación del hash):
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Router llama a `reviewedTranslationHttp` solo tras verificar token (`verifyIdToken`), usuario (`verifiedFirebaseUser`), autorización opcional (`authorizeUser`) y resolver `accountId` vía `accountForUid(user.uid)`. Transmite `{accountId, uid: user.uid}` como principal, ambos derivados del token verificado y backend, no del cliente. Está guardada por `options.reviewedTranslation` (opcional) y se invoca antes de `aiHttp`, retornando si la ruta es manejada; el servicio `authorize` revalida transaccionalmente que el documento de identidad corresponde a `uid`/`accountId` y las flags de cuenta (`aiPilot`, `simulationOnly`), consistente con un adaptador que no autentica por sí mismo. Hash del router informado: 3af9776b924fb28e0759c766f040ba71beeeafa832cbdab5dcf02f9ad2baa336.
+NEGATIVOS: Revisión estática de fragmento únicamente. No se probaron ni verificaron: funciones omitidas (`reviewedTranslationHttp` interno, `aiHttp`, `accountForUid`, `verifiedFirebaseUser`), ejecución real en runtime, ni despliegue en nube. La porción de captura transaccional del servicio no es visible en el extracto; se acepta según lo declarado, no como evidencia directa. Límite de activación: el adaptador solo se invoca si `options.ai` también está configurado (`options.ai && options.reviewedTranslation`); si se pretendiera revisión de frases sin AI configurado, no se activaría.
+BLOQUEOS: Ninguno.
+=== FIN RESUMEN ===

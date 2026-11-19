@@ -1,0 +1,18 @@
+Auditoría LV-019.B sobre los extractos suministrados (servicio + adaptador), sin herramientas ni modificaciones; no se ejecutaron ni se sugieren pruebas.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA:
+- UID→cuenta en la misma transacción: `authorize` lee `identities/digest(['firebase', uid])` en `tx.getAll` y exige `uid` y `accountId` coincidentes junto con cuenta, entrada, job, artefacto y proyecto en esa misma tx; la rama external además re-verifica `identity.accountId` y `digest(['firebase', uid]) === identityKey` dentro de la tx.
+- Revocación/reasignación: las tres operaciones re-ejecutan `authorize` en cada transacción; cambios de uid→cuenta, accounting `unverified`, billing no settled o desalineado, estado/generación del job o del artefacto fallan con `not_found`; divergencias de `bindingHash` y campos de proyecto tras GCS producen `conflict` sin servir contenido obsoleto.
+- UID no controlado por el body: el principal proviene solo de `caller` en el adaptador (revalidado y `Object.freeze`), `copyPrincipal` revalida y congela; el body solo aporta inputId, edits, revision o format, y `jobId` viene de la ruta.
+- Principal inmutable y segunda autorización tras GCS: `copyPrincipal` devuelve objeto congelado; `readSource` y `saveReview` re-autorizan en segunda transacción tras `readSourceBytes` y comparan `bindingHash` (y campos del proyecto en `readSource`) antes de responder o escribir.
+
+NEGATIVOS:
+- Helpers fuera del extracto (identifier, controls, privateSha/privateUuid, digest, captureMovement, validateArtifactPlan/Manifest, readyPrivateInput, jobAccounting, externalJobResultAllowed, verifiedCurrentReview, assertSaveBase, priorReceipt, copySaveRequest/copyDownloadRequest, parseSave, reviewTranslation) no son auditables aquí; no se afirma su seguridad.
+- La protección contra escritura concurrente del proyecto en `saveReview` depende de `assertSaveBase`/`priorReceipt` (no vistos); el extracto solo contrasta `bindingHash` y `baseHash`.
+- La verificación del token Firebase ocurre antes de la transacción y no es atómica con Firestore; lecturas GCS ya iniciadas no se retiran ante revocación posterior, solo se descartan si la segunda autorización falla.
+- En `downloadReview` con HEAD se ejecuta el servicio completo antes de descartar el cuerpo (consumo de recursos, no de autorización).
+
+BLOQUEOS: ninguno para el alcance B; la ruta permanece sin registrar y el cierre total requeriría los helpers citados si el gate lo exige.
+=== FIN RESUMEN ===

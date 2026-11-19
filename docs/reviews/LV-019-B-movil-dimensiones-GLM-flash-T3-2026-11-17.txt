@@ -1,0 +1,14 @@
+Revisión completada. Resultado y bloque final:
+
+- Los hashes de los cinco archivos coinciden con los esperados.
+- La advertencia temprana cubre 1920 px por eje y metadatos inválidos o tardíos; el servidor mantiene su validación en `firestoreFiles.ts:304-306`.
+- `scripts/qaMobileDimensions.mjs:117-129` fuerza realmente las carreras de selección antigua, mismo archivo repetido y cierre de sesión con metadatos pendientes.
+- La corrida ocurre solo en Chrome de escritorio con viewport móvil y servicios sintéticos; no prueba Safari, teléfonos físicos, HEVC, rotación ni soporte de MOV/4K/2–3 minutos.
+- `package.json:14` excluye `outputs/**` de Vitest, donde hay pruebas históricas de `node:test`, algunas intencionalmente rojas.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: server/commercial/web/cloudCandidate.tsx:80-83,136; server/commercial/web/cloudCandidateApi.ts:12-17,146-156; server/commercial/web/cloudCandidateApi.test.ts:16-21; scripts/qaMobileDimensions.mjs:68-75,82-100,102-133; server/commercial/firestoreFiles.ts:304-306; server/commercial/firestoreAi.ts:35; outputs/lv019-b-mobile-dimensions-20261117/browser-result.json; outputs/lv019-b-mobile-dimensions-20261117/vitest.log
+NEGATIVOS: Chrome de escritorio con viewport móvil, API/identidad/medios sintéticos; no Safari, teléfonos físicos, HEVC, rotación ni red móvil. MP4/30 s y 1920 px son límites existentes, no soporte de MOV/4K/2–3 minutos. No ejecuté tests; leo el log reportado (1 archivo, 40/40 PASS) y no lo tomo como ejecución propia.
+BLOQUEOS: ninguno para este alcance acotado.
+=== FIN RESUMEN ===

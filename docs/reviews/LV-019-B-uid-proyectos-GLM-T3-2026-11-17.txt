@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `verifiedUidAccountInTransaction` valida identidad uid→accountId dentro de la misma transacción (hash backend c3bdfbe…); `saveProjectInTransaction` y `readProjectInTransaction` re-verifican `input.accountId` y `project.accountId` dentro de la transacción, cubriendo ownership preexistente y colisiones de `inputId` entre tenants. Orden compatible con Firestore: todas las lecturas (`tx.get`, `tx.getAll`) preceden a `tx.set`; la concurrencia sobre el doc de identidad o `projectRef` dispara retry/abort de la transacción, serializando escrituras.
+NEGATIVOS: (1) Carrera de revocación residual inherente: el token se verifica antes de la transacción; si la revocación no se refleja en el doc `identities`, un token verificado justo antes de ser revocado puede commitear — limitación declarada, no atenuada en código. (2) `expiresAtMs` se compara contra reloj del servidor; skew amplio podría extender vida de inputs. (3) Confirmar que la política de revocación escribe/borra el doc `identities`; si depende solo de Firebase Admin sin tocar ese doc, la protección intra-transacción no cubre revocaciones.
+BLOQUEOS: POST genérico de jobs y carga siguen abiertos, no evaluados aquí; no se ejecutaron ni revisaron tests ni tipos.
+=== FIN RESUMEN ===

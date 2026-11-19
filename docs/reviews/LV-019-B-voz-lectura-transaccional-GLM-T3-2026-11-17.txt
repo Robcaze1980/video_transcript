@@ -1,0 +1,8 @@
+Revisión GLM Flash Latest integrada; concluye FALLA por evidencia insuficiente de consistencia e inmutabilidad profunda.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `voiceDocumentVersion` valida y congela versiones; `exactObject` valida forma/prototipo y congela copias superficiales; `createdAtMs` coincide y los hashes `payload`/`voice` pasan prueba de formato; las lecturas usan `tx` y no se ve llamada externa.
+NEGATIVOS: No verifica consistencia real revisión/receipt en `accountId`, `inputId`, `jobId`, revisiones, `bindingHash`, `fingerprint`, `baseHash`, `reviewId` ni hashes mutuos; no recalcula hash base ni hash de vínculo; el congelado es superficial y `payload` anidado puede seguir mutable; dependencias no mostradas no son confiables desde el código.
+BLOQUEOS: `authorize` y `verifiedCurrentReview` son límites explícitos, no evidencia; no puede inferirse del fragmento el manejo del ACK ni seguridad de uso después del commit.
+=== FIN RESUMEN ===

@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `cancelForUid` y `jobForUid` releyen identidad (`verifiedUidAccountInTransaction`) dentro de la misma transacción ANTES de cualquier cambio o lectura final; la identidad exige uid→accountId registrado y el doc de job exige `accountId` coincidente. Cancelación AI y genérica usan el mismo `cancelInTransaction` (settle/unknown idénticos: lógica financiera sin cambios); `jobForUid` es solo lectura. Ambas rutas DELETE y GET genérico pasan `user.uid` del contexto de token, nunca del body; la relectura de identidad en transacción mitiga la no-atomicidad token↔Firestore. Hashes: backend 85a47f…, AI HTTP b93c41…, HTTP d7d0e1….
+NEGATIVOS: Middleware de verificación de token omitido (user.uid/uid se presuponen de token verificado — límite). `ai.status`, `ai.download`, `enqueue` y `context()` no están en el fragmento: no se puede auditar su relectura/propietario aquí. `aiHttp` recibe `uid` como parámetro; el origen exacto del token en el caller no es visible. Bytes ya enviados por stream no se revocan tras cancelación: limitación aceptada e inherente.
+BLOQUEOS: Ninguno para este alcance. Ruta POST genérica y archivos/proyectos siguen abiertos como gates aparte, no se declaran cerrados.
+=== FIN RESUMEN ===

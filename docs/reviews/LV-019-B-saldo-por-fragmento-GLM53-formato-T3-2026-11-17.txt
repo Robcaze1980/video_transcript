@@ -1,0 +1,6 @@
+START_AUDIT
+ID: LV-019.B
+HEAD: 8b8e3e4 + cambios locales
+Resultado: PASS de seguimiento; NO certifica producción
+Notas: resultContext valida movimiento terminal; bloqueo solo settlementCaller; status ambas identidades
+END_AUDIT

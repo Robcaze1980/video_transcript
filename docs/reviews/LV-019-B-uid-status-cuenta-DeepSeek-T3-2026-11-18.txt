@@ -1,0 +1,20 @@
+**Races que cierran las transacciones de Cuenta (una sola base)**
+- `sealVideoReservation` ↔ `reserveVideo`: ambas leen `videoReservations`+`videoReservationTombstones` en la misma tx; una reserva nunca puede commitear tras un sello (tomb⇒`conflict`) y sellar sobre reserva existente es no-op que devuelve su `state`. Atomicidad real.
+- `admitVideoCall` ↔ `settleVideo`: misma tx sobre reserva+`providerCalls`+fence. `release` exige `protocol===2`, `previous` ausente y `!blocked`; `capture` exige admisión suministrada que coincide con la almacenada. Capturar sin admisión y liberar tras admisión se rechazan (`conflict`/`invariant`).
+- Fence de primera llamada: `call`+fence+`providerAdmission` se crean en una tx; replay exacto ⇒ `receiptOnly`; admisión conflictiva ⇒ `conflict`.
+- Admisión ↔ sello: `admit` ve tomb ⇒ `conflict`/`invariant`. Protocolo legacy 1 queda bloqueado (`admit`/`release` exigen 2; `admitVideoProvider` siempre lanza). Cuota/`billingHold` en la misma tx.
+
+**Lo que no cierran la cerca local ni la reasignación entre bases**
+- Video (intent/guard/jobMarker) y Cuenta (reserva/tomb) son bases distintas sin 2PC: la cerca local no cancela un POST `/reserve` ya enviado; puede commitear en Cuenta sin job en video (huérfana que el drenador libera sólo si no hay admisión). El job siempre implica reserva, la reserva no implica job.
+- `settleVideo` bloquea liberar con admisión registrada, pero no ve una llamada en vuelo aún no admitida: si la reserva aparece en carrera con el sello (seal devuelve `reserved`, no `sealed`), el drenador cae a `releaseAfter(...,'seal_reserved')` y libera; una admisión posterior falla (`state!=='reserved'`). Si un worker despachó al proveedor antes de que su admisión commiteara, ese hueco queda abierto.
+- UID: cada base valida contra su propia identidad (`uidKey(uid)===identityKey`) sin comprobación cruzada ni epoch; una reasignación reflejada en una base y no en la otra deja ventana.
+
+**Evidencia durable del status not_found**
+- Sigue faltando: `captureDirectObservation(...,'status')` sólo fotografía versiones de documentos locales de video; el 404 de Cuenta es un fallo en memoria que elige la ruta de sello. No se persiste "Cuenta respondió not_found", ni se liga el snapshot local a esa observación remota (sólo el string `source`). La autorización de `prepareTerminalFromDirectObservation` descansa en `matchingDirectObservation` local. Lo durable es el tomb de Cuenta si el sello crea, no la observación.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Las tx de Cuenta serializan seal↔reserve (tomb/reserva en una tx; reserva tras sello ⇒ conflict; sello sobre reserva ⇒ estado de reserva), admit↔settle (release exige protocol 2, sin admission, no blocked; capture exige admisión coincidente), primera llamada (call+fence+providerAdmission atómicos; replay ⇒ receiptOnly) y admit↔seal (tomb ⇒ conflict/invariant); protocol legacy 1 bloqueado. Tests UID 3/3 y status 6/6 en emulador.
+NEGATIVOS: (1) Sin 2PC video↔Cuenta: reserva huérfana posible y la cerca local no cancela POST remoto. (2) `settleVideo` no ve llamada en vuelo no admitida; en carrera reserva/sello el drenador libera por `seal_reserved` y bloquea la admisión posterior. (3) UID validado por base, sin epoch ni chequeo cruzado. (4) `not_found` remoto no se persiste ni se liga al snapshot local. (5) `prepareTerminalFromDirectObservation` promueve reserve_pending→release_pending dentro de la reconciliación (release auto-habilitado).
+BLOQUEOS: HTTP externo apagado; sólo se aporta Cuenta (seal/admit/settle); sin cubrir carrera de dos bases ni autenticidad/epoch; falta la forma de retorno real de `seal`/`settle` en el cliente; status-only en emulador no ejercita el cruce de bases. No se declara producción lista.
+=== FIN RESUMEN ===

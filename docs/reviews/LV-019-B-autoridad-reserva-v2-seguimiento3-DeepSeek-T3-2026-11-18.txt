@@ -1,0 +1,17 @@
+Contradicciones materiales y supuestos añadidos
+
+- **Replay contra «no repetir el POST» (§3).** El mismo apartado dice que un ACK perdido «se recupera consultando la clave lógica» y que «un replay idéntico autorizado de la reserva existente entrega un recibo», pero también que una ranura de reserva «activa o incierta no autoriza repetir el POST». No se define el actor del replay ni si este mueve la ranura a confirmada; «cuando se confirme mediante el protocolo aplicable» queda sin protocolo. O todo ACK perdido cae en conciliación privilegiada, o la regla de ranura se elude. Material: decide si alguna ventana puede admitirse tras ese fallo, y la matriz exige probarlo.
+- **Sin testigo monotónico por ventana (§5 vs §3).** §3 separa la ranura de reserva de las etapas por `(logicalKey, callKey)`, pero la tabla de §5 solo enumera «Ranura, origen y contador durable» y su lista de escritores omite admisiones/resultados por ventana. Sin testigo por pareja, un borrado/recreación (ABA) o un escritor antiguo readmite la ventana. Tampoco se aclara si la «ranura» de §2 y la «del POST de reserva» son el mismo documento.
+- **Gate secuencial auto-referente (§3/§4).** «Cuenta debe comprobar que no hay admisión anterior sin resolución… usando la evidencia disponible del servicio Video»: Cuenta registra la admisión pero nunca observa el resultado, así que el límite de gasto lo declara el escritor al que se pretende limitar. Se reconoce el caso Video comprometido, pero sin testigo alternativo.
+- **Condición faltante:** no se define el estado terminal de un plan abortado a mitad (ventanas nunca admitidas): si desbloquea el ámbito, con qué entrega y con qué constancia.
+- **Redacción material (§3):** «un intento de ventana distinto… no crean otra entrada» se lee como negar entradas separadas a ventanas distintas, contra «dos ventanas distintas… admisiones separadas» y la matriz.
+- **Supuesto no cubierto:** `callPlanHash` fija claves/rangos, no bytes; el único vínculo de payload lo fija Video en la primera admisión y Cuenta no puede contrastarlo con el plan.
+
+Pendiente de prueba: canon/FFprobe y segundos, recibo de transición, política de plan aceptada por Cuenta, avance secuencial y reconciliación, testigos por ventana, corte v1/v2, IAM/red efectivos, retención, compensación, idempotencia real del proveedor y coste con videos largos.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Lectura íntegra del texto LV-019.B entregado; solo texto, sin herramientas ni cambios, según lo pedido.
+NEGATIVOS: No verifiqué código, IAM, `AccountStore.settleVideo`, proveedor ni datos reales; hay puntos de ambigüedad textual además de contradicciones.
+BLOQUEOS: Entrada externa apagada; faltan reconciliador v2 y sincronización de revocación con Cuenta; sin pruebas de corte v1/v2, retención, restauración, idempotencia de proveedor ni política de compensación. No declarar producción lista.
+=== FIN RESUMEN ===

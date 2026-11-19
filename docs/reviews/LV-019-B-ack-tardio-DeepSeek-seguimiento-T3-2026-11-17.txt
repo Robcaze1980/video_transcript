@@ -1,0 +1,20 @@
+Verifiqué el punto contra el validador y lo rectifico: era incorrecto.
+
+**Rectificación del hallazgo menor (incidentId)**
+- `validIntentObservation` (`server/commercial/firestoreBackend.ts:77-81`) exige, para `action:'release'`, `state==='released'` con `source ∈ {status, release_ack, seal_status}`; para `action:'seal'`, `state==='sealed'` con `source==='seal_ack'`. No existe observación válida con `state` distinto para la misma acción.
+- El `incidentId` (`:383`) omite `observed.source` pero incluye `observed.action`; la guarda de replay compara `action` y `observedState` (`:400`). Como el validador fija el par acción/estado, dos observaciones válidas de la misma tupla (`release_ack` y `seal_status`, ambas `action:'release'`,`state:'released'`) producen el mismo `incidentId`, el mismo `action` y el mismo `observedState`: no hay `invariant`, y el replay solo actualiza `lastSource`/`lastAttribution` (`:403`). Tampoco colisionan release vs seal porque `observed.action` separa el `incidentId`.
+- Conclusión: el comportamiento es correcto; mi afirmación de que un replay con `observedState` distinto lanzaba `invariant` era falsa. No hay ejemplo de dos observaciones válidas que lo disparen. Retiro ese punto.
+
+**Estado de los demás hallazgos**
+- Se mantiene: `pendingExternalBillingIntents` concatena reservas antes de liberaciones y aplica `slice(0,limit)` (`server/commercial/firestoreBackend.ts:425-426`); con `limit=1` y cola sostenida de `reserve_pending` las `release_pending` no avanzan. Es una brecha de equidad real frente a la especificación (LV-019-B línea 46), no un defecto de la confirmación tardía.
+- Se mantiene como limitación documentada: guard y POST terminal no son cerca distribuida (`:280-284`); un POST en vuelo no se detiene y la relectura posterior lo convierte en incidencia + guard, no en cierre silencioso.
+- Retiro el punto sobre filtración de `provider`: `billingIntent` ya rechaza proveedor distinto vía `matchesExternalBilling` (`:149`), así que la fila ajena no cierra ni adopta; solo acumula intento fallido, sin valor accionable.
+
+No ejecuté pruebas; los 19 casos focalizados y el PASS de tipos son el reporte de Codex.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `beginExternalBillingIntent` crea el testigo (`baseline:'before_reservation'`, `historyProtocol:1`) con la intención antes de Account (`firestoreBackend.ts:247-248`; `firestoreAi.ts:55-58`), solo `create` sin backfill (`:254-263`, `:73-75`); marker transaccional y conservado (`:570`, `:274`, `:391`); sin ACK inventado tras timeout (`firestoreAi.ts:107-153`) y relectura del ACK confirmado (`:44-50`); cierre idéntico idempotente y discrepancia/ACK auténtico a incidencia con guard solo con dueño verificado (`firestoreBackend.ts:393-409`); acción/estado sin normalización (`:77-81`, `:382-388`); cobertura alineada (`firestoreAi.emulator.mjs:199-302`). Verificado por lectura; no ejecuté pruebas.
+NEGATIVOS: No ejecuté los 19 casos focalizados ni tipos/build (reporte de Codex, no reproducible por mí aquí). Hallazgo `incidentId` rectificado: era un falso positivo. Brecha real de equidad en `pendingExternalBillingIntents` con `limit=1` (`firestoreBackend.ts:425-426`).
+BLOQUEOS: Scheduler/equidad durable y visibilidad de filas legacy siguen abiertos; guard y POST terminal no son cerca distribuida entre bases (`firestoreBackend.ts:280-284`); no se acredita producción, cobros ni escrituras privilegiadas externas.
+=== FIN RESUMEN ===

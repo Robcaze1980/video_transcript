@@ -1,0 +1,41 @@
+**Hechos observables**
+- `beginExternalBillingIntent` crea el origen con `historyProtocol:1` y `baseline:'before_reservation'` en la misma transacción que la intención.
+- `prepareExternalIntentTerminal` lee intención, origen, tarea, guard, testigo de acción y recuperación en una transacción, y acepta `release` y `seal`.
+- Si existe `request`, `prepareExternalIntentTerminal` devuelve `job_created` sin enviar la acción terminal.
+- No hay scheduler ni operación remota en el fragmento; el código solo prepara estado local.
+
+**Fallos principales**
+- **Marcador no independiente:** el extracto no implementa un marcador persistente separado por acción. Usa la existencia conjunta de `terminal` y `recovery`. Si ambos desaparecen, el estado vuelve a parecer “no preparado” y se recrean. Esto contradice la regla propuesta: marcador `true` con par incompleto o ausente debe requerir revisión.
+- **Pérdida conjunta:** si se pierden testigo y recuperación, la preparación puede repetirse con nuevos `createdAtMs` y recuperación en cero. Si además desaparecen intención y origen, el flujo puede tratar todo como intención nueva.
+- **Ambas acciones:** `seal` y `release` usan referencias separadas y pueden prepararse en paralelo. No hay exclusión ni estado que defina si deben coexistir.
+- **Reintentos e in-flight:** la recuperación queda `pending`, `attempts:0`; no hay transición a “enviado”, generación, lease ni tope de reintentos. Repetir la preparación después de un fallo o crash no distingue “nunca enviado” de “en vuelo”.
+- **`job_created`:** la ruta con `request` regresa antes de reconciliar el par terminal/recuperación. Puede dejar la acción pendiente o esconder corrupción.
+- **Protocolo de origen:** la preparación valida el testigo de origen, pero el fragmento no muestra validación explícita de `historyProtocol` ni `baseline` del origen.
+- **Precondiciones:** la preparación revalida identidad, cuenta e input, pero no reintenta expiración, borrado del input, proyecto ni revisión.
+- **Límites:** el fragmento no muestra tope de longitud para `requestKey`/`operation`, tope de intentos ni política de retención.
+
+**Correcciones mínimas**
+- Añadir un marcador por acción en una entidad durable, por ejemplo `terminalProtocol[seal|release] = {stage, generation, createdAtMs, recoveryId}`. Crearlo en la misma transacción que el par. Reglas: marcador `false` + par existente = revisión; marcador `true` + par ausente o incompatible = revisión; nunca recrear por pérdida.
+- Definir si `seal` y `release` son excluyentes. Si lo son, exigir selección exclusiva en transacción.
+- Añadir máquina de estados: `none → prepared → claimed/sent → success|failed|needs_review`, con generación, intento, tope y clave idempotente antes del POST.
+- En `job_created`, validar y cerrar/cancelar el par terminal/recuperación en la misma transacción; nunca enviar la acción.
+- Validar protocolo, `baseline`, expiración, borrado, proyecto, revisión y guard en la preparación.
+- Prohibir purga física antes de reconciliación; usar tombstones o auditoría externa. Un marcador local no impide un escritor privilegiado que borre todo.
+
+**Pruebas mínimas**
+- Pérdida conjunta del par con marcador `true`: no recrear.
+- Falta solo terminal o recuperación: falla cerrada.
+- Concurrencia misma acción: una prepara, otra repite idempotente.
+- Concurrencia acciones opuestas en ambos órdenes: resultado definido.
+- `job_created` con par corrupto o pendiente: devuelve `job_created`, cierra/marca revisión y no envía acción.
+- Intento legacy sin origen verificable: no adopción ni inferencia.
+- Input borrado/expirado o revisión cambiada: falla.
+- Crash antes/después del commit: sin duplicados ni POST implícito.
+- Tope de reintentos alcanzado: `needs_review`.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `prepareExternalIntentTerminal` trata la ausencia conjunta de `terminal` y `recovery` como estado inicial y crea ambos; no existe un marcador persistente independiente por acción. `request.exists` devuelve `job_created` sin reconciliar el par. `seal` y `release` pueden coexistir y no hay transición a envío/in-flight. La validación del protocolo del origen y los límites de reintento/retención no están demostrados en el fragmento.
+NEGATIVOS: La pérdida conjunta del testigo y su recuperación puede parecer “no preparado” y recrearse. La pérdida de intención y origen puede parecer intención nueva. No hay exclusión demostrada entre acciones, ni control de reintentos, ni cierre de acciones preparadas cuando aparece `job_created`.
+BLOQUEOS: Implementar marcador durable por acción, máquina de estados de envío, reconciliación `job_created`, validación completa de origen/precondiciones, retención segura y las pruebas mínimas antes de activar. No es producción lista.
+=== FIN RESUMEN ===

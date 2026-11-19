@@ -1,0 +1,8 @@
+Sí: (1) fija el control de purga como fuente canónica única de token/generación y retira la concesión alternativa del upload; (2) define representación acotada y separada de las pruebas con verificación de límites; (3) especifica el arranque con concesión vencida como detención sin reavivar generación. Ninguno de los tres cambia la postura sobre transacciones en vuelo: la detención aplica al inicio del lote, y el texto mantiene el commit tardío idempotente cuando ningún nuevo dueño gana la generación, sin afirmar cancelación por reloj.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Fragmentos citados por el usuario en esta conversación sobre el documento con SHA-256 915010c82771106fe4783d02ddc6c3e5055d542faca15563001b9dceada85ea6: control canónico único, pruebas en documentos acotados separados con verificación de límites, y detención ante concesión vencida antes de iniciar sin revivir la generación anterior.
+NEGATIVOS: Ninguno nuevo bloqueante. La evaluación cubre los tres cambios citados, no una relectura completa del documento: si quedó alguna mención residual de concesión en el upload fuera del fragmento citado, debe alinearse en el próximo contraste completo, sin efecto sobre este resultado.
+BLOQUEOS: Ninguno. El contrato sigue candidato hasta implementación, pruebas e inventario real, según lo ya declarado en el propio documento.
+=== FIN RESUMEN ===

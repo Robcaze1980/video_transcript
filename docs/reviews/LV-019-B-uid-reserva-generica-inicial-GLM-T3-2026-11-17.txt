@@ -1,0 +1,25 @@
+Revisión acotada LV-019.B (POST genérico `/api/cloud/jobs`):
+
+**Validación UID en transacción**
+- `priorRequestForUid` valida UID primero dentro de `runTransaction` vía `tx.get` sobre el doc de identidad — transaccional.
+- `readProjectForUid` valida UID primero dentro de `diagnosticTransaction('project', …)` — transaccional.
+- `reserveForUid` → `reserveAs` con `requesterUid` definido valida UID como primera lectura dentro de la transacción de reserva. Si la identidad se retira o cambia entre la cotización y la reserva, la reserva falla cerrada con `not_found`. La carrera cotización→reserva está cubierta.
+
+**Correlación de replay**
+- Cuenta: verificada en el doc de solicitud (`prior.accountId`) y en el trabajo (`job.accountId`), además del binding identidad→cuenta.
+- Trabajo: `jobId` validado como UUID; `inputId`, `requestKey`, `operation`, `revision` y `aiProfile` contrastados contra los parámetros de la solicitud.
+- Evidencia: `requestFingerprint` en el doc de solicitud ata el registro a `(inputId, operation, expectedRevision)`; la verificación `jobAccounting === 'simulation'` añade evidencia financiera. Cualquier desajuste falla cerrado (`conflict` / `not_found`).
+
+**Negativos observados**
+- La aridad de `requestFingerprint` difiere entre `priorRequestForUid` (3 argumentos) y `reserveAs` (4 argumentos). Si la función omitida los hashea de forma distinta, el replay fallaría cerrado con `conflict` — riesgo de consistencia, no de seguridad.
+- Ambas rutas de replay exigen `jobAccounting === 'simulation'` para trabajos genéricos; si los trabajos pagados usan otra contabilidad, el replay de éstos fallaría. Depende de comportamiento financiero omitido.
+- Limitación reconocida y fuera de alcance: si la identidad se retira tras el commit, el trabajo ya creado no se revoca.
+
+Las preguntas acotadas del brief (UID transaccional en replay, consulta y reserva, incluso con cambio durante la cotización; correlación replay de cuenta, trabajo y evidencia) quedan respondidas afirmativamente con evidencia visible.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `verifiedUidAccountInTransaction` usa `tx.get` dentro de las tres transacciones (`runTransaction` en replay, `diagnosticTransaction` en consulta, transacción de reserva en `reserveAs`); la reserva revalida UID tras la cotización; replay verifica `accountId` en doc y trabajo, campos del trabajo contra parámetros, y `requestFingerprint` como evidencia; fallos cierran con `conflict`/`not_found`.
+NEGATIVOS: aridad de `requestFingerprint` distinta entre replay (3 args) y reserva (4 args) — si difiere el hash, replay falla cerrado pero es inconsistente; exigencia `jobAccounting === 'simulation'` en ambas rutas de replay podría excluir trabajos pagados (depende de comportamiento financiero omitido); identidad retirada tras commit no revoca trabajo creado (aceptado fuera de alcance).
+BLOQUEOS: ninguno para el alcance auditado.
+=== FIN RESUMEN ===

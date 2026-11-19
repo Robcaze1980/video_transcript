@@ -1,0 +1,18 @@
+**Abortos y cambio de cuenta**
+Cubiertos: `loseForCancellationRead` valida `api.signal.aborted` y `scope.current.controller.signal` al entrar y en cada `check()`; un aborto o cambio de identidad deja `current()` falso y el `catch` no marca pérdida. `recoverLast` usa `recoveryVersion` y `api.signal`, y al cambiar de cuenta el efecto aborta el controlador y reinicia estado.
+
+**Estado incierto**
+`assertCurrentResult` da 409 con `uncertain`, `blocked` lo incluye y el editor queda `suspended` conservando `source`/`edits`. `loseForCancellationRead` oculta primero y reautoriza input→traducción→frases; si el 403 fue solo del DELETE y la lectura sigue autorizada, restaura `lost:false` sin destruir la edición.
+
+**Mismo intento**
+`showFailure` no limpia `pending` en `needs_review`/`stale_job_response`; `attempt = pending ?? frozen`, los textarea están deshabilitados con `pending`, y un 409 real sí marca `conflict` y borra `pending`. No se puede emitir una segunda clave distinta para el mismo borrador.
+
+**Defecto**
+Si la reautorización falla con 409/`stale_job_response` (no `accessDenied`), el `catch` no limpia `structuredUncertain` ni `recoveryFailed`: el editor queda oculto hasta pulsar «Volver a consultar». Es fail-closed y manual, pero no se autorrecupera.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Abortos y cambio de cuenta verificados por señal/scope en entrada y en cada `check()`; `uncertain` bloquea con 409 y suspende el editor conservando el borrador; `loseForCancellationRead` reautoriza input, traducción y frases y restaura `lost:false` si la lectura sigue autorizada; `pending` con clave congelada se reutiliza y los textarea quedan deshabilitados, con 409 real como conflicto; `recoverLast` y botón dan revalidación manual en sesión.
+NEGATIVOS: 409/`stale_job_response` durante la reautorización no limpia `uncertain` ni `recoveryFailed` (oculto hasta «Volver a consultar»); `hideDuringCancellationCheck` sigue limitado a 401 o job de traducción y el ocultado real depende del `catch`; idempotencia del servidor ante la misma clave no es verificable en el extracto; `showFailure` mezcla aviso de estado con `setError` en ramas no tempranas.
+BLOQUEOS: `markReview`/`cancelPending`/`confirmCancel`/`reviewMarkKey`, `sameInput`/`sameJob`, reset de `structuredAccess` al subir y dedupe por `requestKey` quedan omitidos; persisten J1/J2, almacenamiento fallido entre pestañas y teléfono/servidor reales; no equivale a producción.
+=== FIN RESUMEN ===

@@ -1,0 +1,19 @@
+**Revisión acotada LV-019.B**
+
+- No ejecuté pruebas ni recalcué SHA-256, fingerprints o hashes de los vectores. Solo hice verificación estructural del material adjunto.
+- El cuerpo esperado de los tres vectores coincide estructuralmente con el constructor visible: modelo `gemini-3.8-flash-tts`, estilo fijo, voces `Kore`/`Charon`, orden de propiedades y chunks `0000`/`0001`. Los hashes numéricos permanecen sin verificación.
+- El módulo es coherente con su alcance declarado: valida forma exacta, referencias cruzadas, hashes internos y cuerpo exacto, pero no autentica documentos, procedencia, identidad, captura ni autorización. Un par revisión/recibo totalmente recalculado por el llamador sería aceptado; eso es una límite, no un control de seguridad.
+- `JSON.parse` + comparación con `JSON.stringify` rechaza JSON con formato distinto, claves duplicadas u orden no reproducible por ECMAScript. La exactitud del cuerpo evita alteraciones de voz, estilo, texto, formato y sufijos.
+- `requestKey` no aparece en el esquema del recibo ni se usa; el `receiptId` solo se correlaciona con el ID recibido y la referencia de revisión.
+- Deficiencia de cobertura: no hay pruebas para `revision = 1`, tamaños límite reales (`payload` >512 KiB, texto >12.000 unidades, >1.000 chunks, palabra >320), formatos inválidos de UUID/SHA dependientes de `privateObjectPlan`, ni relación u orden entre `createdAtMs` de revisión y recibo.
+- Deficiencia observada: `createdAtMs` solo se valida como entero no negativo; revisión y recibo pueden tener valores distintos y el módulo igual acepta.
+- Riesgo de segmentación: `narrationChunks` no es lossless. Puede conservar LF entre cues si la frase anterior no termina exactamente en `.`, `!` o `?`, y colapsa separadores en divisiones reconocidas. No hay vectores para combining marks en el límite ni para unidades gráficas complejas.
+- El fragmento del proveedor está incompleto/malformado en el material adjunto: no permite confirmar la declaración/exportación completa ni la sintaxis final de `narrationChunks`, aunque la lógica visible coincide con los casos de límite.
+- La cobertura negativa también falta para prototipos no estándar, claves simbólicas, campos faltantes en niveles superiores, diferencias aisladas de `payloadSha256`/`voiceSha256`/`fingerprint` en un solo documento y `expectedRevision` inconsistente.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: `server/commercial/reviewedVoiceCanonical.ts:1`; `server/commercial/reviewedVoiceCanonical.test.ts:1`; `server/commercial/reviewedVoiceCanonical.vectors.json:1`; `server/commercial/reviewedTranslation.ts:1`; `server/commercial/pipelineTextCodec.ts:1`; fragmento de proveedor y especificación `docs/specs/LV-019-B-voz-canon-v1.md:1`. Coincidencia estructural de cuerpos, mapeo de operación/voz y límites de chunk observada; hashes y vectores no recalculados.
+NEGATIVOS: No autoriza, autentica, comprueba identidad, captura, procedencia, proveedor, red ni producción. Los hashes son integridad/equivalencia, no procedencia. `createdAtMs` no correlaciona. El divisor no es lossless y puede conservar LF. Falta cobertura negativa de límites, formatos de hash/UUID, timestamps, prototipos y dependencias privadas. El fragmento del proveedor es incompleto.
+BLOQUEOS: ninguno para este alcance; los límites de verificación impiden PASS.
+=== FIN RESUMEN ===

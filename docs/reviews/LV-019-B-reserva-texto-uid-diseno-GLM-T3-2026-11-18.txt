@@ -1,0 +1,31 @@
+**Fallas concretas**
+
+1. **Propagación de revocación sin orden.** Con Firestore separados, la transacción de video valida contra una instantánea que puede estar ya revocada. No hay token de revisión de cuenta monótono dentro de la reserva que permita al dominio de cuenta declarar esa revisión inválida. El POST ya enviado no es cancelable: una reserva tardía para UID revocado/reasignado debe cuarentenarse, nunca ACK ni atribución al nuevo dueño.
+
+2. **Idempotencia por intento sin clave definida.** «Observaciones inmutables por intento» no especifica la clave de idempotencia remota. Un reintento tras timeout/respuesta perdida reusando `intentId+operación` puede duplicar la reserva remota o, a la inversa, engullir un intento legítimo de revisión nueva. La clave debe ser única por intento (p. ej. `intentId + secuencia de intento`) y el ledger debe registrar ambas.
+
+3. **Quién autentica reserva/propiedad no tiene fuente única.** Video y cuenta verifican con stores separados y pueden discrepar: video valida y ACKea con una revisión que cuenta ya revocó. Falta una única autoridad para «esta cuenta es dueña de este UID en revisión R», con el token de revisión registrado en la observación y distinción explícita entre «verificado en R» y «verificado ahora».
+
+4. **Clases de evidencia no tipadas; testigo no prueba envío ni ACK.** El ledger no tipa cada observación (`SENT_ATTEMPT`, `RESPONSE_VALIDATED`, `ACK_RECORDED`, `STATUS_QUERY`, `STALE_DETECTED`). Si Firestore cae tras el ACK, no hay registro de ACK; una consulta de estado posterior es otra clase y no consolida retroactivamente. La liberación exige clase de evidencia mínima, no mera correlación con testigo.
+
+**Invariantes adicionales**
+
+- Ledger append-only; cada entrada lleva tipo de observación y revisión de la autoridad verificadora al momento.
+- Liberación solo con autoridad verificada en revisión vigente + `reservationId` coincidente + clase ≥ ACK; nunca desde UNKNOWN.
+- Reserva tardía para UID revocado/reasignado se cuarentena sin atribución a nadie.
+- `STATUS_QUERY` y `ACK_RECORDED` son clases distintas; la consulta nunca eleva a ACK.
+
+**Pruebas imprescindibles antes de habilitar**
+
+- Reintento byte-idéntico tras timeout/malformación → misma reservationId o correlación probada; cero reservas duplicadas.
+- Revocación entre validación y escritura de respuesta → observación marcada stale, reserva en UNKNOWN, sin liberación ni atribución.
+- Escritura fallida tras decisión de ACK → UNKNOWN persistente, consulta posterior no consolida ACK.
+- Concurrencia: dos transacciones compiten por mismo input/UID → exactamente una gana; la perdedora registra pérdida sin atribución.
+- ACK tardío tras cierre con UID retirado → cuarentena, nunca atribución al nuevo dueño.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Auditoría directa del diseño LV-019.B según la descripción en la solicitud; sin acceso a repositorio, llamadas ni delegación, según instrucción.
+NEGATIVOS: Revocación sin propagación ordenada ni token de revisión verificable en la reserva; clave de idempotencia por intento no definida; dos verificadores de autoridad sin fuente única ni distinción «verificado en R» vs. «verificado ahora»; evidencia sin tipos de observación, permitiendo que testigo o consulta de estado se confundan con ACK.
+BLOQUEOS: No habilitar el endpoint hasta definir clave de idempotencia única por intento, fuente única de autoridad con token de revisión en el ledger, tipado de clases de evidencia con regla de liberación que nunca use UNKNOWN, y cuarentena sin atribución para reservas tardías de UID revocado/reasignado.
+=== FIN RESUMEN ===

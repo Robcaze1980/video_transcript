@@ -1,0 +1,14 @@
+**Evaluación**
+- El modelo es coherente: el guard global impide procesar más en A, pero no se usa como veto de lectura de B. La consulta de A no muestra descargas ni afirma captura. B puede seguir servible solo si la autorización transaccional valida token/permiso vigente, dueño/identidad, input no borrado/vencido, vínculos, marca `clear` de B y comprobante de captura.
+- Riesgos que deben cubrirse: la autorización es puntual y no cubre una descarga larga; si la marca pasa a `needs_review`, el guard cambia, el token se revoca o el input se borra durante el envío, los bytes ya entregados no se retiran. Convendría autorización de corta duración, revalidación por rango/reanudación y registro de auditoría por entrega.
+- Cambio concurrente: la transacción inicial no impide que B cambie después; el diseño debe declarar que el resultado es autorización en el instante validado y que el incidente posterior entra por revisión, sin cerrar la entrega ya realizada.
+- Revisión de B: si la marca de B es `clear` pero existe una incidencia no enlazada por legacy o error, la lectura podría aprobar. La regla debe exigir coherencia entre marca, comprobante y ausencia de incidencia activa conocida; una discrepancia es fallo cerrado o revisión, no éxito.
+- Datos legacy: B sin marca o sin comprobante verificable no debe aprobarse por valor actual; requiere migración/conciliación. A con marca ausente/dañada también debe bloquear nuevas acciones.
+- El comprobante de captura debe verificarse contra reserva/segundos/identidad y no ser solo presencia de documento; de lo contrario un registro corrupto autorizaría descarga.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: El diseño separa bloqueo de gasto nuevo por guard global de la lectura de B, exige validación transaccional de token, dueño, identidad, input, vínculos, marca `clear` y comprobante, rechaza otra cuenta y reconoce que los bytes ya entregados no son revocables.
+NEGATIVOS: No está implementado ni probado. Falta definir revalidación durante descargas largas, manejo de incidencia concurrente no enlazada, verificación profunda del comprobante, auditoría de entregas y tratamiento fail-closed de legacy sin marca o comprobante.
+BLOQUEOS: Especificar autorización de corta duración o revalidación por rango, coherencia marca/comprobante/incidencia, migración legada y auditoría antes de cualquier activación. No es producción lista.
+=== FIN RESUMEN ===

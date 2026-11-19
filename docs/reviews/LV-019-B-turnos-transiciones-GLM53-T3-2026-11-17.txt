@@ -1,0 +1,18 @@
+Thread mcp:88ceb693-0b44-43bb-8894-e32890122db4
+Revisión de `server/commercial/firestoreBackend.ts:55`, `server/commercial/firestoreBackend.ts:242` y `server/commercial/firestoreBackend.ts:333`; pruebas en `server/commercial/billingFairQueueIntegration.emulator.mjs:57`.
+
+- `externalIntentTransitionDue` falla cerrado ante tuplas parcial/ausente, corruptas o incoherentes (`nextAttemptAt !== leaseUntil`); sin lease devuelve `0`, preservando comportamiento legado.
+- Ambas transiciones conservan la tupla completa y solo reescriben `nextAttemptAt`; un lease activo no hace visible la fila antes de su vencimiento ni oculta otra fila lista.
+- `settleExternalBillingIntent` y reintentos ordinarios también validan el lease. La batería cubre lease activo/expirado, ausente, 15 corrupciones, transiciones release/reopen, no alteración de saldo y ACK tardío idempotente con nuevo lease.
+- El ACK tardío coincidente se cierra idempotente sin borrar el recibo ni adelantar otra fila. Un ACK/local divergente se queda en `needs_review`, con recibo preservado; no lo interpreta como éxito.
+- No encontré aceptación errónea, borrado de recibo ni avance de fila ajena en este cambio acotado.
+- Confirmé HEAD `8b8e3e4...` y los hashes SHA-256 solicitados. La rota registra 2 fallas exactamente del síntoma corregido; la nueva muestra los mismos casos en verde. No ejecuté pruebas ni accedí a nube.
+
+Límites: `recordExternalBillingIntentFailure` adelanta `nextAttemptAt` sin verificar token/generación, por lo que un trabajo expirado puede pisar el reloj de un lease activo; está fuera del cambio y el usuario ya lo excluye del certificado. El selector no está conectado y el lease local no revoca un POST remoto ya enviado.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/firestoreBackend.ts:55`, `server/commercial/firestoreBackend.ts:242`, `server/commercial/firestoreBackend.ts:333`; `server/commercial/billingFairQueueIntegration.emulator.mjs:57`; `outputs/lv-video-billing-20261116/fair-queue-intent-transitions-red-20261117.log:1`; `outputs/lv-video-billing-20261116/fair-queue-intent-transitions-regression-final-20261117.log:1`
+NEGATIVOS: solo lectura; no ejecuté pruebas ni accedí a nube; no certifico scheduler, selector desconectado, `recordExternalBillingIntentFailure` sin protección token/generación ni producción; el lease local no detiene un POST enviado.
+BLOQUEOS: ninguno para este cambio acotado
+=== FIN RESUMEN ===

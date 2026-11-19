@@ -1,0 +1,14 @@
+**Retención oculta del borrador**
+Sí. Con `suspended` el editor hace return temprano y conserva `source`/`edits`/`pending` en memoria; la `key` no cambia y `wipe()` solo corre en `denied` o al desmontar. El texto no queda visible ni descargable (`assertCurrentResult` devuelve 409 si `uncertain`). Cierra lo pedido en la ruta mostrada.
+
+**Errores concretos**
+- La incertidumbre no se revalida en sesión: `accountReadFailed` fija `recoveryFailed` (corta el `tick`) y `structuredUncertain`, pero `refreshBalance` solo limpia `balanceUncertain`. Tras un 403/401 de Cuenta o un cancel no resuelto, el editor queda oculto hasta recargar: se retiene pero no se revalida «hasta revalidar frases».
+- 403 de voz distinta al cancelar: `hideDuringCancellationCheck` oculta solo con 401 o si el job es `translation:en`; cancelando narración con 403 el borrador inglés sigue visible (`blocked` solo deshabilita botones). `loseForCancellationRead` es más estricto que `hideDuringCancellationCheck`.
+- `checkedJob` resetea `reviewPersistenceFailed` a `false`; solo reaparece vía `observedJob`, no en toda lectura.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `suspended` conserva `source`/`edits` sin mostrarlos y sin desmontar; `assertCurrentResult` bloquea con 409 mientras `uncertain`; `wipe()`+`onAccessLost` destruyen al denegar; `terminalJobs` excluye `unknown`; `structuredBlocked` entra en `blocked`; `revalidateCancellationInput` con GET no-store y detección de `deleting/deleted`.
+NEGATIVOS: sin revalidación en sesión de `uncertain` (editor oculto hasta recargar); 403 de narración al cancelar deja el borrador visible; asimetría `hideDuringCancellationCheck`/`loseForCancellationRead`; `reviewPersistenceFailed` reseteado en `checkedJob`; sin evidencia de voz distinta 403, J1/J2 entre pestañas, código viejo, dispositivos distintos ni fallo de persistencia.
+BLOQUEOS: `markReview`/`markCancel`/`confirmCancel`/`cancelPending`/`reviewMarkKey`, `withdrawnInputs`, `sameInput`/`sameJob`, cola de `showFailure` y reset de `structuredAccess` al subir quedan omitidos: no verificables; 108 unitarias y navegador sintético no equivalen a móvil real ni a producción.
+=== FIN RESUMEN ===

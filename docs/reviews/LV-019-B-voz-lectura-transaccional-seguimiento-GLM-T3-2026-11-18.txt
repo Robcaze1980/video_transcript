@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `verifiedCurrentReview` → `savedReview` cubre versión, pares `accountId`/`inputId`/`jobId`, revisiones, `bindingHash`, `receiptId`/`reviewId`, `fingerprint`/`baseHash`, `createdAtMs`, hashes y contenido de `payload`/voz; `authorize` recalcula `bindingHash`; `selectedReviewId` es determinístico; `exactObject` y `voiceDocumentVersion` fijan forma, prototipo y versiones; los campos expuestos validados son escalares, el `payload` es cadena y `canonicalEvidence` es no enumerable; las lecturas permanecen en transacción y sin ruta HTTP observada.
+NEGATIVOS: El freeze superficial persiste, aunque basta para los valores mostrados; no se reconstruye el estado histórico de `baseHash`, ni se prueban IAM, escritura conjunta, ACK remoto ni uso seguro tras commit; `copyPrincipal`, backend y validadores omitidos quedan sin evidencia; la fixture 25/25 aislada no cubre integración con cobro/IA.
+BLOQUEOS: Autoriza solo esta lectura interna candidata; no autoriza POST, retención/ACK, promoción ni dependencias de escritura no demostradas.
+=== FIN RESUMEN ===

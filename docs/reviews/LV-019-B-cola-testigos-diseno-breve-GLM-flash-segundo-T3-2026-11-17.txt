@@ -1,0 +1,12 @@
+**Defecto restante**
+
+- Barrera preexistente con campos distintos: «si ya existe, se verifican sus campos antes de aceptar la repetición» no define el desenlace si la verificación falla (otra época u otro escritor la creó). ¿Detiene la página sin avanzar el checkpoint, o avanza sin crear la entrada? Avanzar en ese caso podría saltarse el testigo; la especificación del prototipo queda incompleta mientras ese desenlace no esté fijado.
+
+Los tres bloqueos previos (`unverified`→`needs_review`, umbral de cinco intentos con incidencia durable, lease/CAS de barrido) quedan cubiertos.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: «Una barrera usa ID determinista por época y testigo: si ya existe, se verifican sus campos antes de aceptar la repetición»; «Avanzar el checkpoint solo en la misma transacción que crea o verifica las entradas de esa página».
+NEGATIVOS: revisión solo textual; sin implementación ni pruebas; producción y scheduler explícitamente no habilitados; costos reales sin decidir.
+BLOQUEOS: desenlace indefinido ante barrera preexistente con campos no coincidentes (detener página sin avanzar vs. avanzar sin entrada).
+=== FIN RESUMEN ===

@@ -1,0 +1,21 @@
+Revisión de frescura LV-019.B sobre los cuatro documentos incluidos, sin herramientas, historial ni modificaciones.
+
+- **Estado:** coherente en los cuatro: candidata local sintética, flujo financiero EN CURSO, LV-019.B no aceptado aún, video sin conexión pública y compras/PayPal fuera de fase.
+- **Orden:** Master Plan (pasos 1–5), backlog (1–7), Gantt (1–8 + P/R) y HANDOFF alinean: limpieza fixture → corrección financiera → revisión/voz → recuperación durable + readback → gateway → online.
+- **Precios:** US$0.10/min texto y +US$0.10/min voz coinciden en Master Plan, backlog y HANDOFF; redondeo arriba al segundo y reserva por servicio son consistentes (ejemplo 2:10 → 130/260 s correcto).
+- **Límites móviles:** MP4/30 s/1920 px idéntico en los cuatro; MOV y videos reales de 2–3 min marcados pendientes en todos.
+- **Fallo financiero:** ausencia de `externalBilling` → trabajo externo tratado como simulado, reproducido y en corrección, descrito de forma idéntica en los cuatro.
+- **Fixture:** falla de preparación/limpieza y raíces sintéticas bajo inventario coinciden; limpieza exigida antes de nuevas pruebas.
+- **Gates de seguridad:** token caducado, audiencia incorrecta, acceso directo, archivo ajeno, revocación, UNKNOWN conserva reserva y no despacho sin saldo, consistentes.
+- **Modelo T3:** `~z-ai/glm-flash-latest` con respaldo DeepSeek en Master Plan, backlog y HANDOFF; Gantt reporta GLM INCONCLUYENTE sin contradicción.
+- **Gemini:** pendiente para candidata integrada en backlog y HANDOFF; ausente en Master Plan y Gantt (omisión de detalle, no contradicción).
+- **Cloud SQL:** exclusión explícita y reiterada en los cuatro documentos.
+
+Verificación limitada a coherencia entre los cuatro documentos; los archivos de evidencia enlazados no se abrieron conforme a la instrucción recibida.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Coherencia verificada entre MASTERPLAN.md, backlog.md, gantt.md y HANDOFF.md (17 nov 2026 PST) en estado, orden, precios ($0.10/min texto, +$0.10/min voz), límites móviles (MP4/30 s/1920 px), fallo externalBilling, limpieza de fixture, gates de seguridad, modelo T3, Gemini pendiente y ausencia de Cloud SQL, sin contradicciones detectadas.
+NEGATIVOS: Ninguno en los ejes revisados; los archivos de evidencia enlazados no fueron abiertos por instrucción, por lo que la verificación se limita a coherencia interna de los cuatro documentos.
+BLOQUEOS: Ninguno para esta revisión.
+=== FIN RESUMEN ===

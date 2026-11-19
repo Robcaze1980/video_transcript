@@ -1,0 +1,12 @@
+Corrección confirmada en el alcance exacto pedido:
+
+- `resultContext` ahora lee `movements/terminal:<jobId>` dentro de la misma transacción y degrada `settled` a falso si `accountId`, `reference`, `credits` o `kind` difieren del outbox/tupla esperada (`server/commercial/firestoreAi.ts:210`–`:218`). Por tanto, `status` queda `billingState=pending`, sin resultados, y `download` rechaza con `not_found`.
+- El negativo emulado altera el movimiento terminal tras una captura asentada y verifica ese triple efecto (`server/commercial/firestoreAi.emulator.mjs:372`–`:379`).
+- La creación de bloqueo pasó a exigir `settlementCaller`; `billing-holds/status` sigue permitido a ambas identidades internas (`server/account/http.ts:39`–`:44`). El test cubre worker → 201 y service → 200 sin llamadas previas al store (`server/account/http.test.ts:31`–`:56`).
+
+No generalizo a producción: el scheduler sigue sin garantía, las filas legacy/corruptas no quedan cubiertas por este negativo y faltan integraciones cloud. Codex reporta PASS en 20 pruebas HTTP/cliente y un caso emulado; no las ejecuté en esta revisión.
+
+Auditoría LV-019.B (Vistavo)
+HEAD: 8b8e3e4 + cambios locales
+Modo: solo lectura, sin cloud ni datos reales
+Resultado: PASS del seguimiento; certificación de producción NO otorgada

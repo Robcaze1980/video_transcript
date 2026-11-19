@@ -1,0 +1,14 @@
+Contradicciones y supuestos añadidos
+
+- **Contrato de solicitud sin plan de llamadas.** `Solicitud v2` transporta `identityKey, requestKey, vínculo, huella, attemptId, segundos`, pero §3 declara un plan de ventanas `text-window:NNNN` «fijado desde el servidor». Falta el hash del plan (o la lista de `callKey`), así que Cuenta no puede verificar que una `callKey` pertenezca al plan ni acotar cuántas existen. «Máximo una admisión por `(logicalKey, callKey)`» suprime repeticiones, no limita el gasto: un Video comprometido o con un bug de plan puede pedir `text-window:9999`, cada una con su llamada pagada bajo una sola reserva. Supuesto no declarado: el plan siempre es finito, íntegro y no manipulable.
+- **Revisión ambigua en la huella.** §2.2 guarda la revisión «anterior a la preparación»; §2.3 admite que la propia preparación incremente la revisión y exige recibir la transición. No se dice qué revisión entra en `vistavo-operation-fingerprint-v2`. Con la previa, la huella no describe el input ejecutado; con la resultante, la comparación «revisión confirmada» y el reintento con revisión de origen divergen. Afecta idempotencia y reconciliación.
+- **Granularidad de la ranura frente a varias ventanas.** §3 permite múltiples POST por ventana bajo la misma reserva, pero la ranura/contador de intención es por operación («una ranura activa o incierta no autoriza otro POST»). Si la ranura es por `logicalKey`, la ventana 0001 queda bloqueada mientras 0000 esté activa o incierta; si no lo es, se pierde el control de duplicados. Granularidad indefinida = contradicción real.
+- **Matriz vs. gate de generación.** §8 exige «claves distintas para acciones realmente distintas, incluso con contenido igual», pero §2.2 rechaza por generación toda preparación posterior mientras la primera siga pendiente. Se exige un resultado que el propio texto solo admite tras terminar la anterior; §2.5 lo difiere a «diseño y prueba», contradiciendo la matriz.
+- **Ventana UNKNOWN sin regla.** No se define si una ventana posterior puede admitirse cuando la anterior quedó incierta, ni qué pasa si una reasignación/retiro ocurre a mitad del plan: §4 exige «protocolo propio aún no aprobado» para admitir tras cambio de generación y la liberación requiere ausencia total de admisión, así que un plan parcialmente admitido no se cierra ni se continúa.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Lectura del texto v3 y contraste con las dos FALLA previas; solo texto, sin herramientas ni cambios, según lo pedido.
+NEGATIVOS: Sin verificación de código, permisos, `AccountStore.settleVideo` ni proveedor; varios puntos (revisión en huella, granularidad de ranura) son ambiguos en el propio texto.
+BLOQUEOS: Endpoint externo apagado; faltan reconciliador v2 y sincronización de revocación con Cuenta; sin prueba de corte v1/v2, retención, restauración, idempotencia de proveedor ni política de compensación; no declarar producción lista.
+=== FIN RESUMEN ===

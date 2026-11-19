@@ -1,0 +1,59 @@
+**Diseño propuesto**
+
+La autoridad financiera debe vivir en **AccountStore**: es la única base que puede decidir atómicamente si una reserva o captura se admite. Video Firestore sigue siendo la autoridad de jobs, intents, evidencia y atribución, pero su guard es solo una cerca local y un mecanismo de fail-closed; no es un cerrojo distribuido.
+
+1. **Barrera autoritativa en AccountStore**
+   - Video detecta discrepancia y escribe localmente `needs_review`, incidente y guard (`server/commercial/firestoreBackend.ts`).
+   - Inmediatamente llama a un endpoint idempotente de Account, por ejemplo `set_hold(identityKey, barrierId)`, autenticado con la service identity existente.
+   - La barrera solo se considera activa cuando AccountStore la confirma en su transacción.
+   - `reserveVideo` y `settleVideo(capture)` rechazan si el hold está activo (`server/account/backend.ts:117`, `server/account/backend.ts:147`).
+
+2. **In-flight pre-barrera**
+   - No se puede evitar que una reserva o captura que ya fue aceptada por Account antes del commit del hold continúe.
+   - Account marca esa operación con el epoch anterior al hold.
+   - Video la clasifica como “admitida antes de la barrera” y la recupera con `status`; nunca la trata como post-barrera ni la oculta.
+   - Un provider ya en vuelo no se detiene; su resultado se reconcilia sin capturar automáticamente mientras exista duda.
+
+3. **Sin saldo retenido sin job**
+   - Si Account confirma `reserved` y Video no tiene job, provider call ni outbox de trabajo, Video solicita `release` con el mismo `reservationId` y segundos exactos.
+   - Si existe job terminal `failed`/`cancelled`, también es elegible para release recovery.
+   - Si existe job `succeeded`, no se captura automáticamente bajo hold; queda para revisión humana.
+   - Si Account reporta `captured` sin job coherente, se conserva incidente; no se compensa automáticamente.
+
+4. **Idempotencia**
+   - `reservationId` sigue siendo determinista por cuenta, identidad, input, operación, revisión y requestKey.
+   - `barrierId` es determinista por incidente.
+   - Reserve, release, capture y set_hold se reintentan siempre con los mismos IDs y segundos.
+   - ACK perdido se resuelve exclusivamente con `status`; nunca se infiere éxito o fracaso sin lectura autoritativa.
+
+5. **Nuevo input o requestKey**
+   - El hold se aplica al identity/account en AccountStore, no a un input ni a un requestKey.
+   - Un segundo teléfono, nuevo input o nueva clave usa la misma identidad y es rechazado por Account.
+   - Video mantiene su guard local como defensa inmediata, pero Account es la barrera dura.
+   - Una petición que pasó el recheck local pero llega a Account después del commit del hold es rechazada; si llegó antes, es pre-barrera y queda rastreada.
+
+**Secuencias de fallo**
+
+- `set_hold` pierde ACK: Video reintentaa el mismo `barrierId`; si sigue sin confirmar, permanece fail-closed y emite alerta.
+- `reserve` pierde ACK: se consulta `status`. Si `reserved` y no hay job, release recovery; si `not_found`, cierre seguro; si no se puede consultar, no cerrar ni liberar.
+- `release` pierde ACK: `status`; solo con `released` exacto se cierra localmente.
+- `capture` pierde ACK: `status`; solo se marca settled si job, outbox, terminal, identidad y segundos son coherentes.
+- Outbox cambia tras ACK: incidencia durable y guard; no marcar settled ni compensar.
+- Provider en vuelo: no se cancela; si termina en fallo, release recovery; si termina en éxito, revisión manual sin captura automática.
+
+**Pruebas mínimas**
+
+- Carrera `set_hold` vs `reserve`/`capture`: tras commit del hold, toda operación nueva falla; la aceptada antes queda clasificada.
+- ACK perdido de hold, reserve, release y capture, con recuperación por `status`.
+- Dos teléfonos con mismo requestKey y con requestKey distinto: un solo ID en el primer caso; bloqueo por identidad en el segundo.
+- Nuevo input durante hold: rechazo en Account y en Video.
+- Reserva pre-hold sin job: release recovery y cierre local.
+- Job exitoso durante hold: sin captura automática; evidencia visible.
+- Outbox alterada tras ACK: incidente durable y sin settled.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Diseño estático basado en los flujos actuales de `server/commercial/firestoreAi.ts:43`, `server/commercial/firestoreBackend.ts:186`, `server/commercial/firestoreBackend.ts:215`, `server/account/backend.ts:117` y `server/account/backend.ts:147`. No se editó código ni se accedió a datos reales. La garantía dura se define tras el commit del hold en AccountStore; el guard local de Video reduce la ventana pero no puede reemplazar una transacción distribuida.
+NEGATIVOS: No se puede detener una operación ya aceptada por Account antes del hold ni un provider ya en vuelo. Si Account no está disponible, Video puede fail-closed pero no puede confirmar ni liberar autoritativamente. Una captura dudosa no se compensa automáticamente.
+BLOQUEOS: Implementar endpoint/estado de hold en AccountStore; pruebas de carreras y ACK perdido; scheduler de reconciliación; conciliación operativa; ensayos físicos y validación con dinero real.
+=== FIN RESUMEN ===

@@ -1,0 +1,31 @@
+**Fixture vs fuentes**
+- Se ve fiel a lo que puede verificarse: `enterReview` hace `enqueue` externo (crea intent + guarda `clear` + job), luego `guard.update({state:'needs_review',incidentId})` por escritura cruda (privilegiada, fuera de toda API) y `status` reporta `review`. Test 1 documenta estado esperado: `perIntentGuard='needs_review'`, sin `billingGuards` global, `videoBillingHold→{blocked:false,recorded:false}`, `holdOutbox=0`.
+- Relevante: ese estado **no requiere** un escritor privilegiado. En `preserveDirectUncertainty` la guarda por intent se pasa a `needs_review` (con `incidentId`) incluso cuando `attributed=false`, y el `billingGuards` global solo se escribe `if(attributed)`. Es decir, la incertidumbre no atribuida produce exactamente “guarda por intent en review sin hold global/Cuenta”. El fixture refleja un estado alcanzable por reconciliación interna.
+- No verificable con las fuentes dadas: `externalJobResultAllowed` (origen del `billingState:'review'`), `aiDispatchEligible`, y `videoBillingHold`/`blockVideoBilling`/`videoBalance`/`videoReservation` de `AccountStore`. El enlace “guarda needs_review ⇒ review” y “review ⇒ no elegible para despacho” queda sin fuente. El stub no expone `/release`, `/seal` ni `/balance`.
+
+**Alcance**
+- 100% sintético: emulador, `AccountStore` en subárbol propio, `fetch` reemplazado por un `Response` falso, HTTP externo apagado. El encabezado ya dice que PASS = comportamiento observado, no aprobación de política. Correcto no inferir cobro/explotación.
+- Entra solo por `enqueue`/`invoke` (no por `enqueueForUid` externo ni HTTP). No cubre `release`/`seal`, cola justa, IAM ni dos bases reales.
+
+**Lectura de status, hold y falsa atribución**
+- `status()` es de solo lectura dentro de tx: calcula `billingReview` y retorna; no crea hold. **Conviene que siga así.** Si una lectura creara hold: (a) `narrationRequiresReview` dispara `review` en estados normales (`queued/running/unknown`) ⇒ cada sondeo de narración bloquearía la cuenta entera; esto es amplificación lectura→escritura y auto-DoS; (b) atribución falsa/desproporcionada (bloqueo de cuenta por un solo intent). La lectura cross-cuenta ya está acotada por `resultContext` (identidad uid/account debe coincidir) ⇒ `not_found` (test 2 lo confirma), así que el riesgo no es cross-cuenta.
+- Los holds sí deben nacer de la ruta que tiene **evidencia atribuida** (`preserveDirectUncertainty`, `attributed`) o de operador; nunca de una lectura.
+
+**Lecturas vs nuevas operaciones (escritura privilegiada)**
+- Seguridad de lectura: `resultContext` exige `identity.uid/accountId`, `aiPilot/simulationOnly`, binding job/artifact ⇒ usuario ajeno `not_found`. Bien.
+- Nuevas operaciones: `reserveAs`/`admitVideoCall` consultan la guarda **global** (`billingBlocked`) y la guarda del **propio** request (`validClearIntentAdmissionGuard`), jamás el agregado de la cuenta. Por eso J2 pasa aunque J1 esté en review (`admit` de J2 ve su intent propio `clear`). El escritor crudo del test no es un vector de usuario: es un bug/escritura internos; el hallazgo real es de reconciliación no atribuida.
+
+**Invariantes y pruebas faltantes (historia corrupta → nuevo cobro)**
+- INV-1: en la **misma tx** que mueve cualquier guarda de intent a `needs_review` debe upsertarse bloqueo a nivel cuenta (guarda global y/o contador `unresolvedIntentCount`). Hoy no ocurre en la rama no atribuida.
+- INV-2: la admisión debe leer un marcador de cuenta (no solo intent propio/global opcional) en la tx de reserva.
+- INV-3: `billingGuards` (video) y hold de Cuenta son almacenes distintos sin 2PC; test 3 fija **ambos**, así que no aísla la ventana unilateral.
+- INV-4: pureza de lecturas — falta asertar que sondeos repetidos de `status` (incl. narración) no crean `billingIntentObservationIncidents`/`holdOutbox` ni cambian `outboxVersion`; test 1 solo mira hold/outbox.
+- INV-5: backfill auditado de guardas `needs_review` sin incidente/hold preexistentes (el propio comentario lo exige).
+- Pruebas faltantes: ruta **real** no atribuida (`recordReservedStatusUncertainty`) en vez de `guard.update` crudo; asimetría de replay externo (bloqueado por guarda global) vs simulado (test 4 lo permite) declarada como intencional; `admit` con hold de solo un lado.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: El fixture documenta con coherencia: tras `needs_review` por-intent sin guarda global/Cuenta (`holdOutbox=0`, `videoBillingHold blocked:false`), J2 de la misma cuenta reserva/admite (`reserveVideo`+`admitVideoCall`) con proveedor ficticio y `ownerBalance.reserved=4`; otra cuenta queda en 2 y `status` cross-cuenta da `not_found`. Con guarda global + `blockVideoBilling` se rechaza (`enqueue` conflict, `enqueueForUid` disabled, `reserveVideo` nuevo conflict, `admitVideoCall` conflict) y la otra cuenta sigue con 1 llamada. Estado alcanzable sin escritor privilegiado vía rama no atribuida de `preserveDirectUncertainty` (guarda intent→needs_review, sin guarda global).
+NEGATIVOS: (1) No existe invariante que ligue `needs_review` por-intent → bloqueo de cuenta en la misma tx; una historia corrupta/no atribuida no impide nuevo cobro (el hallazgo). (2) `reserveAs`/`admitVideoCall` no consultan agregado de cuenta, solo intent propio + guarda global opcional. (3) Cross-store video↔Cuenta sin 2PC; test 3 fija ambos lados y no aísla la ventana. (4) `status` debería seguir puro; si creara hold habría amplificación lectura→escritura y disparo por `narrationRequiresReview`, no falsa atribución cross-cuenta. (5) Asimetría de replay: externo bloqueado por guarda global, simulado devuelve el mismo job (test 4) sin declararse como intención. (6) Faltan asertos de pureza de lectura (incidentes/versión) y de backfill.
+BLOQUEOS: Sin fuente no verificables `externalJobResultAllowed`, `aiDispatchEligible`, `videoBillingHold`/`blockVideoBilling`/`videoBalance`/`videoReservation`; el enlace “guarda needs_review⇒review” y “review⇒no despacho” queda inferido. Stub sin `/release`,`/seal`,`/balance`; solo emulador, subárbol sintético y proveedor falso; HTTP externo apagado; sin IAM, cola justa, reconciliación ni dos bases reales. El fixture PASS es comportamiento observado, no aprobación de política; no se declara producción lista.
+=== FIN RESUMEN ===

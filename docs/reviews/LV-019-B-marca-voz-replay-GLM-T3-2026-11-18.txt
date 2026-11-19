@@ -1,0 +1,14 @@
+Implementa el replay: valida marcador almacenado, construye el marcador del binding actual y exige igualdad de todos los campos incluida `fingerprint`; cualquier cambio de contenido se rechaza.
+
+**Límites**
+- No garantiza atomicidad: el llamador debe leer marcador y binding autorizado y escribir la reserva en la misma transacción.
+- No detecta cambios en `canonicalEvidence` ni `versions` si el `bindingHash` declarado no cambia; eso sigue dependiendo del testigo aparte.
+- No prueba proveniencia ni escritura legítima del marcador previo; solo acepta un replay consistente.
+- No reconstruye ni compara historial de versiones.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática del helper y del códec proporcionado; sin ejecución, cambios ni delegación.
+NEGATIVOS: Replay correcto en el alcance del códec; faltan atomicidad, testigo de versiones/canon y prueba de proveniencia en integración.
+BLOQUEOS: Ninguno para este helper.
+=== FIN RESUMEN ===

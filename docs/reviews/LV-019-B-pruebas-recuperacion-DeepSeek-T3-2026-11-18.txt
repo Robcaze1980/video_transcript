@@ -1,0 +1,25 @@
+**Qué conservan las cuatro pruebas**
+- T1 (status reservado sin recibo) conserva el negativo: `calls===['status']` (el fake falla si aparece cualquier otra URL), `intentsRecovered=0/intentsFailed=1`, `jobs=0`, `billingIntentTerminalWitnesses=0`, intent sigue `reserve_pending`. Sustituye bien la historia obsoleta “llegar a la cerca desde reserved”: ya no hay sello ni liberación.
+- T2 (job antes de la cerca) conserva “no liberación con job concurrente”: la cerca se detiene en el cambio de snapshot (`prepared.state==='changed'` ⇒ `intentsFailed`), sin POST de seal ni release (`calls===['status']`), job intacto/`queued` y cero terminal witnesses; recoge el incidente `status/not_found`.
+- T3 cubre exclusión mutua en ambos órdenes de commit para fence↔job (job⇒`{state:'job_created',jobId}`, fence⇒`reserve` con `conflict`, `jobs=0`).
+- T4 (ACK perdido) conserva “sin liberación doble”: primer drenaje `intentsFailed=1` con intent en `release_pending` y terminal `prepared` sin evidencia de release; el segundo resuelve por `status` (`state:'closed'`,`releaseObservationSource:'status'`) con `releaseCalls===1`.
+
+**Falsos positivos / huecos concretos**
+- T1 no distingue “diferido con evidencia durable” de “no-op silencioso”: no comprueba incidentes/review/hold, ni `billingGuards.blocked`, ni `nextAttemptAt`/`attempts`. Un cambio que fije `blocked:true` en el guard (daño colateral) o que no registre nada pasa igual. Tampoco verifica que el intent no quede reintentando para siempre.
+- T2 solo ensaya el orden “job commitea antes de que la cerca lea”; el orden inverso sello-antes-de-job no se prueba (T3 usa `fenceExternalBillingRelease` de release, no el `seal`). Además su aserción `intentsRecovered=0` valida la ruta de *cambio detectado*, no la rama `job_created` (esa rama no se ejercita aquí).
+- T3 orden B solo comprueba `code==='conflict'` sin verificar la causa (podría ser hold/guard u otro conflicto) ni que el intent siga `release_pending` o que no haya escritura de saldo. Los dos “órdenes” se simulan pausando antes de la transacción, no con concurrencia real entre bases.
+- T4 solo cubre “remoto aplicó, ACK perdido”. No cubre “remoto NO aplicó” (status `reserved` tras release fallido), que es justo la ruta que volvería a emitir release vía `releaseAfter('status_reserved')`; tampoco limita/acota reintentos duplicados por drenajes posteriores. `releaseObservationSource`/`closed`/`releaseConfirmed` no aparecen en el código visible, no verificables. Y su fake responde con forma de status a CUALQUIER ruta que no sea `/release`, así que una operación espuria (p.ej. `seal`) no se contabiliza (solo se cuentan `release`).
+- Las cuatro entran por `beginExternalBillingIntent` (no por `enqueue`/`enqueueForUid`): alcance limitado al drenaje/cerca, no cubre admisión externa ni rutas de cliente.
+
+**Bloqueos**
+- La suite completa NO pasó y siguen fallando 5 casos de voz: no hay base para cerrar el incremento.
+- Los cuatro pasan solo con Firestore Emulator y Cuenta fingida; HTTP externo apagado; sin prueba de autenticidad/epoch ni cruce de bases.
+- Helpers y campos no visibles (`matchingDirectObservation`, `directObservationDocs`, `preserveDirectUncertainty`, `confirmedIntentObservation`, `recordReservedStatusUncertainty`, y `settle`/`seal` del cliente): su semántica queda sin verificar, y T1/T4 dependen de ella.
+- No se declara producción lista.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: T1: `calls===['status']`, `intentsRecovered=0/intentsFailed=1`, `jobs=0`, terminal witnesses 0, intent `reserve_pending`. T2: cerca se detiene por cambio de snapshot (sin seal/release, `calls===['status']`), job `queued` intacto, incidente `status/not_found`. T3: orden job→fence devuelve `{state:'job_created',jobId}`; orden fence→job rechaza con `conflict` y `jobs=0`. T4: primer drenaje `intentsFailed=1`, intent `release_pending`, terminal `prepared`, sin evidencia de release; segundo drenaje cierra por `status` con `releaseCalls===1`.
+NEGATIVOS: (1) T1 no distingue diferido-durable de no-op y no comprueba guard/hold/incidentes/retry. (2) T2 no prueba el orden sello-antes-de-job ni la rama `job_created`. (3) T3 orden B no verifica la causa del `conflict` ni el estado del intent. (4) T4 omite el caso “release no aplicado” y no acota reintentos; su fake solo contabiliza `release`. (5) Todo el alcance entra por backend directo, no por las rutas de cliente.
+BLOQUEOS: suite completa no pasa y 5 casos de voz fallan; solo emulador + Cuenta fingida; HTTP externo apagado; helpers/campos (`matchingDirectObservation`, `confirmedIntentObservation`, `recordReservedStatusUncertainty`, `settle`/`seal` del cliente, `closed`/`releaseObservationSource`) no visibles; sin autenticidad/epoch ni cruce de bases. No se declara producción lista.
+=== FIN RESUMEN ===

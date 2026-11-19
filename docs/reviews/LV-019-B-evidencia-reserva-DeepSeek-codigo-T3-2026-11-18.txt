@@ -1,0 +1,19 @@
+**Alcance revisado: ¿el cambio mantiene v1 ante cambio de catálogo?** Sí.
+
+- El decoder v1 ya no referencia ninguna constante viva: `profile` se compara contra el literal `RESERVE_ATTEMPT_PROFILE_V1` (`'ai-candidate-v1'`), y `operation`/`provider` están pinneados a literales propios. Un catálogo v2 no altera el resultado: un witness v1 sigue validando y un v2 se rechaza por `profile`. La idempotencia de intentos v1 en vuelo queda desacoplada del catálogo. Causa raíz eliminada por construcción.
+
+**Defectos inmediatos en lo mostrado**
+- Un documento v2 se rechaza como `invalid` genérico: no hay código `unsupported`/`protocol_mismatch`, así que "falta decoder v2" y "dato corrupto" son indistinguibles para el llamador. Defecto real en la ruta de migración.
+- `copyWitnessV1` construye `operation:row.operation` y `profile:RESERVE_ATTEMPT_PROFILE_V1` tras comparar literales sobre un `unknown`; si el narrowing de TS no aplica, es error de tipo, no de validación. Verificar compilación.
+- El formateador mostrado es `terminalDocumentVersion` → `TerminalRecoveryDocumentVersion`, no el de reserva: hay dos formatos paralelos. Falta confirmar que `ReserveAttemptVersions` usa la misma codificación canónica de 9 dígitos; si el de reserva aún valida por regex propia, la consistencia no está probada por este fragmento.
+- Se corta en `copyTerminalDocumentVer…`: no revisable.
+- Persisten (no tocados): `guard` sin restricción ni vínculo con `intentGuard`; `uuid` con `/i` para accountId/inputId frente a `uuidV4`/`hex64` estrictos; sin comparación witness↔doc-id ni detección de misma `reservationId` con `seconds`/`intentId` divergentes (gates declarados).
+
+No afirmo nada sobre el caller (rutas, autoridad, transacción, orden commit→POST) ni sobre integración.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática del tipo/constante y `copyWitnessV1` mostrados: `profile` validado contra literal `RESERVE_ATTEMPT_PROFILE_V1`, `operation:'translation:en'` y `provider:'account_seconds'` literales, sin import de `AI_CATALOG_VERSION` ni tipo vivo. v1 se mantiene y v2 se rechaza aunque el catálogo cambie.
+NEGATIVOS: rechazo v2 colapsa en `invalid` sin estado `unsupported`; posible error de narrowing de TS en `operation:row.operation`; fragmento truncado (`copyTerminalDocumentVer…`); formateador mostrado pertenece a `TerminalRecoveryDocumentVersion`, falta confirmar codificación 9-dígitos en la ruta de reserva; persisten `guard` sin restricción, case inconsistente en regex, y sin comparación witness↔doc-id ni conflicto de `reservationId` repetida.
+BLOQUEOS: Emulador en curso; sin verificación de `tx.getAll`/`tx.create`, concurrencia ni mapeo de conflicto. Revisión del fragmento descrito, no del artefacto completo.
+=== FIN RESUMEN ===

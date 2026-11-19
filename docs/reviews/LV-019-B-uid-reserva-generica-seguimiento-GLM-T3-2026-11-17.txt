@@ -1,0 +1,15 @@
+Revisión de seguimiento LV-019.B (tres puntos del negativo previo):
+
+**1. Cuenta en la misma transacción** — En `priorRequestForUid`, `tx.getAll(accounts, requests)` lee la cuenta dentro de la misma `runTransaction` donde se valida el UID, y `if(!account.exists) throw LedgerFault('not_found')` la exige. Verificado en el fragmento.
+
+**2. UID, solicitud, trabajo y clasificación** — El UID se valida primero vía `verifiedUidAccountInTransaction(tx, …)`; la solicitud se contrasta (`accountId`, `requestFingerprint`, `jobId` UUID); el trabajo se contrasta (`accountId`, `inputId`, `requestKey`, `operation`, `revision`, `aiProfile === undefined`) y se clasifica exigiendo `jobAccounting === 'simulation'`. Todo dentro de la misma transacción. Verificado.
+
+**3. Fingerprint (negativo cerrado)** — La función real `requestFingerprint(inputId, operation, revision, profile?)` construye el vector `[inputId, operation, revision]` cuando `profile` es falsy. La llamada de replay (3 argumentos → `profile` omitido) y la de reserva (4 argumentos con `profile: undefined`) producen el mismo vector y hash. La aridad aparente no implica vectores distintos: el negativo previo queda resuelto. El requisito `simulation` en replay es correcto por diseño del endpoint genérico; la ruta AI/pagada está separada y fuera del alcance auditado.
+
+No afirmo pruebas ejecutadas ni comportamiento de los helpers no mostrados (`uuid`, `hash`, `jobAccounting`); solo contrasto lo visible en los fragmentos.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `tx.getAll(accounts, requests)` y `!account.exists → not_found` dentro de la transacción de replay; UID validado primero con `verifiedUidAccountInTransaction(tx, …)`; solicitud (`accountId`, `requestFingerprint`, `jobId` UUID) y trabajo (`accountId`, `inputId`, `requestKey`, `operation`, `revision`, `aiProfile undefined`, `jobAccounting === 'simulation'`) contrastados en la misma transacción; `requestFingerprint` con `profile` falsy usa el vector `[inputId, operation, revision]`, idéntico al de la reserva con `profile: undefined`, cerrando el negativo de aridad.
+NEGATIVOS: ninguno nuevo en el alcance auditado; se mantiene la limitación reconocida (identidad retirada tras el commit no revoca el trabajo ya creado, fuera de alcance).
+BLOQUEOS: ninguno para los tres puntos verificados.

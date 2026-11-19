@@ -1,0 +1,14 @@
+Defectos peligrosos (concurrencia, reintentos, conciliación):
+
+1) TOCTOU de autorización entre bases: Cuenta valida UID/guardia en su propia transacción y el video solo compara 14 versiones internas; nada ata ambos commits. Cuenta puede revocar o cambiar saldo entre commits: se toma ranura y se hace POST ya revocado. Falta versión/fencing de Cuenta en la transacción de video y sync de revocación.
+
+2) Ranura perdida: sin arriendo, expiración ni fencing token, una caída entre commit y POST, o un UNKNOWN, deja la ranura ocupada para siempre; «no reenviar» inmoviliza la solicitud y el reconciliador ausente no la recupera. Peor: sin época de ranura, un escritor antiguo con attemptId viejo puede cumplir «misma ranura + 14 versiones» tras reutilizarse la ranura y crear job incorrecto.
+
+3) UNKNOWN sin cierre y ACK tardío no determinista: «sin atribuir si es posible» no es invariante; el POST remoto carece de idempotencia/fencing, y sin acoplar Cuenta el reembolso puede duplicarse o perderse.
+
+=== RESUMEN FINAL ===
+RESULTADO: RECHAZADO — no integrar reserva de texto aún.
+EVIDENCIA: auditoría del diseño descrito; sin acceso a código ni repo.
+NEGATIVOS: solo descripción; no verifiqué 14 versiones reales ni implementación.
+BLOQUEOS: endpoint apagado; faltan reconciliador y sync de revocación con Cuenta.
+=== FIN RESUMEN ===

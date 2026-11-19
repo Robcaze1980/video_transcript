@@ -1,0 +1,12 @@
+Thread mcp:8dfa919a-6267-46a8-8b61-59b0761c91f8
+**Auditoría LV-019.B**
+- Resultado: **FALLA**, por evidencia incompleta, no por defecto de código encontrado.
+- Aislamiento: el migrador crea su propio cliente `demo-vistavo-ledger`, exige `127.0.0.1:8185`, base `(default)` y raíz UUID; rechaza clientes inyectados y no tiene CLI, lector ni scheduler.
+- Cobertura: pagina por `documentId` más allá de 100, preserva estados terminales y backoff existentes, avanza el cursor por fila en transacción, detecta cambios/delecciones tras selección, bloquea durablemente la fila faltante o inválida y usa épocas para impedir avance de ejecutores viejos.
+- Creación de intención: `beginExternalBillingIntent` escribe `nextAttemptAt` numérico inicial (`server/commercial/firestoreBackend.ts:223`) y el nuevo intento lo crea con campo y `attempts` coherentes (`server/commercial/firestoreBackend.ts:248`); no activa lector.
+- Incidentes: solo guardan tipo, fase, época, hash de ID, razón, estado y marcas temporales; no exponen el ID real ni datos de fila (`server/commercial/billingNextAttemptMigration.ts:84`).
+- Evidencia declarada: registros muestran 12/12 y luego 3/3 focalizados, incluida una corrección previa de fila eliminada que devolvía `stale`; el archivo vigente contiene 14 casos integrados, no 15.
+- Observaciones: la página vacía transaccionalmente marca fin, pero no relee por si aparecen filas; es correcto para barrido, aunque una fila insertada después no queda cubierta por esa pasada. Verificación reinicia con época, pero no añade cerca de escritores vivos; el reporte expone `writerGate:'unverified'`.
+- No ejecuté pruebas ni accedí a cloud. No certifico producción.
+
+RESULTADO: FALLA — Hay errores concretos o evidencia insuficiente en el punto auditado.

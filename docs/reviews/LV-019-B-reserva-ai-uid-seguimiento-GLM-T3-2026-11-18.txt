@@ -1,0 +1,12 @@
+**LV-019.B — Seguimiento**
+
+- Oráculo: la lectura preliminar `enabled(accountId)` ya no aparece en `aiHttp`; las rutas reconocidas (quote/jobs) pasan por `quoteForUid`/`enqueueForUid`, que verifican UID/owner/flags dentro de transacción, y la recuperación usa `enabledForUid` vía `access`. Era una lectura previa, no una barrera: retirarla no abre bypass.
+- Duración: se retira la observación anterior; `simulatedAiPrice` ahora valida finito, >0 y ≤600 por sí misma (fallo `AiContractFault('invalid')`, esperado en `reserveWithRecovery`), tanto al cotizar como al revalidar precio en `reserveAs`. Los checks condicionales quedan para límites de plan, no para sanidad del precio.
+- Los handlers de status/download/cancel no están en el extracto; su gating se acepta por el reporte de pruebas, no por código visible.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Extracto actualizado de `aiHttp` sin `enabled` preliminar, con rutas reconocidas verificados por UID en transacción; `simulatedAiPrice` con validación propia de duración (finito, >0, ≤600, `AiContractFault`); reporte de 75 pruebas focales incluida ruta desconocida y envío de UID.
+NEGATIVOS: (1) Handlers de status/download/cancel no visibles en extractos: su gating UID/cuenta/flags en `resultContext` transaccional y cancelación vía status→`cancelForUid` se acepta por reporte, no verificable en código mostrado. (2) Emulador 12/12 precede a la eliminación de la lectura preliminar: la corrección específica queda cubierta solo por pruebas de handler, sin re-ejecución de emulador reportada. (3) Procedencia del UID desde token Firebase verificado previamente es declarada, no verificable en extractos. (4) Los checks de duración/plan en `quoteFromSnapshots` siguen condicionados a `candidateLimits`/`accountBilling`; la sanidad del precio ya no depende de ellos, pero los límites de plan siguen siendo configurables. No se declara probado ACK, cobro, producción ni revocación Firebase; `aiPilot`/`simulationOnly` siguen gates de piloto.
+BLOQUEOS: ninguno
+=== FIN RESUMEN ===

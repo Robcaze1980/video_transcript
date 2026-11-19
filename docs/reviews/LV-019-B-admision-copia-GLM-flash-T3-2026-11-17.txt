@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: BACKEND SHA256=31d40ae5d3ef555897443e42545e1d27339087e3eb56f3cf1019216d6e0a2507. `recheckExternalBillingAdmission` y `fenceExternalBillingRelease` copian los cuatro campos (`provider`, `identityKey`, `reservationId`, `seconds`) antes de `runTransaction`, validan la copia y en todas sus ramas usan `authorizedBilling`, incluida la validación de trabajo previo vía `verifiedExternalJob`. No se releen las propiedades del objeto original tras la copia. `settleExternalBillingIntent` no recibe tupla de facturación. Los controles informados de 2 rutas cubrieron mutación en ambos sentidos, getters, campos extra y trabajo anterior, y pasaron; no ejecuté pruebas.
+NEGATIVOS: No es una cerca distribuida ni demuestra corrección en otras rutas. No hay vía web ni Cuenta real probadas. Los extractos no incluyen verificación de programador/orden superior que garantice todas las llamadas futuras.
+BLOQUEOS: Ninguno nuevo para el escritor acotado; lectores de recuperación, conciliación `job_created`, otros escritores, scheduler, identidad cloud, POST en vuelo, eliminación del origen y producción siguen pendientes.
+=== FIN RESUMEN ===

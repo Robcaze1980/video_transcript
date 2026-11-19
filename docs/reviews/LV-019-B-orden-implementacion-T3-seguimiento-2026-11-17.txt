@@ -1,0 +1,22 @@
+Revisión documental de seguimiento sobre los dos textos adjuntos; sin herramientas, sin edición, sin acreditación de producto.
+
+**Correcciones verificadas frente al FALLA anterior**
+1. **Evidencia ya obtenida vs. pendiente — corregido.** MASTERPLAN §4.1 ahora distingue lo comprobado en emulador con cuenta simulada (rechazo sin saldo, repetición, liberación por cancelación) de lo faltante (captura y recuperación transaccional, cobro sin trabajo, bloqueo de proveedor sin reserva, integración visual). HANDOFF «Próximo trabajo» punto 1 ya no pide probar de cero lo PASS: pide «ampliar al recorrido completo la evidencia focalizada ya obtenida». Coherente con §2 (Saldo local, PARCIAL).
+2. **Estado ambiguo de revisión — corregido.** Desapareció «pendiente/en curso»; HANDOFF ahora declara un estado único: «Falta revisión T3 del código final de saldo». El FALLA del 17 nov queda correctamente como histórico sobre el texto anterior, sin borrarlo.
+3. **Frescura de HANDOFF — corregido.** Título fechado 17 nov; «Fuentes» incorpora los informes del 17 nov (cobro, plan de producción y orden de implementación) además del reassessment del 16 nov. La redacción de MASTERPLAN §4.1 ya no sugiere que todo el emulador está por verificar.
+4. **Criterio captura-sin-trabajo — unificado.** Condiciones de cierre punto 1 ahora exige «reproducir y corregir la gestión… conservar el incidente visible… impedir un segundo cobro… probar recuperación sin visitas», alineado con Criterios de producción («resolver el caso… conservar la incidencia… impedir nuevos cargos por reintento… recuperación automática incluso sin nuevas visitas»). Mismo estándar pre-gateway en ambas secciones.
+5. **Revisión T3 por etapa — incorporada.** MASTERPLAN §6 añade revisión enfocada T3/Qwen por etapa, comprobación de Codex, registro de evidencia antes de continuar y ciclo corrección→re-revisión, sin sustituir pruebas. Cubre los pasos 2–4 que antes carecían de checkpoint explícito.
+
+**Diferencias concretas entre textos (no bloqueantes)**
+- «Presupuesto aprobado»: Condiciones de cierre punto 5 y Criterios de producción lo citan para capacidad/aviso de gasto, mientras «Autorización vigente» solo registra la estimación del gateway como base. Conforme a tu instrucción, no infiero exigencias nuevas de aprobación; queda como diferencia de referencia documental: los criterios citan un presupuesto cuya decisión no está enlazada en los textos adjuntos. Sin cambio de alcance ni de tarifas.
+- HANDOFF Estado dice «prueba de navegador antes del gateway» y MASTERPLAN ubica el recorrido ES→EN desde navegador «antes de abrir el servicio». Se leen consistentes si la primera es la integración visual local con saldo (pendiente en §4.1) y la segunda la prueba online; conviene precisarlo en una frase para evitar doble lectura.
+- HANDOFF «Validación pendiente: Emulador focalizado 2/2…» etiqueta como pendiente una evidencia ya pasada; el detalle que sigue es correcto, solo la etiqueta es confusa. Menor.
+
+Secuencia, precios ($0.10/min texto, +$0.10/min voz), saldo en segundos, aislamiento, sin Cloud SQL, Drive/compras independientes y LV-E55 INCONCLUYENTE permanecen consistentes y sin duplicados divergentes. Los cuatro puntos del FALLA están corregidos.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: MASTERPLAN §4.1 (distinción verificado/faltante), Condiciones de cierre punto 1 y Criterios de producción (criterio unificado de captura sin trabajo), §6 (revisión T3/Qwen por etapa con ciclo de corrección); HANDOFF título 17 nov, Próximo trabajo punto 1 (evidencia ya obtenida reconocida; estado único «falta revisión T3 del código final de saldo»), Fuentes con informes del 17 nov. Revisión solo documental sobre textos adjuntos; no acredita producto ni pruebas ejecutadas.
+NEGATIVOS: Menores, no bloqueantes: «presupuesto aprobado» citado en criterios sin la decisión enlazada en los textos adjuntos (Autorización vigente solo registra base del gateway); doble lectura posible de «prueba de navegador antes del gateway» (HANDOFF) vs «antes de abrir el servicio» (MASTERPLAN); etiqueta «Validación pendiente» sobre evidencia Emulator 2/2 ya pasada.
+BLOQUEOS: Ninguno para continuar el paso 1 dentro de la autorización vigente; cierre de etapa sigue sujeto a las pruebas faltantes y a la revisión T3 del código final de saldo ya planificada.
+=== FIN RESUMEN ===

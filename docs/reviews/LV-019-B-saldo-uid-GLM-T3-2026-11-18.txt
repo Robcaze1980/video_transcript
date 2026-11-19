@@ -1,0 +1,18 @@
+Revisión completada sobre los fragmentos provistos, sin herramientas ni delegación.
+
+**Hallazgos:**
+- La verificación es fail-closed: inputs inválidos devuelven `false`/`not_found`; identidad y cuenta se leen en el mismo snapshot transaccional, y el comentario sobre coherencia de snapshot es exacto para `tx.get` en Firestore.
+- El recheck posterior a la consulta remota puerta correctamente el envío: si falla, no se envía ni el saldo remoto ni el local. `0` válido se preserva (`??` solo cede ante `null`/`undefined`; `accountBalance==null` no captura `0`).
+- `requirePilotBalance===true` exige `aiPilot===true && simulationOnly===true` con igualdad estricta; el runtime general no lo activa. Correcto.
+- El fallback `accountBalance ?? localBalance` sirve el local solo tras recheck exitoso; con `accountBilling` presente, `null` remoto falla cerrado.
+- Residual inherente: existe ventana entre el commit del recheck y `send`; no es eliminable con este diseño y no se afirma atomicidad con la red.
+- Punto fuera del fragmento a confirmar: que el retiro/reasignación de identidad escriba borrado o cambio de `uid`/`accountId` transaccionalmente. Si existiera un estado "revoked" con campos `uid`/`accountId` intactos, `verifiedUidAccountInTransaction` no lo detectaría (única vía de bypass plausible detectable).
+- `authorizeUser` se invoca dos veces (preamble y rama `ai`); la consulta remota ocurre antes del segundo chequeo — costo de cuota aceptado, sin fuga porque el envío queda tras el recheck.
+- Suposición no verificable en fragmentos: `diagnosticTransaction`/`diagnosticStage` no tragan errores de negocio; las 14 pruebas de fallo reportadas cubren ese riesgo.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Verificación transaccional identidad+cuenta en un snapshot con fail-closed; recheck post-remoto puerta el envío de ambos saldos; `0` válido y flags de piloto con igualdad estricta; fallback local solo tras recheck; 14 pruebas focalizadas reportadas por el solicitante.
+NEGATIVOS: Ventana TOCTOU residual entre commit del recheck y `send` (inherente, no bloqueante); bypass plausible si el retiro de identidad usara un flag con `uid`/`accountId` intactos (verificar ruta de escritura del retiro); wrappers de diagnóstico no auditados en fragmentos.
+BLOQUEOS: Ninguno.
+=== FIN RESUMEN ===

@@ -1,0 +1,18 @@
+**Hallazgo**
+- La construcción leased ahora usa solo los cuatro campos del lease (`leaseToken`, `leaseOwner`, `generation`, `leaseUntil`) y no propaga propiedades extra, en `server/commercial/firestoreBackend.ts:314`.
+- El CAS sigue comparando `updateTime`, estado, testigo, tupla financiera, lease y vigencia antes de escribir backoff (`server/commercial/firestoreBackend.ts:777-798`).
+- Las correcciones previas siguen presentes: `enqueue` no acepta evidencia `release_pending` (`server/commercial/firestoreAi.ts:59-61`) y las fechas ausentes/inválidas fallan cerrado sin normalizar (`server/commercial/firestoreBackend.ts:59-72`).
+- No encontré otra propagación no controlada del objeto `lease` en `capture`; los otros spreads relevantes usan testigos validados o datos internos.
+- El red cruzado demostró contaminación posible; la prueba corregida retorna evidencia del testigo original y el registro hacia otra cuenta es rechazado por incompatibilidad `accountId`/`intentId`.
+
+**Límites**
+- No ejecuté pruebas; solo leí los dos rojos, el log verde y el código.
+- La evidencia sigue siendo objeto interno, no capacidad autenticada; un actor interno con escritura arbitraria en Firestore no queda aislado.
+- La ventana entre captura y POST remoto sigue abierta. Falta cuarentena durable, migración legacy, otros escritores/outbox, scheduler e integración del selector.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Hashes verificados en `server/commercial/firestoreBackend.ts`, `server/commercial/firestoreAi.ts`, `server/commercial/billingFailureFence.emulator.mjs` y `server/commercial/billingFairQueueIntegration.emulator.mjs`. Red: `outputs/lv-video-billing-20261116/billing-lease-excess-props-red-20261117.log` y `billing-lease-cross-owner-red-20261117.log`. Verde: `billing-failure-fence-excess-fixed-first-20261117.log`, 34/34. Pruebas permanentes: `server/commercial/billingFailureFence.emulator.mjs:133-162`; construcción explícita en `server/commercial/firestoreBackend.ts:300-315`; CAS en `:777-798`; fence de estado en `server/commercial/firestoreAi.ts:59-61`; validación de fecha en `server/commercial/firestoreBackend.ts:59-72`.
+NEGATIVOS: Revisión estática y lectura de logs; no ejecuté pruebas ni accedí a nube. No certifica producción, migración legacy, otros escritores/outbox, scheduler ni integración del selector. El POST remoto sigue siendo posible tras un cambio local posterior a la captura.
+BLOQUEOS: ninguno para el alcance limitado del fence de evidencia leased y contaminación por propiedades extra.
+=== FIN RESUMEN ===

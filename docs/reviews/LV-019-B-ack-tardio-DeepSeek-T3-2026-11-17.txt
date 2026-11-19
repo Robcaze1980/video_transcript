@@ -1,0 +1,22 @@
+Thread mcp:d537cb62-71de-4c0b-b00a-858f0eb7cf45
+Auditoría de solo lectura sobre `8b8e3e4` + cambios locales. No ejecuté pruebas ni toqué archivos.
+
+**Invariantes del control nuevo**
+- Testigo antes de Account: `beginExternalBillingIntent` crea `billingIntentWitnesses` (`historyProtocol:1`, `baseline:'before_reservation'`) en la misma transacción que la intención, y solo entonces `enqueue` contacta Cuenta (`server/commercial/firestoreBackend.ts:247-248`, `server/commercial/firestoreAi.ts:55-58`). Solo `create`; sin `update`/`delete` sobre el testigo (`:247`, `:275`).
+- Sin backfill: `externalIntentWitness` exige `validStoredIntentWitness` y nunca rellena desde una ausencia (`firestoreBackend.ts:254-263`, `:73-75`).
+- Marker transaccional y conservado: `reserve` crea `billingIntentJobMarkers` + pasa la intención a `job_created` en la misma tx (`:570`); su existencia impide cerrar (`:274`, `:391`). No hay borrado de marker/testigo en producción.
+- Sin ACK inventado: timeout de `seal`/`settle` cae al `catch` exterior y solo registra fallo, sin cierre (`firestoreAi.ts:107-153`); un ACK confirmado se relee (`firestoreAi.ts:44-50`).
+- Mismo cierre/tupla: `identicalClosed → already_closed` (`:393-394`); discrepancia o ACK auténtico con tupla cambiada → incidencia + guard solo si `owner&&guardValid` (`:395`, `:401-409`).
+- Acción/estado sin normalización: `validIntentObservation` fija pares válidos (`:77-81`); `seal_status` conserva `action:'release'` con testigo terminal `seal` (`:382`, `:388`).
+- Cobertura alineada: idempotencia (`firestoreAi.emulator.mjs:199-205`), respuesta local perdida (`:207-215`), tupla cambiada (`:217-226`), testigo terminal ausente (`:259-265`), marker histórico (`:267-277`), legacy sin testigo (`:279-290`), caída tras ACK (`:292-302`).
+
+**Riesgos accionables**
+- Equidad del lector: `pendingExternalBillingIntents` concatena reservas antes de liberaciones y luego `slice(0,limit)`; con `limit=1` y cola sostenida de `reserve_pending` las `release_pending` quedan sin drenar (`firestoreBackend.ts:425-426`). El criterio de avance justo de LV-019-B (línea 46) no se cumple aquí.
+- Legacy invisible: una intención sin testigo (o con marker inconsistente) falla en `drain` solo con backoff, sin incidencia visible (`firestoreAi.ts:105` → `:150-153`; `firestoreBackend.ts:240`). La especificación exige visibilidad de filas legacy inválidas.
+- Guard no es cerca distribuida: entre `prepareExternalIntentTerminal` y el POST terminal puede cambiar el guard o la intención; un POST en vuelo no se detiene (documentado en `firestoreBackend.ts:280-284`). Pendiente reconocido, no bloqueo nuevo.
+- Menor: `pendingExternalBillingIntents` no filtra `provider`, y una fila de proveedor ajeno con estado `reserve_pending` acumula `attempts` sin diagnóstico (`:425`, `firestoreAi.ts:102`, `:150-153`).
+- Menor: el `incidentId` omite `observed.source`; `release_ack` y `seal_status` comparten incidencia y un replay con `observedState` distinto lanza `invariant` (`:383`, `:400`).
+
+Nota: la última línea de tu mensaje llegó truncada tras «exactamente:»; conservo el bloque final obligatorio ya establecido para este gate. No ejecuté pruebas: los 19 casos y el PASS de tipos son el reporte de Codex.
+
+EXACTAMENTE: dentro de LV-019.B, cierra solo con testigo durable, recibo coherente y ausencia demostrable de job; 404, reserved/released, timeout, cambio de intención o lease vencido exigen reconciliación o incidente, nunca cierre.

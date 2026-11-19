@@ -1,0 +1,17 @@
+**Hallazgos (alcance A)**
+- `jobAccounting` clasifica de forma durable por job (`jobAccounting` creado en la misma transacción que el job, modo `simulation`/`account_seconds`) y devuelve `unverified` ante fila ausente, forma incorrecta, campos desiguales o movimientos/outbox inconsistentes. Un job externo sin `externalBilling` no puede clasificarse como simulado: el modo simulado exige movimiento `reserve` exacto y ausencia de `externalBilling`/outbox.
+- Lectura de propietario/captura: `resultContext` valida cuenta, job, artifact e input dentro de la misma transacción; `availableManifest` exige `captureSettled` (captura real: movement terminal + `billing.state='settled'` + binding `attemptId` para capture; release con `attemptId` undefined no habilita resultados). `status`/`download` bloquean resultados si `unverified` o si `externalJobResultAllowed` falla.
+- Carreras: todas las lecturas de dinero/autorización ocurren en transacciones únicas (context/status/download/claim/billing del proveedor); `claim`, `beginInvocation` y el billing del proveedor revalidan `externalJobAdmissionAllowed` antes de tocar proveedor, cerrando la fuga al proveedor en el código mostrado.
+- Recuperación de ACK: `reserveWithRecovery` exige callback obligatorio (invariante), no reintenta reserve/proveedor, valida forma del jobId, relee el job y re-verifica con `verifiedPrior()` dos veces.
+- Dos jobs por cuenta: `billingOutbox`/`terminal`/`jobAccounting` son por `jobId`; la lectura de resultado usa `requireOpenAccount=false`, por lo que un guard bloqueado por la revisión de A no retira el resultado capturado de B.
+
+**Límites**
+- No evaluables: implementaciones de `backend.job`, `prior*`, `recheckExternalBillingAdmission`, `recordExternalBillingReview`, `captureDirectObservation`, `validStoredIntentWitness`, `matchesExternalBilling`, `validateArtifactPlan/Manifest`, escritura de terminal/settle y el resto de `invoke`.
+- La lectura de job en recovery no es transaccional; su corrección final depende de `verifiedPrior` (no mostrado). No se afirma detección de borrado conjunto de todos los datos. La revalidación de UID en transacción es gate separado (fuera de alcance). Sin ejecución de pruebas.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Fragmentos de `jobAccounting`, `externalJobLinksAllowed`, `resultContext`/`status`/`download`/`availableManifest`, `claim`/`beginInvocation`/billing de proveedor, `enqueue` y `reserveWithRecovery`: clasificación durable por job, gate de admisión en las tres fases previas a proveedor, resultados gated por captura asentada con binding de attempt, recuperación de ACK sin reintento y aislamiento por jobId entre jobs de la misma cuenta.
+NEGATIVOS: Lectura no transaccional de job en recovery mitigada solo por doble `verifiedPrior` (implementación no visible); `availableManifest` compara `expiresAtMs` con `Date.now()` y devuelve handle de objeto cuyo contenido puede sobrevivir al vencimiento (semántica documentada); rama simulation de `jobAccounting` no revalida campos adicionales del movimiento reserve.
+BLOQUEOS: Ninguno.
+=== FIN RESUMEN ===

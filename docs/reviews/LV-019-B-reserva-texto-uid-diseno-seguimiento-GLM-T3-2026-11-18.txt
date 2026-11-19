@@ -1,0 +1,26 @@
+**Correcciones aceptadas (parcialmente)**
+
+1. **Idempotencia — corregida en principio.** Misma clave remota para todos los reintentos de la misma solicitud lógica y observación distinta por intento/red/versión previa es correcto. Contraejemplo residual: si la clave es solo contenido (`UID+input+revisión`) sin `intentId`, un reintento legítimo tras completar la solicitud previa con el mismo contenido colisiona: el remoto devuelve la reserva vieja o rechaza. La regla «conflicto, no reintento» la cubre solo si la clave incluye el `intentId` o la solicitud marca explícitamente nueva intención.
+
+2. **Respuesta tardía — corregida.** Observada pero no atribuida ni aceptada si la autoridad cambió; el status posterior es evidencia distinta. Acepto que no exija ACK si hay protocolo verificado.
+
+3. **Residual: claim local de la clave antes del envío.** «reservationId determinista» deduplica solo si el remoto lo honra. Contraejemplo: dos workers procesan la misma solicitud con la misma clave; ambos consultan el ledger, ninguno registra envío aún, ambos envían. Si el remoto no implementa idempotencia por esa clave, hay dos reservas. Falta o bien claim/lease en el ledger antes del envío, o evidencia de que el remoto deduplica.
+
+4. **Residual: precedencia de evidencia para liberar.** Status remoto «activo» + autoridad local «revocado» → la revocación local gana y se libera. Status remoto «liberado» + autoridad local activa → liberar (el remoto gobierna la existencia de la reserva). Sin esta regla, UNKNOWN puede persistir indefinidamente o liberarse con evidencia contradictoria.
+
+**Invariantes adicionales**
+
+- La clave idempotente remota incluye `intentId`; el ledger registra claim, envío y respuesta de cada intento por separado.
+- Liberación por revocación local gana sobre status remoto; liberación por status remoto requiere respuesta directa de protocolo verificado, no caché ni testigo.
+- El ledger registra la clase de cada observación (`CLAIMED`, `SENT`, `OBSERVED`, `VERIFIED_STATUS`, `REVOKED`) y la revisión de autoridad al momento.
+
+**Prueba imprescindible**
+
+- Reenvío simultáneo de la misma clave por dos workers con el remoto sin idempotencia → debe fallar por claim local, no crear dos reservas.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Auditoría razonada de la propuesta de corrección; sin acceso a repositorio ni herramientas, según instrucción.
+NEGATIVOS: Clave idempotente sin confirmación de que incluye `intentId` ni claim local previo al envío, con riesgo de doble reserva si el remoto no deduplica; precedencia de evidencia contradictoria (revocación local vs. status remoto) no especificada; fuente única de autoridad para «esta cuenta es dueña de este UID en revisión R» sigue dividida entre video y cuenta sin token unificado en el ledger.
+BLOQUEOS: No habilitar el endpoint hasta confirmar que la clave remota incluye `intentId`, definir claim/lease local o evidencia de deduplicación remota, especificar precedencia de evidencia para liberar, y unificar la autoridad de propiedad en una fuente registrada con revisión.
+=== FIN RESUMEN ===

@@ -1,0 +1,19 @@
+Fecha: 17 nov 2026 (PST).
+Seguimiento único y acotado sobre descarga en vuelo tras retirada de acceso.
+T3: mcp:d288a06c-33e4-425d-b4b2-65fee712b742, turno 3; proveedor linguistvision-openrouter; modelo solicitado ~z-ai/glm-flash-latest. Modelo servido, tokens y costo: no medidos.
+Prompt SHA-256: 483fc1f1ee3989042599411edffd3428e8014147968fdba4f3985670b35b6f46.
+Entrada sintética, resultado JSON y logs rojo/verde: outputs/lv019-b-editor-hardening-20261117/.
+Este PASS se limita a la carrera sintética revisada. No acredita IAM, servicio real, audio en el modo estructurado, teléfono físico ni retirada de bytes ya entregados. La feature continúa apagada y el router no está registrado.
+
+Informe íntegro del revisor:
+**Seguimiento puntual**
+- La referencia síncrona queda cercada: se captura antes, se revalida en `assertCurrentResult` y se compara por identidad después de recibir bytes (`server/commercial/web/cloudCandidate.tsx:163-164`, `:165`). La creación de URL/anchor ocurre solo después de esa cerca.
+- Invalidación correcta en sesión, nueva subida, borrado y `onAccessLost` (`server/commercial/web/cloudCandidate.tsx:97`, `:130`, `:159`, `:207`). El test verde reproduce exactamente el race previo y confirma que no hay URL ni anchor.
+- Quedan como límites declarados: bytes ya entregados no se revocan, audio no se probó y sigue sin evidencia de IAM/servicio real.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `cloudCandidate.tsx:48`, `:97`, `:130`, `:159`, `:163-165` y `:207` implementan cerca antes/después de bytes; prueba verde `8e7de374...` demuestra que la descarga retenida no crea URL ni anchor tras ACK+denegación.
+NEGATIVOS: No revoca bytes ya entregados; audio en modo estructurado no probado; IAM, servicio real y teléfono físico no demostrados.
+BLOQUEOS: Ninguno adicional para este hallazgo; la característica sigue apagada y el router no registrado.
+=== FIN RESUMEN ===

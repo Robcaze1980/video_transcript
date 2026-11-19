@@ -1,0 +1,2 @@
+Thread mcp:70178ca6-025d-4219-81a6-4faa4ef577bc
+Thread mcp:70178ca6-025d-4219-81a6-4faa4ef577bc stopped with status failed: stream disconnected before completion: This request requires more credits, or fewer max_tokens. You requested up to 131072 tokens, but can only afford 25658. To increase, visit https://openrouter.ai/settings/credits and add more credits

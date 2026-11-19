@@ -1,0 +1,15 @@
+**Corrección confirmada sobre el bloque ACTUAL:**
+
+- No existe salida `already_settled` para `after_ack` en este bloque. Toda la ruta after_ack que llega a la transacción retorna `{state:'needs_review', ownerBlocked, incidentId:key}`.
+- Fila settled + dueño verificable: la condición `current.get('state')!=='settled'` impide modificar la fila terminal, pero el `owner` se calcula igual y se le aplica `guard.blocked=true` y `intent.state='needs_review'` (si `intentState==='job_created'`), y se crea hold si no existe. Es decir: el doble ACK no reescribe evidencia, pero **sí bloquea al dueño verificado** y crea/actualiza incidencia.
+- Fila settled + dueño no verificable: solo incidencia con `attribution:'unverified'` y `outboxPresent:true`; ni guard ni intent son tocados.
+- La fila settled queda intacta (evidencia preservada), pero cada ACK subsiguiente actualiza `lastObservation` de la misma incidencia (solo persiste el último).
+
+Mi resumen anterior erró al afirmar convergencia a `already_settled`: esa rama estaba en la versión antigua y ya no está aquí. El comportamiento actual es conservador: segunda liquidación reconocida localmente como `settled` genera incidencia y bloqueo del dueño.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: En el bloque actual, ninguna rama after_ack retorna `already_settled`: siempre se crea/actualiza incidencia y se retorna `needs_review`. Fila settled no se modifica (`current.get('state')!=='settled'` excluye el update), pero dueño verificable recibe guard.blocked=true, intent needs_review (si job_created) y hold nuevo; dueño no verificable solo genera incidencia `unverified`. Hashes backend d4c22b6e054ecba9d0e4414bb66e59eaa92a8dc3309eec424ab174db0dcdb5c6, AI 799090f6297ea91be514d2b13d4de51edf91f2cebc99d4effe2b8817cfb65340.
+NEGATIVOS: Doble ACK sobre fila ya settled crea incidencia y bloquea al dueño verificado (conservador, no deduplicado localmente); `lastObservation` se sobrescribe con cada ACK, solo persiste el último; ACK y snapshot in-memory no autenticados; documento `input` fuera de los 14 comparados; no se asume idempotencia de Cuenta ni reversión de la llamada enviada.
+BLOQUEOS: Justicia scheduler/outbox sigue siendo gate pendiente; no se asume atomicidad Cuenta↔video.
+=== FIN RESUMEN ===

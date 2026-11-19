@@ -1,0 +1,21 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+
+EVIDENCIA:
+- La cerca `narrationRequiresReview` cubre `narration:*` y `externalJobAdmissionAllowed` la aplica antes de validar vínculos externos.
+- `claim`, `claimDispatch`, `aiDispatchEligible`, `beginInvocation`, `invoke`, `uploadResults`, `stage/fail/finish/cancel/recover/quarantine/reconcile` bloquean o difieren los jobs marcados; los despachos usan defer durable.
+- `uploadResults` reabre la transacción antes de cada objeto y valida dueño, job, plan, entrada, guard, attempt y lease; calcula hash y copia el buffer antes del put.
+- `stageArtifactReceipt` exige transacción y replay por hash; `quarantineExternalBillingOutbox` conserva filas terminales y crea incidente/hold/guard.
+- No identifiqué bypass de ejecución o liquidación para `narration:*` en los caminos expuestos.
+
+NEGATIVOS:
+- Estados parciales siguen posibles tras un put o provider ya enviado; no hay cancelación retroactiva, solo retención y reconciliación.
+- Un resultado pagado solo en memoria no es recibo durable; la evidencia persistente depende del stage/upload.
+- Jobs `narration:*` en `invoking` o con lease vencida quedan retenidos porque también se rechaza `recover`, `finish` y `cancel`. Liberar voz probadamente no iniciada requiere protocolo futuro.
+- La copia/hash protege contra mutación del buffer en proceso antes del put, no contra efectos ya irreversibles.
+- No puedo demostrar ausencia total de inanición global sin el planificador completo.
+
+BLOQUEOS:
+- Revisión estática de fragmentos; no ejecuté pruebas ni validé cobros, objetos ni IAM reales.
+- Los invariantes finales dependen de implementaciones no mostradas (`externalJobLinksAllowed`, `settle`, `context`, `publishableManifest`, `putArtifactOnce`, billing).
+=== FIN RESUMEN ===

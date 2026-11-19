@@ -1,0 +1,14 @@
+**Punto 1 — `seal_status:released`**
+- Admito el cierre condicionado. No hay razón técnica para exigir revisión si la respuesta de Cuenta es autenticada, la reserva coincide exactamente, la historia `seal` local es verificable, la versión previa no cambió, dueño/guard son válidos y no hay trabajo. En ese caso, el estado remoto es definitivamente `released`; exigir revisión solo generaría ruido sin proteger contra pérdida real.
+- No debe cerrarse si falta cualquiera de esas condiciones. La diferencia de acción (sello vs. liberación) no es motivo de incidencia si el resultado remoto y la identidad son inequívocos.
+
+**Punto 2 — Captura en memoria vs. persistencia**
+- En un único ensayo local, la captura previa y la relectura final pueden residir en memoria mientras la transacción y el proceso viven: es suficiente para validar que no hubo cambio durante la llamada.
+- Persistir la captura o el identificador de intento es requisito para producción: cubre caída tras el POST y antes del commit local, y permite repetición segura con la misma historia. Para el prototipo local no es necesario; para producción sí lo es.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: El contrato de `AccountStore.seal` devuelve `released` si la reserva ya está liberada y coincide identidad/ID/segundos; con validación completa de autenticidad, historia, versión, dueño y ausencia de trabajo, ese resultado permite cierre local sin ir a revisión. La captura puede ser memoria en un ensayo único y debe ser persistente solo para recuperación tras caída.
+NEGATIVOS: No está implementado ni probado. El cierre condicionado depende de que todas las validaciones se cumplan; si alguna falta, sigue revisión. La persistencia de captura sigue siendo requisito pendiente para producción.
+BLOQUEOS: Implementar validación exacta para el cierre condicionado y definir qué se persiste para repetición segura antes de activar. No es producción lista.
+=== FIN RESUMEN ===

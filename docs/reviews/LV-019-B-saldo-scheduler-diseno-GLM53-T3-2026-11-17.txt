@@ -1,0 +1,22 @@
+El diseño propuesto es correcto, con condiciones estrictas de activación.
+
+- **Problema actual**: cada lane consulta por estado con `limit(100)` antes del filtro de fecha (`server/commercial/firestoreBackend.ts:322`, `:553`). Una lane puede llenarse con 100 no vencidas y ocultar vencidas, especialmente `release_pending`; la concatenación prioriza reserves sobre releases y outbox pending sobre retry.
+- **Escritores**: exigir `nextAttemptAt` en todo documento nuevo es correcto, pero no sustituye migración. Los escritores antiguos pueden seguir creando filas sin campo mientras conviven versiones.
+- **Migración**: paginar por ID con cursor es válido. Cada transacción debe reescribir solo si el campo está ausente (`Object.hasOwn`/`!exists`), para no aplastar `nextAttemptAt` recién escrito. Guardar checkpoint durable y reanudar por ID; no activar el lector nuevo hasta confirmar cierre de escritores viejos y revisar todas las páginas. Campos corruptos deben ir a cuarentena/incidencia, no al lector.
+- **Lector indexado**: consulta por cada estado con `state == X` y `nextAttemptAt <= now`, ordenada por `nextAttemptAt,id`, es el diseño correcto. No se puede activar solo porque Firestore Emulator acepte la consulta; el índice compuesto debe existir y verificarse en Firestore real antes de deploy.
+- **Equidad con `limit=1`**: la rotación durable es necesaria. Se recomienda un cursor/epoch por lane, avanzado solo tras procesar o diferir la fila, con renovación monotónica. Sin ella, el mismo documento antiguo puede dominar y starvingar otras clases.
+- **Workers simultáneos**: hace falta claim transaccional con lease y fencing token. La lectura sola no reserva la fila: dos workers pueden ver la misma outbox/intent y llamar Account. Los efectos remotos deben ser idempotentes por `reservationId`/tupla; el local debe aceptar solo el token ganador.
+- **ACK perdido**: tras Account commit, crash antes de update local, el reintento debe llegar a un estado remoto idempotente (`already captured/released`) o consultar status. Para intents, la recuperación ya usa status; para outbox, la tupla evita capturas distintas, pero sigue faltando un claim explícito.
+
+Intercalados críticos:
+- Migración lee fila A sin campo; escritor nuevo crea A con campo; migración transaccional debe detectar presencia y no sobrescribir.
+- Dos workers leen la misma vencida; ambos llaman release/capture. Account idempotencia evita doble saldo, pero sin fencing pueden escribir resultados locales contradictorios o cuarentenar una operación exitosa.
+- Worker pierde ACK; reintento con misma tupla debe ver estado ya liquidado y no reportar fallo.
+- Lector nuevo con campo ausente puede omitir filas legacy; por eso migración y cierre de escritores son previos.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática solo del diseño. Consultas actuales en `server/commercial/firestoreBackend.ts:322` y `:553`; drenaje en `server/commercial/firestoreAi.ts:74`; contrato en `docs/specs/LV-019-B-video-text.md:46`. La propuesta de escritores, migración transaccional, lector indexado, rotación durable, claim con lease/fencing y validación de índices reales es coherente. No ejecuté pruebas ni consulté cloud.
+NEGATIVOS: No hay evidencia de índice real ni scheduler activo; la migración y cierre de escritores viejos siguen pendientes; sin claim/fencing, dos workers pueden duplicar efectos remotos idempotentes pero producir estados locales conflictivos.
+BLOQUEOS: Implementar migración paginada con checkpoint; cerrar escritores antiguos; crear/verificar índices compuestos; implementar rotación y claim transaccional con lease/fencing; pruebas de ambos workers y ACK perdido; verificación en Firestore real antes de deploy.
+=== FIN RESUMEN ===

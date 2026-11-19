@@ -1,0 +1,12 @@
+**Rectificación precisa**
+- `enqueue` no revalida el estado atómicamente con el POST remoto. Hace una captura transaccional previa (`firestoreAi.ts:59`), luego sale de Firestore y llama a Account (`firestoreAi.ts:61`). Si el intent cambia entre captura y POST, el POST ya capturado puede enviarse; no hay cerca atómica local+remota.
+- Mi frase anterior debe corregirse: el cambio posterior a la captura sigue posible y todavía puede coincidir con un POST ya en vuelo. Lo que evita la versión corregida es que una captura ya convertida a `release_pending` autorice un nuevo reserve, no que el POST antiguo no se envía tras un cambio posterior.
+- El spread `{...base, mode:'leased', ...lease}` es defecto real si `lease` es controlado por el llamador: propiedades `snapshotVersion`, `state`, `witness` y `mode` pueden sobrescribir la evidencia. El rojo observado lo demuestra; luego `recordExternalBillingIntentFailure` rechaza los cuatro registros y la fila queda intacta, pero eso no elimina el defecto de falsificación de evidencia.
+- El PASS anterior debe reconsiderarse: sigue siendo correcto para la carrera del rojo `captureState=release_pending` porque la captura no acepta ese estado como evidencia de reserve. Pero no cubre la carrera captura→cambio→POST ni el exceso de propiedades del lease. Por tanto, como candidata completa de fence, ya no sostengo PASS.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `outputs/lv-video-billing-20261116/frozen-fence-recheck-20261117/firestoreAi.ts:51-68`: captura previa en línea 59 y POST posterior en línea 61, sin transacción que una la validación local y la llamada remota. `outputs/lv-video-billing-20261116/frozen-fence-recheck-20261117/firestoreBackend.ts:300-315`: spread vulnerable en línea 314. `outputs/lv-video-billing-20261116/billing-lease-excess-props-red-20261117.log`: cuatro propiedades sobrescritas, cuatro registros rechazados, fila intacta, cero llamadas reales.
+NEGATIVOS: Solo lectura; no ejecuté pruebas ni accedí a nube. La falta de retorno falso (`null`) en los cuatro casos se debe a que los campos sobrescritos no coinciden con el estado real, no a una validación estructural. El lease local nunca cerca un POST remoto.
+BLOQUEOS: Añadir una revalidación local inmediatamente antes del POST no basta para atomicidad; se requiere un contrato aceptado para la carrera inherentemente distribuida. Construir la evidencia leased con campos explícitos y sin permitir que `lease` sobrescriba `snapshotVersion`, `state`, `witness` ni `mode`.
+=== FIN RESUMEN ===

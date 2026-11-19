@@ -1,0 +1,13 @@
+Huecos materiales:
+1. Los negativos de acceso solo exigen 404/401: un endpoint ausente, un `jobId` erróneo o una ruta mal formada darían el mismo 404, así que la prueba no distingue denegación de inexistencia; además la aserción de escritura ajena (`foreignSave`) aparece truncada y no muestra su resultado.
+2. Solo se validó descarga TXT vía `downloadPath` con `revision=2`; el SRT se verificó por clic de UI y no por API directa, sin comprobar cabeceras ni nombre servido.
+3. Nada cubre proveedor, archivos reales, Chrome instalado ni móvil físico, y el editor vive solo en el bundle de prueba con app publicada y runtime apagados.
+
+La evidencia sí respalda la conclusión sintética (1/1 PASS) dentro de ese alcance; no autoriza afirmar funcionamiento en producción.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Chromium Headless Shell aislado, Auth y Firestore Emulator demo, descargas reales TXT/SRT verificadas por contenido, guardar/reabrir, 401 con token inválido, 404 con segunda cuenta, limpieza de usuarios, raíz y perfil.
+NEGATIVOS: 404 no distingue denegación de inexistencia; aserción de escritura ajena truncada; SRT directo y cabeceras sin verificar; sin proveedor, archivos reales, Chrome instalado ni móvil.
+BLOQUEOS: Editor activo solo en bundle de prueba; app publicada y runtime apagados; guardia/proxy no es firewall del SO.
+=== FIN RESUMEN ===

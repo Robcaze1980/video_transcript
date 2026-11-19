@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `billableSeconds = job.price`; `authorize` exige `job.price === Math.ceil(duration)` con `duration > 0 && duration <= 600`, por lo que 2,0004 cobra 3 y 600 cobra 600; `durationMs = floor(duration * 1000)` solo representa la duración exacta en ms. El vínculo incluye `job.price`, `durationMs` y la fuente en `bindingHash`, y la salida copia el valor autorizado sin recalcularlo.
+NEGATIVOS: No se aborda la normalización/precisión flotante en el límite de segundos enteros; la cobertura mostrada no incluye ese caso-límite. Sigue sin probarse facturación real, autenticidad frente a escritura privilegiada coordinada ni integración cobro/IA.
+BLOQUEOS: Autoriza solo esta lectura interna y el cálculo expuesto; no autoriza reserva/cobro de voz, POST ni confianza en escrituras coordinadas privilegiadas.
+=== FIN RESUMEN ===

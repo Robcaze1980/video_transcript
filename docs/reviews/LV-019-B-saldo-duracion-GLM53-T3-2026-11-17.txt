@@ -1,0 +1,15 @@
+El contrato de duración queda coherente y sin bypass detectado:
+
+- Backend valida `expectedSeconds` 1–600 y lo compara con la reserva antes de mover saldo; la comparación precede a la rama idempotente (`server/account/backend.ts:147`, `server/account/backend.ts:158`, `server/account/backend.ts:161`).
+- HTTP exige exactamente `identityKey` y `seconds`, valida rango y permiso de settlement antes de llamar al store (`server/account/http.ts:13`, `server/account/http.ts:40`, `server/account/http.ts:42`).
+- Cliente envía `seconds` y rechaza respuestas con reserva/estado/segundos incoherentes (`server/commercial/accountBillingClient.ts:18`, `server/commercial/accountBillingClient.ts:20`, `server/commercial/accountBillingClient.ts:52`).
+- Los tres puntos de llamada en AI pasan los segundos autorizados (`server/commercial/firestoreAi.ts:92`, `server/commercial/firestoreAi.ts:102`, `server/commercial/firestoreAi.ts:109`).
+- Idempotencia es segura: repetir la misma acción con segundos correctos no duplica ledger ni mueve saldo otra vez (`server/account/backend.ts:161`, `server/account/backend.ts:162`).
+- Compatibilidad: no es interoperable entre versiones. API nueva + cliente viejo recibe `400` por falta de `seconds`; cliente nuevo + API vieja recibe `400` por campo inesperado. Ambos fallan cerrado, pero exigen desplegar Account API y worker/cliente de forma coordinada o aceptar liquidación detenida temporalmente.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática en HEAD `8b8e3e4`: `server/account/backend.ts:147`, `server/account/http.ts:40`, `server/commercial/accountBillingClient.ts:52`, `server/commercial/firestoreAi.ts:92`, `server/commercial/firestoreAi.ts:102`, `server/commercial/firestoreAi.ts:109`. Negativos cubren importe distinto (`server/account/backend.emulator.mjs:14`), ausencia de seconds (`server/account/http.test.ts:26`) y respuesta con segundos distintos (`server/commercial/accountBillingClient.test.ts:35`). Codex observó 3 casos AccountStore y 20 pruebas focalizadas; yo no ejecuté pruebas.
+NEGATIVOS: PASS limitado al contrato de duración. No cierra las fallas previas de outbox, cercas entre bases ni conciliación. La incompatibilidad de versiones es fail-closed, no funcional: cliente viejo contra API nueva no puede liquidar hasta actualizarse.
+BLOQUEOS: Despliegue coordinado Account API/cliente; outbox y cercas entre bases siguen pendientes; pagos reales y conciliación operativa siguen pendientes.
+=== FIN RESUMEN ===

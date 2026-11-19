@@ -1,0 +1,13 @@
+**Revisión enfocada**
+- Contaminación entre usuarios: mitigada en el código revisado. `videoBalance` verifica `identityKey` tanto en identidad como en cuenta; `videoReservation` verifica `ownerAccountId`, `identityKey` y `reservationId`.
+- Lectura faltante/corrupta: `account_not_provisioned`, `not_found` e `invariant()` cubren identidad, cuenta y reserva. `accountRecord` valida esquema, unidad, enteros, consistencia contable y límites.
+- Carrera: identidad y recurso/cuenta ahora se leen en una misma transacción de Account, eliminando el desgarro de lecturas separadas dentro de esa base.
+- Aislamiento temporal: la garantía es solo snapshot/consistencia de Account Firestore. No protege contra escrituras posteriores en la base de video ni contra revocación/captura después del snapshot.
+- Pendiente menor: el caso concurrente debería registrar el orden serializado observado o forzarlo determinísticamente; aceptar ambos órdenes es válido, pero reduce capacidad diagnóstica. Tampoco se verifica aquí autorización del llamador ni ejecución local de pruebas.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `videoReservation` y `videoBalance` agrupan identidad y recurso/cuenta en `runTransaction`; validan mapeo `uidKey -> identityKey`, `accountId`, propiedad y consistencia de `AccountRecord`.
+NEGATIVOS: Aislamiento limitado a Account: sin atomicidad con video DB ni protección frente a cambios/revocación posteriores. El test concurrente no registra el orden observado. No se validó autorización del llamador ni se ejecutaron las pruebas en esta revisión.
+BLOQUEOS: Ninguno para la corrección de lecturas de Account; definir contrato explícito si la respuesta debe reflejar revocación o estado actual del recurso de video.
+=== FIN RESUMEN ===

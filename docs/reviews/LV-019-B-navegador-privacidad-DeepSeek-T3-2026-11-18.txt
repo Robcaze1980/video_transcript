@@ -1,0 +1,19 @@
+Cierra brechas previas:
+- SRT ajeno directo: sí. El bucle sobre `txt`/`srt` tras cambiar de usuario exige 404 con cuerpo y cabeceras, no solo el TXT.
+- Cuerpos de error: sí. `assertDenied` compara el cuerpo serializado exacto contra `{"error":code}`, lo que impide campos extra o texto privado filtrado (a costa de depender del orden de claves).
+- Cabeceras: ampliadas a no-store, nosniff, content-type por formato, disposition con nombre, revision y length en éxito, y también en 401/404.
+
+Límites que persisten:
+- No se prueba token expirado ni petición sin token (solo token inválido); 401/404 no distinguen ajeno de inexistente (mismo cuerpo), correcto para no enumerar, pero no demuestra una rama 403.
+- Sin conflicto de revisión (`expectedRevision` obsoleto → 409), sin replay de `requestKey` para el dueño, sin segundo usuario tras retirar el video.
+- Cabeceras no exhaustivas (sin `WWW-Authenticate`, `Content-Length` en error, CORS/CSP, cookies) y capturadas desde la intercepción del navegador, no desde un cliente HTTP independiente.
+- `blocked`/`proxyAttempts`/`inflight` cubren la intercepción del navegador, no un firewall del SO.
+
+No veo afirmación excesiva si se limita a «sintético, sin móvil físico, IAM, proveedor ni producción».
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: 1/1 PASS en Chromium Headless Shell aislado, Auth/Firestore Emulator demo, fixture sintética; bytes TXT/SRT exactos (UI y directo), cabeceras por formato en 200/401/404, cuerpos de error exactos, 404 ajeno en GET/descarga/escritura con proyecto, recibos, saldo y providerCalls sin cambios, 404 tras retirada con UI limpiada, drenaje de inflight y proxyAttempts 0.
+NEGATIVOS: token expirado y sin-token no probados; rama 403 inexistente; conflicto de revisión 409; replay de requestKey del dueño; segundo usuario tras retirada; cabeceras no exhaustivas y capturadas en navegador; sin proveedor, archivos reales, Chrome instalado, móvil físico, IAM ni producción.
+BLOQUEOS: guardia/proxy no es firewall del SO; editor solo en bundle de prueba, app publicada y runtime apagados.
+=== FIN RESUMEN ===

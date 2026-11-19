@@ -1,0 +1,16 @@
+**Rectificación**
+- Mi PASS anterior quedó invalidado por los dos rojos descritos: la captura aceptaba un cambio posterior a `recheck` y una fecha corrupta podía llegar a Account antes de ser normalizada.
+- En la versión corregida, `enqueue` exige `failureEvidence.state === 'reserve_pending'` antes del POST (`server/commercial/firestoreAi.ts:59`), por lo que el cambio a `release_pending` después del recheck impide el reserve.
+- `captureExternalBillingIntentFailureEvidence` valida fecha ausente/inválida con `externalIntentTransitionDue` (`server/commercial/firestoreBackend.ts:300`), sin normalizar ni ocultar el registro corrupto; el drenador falla cerrado sin llamar Account (`server/commercial/firestoreAi.ts:107` y `server/commercial/firestoreAi.ts:164`).
+- Un ACK verificado no se bloquea por fecha corrupta: `finishExternalBillingRelease` lo mantiene idempotente tras otro claim (`server/commercial/firestoreBackend.ts:470`, `server/commercial/billingFailureFence.emulator.mjs:296`).
+- No, no se oculta sin alerta: las operaciones lanzan `LedgerFault('invariant')` y los tests afirman que fila, saldo y llamadas permanecen intactos. falta cuarentena durable, pero el fallo es audible y sin escritura.
+- El alcance de mi PASS cambia: ahora es acotado a fence de errores de intent, validación de programación, transiciones y ACK local. No cubre scheduler, selector ni producción.
+
+No ejecuté pruebas; solo leí los logs y fuentes congeladas.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Hashes verificados en `server/commercial/firestoreBackend.ts`, `server/commercial/firestoreAi.ts`, `server/commercial/billingFailureFence.emulator.mjs`, `server/commercial/billingFairQueueIntegration.emulator.mjs` y `server/commercial/firestoreAiBilling.test.ts`. Rojo inicial: `outputs/lv-video-billing-20261116/billing-enqueue-fence-capture-race-red-20261117.log` (1 reserve simulado) y `outputs/lv-video-billing-20261116/billing-corrupt-due-red-20261117.log` (1 status simulado). Corregidos: `billing-enqueue-fence-capture-race-fixed-20261117.log` (0 llamadas simuladas, Account real 0) y `billing-corrupt-due-fixed-20261117.log` (0 status simulados, fecha queda `'corrupt'`, `attempts` 1). Focalizadas: `billing-failure-fence-two-reds-fixed-first-20261117.log`, 32/32.
+NEGATIVOS: Solo lectura; no ejecuté pruebas ni accedí a nube. El log es la primera corrida observada, no una certificación de pruebas finales. Fecha invalidada no recibe cuarentena durable; falta migración legacy, otros escritores/outbox, scheduler, conexión del selector y validación de producción. Un lease no cerca POST remoto y un cambio posterior a la captura sigue posible, aunque ya no autoriza el POST antiguo.
+BLOQUEOS: ninguno para el alcance acotado del fence de errores de intent y validación de programación.
+=== FIN RESUMEN ===

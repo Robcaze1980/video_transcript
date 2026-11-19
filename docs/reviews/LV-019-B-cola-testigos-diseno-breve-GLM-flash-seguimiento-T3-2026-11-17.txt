@@ -1,0 +1,15 @@
+**Sin contradicciones internas detectadas.** Los hallazgos previos (checkpoint atómico, condicional de reclamo, `unavailable`, idempotencia de incidencia, reloj no decidido) quedan cubiertos en el texto.
+
+**Huecos restantes**
+
+- `unverified`: se define la incidencia durable pero no el estado final de la entrada (¿retirarla como `needs_review` tras validarla, o reprogramarla?). La rama de resultado queda ambigua.
+- `not_found` persistente (testigo `prepared` abandonado tras caída antes del POST): reprograma con backoff y alerta por edad indefinidamente; no hay política de dead-letter ni tope de reintentos.
+- Barrido: no se declara instancia única ni idempotencia de la barrera; dos barridos simultáneos podrían duplicar barreras o competir por el checkpoint sin protocolo de exclusión.
+- El bloqueo de reloj de producción está reconocido y es coherente con el alcance del prototipo.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: «dentro de la misma transacción releer la fila» (reclamo condicional); «Avanzar el checkpoint solo en la misma transacción» (barrido); «su única llamada a Cuenta es la lectura /resolution» (carril de solo lectura); «ID determinista por tipo y terminalId» (incidencia); «Un timeout o error de transporte… conservarlo como unavailable»; «La fuente de tiempo de producción y el margen de skew siguen sin decidir».
+NEGATIVOS: revisión solo textual; sin pruebas ni código; comportamiento de `unverified`, terminación de `not_found` y exclusión de barrido no especificados; producción explícitamente bloqueada por reloj no decidido.
+BLOQUEOS: estado de entrada tras `unverified` sin definir; falta política de dead-letter para `not_found` perpetuo sobre testigos `prepared` abandonados; barrido sin declaración de instancia única ni idempotencia de barrera.
+=== FIN RESUMEN ===

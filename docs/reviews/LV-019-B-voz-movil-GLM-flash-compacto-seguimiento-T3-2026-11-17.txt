@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Cancelación visible solo en `pending(op)` sin `cancelPending`, independiente de `wantsVoice`; `cancelJob` llama a la API, mantiene cancelación ambigua con `cancelPending`, consulta estado y actualiza saldo. `chooseVoice` sincroniza ref/estado y evita solicitudes si la voz queda apagada. `simulation` sin USD es diseño válido; cotización y conflicto de modo siguen validadas.
+NEGATIVOS: Solo UI candidata local. No verifica servidor, cuenta, dispositivos, producción ni liberación real de saldo; el ensayo Chrome no prueba esto. No ejecuté los 18 casos, tipos ni build. La lógica de `api.cancel`, `resolveCancellation` y `book.cancelPending` queda fuera del extracto.
+BLOQUEOS: Ninguno para el alcance de UI; permanece pendiente verificación móvil y servidor.
+=== FIN RESUMEN ===

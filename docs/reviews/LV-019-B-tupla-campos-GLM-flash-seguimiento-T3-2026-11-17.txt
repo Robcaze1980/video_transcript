@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `copyExternalBilling` conserva solo `provider/identityKey/reservationId/seconds`, y begin/read/reserve revalidan la copia. `intentWitness` construye la tupla exacta; `billingIntent` exige identidad, requestKey y coincidencia de los cuatro campos; `verifiedExternalJob` valida fingerprint, jobId, job y tupla; `reserve` usa el `jobId` local para job/outbox/marker. `context` exige que job e input pertenezcan a la cuenta y devuelve `jobRef`; `settle` usa `jobRef.id` y crea outbox con la tupla copiada y `accountId` ya comprobado. Pruebas informadas: 3/3 negativos originales, 3/3 focalizadas, video 153/153 y cercas 34/34.
+NEGATIVOS: Revisión estática y con extractos; pruebas no ejecutadas. Solo cubre los flujos presentados: no evalúa todas las rutas de cobro, escritores privilegiados, alteración concertada de registros ni producción. Persisten los límites previos de recuperación tras caída posterior al ACK y antes de escritura.
+BLOQUEOS: ninguno para este alcance; recuperación tras caída posterior al ACK queda pendiente.
+=== FIN RESUMEN ===

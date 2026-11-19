@@ -1,0 +1,18 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+
+EVIDENCIA:
+- El bypass reproducido queda cerrado: tamaño/hash se fijan síncronamente antes del primer `await`; al recibir el plan se revalidan todos los archivos y, antes de cada `put`, se relee dueño/job/input/intento/plan/guard y se copia y rehash el buffer actual sin `await` intermedio.
+- La mutación posterior al put no afecta el objeto porque `putArtifactOnce` recibe la copia local.
+- Memoria acotada: máximo 5 archivos, límite individual y total por `AI_VOICE_BUDGET`, solo metadatos persistentes y una copia activa por put.
+- Clasifico el negativo como corregido para buffers internos; acepto la regresión 190/190 como reportada.
+
+NEGATIVOS:
+- Persiste la ventana inherente entre el commit de `readUploadPlan` y `putArtifactOnce`: guard/lease pueden cambiar después de la autorización y el put no es cancelable.
+- Un error o conflicto tras uno o más puts puede dejar objetos parciales sin limpieza resuelta.
+- Sigue sin recuperarse una respuesta pagada solo en memoria; el fence `narration:*` sigue siendo bloqueo conservador global y la liberación de voz no iniciada requiere protocolo futuro.
+
+BLOQUEOS:
+- Revisión estática; no ejecuté pruebas ni verifiqué GCS/IAM reales.
+- Contratos no mostrados deben cumplirse: hash síncrono, copia real en `Buffer.from`, validación de plan/manifest y `putArtifactOnce` idempotente con generación/tamaño consistentes.
+=== FIN RESUMEN ===

@@ -1,0 +1,18 @@
+**Revisión de la corrección (solo código visible):**
+
+- La transacción previa y la posterior ahora comparan 14 documentos por `createTime`/`updateTime` (`captureExternalBillingSettlement` + `terminalDocumentVersion`), cubriendo existencia, creación y actualización; `markExternalBillingSettled` relee los 14 **en la misma transacción** del `settled` y exige igualdad JSON exacta con el snapshot pre-POST. Cualquier escritura en esos 14 (incluida reescritura idéntica) falla la comparación → `false` → `quarantineExternalBillingOutbox` after_ack crea/actualiza incidencia con `remoteAck` y `settlementSnapshot`. Corrige la FALLA anterior de identity/intent/guard/intentGuard.
+- Carrera de cambio durante POST: detectada para los 14 (Firestore aborta si un documento leído cambió; en reintento la comparación de versiones falla). El `settled` y la verificación son atómicos entre sí. Correcto.
+- Dos cierres concurrentes: el primero liquida; el segundo obtiene mismatch de versiones → cuarentena → `already_settled` (outbox settled + tupla + clasificación). Converge sin incidencia falsa. Pero **ambos pueden llegar a POST** (no hay lease/claim): posible movimiento externo duplicado en Cuenta, y el segundo ACK se descarta sin incidencia ni registro.
+- Mutación in-memory del snapshot: la copia validada evita que una mutación provoque settle falso (requeriría que las versiones mutadas coincidan con el estado real de Firestore); solo podría causar cuarentena falsa. El snapshot no autentica nada (comentario del propio código lo reconoce).
+- ACK perdido por caída entre POST y `mark`: sin registro durable; el snapshot in-memory se pierde. El reenvío posterior depende de idempotencia de Cuenta (no visible). La llamada enviada no se revierte (correcto no afirmarlo).
+- La incidencia solo altera dueño **verificado** (`owner`): `guard.blocked` e `intent.needs_review`; si `owner` es null, solo crea incidencia y marca outbox `needs_review` (evidencia), sin tocar guard/intent de nadie. Correcto.
+- La clave de incidencia no incluye el ACK ni el snapshot: ACKs sucesivos para la misma tupla sobrescriben `lastObservation` (solo se conserva el último).
+- El documento `input` no está entre los 14: su mutación durante el POST no se detecta aquí.
+- Inconsistencia cosmética: el nombre `origin` (índice 12) corresponde en realidad a `billingIntentWitnesses`.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `markExternalBillingSettled` captura y compara 14 versiones de documento (createTime/updateTime, existencia incluida) en la misma transacción del settled; cambio en cualquiera → false → cuarentena after_ack con incidencia que conserva `remoteAck` y `settlementSnapshot`; dos cierres convergen a `already_settled` sin incidencia falsa; dueño no verificado no es alterado por la incidencia. Hashes backend d4c22b6e054ecba9d0e4414bb66e59eaa92a8dc3309eec424ab174db0dcdb5c6, AI 799090f6297ea91be514d2b13d4de51edf91f2cebc99d4effe2b8817cfb65340.
+NEGATIVOS: Ambos cierres pueden POSTear (sin lease): posible cobro externo duplicado cuyo segundo ACK se descarta sin incidencia; ACK perdido por caída no deja evidencia durable; documento `input` fuera de los 14 (su cambio durante POST no se detecta); ACK y snapshot in-memory no autenticados; clave de incidencia conserva solo el último `lastObservation`; drift posterior al settle se salta silenciosamente (`before_ack` sobre fila settled → `changed`).
+BLOQUEOS: Justicia scheduler/outbox sigue siendo gate pendiente; no se asume atomicidad Cuenta↔video ni reversión de la llamada enviada; idempotencia de Cuenta no verificable en este código.
+=== FIN RESUMEN ===

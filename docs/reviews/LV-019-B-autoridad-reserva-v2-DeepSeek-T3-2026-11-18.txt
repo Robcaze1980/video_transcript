@@ -1,0 +1,16 @@
+Riesgos concretos y corrección
+
+- **Época borrable (ABA real):** si el retiro borra el documento de vínculo y la generación vive en él, la reactivación recrea en g1; un escritor antiguo con g0 vuelve a coincidir y, si el UID se reasignó, el débito cae en otra cuenta. Corrección: contador de generación en documento aparte, no borrable (tumba), incluido en el read-set; retiro = sellar, no borrar.
+- **Pérdida de clave en el cliente = doble débito:** la propia §2.5 admite que la idempotencia solo cubre reintentos que conservan `requestKey` y delega el resto a la interfaz. Segunda pestaña, reintento tras borrar almacenamiento o cambio de dispositivo genera otro `logicalKey` → segunda reserva y segundo débito por una intención. Un guard de UI no es autoridad. Corrección: dedupe en Cuenta por `(identityKey, operation, sourceDigest, revision, seconds, catalogProfile)` con secuencia persistida en servidor; `requestKey` nunca aportado por el navegador.
+- **Conciliación por huella es circular:** la huella excluye `requestKey`; dos intenciones indistinguibles (mismo archivo, misma revisión, dos acciones deliberadas o un reintento tras pérdida) colisionan y la adopción puede atribuir la reserva A al job B. Corrección: adoptar solo por `logicalKey`; la huella nunca es prueba de correspondencia.
+- **El sellado cubre reserva, no admisión:** la barrera "rechaza una reserva tardía". Si la admisión se registra por `attemptId`/otro documento, sobrevive al sellado y el POST posterior crea trabajo sin reserva. Además «autorizar antes de cada llamada» es check-then-POST, no atómico. Corrección: un único documento de ciclo por `logicalKey` con contador de admisiones; el POST debe consumir un token de admisión emitido por Cuenta dentro de la transacción de barrera, no salir directo de Video.
+- **IDs aportados por el llamante:** `reservationId`/`attemptId` llegan en la solicitud; un tercero que conozca `identityKey`+`requestKey` puede pre-fijar el índice y desviar la liberación. Corrección: Cuenta nombra o deriva el `reservationId`; ignora el valor entrante en create.
+- **Anti-transferencia apoyada en retención pendiente:** la propiedad "nunca débito a otra cuenta" depende del índice lógico permanente; si la retención lo purga, la misma clave cobra a la cuenta vigente. Corrección: índice/tumba no purgables; purgar solo cargas.
+- **Coexistencia v1/v2:** sin dedupe entre versiones, una acción repetida durante el drenaje puede reservar en v2 tras un débito v1. Solo hay gate procedimental.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: contracjemplos derivados exclusivamente del texto de LV-019.B (§2.2, §2.5, §3, §4, §5, §7.4); sin ejecutar herramientas.
+NEGATIVOS: no hay implementación, pruebas ni evidencia de drenaje/retención; epoch, token de admisión y dedupe por huella no están demostrados; varias preguntas a T3 quedan inconcluyentes.
+BLOQUEOS: endpoint externo apagado; falta reconciliador y sync de revocación con Cuenta; sin prueba de historia ni de migración interrumpida; no declarar lista producción.
+=== FIN RESUMEN ===

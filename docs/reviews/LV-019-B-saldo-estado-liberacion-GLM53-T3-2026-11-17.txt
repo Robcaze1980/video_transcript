@@ -1,0 +1,19 @@
+**Hallazgos**
+- `resultContext` distingue correctamente `captureSettled` de `billingSettled`: `captureSettled` exige outbox `settled` con `action='capture'`; `billingSettled` también acepta `release` solo para `failed|cancelled` (`server/commercial/firestoreAi.ts:111-120`).
+- `status` usa `captureSettled` para el manifiesto, pero expone `billingState='settled'` según coherencia terminal. Así un job exitoso con outbox `release` muestra `pending` y sin resultados (`server/commercial/firestoreAi.ts:93-99`).
+- `download` usa el mismo `captureSettled`, por lo que `release` no habilita descargas de un job exitoso (`server/commercial/firestoreAi.ts:101-105`, `server/commercial/firestoreAi.ts:122-126`).
+- El test focalizado fuerza outbox `settled/action=release` en job exitoso, verifica estado `pending`, cero resultados y descarga `not_found`; luego restaura `capture` y habilita las descargas (`server/commercial/firestoreAi.emulator.mjs:105-113`). El positivo de cancelación verifica pending antes, settle/release después y estado `settled` (`server/commercial/firestoreAi.emulator.mjs:64-72`). No ejecuté estas pruebas.
+- Permisos y coherencia se mantienen: `resultContext` exige cuenta piloto/simulación, owner, perfil, input, artefacto y revision; `availableManifest` exige además input vivo, no borrado y binding por SHA/generation (`server/commercial/firestoreAi.ts:112-126`).
+- `unknown` no genera `billingOutbox` ni se incluye en `billingSettled`; queda `pending`, evita inferir liquidación (`server/commercial/firestoreBackend.ts:361-365`, `server/commercial/firestoreAi.ts:119`).
+
+**Negativos acotados**
+- Un outbox terminal `settled/action=release` sobre job `succeeded` se reporta `pending`; esto es fail-closed y evidencia de discrepancia, pero no la bloquea ni alerta por sí mismo.
+- La prueba muta directamente Firestore para simular el outbox; valida la cerca de lectura, no cómo se creó ese estado anómalo ni su reconciliación.
+- El cambio no resuelve captura sin job ni la carrera release/reserva concurrente; permanecen abiertos.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática solo lectura en HEAD `8b8e3e4`. `resultContext` separa `captureSettled` de `billingSettled` y `status/download` usan `captureSettled` para el manifiesto (`server/commercial/firestoreAi.ts:93-105`, `111-126`). La prueba de cuenta simulada fuerza `settled/action=release` en job exitoso y comprueba sin resultados/descarga, luego restaura `capture` como positivo (`server/commercial/firestoreAi.emulator.mjs:105-113`); la prueba de cancelación comprueba pending→release settled (`server/commercial/firestoreAi.emulator.mjs:64-72`). Codex reportó 2/2 PASS; no ejecuté las pruebas ni accedí a cloud.
+NEGATIVOS: `release` sobre job exitoso queda como `billingState=pending` sin resultados: fail-closed, pero la discrepancia no genera bloqueo/alerta por sí misma. La prueba muta Firestore directamente y no cubre reconciliación ni origen del estado anómalo. `unknown` permanece sin outbox liquidado y no se infiere liberación/captura.
+BLOQUEOS: Captura sin job, carrera release/reserva concurrente, barrera por cuenta, alerta/reconciliación de outbox incoherente, scheduler verificado, dinero real, gateway y recorrido móvil completo.
+=== FIN RESUMEN ===

@@ -1,0 +1,8 @@
+Antes de implementar se requieren: lectura de resolución autorizada sin escritura, fuente explícita para sello leído, barrido por testigos con cursor/retención, y re-chequeo de marcador/fence antes de la acción terminal.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `server/commercial/firestoreBackend.ts#validIntentObservation`, `#resolveConfirmedIntentObservation`, `#prepareExternalIntentTerminal`, `#pendingExternalBillingIntents`; `server/commercial/firestoreAi.ts#drainExternalBilling`; `server/account/backend.ts#videoReservationResolution`; `server/commercial/accountBillingClient.ts#resolution`.
+NEGATIVOS: El borrador no está implementado ni probado; no define autenticación de la observación, barrera previa a la acción del proveedor, retención mínima, cursor/índice de páginas ni política de reintento. No hay transacción entre bases ni suposición de objeto interno autenticado. Reserva, liberación y sello requieren tratamientos distintos.
+BLOQUEOS: 1) Un `sealed` leído no cierra porque `validIntentObservation` exige `seal_ack`. 2) Tras `not_found`, preparar/ejecutar `seal` puede sellar una reserva en vuelo o inexistente. 3) `pendingExternalBillingIntents` no recupera intención borrada/reemplazada ni testigo huérfano. 4) `prepareExternalIntentTerminal` no reevalúa el marcador de job antes de la acción del proveedor. 5) Bloquear solo con dueño verificado no está demostrado. 6) Paginación y retención sin orden, cursor ni borrado seguro.
+=== FIN RESUMEN ===

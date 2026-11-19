@@ -1,0 +1,21 @@
+## Veredicto
+
+Sí: el defecto de versión queda resuelto **en el alcance de este módulo**. Un literal fijado (`'ai-candidate-v1'`) no puede ser afectado por un salto del catálogo vivo, el decoder v1 conserva/valida intentos v1 en vuelo y rechaza v2 explícitamente; el requisito de "otro protocolo ⇒ decoder propio" cierra la puerta a aceptación cruzada silenciosa. La causa raíz (dependencia de una constante mutable en la ruta de idempotencia) desaparece por construcción, no por parche.
+
+**Riesgos concretos restantes (módulo, no caller)**
+- Ambiguidad de diagnóstico: un witness v2 y uno malformado colapsan en el mismo `ReserveAttemptEvidenceFault('invalid')`. No hay estado `unsupported`/`protocol_mismatch`, así que un error de enrutamiento del caller se ve idéntico a datos corruptos.
+- Fijación parcial: el decoder mantiene literales `operation==='translation:en'` y `provider==='account_seconds'`. Si alguno provenía de un enum vivo, el desacople quedó incompleto; hay que confirmar que también están pinneados a v1.
+- `copyVersions` sigue sin restringir `guard` (existe o no) y sin ligarlo a `intentGuard`. El módulo acepta y persiste `guard.exists:false` sin forzar aserción del llamador, por lo que borrado privilegiado y "feature deshabilitada" son indistinguibles en el borde del módulo.
+- Misma `reservationId` entre intentos es intencional, pero el módulo no detecta divergencia de `intentId`/`seconds` bajo una misma `reservationId`: dos intentos con la misma reservationId y distinto `seconds` validan ambos. La deduplicación real depende del POST remoto, no del módulo.
+- Case/IDs: `uuid` con `/i` (accountId/inputId) vs `uuidV4`/`hex64` sin `/i` (attemptId/reservationId/intentId/identityKey), sin normalización. El módulo nunca compara `witness.accountId/inputId` contra los IDs de documento que leyó, así que una divergencia de mayúsculas en la ruta Firestore es invisible aquí. Legacy mayúsculo sigue requiriendo inventario.
+- Codificación canónica de `createTime/updateTime`: `time` exige exactamente 9 dígitos de nanos y la igualdad es por string. Firestore no garantiza ese formato; si el llamador serializa sin relleno, el intento se vuelve `invalid`/falso `conflict` en la relectura.
+- Menor: `copyAck` se invoca por efecto y descarta el retorno; `witness`/`versions` se reconstruyen con `{}` (prototipo `Object`) en lugar de `Object.create(null)`.
+
+No afirmo integración del caller: verificación de identidad/guardas/versiones en la misma transacción, generación de `attemptId` fuera de la tx, espera de commit antes del POST, y "solo respuesta directa validada a `recordAck`" siguen siendo obligaciones externas no implementadas aquí.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: El defecto de versión (acoplamiento a `AI_CATALOG_VERSION`/tipo vivo) se elimina por construcción: perfil v1 literal, tipo propio v1, decoder que exige exactamente ese perfil y rechaza v2, conservando intentos v1 en vuelo. Ruta de idempotencia (`prepare`/`recordAck`) deja de depender de estado mutable. Evidencia: cambio descrito + 16 unitarias, no inspección directa del artefacto parcheado.
+NEGATIVOS: `invalid` no distingue protocolo no soportado; posible fijación parcial si `operation`/`provider` seguían ligados a enum vivo; `guard` sin restricción ni vínculo con `intentGuard` (borrado privilegiado indistinguible); sin detección de `reservationId` repetida con `seconds`/`intentId` divergentes; case inconsistente en regex y sin comparación witness↔doc-id; formato `seconds:nanos` asumido canónico; `copyAck` descartado; reconstrucción con prototipo `Object`.
+BLOQUEOS: Emulador en curso: semántica real de `tx.getAll`/`tx.create`, concurrencia de preparaciones/ACK sobre el mismo `attemptId` y mapeo de conflicto no verificados aquí. Auditoría sobre el cambio descrito, no sobre el código fuente parcheado; sin emulador no se certifica extremo a extremo.
+=== FIN RESUMEN ===

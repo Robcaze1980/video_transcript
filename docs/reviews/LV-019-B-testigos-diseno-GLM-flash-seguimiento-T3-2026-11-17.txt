@@ -1,0 +1,16 @@
+Corrijo mis dos afirmaciones previas: el borrador declara expresamente que `not_found` es ambiguo y no autoriza `seal` por 404, y `prepareExternalIntentTerminal` ya comprueba `jobMarker` dentro de su transacción; el límite real es la ventana entre esa lectura y el POST remoto, sin transacción entre bases.
+
+**Existente (acreditado por extractos):** validación de testigo/observación, preparación de terminal con lectura de `jobMarker`, cierre idempotente vía `already_closed`, bloqueo solo con `attributed` (dueño verificado) y resolución de lectura en Cuenta sin escrituras.
+
+**Diseño no implementado:** barrido por testigos terminales, fuente de lectura para cerrar por sello, autenticación de la observación, cursor/índices/retención de páginas.
+
+**Requisitos mínimos antes de implementar:** (1) fuente de lectura explícita en `validIntentObservation` con pruebas; (2) mecanismo de autenticación de la observación de Cuenta, no definido en los extractos; (3) cursor, índice, orden y retención del barrido; (4) cerca y re-lectura idempotente entre la preparación local y cada POST remoto, incluido el sello, aceptando que la ventana TOCTOU se mitiga pero no elimina; (5) verificación de las premisas sobre `AccountStore.videoReservation` y `sealVideoReservation`, que no aparecen en los extractos; (6) cobertura completa del bloqueo de dueño (casos de guard malformado, identidad cambiada, confianza del objeto) no acreditada.
+
+El borrador no contradice los extractos mostrados ni propone crear sello por 404, pero no puede aceptarse el flujo completo mientras esos mecanismos y premisas queden sin acreditar.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: `server/commercial/firestoreBackend.ts#validIntentObservation`, `#prepareExternalIntentTerminal`, `#resolveConfirmedIntentObservation`, `#pendingExternalBillingIntents`; `server/commercial/firestoreAi.ts#drainExternalBilling`; `server/account/backend.ts#videoReservationResolution`; `server/commercial/accountBillingClient.ts#resolution`.
+NEGATIVOS: No está implementado ni probado. Mecanismos clave indefinidos: autenticación de la observación, cursor/índices/retención del barrido, cerca previa al POST remoto. Dos premisas de código existente (`AccountStore.videoReservation`, `sealVideoReservation`) no aparecen en los extractos. Cobertura completa del bloqueo de dueño no acreditada. Sin transacción entre bases: la ventana entre lectura local y acción remota se mitiga, no elimina.
+BLOQUEOS: Ninguno concreto del borrador frente a los extractos mostrados; adopción condicionada a los seis requisitos indicados.
+=== FIN RESUMEN ===

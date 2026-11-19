@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `priorRequestForUid` valida UID primero (`verifiedUidAccountInTransaction`), lee cuenta y solicitud en la misma transacción (`tx.getAll`) y falla si la cuenta no existe; solicitud (`accountId`, `requestFingerprint`, `jobId` UUID) y trabajo (`accountId`, `inputId`, `requestKey`, `operation`, `revision`, `aiProfile undefined`, `jobAccounting === 'simulation'`) contrastados en esa misma transacción; `requestFingerprint` con `profile` falsy usa el vector `[inputId, operation, revision]`, idéntico en replay y reserva, cerrando el negativo de aridad.
+NEGATIVOS: ninguno nuevo en el alcance auditado; se mantiene la limitación reconocida de que la identidad retirada tras el commit no revoca el trabajo ya creado (fuera de alcance).
+BLOQUEOS: ninguno para los tres puntos verificados.
+=== FIN RESUMEN ===

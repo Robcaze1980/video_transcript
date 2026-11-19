@@ -1,0 +1,44 @@
+**Alcance evaluado**
+- Evalúo solo la transacción del escritor: origen nuevo, marcador por acción, creación del par y actualización transaccional. El scheduler, el esquema completo del consumidor, operación remota, legado, retención y producción siguen abiertos.
+- Con esa limitación, la propuesta es suficientemente precisa como base para una candidata local apagada y para probar el negativo de pérdida conjunta, siempre que se fijen los detalles mínimos indicados abajo.
+
+**Hechos y condiciones propuestas**
+- Hecho del diseño: el marcador viviría en el documento de origen; por tanto, si el origen se borra o sustituye, el marcador desaparece con él. El diseño lo reconoce y no debe presentarse como defensa frente a un escritor privilegiado.
+- Condición implementable: `billingIntentWitnesses/{intentId}` puede llevar un objeto exacto `{ protocol: 1, sealPrepared: false, releasePrepared: false }`; un campo ausente o con otro formato no se interpreta como `false`.
+- Condición implementable: `terminalId = hash(intentId, action)` y el par sería `billingIntentTerminalWitnesses/{terminalId}` + `billingIntentTerminalRecovery/{terminalId}`. `requests` y `billingIntentJobMarkers` quedan fuera del par y se comprueban aparte.
+- Condición implementable: marcador `false` + par ausente → crear par y marcar `true` en el mismo commit. Marcador `true` + par ausente, incompleto o incompatible → falla cerrada o revisión, nunca recrear ni POST.
+- Condición correcta: `seal` y `release` no son excluyentes; cada una conserva su marcador y su par. `job_created` mantiene la respuesta idempotente, no envía la acción y no cierra el par por inferencia.
+
+**Detalles que hay que fijar antes del prototipo**
+- Definir el esquema exacto del par para la fase inicial: campos, tipos, valores permitidos, ausencia de campos extra, vínculo a `intentId`/`terminalId`, `stage:'prepared'`, recuperación inicial, `createdAtMs` seguro y coherencia de `nextAttemptAt`. Puede reutilizarse la forma actual, pero el diseño debe decirlo.
+- Definir el caso marcador `false` con par presente: debe ser fallo cerrado o revisión; no puede tratarse como creación nueva.
+- Definir el caso origen ausente o alterado cuando la intención existe: fail closed, sin recrear origen ni inferir estado. Si desaparecen intención y origen juntos, el diseño solo puede tratarlo como intención nueva; ahí termina su capacidad de detección.
+- Precisar qué es “tarea” en cada lectura: al menos intención, origen, par, `request` y `jobMarker`; con qué combinaciones se considera válida la repetición.
+- Precisar el comportamiento de `job_created` cuando el par está pendiente o inconsistente: devolver `job_created`, registrar evidencia para conciliación y no cerrar, cancelar ni inferir resultado.
+- Aclarar que el origen previo ya usaba `historyProtocol=1` y `baseline='before_reservation'`; el nuevo objeto necesita discriminación explícita para no confundir escritores anteriores con escritores nuevos.
+
+**Validaciones de lectores antes de activación**
+- Ningún lector debe inferir `false` por ausencia del objeto, por ausencia del par o por un campo faltante.
+- Los lectores de recuperación y observación deben leer marcador y par juntos, verificar vínculos y clasificar marcador `true` con par ausente como incidente.
+- La regla actual `terminal.exists !== recovery.exists` deja de ser suficiente: es solo detección de asimetría, no prueba de estado válido.
+- Los lectores de `job_created` no deben cerrar ni asumir cancelación de un POST en vuelo.
+- Las comprobaciones de guard, expiración y borrado deben distinguir operación nueva de recuperación ya iniciada.
+- Los orígenes antiguos sin `terminalRecovery` deben requerir migración/conciliación, no adopción por inferencia.
+
+**Pruebas mínimas de la candidata apagada**
+- Marcador `true` y ambos documentos del par ausentes: falla, sin recrear.
+- Falta solo testigo o solo recuperación: falla.
+- Marcador `false` con par presente: falla.
+- Origen ausente o alterado con intención presente: falla.
+- Preparación concurrente de la misma acción: una crea, otra repite de forma idempotente.
+- Preparación concurrente de ambas acciones en ambos órdenes: ambos marcadores sobreviven.
+- Corrupción de campos, vínculos o protocolo: falla.
+- `job_created` con par pendiente o inconsistente: respuesta idempotente y evidencia, sin envío ni cierre.
+- Origen legado sin `terminalRecovery`: no se completa por inferencia.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: La transición limitada define documento de origen previo a Cuenta, objeto de marcadores obligatorios, par por acción, lectura y commit transaccional, conservación de marcadores, no exclusividad entre `seal` y `release`, y `job_created` idempotente sin envío ni cierre. Es base suficiente para una candidata local apagada y el negativo de pérdida conjunta si se fijan los esquemas y casos límite indicados. El código actual sigue FALLA porque puede recrear el par si terminal y recuperación desaparecen juntos.
+NEGATIVOS: El marcador no protege frente a un escritor que borre o sustituya el origen y otros registros; registrar preparación no prueba envío ni resultado; un job no prueba cancelación de un POST en vuelo; el origen eliminado junto con intención no puede detectarse por este mecanismo. El esquema completo del consumidor, scheduler, reintentos, legado, retención y auditoría siguen pendientes.
+BLOQUEOS: Especificar el esquema exacto del par y del objeto `terminalRecovery`, reglas para marcador `false` con par presente y origen ausente/alterado, definición exacta de la tarea leída, evidencia en `job_created`, cambios en lectores para no inferir `false` ni cerrar el par, y separación de operación nueva frente a recuperación. No es producción lista.
+=== FIN RESUMEN ===

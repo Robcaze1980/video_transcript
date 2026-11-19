@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `resolve` lee identidad y cuenta en una misma transacción y valida `uid`, `accountId`, `identityKey` e invariantes de `AccountRecord`; `read`, `list` y `ledger` filtran por `ownerAccountId`, revalidan pertenencia y cursors canónicos y `startAfter(time,id)`; las páginas son de solo lectura y no registran cuál de los dos órdenes serializables ocurrió.
+NEGATIVOS: No se detectaron bloqueos de aislamiento ni paginación en el código revisado. Riesgos no bloqueantes: signo y consistencia adicionales en `AccountRecord`/`ledger.seconds`, `updatedAtMs>=createdAtMs`, y necesidad de índices compuestos para las consultas actuales.
+BLOQUEOS: Ninguno.
+=== FIN RESUMEN ===

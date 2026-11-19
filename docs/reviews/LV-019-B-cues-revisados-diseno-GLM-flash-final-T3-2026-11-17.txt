@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Corrección aceptada: la lectura de GCS no es atómica con la transacción Firestore. Hash y generación guardados no garantizan que el objeto siga existiendo ni que su contenido no cambie tras la lectura; si se sustituye o borra y la referencia Firestore no cambia, el guardado no falla por sí solo. El diseño guarda bytes/cues validados derivados de la generación leída y su hash, revalidando el vínculo Firestore; exigir que el objeto siga existiendo requiere controles adicionales, versionado o retención verificables. Drafts planos legacy se conservan sin convertir ni borrar; el usuario elige fuente o resuelve, sin inventar tiempos ni presumir datos reales. Límites confirmados como acumulativos: máximo 4 KiB UTF-8 por cue Y límites totales de 64 KiB en SRT/draft.
+NEGATIVOS: El diseño no implementa retención ni versionado del objeto original; la persistencia de cues validados es lo que sostiene la revisión, no la existencia del objeto en GCS. La política de fuente legacy (elección del usuario) queda definida, pero no se describe la UI ni los mensajes de ese paso.
+BLOQUEOS: Ninguno para el diseño propuesto; la no-atomicidad GCS/Firestore queda declarada como límite, no resuelta.
+=== FIN RESUMEN ===

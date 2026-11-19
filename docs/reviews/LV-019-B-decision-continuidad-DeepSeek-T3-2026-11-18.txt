@@ -1,0 +1,22 @@
+1. **Riesgo (diseño):** sin pausa general, la alerta abre una ventana de consumo en la cuenta afectada. Control mínimo: marca durable por cuenta + límite/umbral de gasto durante la ventana. Negativa: varias reservas no atribuidas seguidas → alerta deduplicada y límite respetado, sin bloqueo global.
+
+2. **Atribución (diseño):** «verificada» debe exigir evidencia del titular, nunca heurística. Control: doble condición (prueba de titularidad + confirmación) para restringir; sin ella, solo alerta. Negativa: coincidencia parcial (nombre/email/teléfono) no bloquea la cuenta supuesta ni impide iniciar otro video.
+
+3. **Idempotencia del saldo (diseño):** «corregir una sola vez» requiere asiento único con clave de auditoría. Control: ledger/outbox con clave de idempotencia y estado `applied`. Negativa: replay o reintento no genera segundo ajuste; un ajuste parcial no se reaplica.
+
+4. **Alerta y evidencia (diseño):** entrega at-least-once duplica o pierde eventos. Control: dedupe por clave de reserva + outbox con confirmación y retención probatoria. Negativa: mismo evento dos veces → una alerta y un registro de evidencia, no dos.
+
+5. **Paso en curso «si sigue autorizado» (diseño):** autorización/saldo pueden leerse obsoletos y consumir con saldo ya invalidado. Control: revalidar autorización+saldo en el punto de efecto con lectura consistente; incertidumbre → revisión sin consumir. Negativa: timeout en la llamada de autorización → paso a revisión, sin segundo cobro/captura ni llamada duplicada.
+
+6. **Sin transacción distribuida (limitación implementada):** no hay atomicidad entre los dos servicios. Control: estados intermedios explícitos, reconciliación y compensación manual auditada, sin «rollback» implícito. Negativa: caída entre commits → estado recuperable y conciliable, sin doble liberación.
+
+7. **Hold de Cuenta (implementado):** bloquea captura y liberación; no es la restricción propuesta y no debe reutilizarse. Control: bandera separada, alcance «no iniciar videos nuevos» de la cuenta afectada, hold intacto. Negativa: un flujo con hold sigue liberando/capturando lo ya autorizado, y la nueva restricción no altera el hold.
+
+8. **Aislamiento multi-cuenta y separación de planos (diseño):** la restricción debe quedar acotada a la cuenta verificada. Control: prueba de aislamiento y de levantamiento tras resolver. Negativa: cuenta B inicia video mientras A está restringida; al resolver A no queda restricción residual. El estado implementado de cada pieza debe constar en backlog/bitácora; la devolución o ajuste al cliente es decisión comercial del usuario y la técnica solo garantiza auditoría e idempotencia una vez decidida.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: revisión basada solo en el texto de decisión LV-019.B; sin acceso a código ni registros, no verifiqué implementación, solo coherencia del diseño.
+NEGATIVOS: (1) N reservas no atribuidas → una alerta deduplicada; (2) coincidencia parcial no bloquea cuenta supuesta; (3) replay no reaplica ajuste; (4) evento duplicado → una alerta/evidencia; (5) timeout de autorización → revisión sin duplicar; (6) caída entre commits → conciliable sin doble liberación; (7) hold intacto; (8) cuenta B opera con A restringida y A se libera sin residuo.
+BLOQUEOS: ninguno para el análisis; las afirmaciones de estado implementado (hold, no-transacción) quedan condicionadas a evidencia del repositorio, no solicitada aquí.
+=== FIN RESUMEN ===

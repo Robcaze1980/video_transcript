@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `beginAs`, `statusForUid`, `appendAs` (antes y después de `putOnce`) y `completeAs` validan UID→cuenta dentro de transacción vía `verifiedUidAccountInTransaction`/`checkRequester`; las rutas HTTP mostradas invocan solo variantes `*ForUid` con `user.uid`. La revalidación post-`putOnce` verifica identidad, cuenta, estado, lease y offset antes de registrar el objeto. Se preservan idempotencia por `fileRequest`, chunk repetido por digest/size/generation, token de lease único y limpieza condicional al mismo token. No se afirma cancelación de objetos ya escritos: pueden permanecer con lease hasta recuperación.
+NEGATIVOS: No se ve en el fragmento `removeForUid`, el worker de recuperación/validation, `content` ni la verificación previa del token; se asume contexto autenticado conforme a lo indicado. Un fallo de transacción tras `putOnce` deja el objeto y lease recuperables, no revocados.
+BLOQUEOS: Ninguno para esta revisión estática; falta validación en emulador.
+=== FIN RESUMEN ===

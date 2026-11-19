@@ -1,0 +1,8 @@
+Auditoría estática: la transacción crea/lee la pareja con `tx.create` y sin `update`/`set`; la repetición valida e intacta; faltantes, corrupción, estados no iniciales, escritura fallida y carrera tienen cobertura en las pruebas incluidas. No ejecuté nada.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Backend/extractos y pruebas con SHA256 backend=2746b2cdb8db3f28c037f44eb11c5f975adec97250efd773be3d366815a70bba tests=34f272210189b801d0d1dce57b0e83397f5c4f23f0472e715450fe3adff13846. `prepareExternalIntentTerminal` usa una transacción; valida cuenta/identidad/uid/input/testigo original, hash `intentId` con `requestKey`, acción permitida, estado `release_pending`, vencimiento, bloqueo y pareja exacta (`sameIntentWitness`, protocolo, `prepared`, `createdAtMs`, `nextAttemptAt`). Crea solo con campos validados; la prueba de campo extra confirma que no persiste `unexpected`. Los casos `job_created` devuelven el resultado existente sin leer ni modificar la recuperación. Las pruebas de repetición, falta/corrupción, estados futuros, fallo tras crear el testigo y carrera esperan emulador; no fueron ejecutadas aquí.
+NEGATIVOS: No garantiza contra escritores privilegiados ni pérdida simultánea de ambos documentos. La pareja existente solo valida consistencia interna y no acota reloj futuro más allá de no negativo/equalidad. La semántica exacta de helpers no incluidos (`billingIntent`, `verifiedExternalJob`, `billingBlocked`, `externalIntentTransitionDue`) queda fuera de esta auditoría. Los resultados son solo análisis estático de extractos.
+BLOQUEOS: Borrado de ambos documentos puede dejar el intento sin recuperabilidad local; la migración legacy/producción/scheduler y el consumidor están fuera del alcance evaluado.
+=== FIN RESUMEN ===

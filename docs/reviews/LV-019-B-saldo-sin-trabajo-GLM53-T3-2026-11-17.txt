@@ -1,0 +1,40 @@
+**FALLA concreta**
+- `drainExternalBilling` cierra cualquier intención cuyo estado de cuenta no sea `reserved` (`server/commercial/firestoreAi.ts:68-70`). Si Account API reporta `captured`, segundos distintos u otro estado y no existe job, el sistema borra la señal de recuperación como `closed` sin alerta ni evidencia del estado observado. No llama `priorRequest` antes de esa rama.
+- La intención actual es por `requestKey` (`server/commercial/firestoreBackend.ts:103-118`). Con la misma clave, la reserva y el job son idempotentes; con una clave diferente se crea otra intención y otra reserva determinística (`server/commercial/firestoreAi.ts:43-56`). Por tanto, tras cerrar la intención A como `closed`, un reintento B puede reservar y crear un job nuevo aunque exista una discrepancia de captura sin job.
+- El drenaje de `billingOutbox` valida campos del renglón pero no la existencia/estado del job ni la coherencia del artefacto antes de llamar `capture`/`release` (`server/commercial/firestoreAi.ts:78-81`). Un outbox huérfano o inconsistente podría modificar saldo sin evidencia local de job; `markExternalBillingSettled` solo comprueba el renglón (`server/commercial/firestoreBackend.ts:358-359`).
+- En la rama `reserved` sin job, el código libera después de cualquier `LedgerFault` si `priorRequest` sigue ausente (`server/commercial/firestoreAi.ts:72-75`). Hay una carrera con un `reserve` concurrente: el job puede comprometerse después del chequeo y antes del `release`, quedando con una reserva ya liberada. Falta un estado durable `releasing` que bloquee `backend.reserve` antes de llamar Account API.
+- `AccountBillingClient` distingue `reserved`, `captured`, `released` y mapea fallos de transporte a `unavailable` (`server/commercial/accountBillingClient.ts:44-55`), pero `drainExternalBilling` no usa esa distinción salvo para `reserved`.
+
+**Qué se puede y no inferir**
+- Se puede observar: intención pendiente, estado/segundos reportados por Account API, ausencia actual de `requests`/job y contenido del outbox.
+- No se puede inferir de `captured` sin job que la captura fue inválida, que nunca existió job o que corresponda un reembolso. Puede ser borrado, corrupción, un outbox huérfano o un error de integración; requiere inspección y evidencia.
+- `released` sin job indica que no queda reserva activa para esa reserva, pero no explica la causa histórica; puede cerrarse con motivo, sin inventar reembolso.
+- `reserved` sin job puede ser un ACK perdido antes de crear el job; se debe intentar crear el job o, si el rechazo local es determinista, liberar con estado durable. Cuenta no disponible solo permite reintentar; no autoriza a cerrar, liberar ni capturar.
+
+**Cerca mínima**
+- Añadir una barrera durable por **cuenta**, no solo por input o intención. Una barrera por input no detiene cargos en otros inputs ni evita que otra clave del mismo input reserve; la reserva pertenece al ámbito de cuenta.
+- `beginExternalBillingIntent` y `backend.reserve` deben leer esa barrera en transacción y fallar cerrado si está `blocked` o en reconciliación sensible. `backend.reserve` ya es el punto local crítico (`server/commercial/firestoreBackend.ts:169-210`).
+- Usar una máquina de estados en la intención: `reserve_pending`, `releasing`, `job_created`, `closed(reason)`, `discrepancy`. Antes de llamar `release`, pasar atómicamente a `releasing`; `reserve` debe exigir `reserve_pending`, cerrando la carrera con el job concurrente.
+- Al observar `captured` sin job, segundos distintos o outbox sin job coherente: marcar intención/outbox y barrera de cuenta como `discrepancy/blocked` en una transacción, guardar estado observado, `reservationId`, `requestKey`, intentos y fecha, emitir alerta y no llamar `release` ni `capture`.
+- Para outbox: antes de settle, validar job existente, propietario, `externalBilling` idéntico, acción coherente con estado terminal (`succeeded` para capture; `failed/cancelled` o caso aprobado para release) y artefacto verificado cuando aplique.
+- Para `reserved` sin job: reintentar `reserve`; solo liberar tras un rechazo local determinista y después de marcar `releasing`. Si el ACK de release se pierde, la recuperación ve `released` y cierra con motivo; si sigue `reserved`, reintenta release.
+- Para cuenta no disponible: conservar `reserve_pending`/outbox pendiente con backoff y alerta por umbral; no inferir discrepancia.
+- Para `not_found` reiterado sin job: cerrar solo tras un límite con motivo y evidencia; no emitir reembolso.
+
+**Pruebas mínimas**
+- Intención `captured` sin job → `discrepancy/blocked`, sin settle, sin `closed`, y un enqueue con requestKey diferente falla antes de Account API.
+- Intención `released` sin job → cierre con motivo, sin segunda operación financiera.
+- `reserved` sin job → primero intenta job; rechazo determinista pasa a `releasing` antes de release; ACK perdido se recupera.
+- `reserve` concurrente con drain/release → no puede crear job después del release.
+- Outbox capture/release sin job, job ajeno, segundos distintos o acción/estado incoherente → no settle, discrepancia y barrera.
+- ACK perdido en reserve, release y capture → una sola operación terminal tras recuperación.
+- Colisión de mismo requestKey con campos distintos → `conflict` antes de Account API.
+- Cuenta no disponible → reintento, sin cierre ni liberación.
+- Dos requestKeys distintos durante discrepancia → ninguno crea job/provider; si una reserva quedó en vuelo, se libera en recuperación.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Auditoría solo lectura en HEAD `8b8e3e4`. `enqueue` crea intención por requestKey antes de reservar y usa reserva determinística (`server/commercial/firestoreAi.ts:43-56`; `server/commercial/firestoreBackend.ts:103-118`). `drainExternalBilling` trata cualquier estado de cuenta distinto de `reserved` como `closed` sin comprobar job ni conservar evidencia (`server/commercial/firestoreAi.ts:63-76`) y procesa outbox sin validar job/acción terminal (`server/commercial/firestoreAi.ts:78-81`). `AccountBillingClient` sí expone `reserved/captured/released` y errores de transporte (`server/commercial/accountBillingClient.ts:44-55`). No se ejecutaron pruebas ni se accedió a cloud.
+NEGATIVOS: Una captura sin job se cierra como `closed`, permite nuevos cargos con otro requestKey y pierde el estado observado. Un outbox huérfano puede capture/release sin validación de job. La liberación tras `LedgerFault` tiene carrera con `reserve` concurrente. La intención por requestKey no es barrera de cuenta; se requiere barrera durable por cuenta más estados `releasing/discrepancy` y validación de outbox. No puede inferirse reembolso ni validez histórica de una captura sin job; solo puede preservarse evidencia y bloquear.
+BLOQUEOS: Implementación y pruebas de barrera/estados, colisiones concurrentes, ACK perdido en reserve/release/capture, outbox huérfano, scheduler verificado, conciliación real, gateway y recorrido móvil completo.
+=== FIN RESUMEN ===

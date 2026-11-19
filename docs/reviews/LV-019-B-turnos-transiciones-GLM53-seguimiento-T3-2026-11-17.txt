@@ -1,0 +1,15 @@
+Corrección al informe anterior:
+
+- `externalIntentTransitionDue`: una tupla completamente ausente devuelve `0`; una tupla parcial o inválida lanza `invariant`. Mi frase «parcial/ausente» era imprecisa y luego contradecía ese contrato. No cambia la conclusión.
+- `settleExternalBillingIntent`: la repetición con estado ya idéntico devuelve `true` antes de validar el lease (`server/commercial/firestoreBackend.ts:326`). Esto es aceptación idempotente, no validación: no muta la fila, pero puede responder éxito ante un lease corrupto ya persistido. La validación solo ocurre en el camino que cambia estado a `insufficient` (`server/commercial/firestoreBackend.ts:329`).
+- Diferencia clave: validación antes de mutar evita que una transición corrompa el vencimiento; aceptación idempotente solo certifica que el estado objetivo ya estaba presente, no que el registro sea coherente.
+- `recordExternalBillingIntentFailure` reescribe `nextAttemptAt` sin validar token/generación; según el intento, puede adelantar o atrasar el vencimiento previo. No siempre lo adelanta.
+- Falta prueba explícita de repetición `settleExternalBillingIntent` sobre lease corrupto devolviendo `true` sin mutación. Es una limitación de cobertura, no un defecto de mutación en este cambio.
+- `PASS` se mantiene solo para las transiciones revisadas `beginExternalBillingIntent` y `fenceExternalBillingRelease`; las conclusiones no cambian.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/firestoreBackend.ts:55`, `server/commercial/firestoreBackend.ts:242`, `server/commercial/firestoreBackend.ts:323`, `server/commercial/firestoreBackend.ts:326`, `server/commercial/firestoreBackend.ts:329`, `server/commercial/firestoreBackend.ts:333`, `server/commercial/firestoreBackend.ts:741`, `server/commercial/billingFairQueueIntegration.emulator.mjs:57`
+NEGATIVOS: solo lectura; no ejecuté pruebas ni accedí a nube; falta prueba explícita de repetición corrupta en `settleExternalBillingIntent`; no certifico scheduler, selector, `recordExternalBillingIntentFailure` ni producción; el lease local no detiene un POST enviado.
+BLOQUEOS: ninguno para este cambio acotado
+=== FIN RESUMEN ===

@@ -1,0 +1,37 @@
+Fecha: 17 nov 2026 (PST).
+Alcance: revisión estática focalizada del editor local de frases, conservación y retirada de acceso. No autorización para habilitar o desplegar.
+T3: mcp:d288a06c-33e4-425d-b4b2-65fee712b742; proveedor linguistvision-openrouter; modelo solicitado ~z-ai/glm-flash-latest. Modelo efectivamente servido, tokens y costo: no medidos.
+Prompt sintético SHA-256: 298d080ccc4d13b590db755f41d15ee0e1e01847a7eaa97de063874120b65e26.
+Resultado bruto JSON y prompt sintético: outputs/lv019-b-structured-mobile-8b5823a3-d6a2-4d66-aba7-2ec6539f06f1/.
+La revisión se hizo con fragmentos de cliente, UI, adaptador y prueba; no incluyó el servicio completo ni los resultados transaccionales. Las conclusiones sobre ellos son límites de evidencia, no hallazgos ya demostrados. Las pruebas locales declaradas comprueban datos sintéticos y viewport móvil simulado, no producción.
+
+Informe íntegro del revisor:
+**Contraste LV-019.B**
+- **Apagado por defecto:** `server/commercial/web/reviewedTranslationFeature.ts:6` y los guardas de cliente son correctos. Falta evidencia de que `/on` no sea alcanzable como ruta productiva.
+- **Datos y replay en sesión:** el cliente preserva IDs, tiempos y ES; el reintento reusa cuerpo y `requestKey`. Pero el servicio idempotente no está en los fragmentos.
+- **Descargas:** la UI solo permite TXT/SRT con estado `reviewed` y revisión guardada; el contenido real del archivo depende del servicio no mostrado.
+- **Autorización:** bloqueante. `server/commercial/reviewedTranslationHttp.ts:144-160` declara que no autentica y confía en un `caller` del router; el router/IAM y las transacciones no son observables.
+
+**Hallazgos**
+- **Alta:** autorización, revocación y no atomicidad de token/mapping no pueden verificarse. Riesgo: guardar/descargar tras retirar acceso si el router o servicio no revalida dentro de la transacción.
+- **Media:** `404` se trata como revocación y borra edición local en `server/commercial/web/reviewedTranslationEditor.tsx:14` y `:42`. Un `not_found` transitorio o de `checkCurrent` puede destruir trabajo no guardado con mensaje engañoso.
+- **Media:** tras confirmación de guardado, un fallo en la relectura puede dejar la app con revisión vieja; `onSaved` no se ejecuta y el desbloqueo depende de `wipe()` en `server/commercial/web/reviewedTranslationEditor.tsx:65-73`.
+- **Media:** replay tras recarga no está implementado ni probado: `pending` solo vive en memoria en `server/commercial/web/reviewedTranslationEditor.tsx:26-28`. Si la respuesta se pierde y el usuario recarga, el borrador puede perderse.
+- **Media/Baja:** descarga no valida `Content-Length`, hash ni completitud en `server/commercial/web/reviewedTranslationClient.ts:104-109`; una respuesta truncada podría producir TXT/SRT parcial.
+- **Baja:** `legacyDraft` solo valida tipo, sin tamaño ni control chars en `server/commercial/web/reviewedTranslationClient.ts:62` y `:75`; puede degradar móvil/accesibilidad.
+- **Baja:** la validación de reapertura no compara `jobRevision` en `server/commercial/web/reviewedTranslationEditor.tsx:67`.
+
+**Negativos faltantes**
+- Save/load/download tras revocación; cierre de sesión durante save/download; replay tras recarga; replay con `requestKey` duplicado y cuerpo distinto; cambio concurrente entre confirmación y relectura.
+- Respuestas con MIME/revision/no-store/UTF-8/longitud inválidas, truncadas o excesivas.
+- IDs inexistentes, duplicados o ajenos a los cues; servicio que garantice retención de ES/tiempos/IDs.
+- `/on` no alcanzable en producción, móvil físico, descargas reales y marcadores entre pestañas/servicio.
+
+**Gates no probados:** router registrado, IAM/revocación transaccional, voz, producción, recuperación entre dispositivos, borrado físico completo y móvil físico.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Los fragmentos acreditan flag apagado, validaciones de cliente, replay en sesión y UI de conflicto/legacy, pero no el router autenticado, servicio persistente, idempotencia transaccional ni contenido real de TXT/SRT. Las pruebas sintéticas no cubren los negativos críticos listados.
+NEGATIVOS: Autorización y revocación server-side; replay tras recarga; race confirmación/relectura; `404` destructivo; descarga incompleta; IDs/legacyDraft inválidos; cierre de sesión en save/download; móvil físico.
+BLOQUEOS: No habilitar, registrar ni desplegar hasta revisar router/IAM, servicio transaccional, idempotencia, integridad de descargas y ejecutar los negativos faltantes.
+=== FIN RESUMEN ===

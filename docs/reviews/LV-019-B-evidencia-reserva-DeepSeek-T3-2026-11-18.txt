@@ -1,0 +1,23 @@
+## Auditoría estática (sin ejecutar nada) — LV-019.B
+
+**Fortalezas confirmadas (no defectos)**
+- Validación de forma sólida: `exact()` copia solo data-properties propias, rechaza accessors/getters, símbolos, claves extra y prototipos ajenos; sin evaluación de código del llamador.
+- Transacción correcta: `tx.getAll` antes de `tx.create`, sin reconstruir un witness ausente (ACK huérfano → `conflict`), igualdad canónica determinista (`JSON.stringify` sobre objetos normalizados) e idempotencia de ACK.
+- Inmutabilidad razonable: copias profundas congeladas; no retiene referencias del llamador; sin rutas, cobros, proveedores externos ni logs de texto; `attribution:'unverified'` en todo ack (ACK ≠ propiedad, status ≠ ACK).
+
+**Defectos concretos del módulo**
+- `copyWitness` fuerza `profile === AI_CATALOG_VERSION` y normaliza `provider`/`operation`. Un registro preparado con la versión N deja de revalidarse si el catálogo sube a N+1: `equalAttempt`/`copyWitness` → `invalid` → `conflict`, rompiendo la idempotencia y la grabación del ACK de intentos en vuelo. Defecto si la constante es mutable; el valor persistido debería validarse como forma, no contra la constante viva.
+- Asimetría en `copyVersions`: exige existencia de `account,identity,input,project,intent,origin,intentGuard` pero deja `guard` sin restricción (existe o no, sin relación con `intentGuard`). Hueco si `guard` es estructural.
+- Case inconsistente: `uuid` con flag `/i` (accountId/inputId aceptan mayúsculas) frente a `uuidV4`/`hex64` sin `/i` (attemptId/reservationId/intentId/identityKey exigen minúsculas); no normaliza, riesgo de rechazos divergentes.
+- Menor: `copyAck` se invoca por efecto y se descarta su retorno; `versions`/`witness` se reconstruyen con `{}` (prototipo `Object`) en vez de `Object.create(null)`; el doc de observación reutiliza el mismo `attemptId` como id y no hay control de unicidad de `reservationId` entre intentos.
+
+**Garantías del llamador (NO imputables al módulo)**
+- Verificar identidad/guardas/versiones de los docs fuente en la MISMA transacción; el módulo no autentica el snapshot ni prueba que esas lecturas ocurrieron.
+- Generar `attemptId` fuera de la tx y reusarlo en reintentos SDK; esperar el commit antes del POST; pasar a `recordAck` solo la respuesta directa validada (el shape `{reservationId,seconds,state}` es indistinguible de un status); tratar caída de Firestore tras respuesta como UNKNOWN.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Revisión estática del módulo (sin herramientas): `exact`, `version`, `copyWitness`, `copyVersions`, `copyAttempt`, `copyAck`, `equalAttempt/equalObservation`, `prepareReserveAttemptInTransaction`, `recordReserveAckInTransaction`. Núcleo transaccional e idempotencia internos correctos; sin rutas/cobros/proveedores/logs; inmutabilidad y detección de conflicto correctas.
+NEGATIVOS: Acoplamiento a `AI_CATALOG_VERSION`/`provider`/`operation` puede romper idempotencia y ACK de intentos en vuelo tras cambio de catálogo; `guard` sin restricción en `copyVersions`; case inconsistente en regex; reutilización de `attemptId` como id de observación y sin unicidad de `reservationId` entre intentos. Los 13 casos sintéticos no cubren estos puntos.
+BLOQUEOS: Emulador pendiente (no verificable aquí) para semántica real de transacción/commit y reintentos concurrentes; falta confirmar si `AI_CATALOG_VERSION` es mutable y si `guard` es estructural — sin eso no se puede certificar PASS ni declarar FALLA.
+=== FIN RESUMEN ===

@@ -1,0 +1,52 @@
+Tu objeción es válida: cerrar solo con `status=404` es inseguro. Ese 404 puede ser una observación anterior a la confirmación de un `reserve` ya en vuelo.
+
+**Diseño corregido**
+
+1. **Tombstone atómico por `reservationId` en AccountStore**
+   - Video nunca cierra un intent por 404.
+   - Llama a Account con `tombstone(identityKey,reservationId,seconds)`.
+   - Account ejecuta una transacción:
+     - Si la reserva no existe, crea el tombstone y responde `tombstoned`; un `reserve` tardío con ese ID falla.
+     - Si la reserva ya existe, devuelve su estado real; Video la recupera con release/capture según evidencia.
+   - El tombstone es idempotente y rechaza identidad/segundos inconsistentes.
+
+2. **`provider_admitted` transaccional en Account**
+   - Consultar `reserved` antes de iniciar proveedor no basta: hay TOCTOU con un release concurrente.
+   - Account debe tener estado `reserved -> provider_admitted`.
+   - `admit_provider` y `release` compiten atómicamente:
+     - si gana `admit_provider`, un release ciego falla y el proveedor puede iniciar;
+     - si gana `release`, `admit_provider` falla y el proveedor no inicia.
+   - Tras terminación fallida/cancelada, release recovery puede actuar sobre una reserva `provider_admitted`; una reserva `captured` nunca se compensa automáticamente.
+
+3. **Barrera por identidad/cuenta**
+   - La barrera financiera vive en AccountStore, con `barrierId` idempotente.
+   - Bloquea `reserve`, `admit_provider` y `capture` nuevas.
+   - Un segundo teléfono, input nuevo o requestKey nuevo usa la misma identidad y no puede saltarla.
+   - Video mantiene su guard local como fail-closed inmediato, pero Account es la autoridad dura.
+
+4. **ACK perdido**
+   - Reserve, tombstone, provider admission, release y capture siempre se reintentan con el mismo ID/tupla.
+   - Ninguna transición local se cierra por ausencia (`404`) sin confirmación de tombstone.
+   - `status` recupera ACKs perdidos, pero solo el commit atómico de Account define el estado.
+
+5. **Confianza entre servicios**
+   - Account es autoridad de saldo y estados de reserva.
+   - Video es autoridad de jobs, intents, outbox e evidencia.
+   - Account confía en la service identity del worker, pero no puede validar el job local; por eso conserva audit events y exige tuplas exactas. No existe transacción distribuida.
+
+6. **Pruebas mínimas**
+   - Carrera tombstone vs reserve: tombstone primero falla reserve; reserve primero devuelve reserva real.
+   - Status 404 con reserve en vuelo: Video no cierra hasta tombstone o reserva confirmada.
+   - Release vs provider_admitted: ambos órdenes producen un único ganador.
+   - Barrera activada entre recheck y POST: Account rechaza.
+   - ACK perdido en cada operación, recuperado por status/retry idempotente.
+   - Dos teléfonos y requestKeys distintos bajo hold.
+   - Reserva sin job: release recovery o tombstone; nunca cierre por 404.
+   - Job exitoso bajo hold: sin captura automática, evidencia retenida.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Diseño estático corregido a partir de `server/commercial/firestoreAi.ts:43`, `server/commercial/firestoreBackend.ts:215`, `server/commercial/accountBillingClient.ts:48`, `server/account/backend.ts:117` y `server/account/backend.ts:147`. El cierre por 404 se elimina; se requiere tombstone atómico y `provider_admitted` transaccional en AccountStore. No se editó código ni se accedió a datos reales.
+NEGATIVOS: Sin transacción distribuida, no se puede impedir que una reserva o provider ya confirmados antes de la barrera continúen; solo se clasifican y reconcilian. Un job exitoso bajo barrera no se captura ni compensa automáticamente. Account confía en la service identity de Video para afirmaciones locales de terminal job.
+BLOQUEOS: Implementar tombstone, `provider_admitted`, hold idempotente y audit events en AccountStore; probar carreras y ACK perdido; scheduler de reconciliación; conciliación operativa; ensayos físicos y validación con dinero real.
+=== FIN RESUMEN ===

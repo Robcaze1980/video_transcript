@@ -1,0 +1,25 @@
+Reviso solo los fragmentos pegados (incremento local apagado); no ejecuto nada.
+
+**Cumplimiento observado**
+- Replay externo verifica UID antes del trabajo: `enqueue` llama primero `enabledForUid` y luego `previous()` → `priorExternalRequestForEnqueue`, que dentro de la misma transacción llama `verifiedUidAccountInTransaction` y exige `identity.uid === requesterUid`/`accountId`/`hash('firebase',uid)===stored.identityKey` antes de leer `jobs`/`inputs`.
+- Sin éxito automático: con `accountBilling`, `prior` truthy → `AiFault('unknown')`; y la admisión `job_created` también termina en `'unknown'` (solo verifica `verified===admission.jobId` o lanza `conflict`). El `jobId` que devuelve `priorExternalRequestForEnqueue` no se propaga como éxito desde `enqueue`.
+- Reservado tras fallo del POST no crea job ni libera: en el `catch` de `enqueue`, `held.state==='captured'`/`seconds` distinto → `conflict`; `'released'` → registra observación; cualquier otro estado reservado cae en `throw AiFault('unknown')`. La creación de job ocurre solo tras `accountBilling.reserve` sin excepción.
+- Drenador: el caso reservado no atendido termina en `intentsFailed++` con el comentario explícito “do not create a job or release”; no hay creación de job en el fragmento.
+- Consulta explícita separada: `priorExternalRequestForEnqueue` devuelve `jobId` tras validar witness/marcador/`jobAccounting==='account_seconds'`; es la ruta de lectura independiente que `enqueue` convierte en `'unknown'`.
+- La ruta de POST directo legado no se declara lista: `enqueue` está marcado como “Trusted internal entry… not a customer route” y `enqueueForUid` bajo `accountBilling` valida UID y luego `throw AiFault('disabled')` (además de no replicar ni reservar en narración).
+
+**Límites explícitos**
+- Fragmentos parciales: no se ven `confirmedIntentObservation`, `releaseAfter`, `quoteForUid`, `captureDirectObservation`, `verifiedExternalJob`, `verifiedUidAccountInTransaction` ni `reserveWithRecovery`; su semántica (¿registro o efecto?) no es verificable aquí.
+- El fragmento del drenador empieza en `if(held.state==='released')`; la cabeza del bucle y cualquier rama previa para `reserved`/`captured` no se muestran.
+- `if(row.state==='release_pending')` → `releaseAfter(statusSnapshot,'status_reserved')` sí libera con status reservado; es legítimo solo si `release_pending` proviene de una decisión previa de liberación y nunca del camino de POST fallido (provenance no visible).
+- `enabledForUid` resuelve a `undefined` en éxito (guarda por excepción); si un consumidor espera booleano (p. ej. hook `enabled` de `reserveWithRecovery`) lo trataría como falso.
+- Inconsistencia menor: UID inválido en `enqueue` lanza `'invalid'` y en `enabledForUid` `'not_found'` (oráculo distinguible, sin bypass).
+- Tras POST fallido con status reservado, el intento queda irresoluble y la reserva de Cuenta puede quedar retenida sin job y sin liberación automática → requiere reconciliación (el propio comentario admite “read-only seal status is still pending”).
+- No se ve el HTTP/flags de Cuenta: no puedo confirmar desde los fragmentos que la ruta externa esté apagada ni que el POST directo siga fuera; por eso no afirmo lista esa ruta.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `enqueue` valida UID (`enabledForUid`) y consulta el trabajo después (`priorExternalRequestForEnqueue` verifica UID dentro de la transacción antes de leer `jobs`), convirtiendo todo replay externo en `AiFault('unknown')` sin devolver éxito; la admisión `job_created` también lanza `'unknown'`. Ante fallo del POST, `held.state==='reserved'` cae en `throw AiFault('unknown')` sin crear job ni liberar; el drenador usa `intentsFailed++` para el caso reservado (“do not create a job or release”). La lectura explícita sigue separada vía `priorExternalRequestForEnqueue`/`jobForUid` con validación de witness y `account_seconds`. `enqueueForUid` falla cerrado con `'disabled'` bajo `accountBilling`, y el POST directo no se declara listo.
+NEGATIVOS: No se encontró bypass concreto en lo visible. Puntos abiertos: la rama `row.state==='release_pending'` puede liberar con status reservado (depende de cómo se fije `release_pending`); `enabledForUid` devuelve `undefined` en éxito; inconsistencia `'invalid'` vs `'not_found'` para UID mal formado; reserva retenida sin job tras POST fallido queda para reconciliación manual.
+BLOQUEOS: Fragmentos incompletos (helpers y cabeza del bucle del drenador no visibles) y ausencia de la capa HTTP/flags impiden verificar extremo a extremo; el preflight/ACK del POST directo legado está fuera de alcance y no se afirma listo.
+=== FIN RESUMEN ===

@@ -1,0 +1,18 @@
+**Diseño limitado**
+- Correcto: crear intención, origen y marca independiente en una transacción; `needs_review` solo sobre marca existente, enlazada en la misma transacción y sin reapertura/borrado automático; bloqueo cerrado si la marca falta, está dañada, es desconocida o ya está en revisión; sin reconstrucción por ausencia.
+- Correcto: la captura con existencia/versión de la marca y la revalidación transaccional detectan cambio o reemplazo posterior en el flujo local. No detecta borrado conjunto y no frena una llamada ya enviada; el diseño lo declara.
+
+**Carreras y precisiones**
+- Creación concurrente es segura solo si el ID es determinista y la transacción serializa lectura/creación. Debe definirse el resultado de una segunda creación: idempotente o conflicto cerrado, nunca duplicado.
+- Enqueue frente a incidente: la transacción evita iniciar gasto con marca en revisión, pero si el incidente ocurre después del commit de enqueue, la respuesta ya emitida no puede retractarse. Hay que definir seguimiento durable y no tratarla como éxito cuando haya respuesta previa incierta.
+- Claim ya confirmado antes del incidente no es revocado por la marca local. El diseño debe referirlo a lease/conciliación y no fingir bloqueo remoto.
+- Marca `clear` no es un registro completo de intentos. La idempotencia requiere ID estable, historia o referencia a job/request; si una respuesta incierta no dejó job ni incidencia, no puede inferirse seguridad del reintento solo porque la marca siga `clear`.
+- La relación con incidentes necesita esquema explícito: campo de enlace, orden primero/último, rechazo de incidencia incompatible y comportamiento con varias incidencias. Si la marca se pierde, el incidente queda huérfano y debe conciliarse sin atribución.
+- Bloqueos por marca ausente o dañada son conservadores y correctos, pero exigen clasificación/migración para evitar bloqueo indefinido legítimo tras legacy.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: El diseño limitado usa marca independiente atómica, bloquea estado ausente/dañado/needs_review, persiste el enlace con el incidente en la misma transacción, revalida versión/existencia, distingue consulta/reconciliación de gasto nuevo y declara límites frente a borrado conjunto, llamadas en vuelo, IAM y recuperación.
+NEGATIVOS: No está implementado ni probado. Falta precisar idempotencia de enqueue/claim, comportamiento tras un incidente posterior al commit de enqueue, revocación o conciliación de un claim ya tomado, historia de intentos cuando no hay job ni incidencia y esquema exacto del enlace a incidentes.
+BLOQUEOS: Definir IDs deterministas, respuesta durable cuando la marca cambia tras enqueue, contrato de intentos/reintentos, esquema de incidentes y clasificación/migración de marcas ausentes antes de activar. No es producción lista.
+=== FIN RESUMEN ===

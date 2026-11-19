@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Extractos de backend y pruebas compartidos en esta revisión. Hash backend=3b8fca6633d17b1f5565059b64b45e272ea2890ac9d74107377e84767aba7d50, medido por Codex antes del envío; no fue una medición propia. `recheckExternalBillingAdmission` y `fenceExternalBillingRelease` copian los cuatro campos de facturación antes de `runTransaction`, validan la copia y todas sus ramas usan `authorizedBilling`, incluido `verifiedExternalJob`. No hay relectura del objeto original después de la copia. `settleExternalBillingIntent` no recibe esa tupla. Los controles sintéticos informados para ambas rutas cubrieron mutación en ambos sentidos, getters, campos extra y trabajo anterior, y pasaron; no ejecuté pruebas.
+NEGATIVOS: No es una cerca distribuida ni demuestra corrección en otras rutas. No hay vía web ni Cuenta real probadas. Los extractos no garantizan que todas las llamadas futuras usen el mismo patrón.
+BLOQUEOS: Ninguno nuevo para el escritor acotado; lectores de recuperación, conciliación `job_created`, otros escritores, scheduler, identidad cloud, POST en vuelo, eliminación del origen y producción siguen pendientes.
+=== FIN RESUMEN ===

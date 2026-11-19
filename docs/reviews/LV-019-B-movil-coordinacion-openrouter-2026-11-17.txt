@@ -1,0 +1,17 @@
+{
+  "status": 402,
+  "requestedModel": "qwen/qwen4-max",
+  "servedModel": null,
+  "generationId": null,
+  "usage": null,
+  "result": "INCONCLUYENTE",
+  "error": {
+    "message": "This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 57726. To increase, visit https://openrouter.ai/settings/credits and add more credits",
+    "code": 402,
+    "metadata": {
+      "limit_source": "openrouter_credits",
+      "remedy_hint": "Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.",
+      "provider_name": null
+    }
+  }
+}

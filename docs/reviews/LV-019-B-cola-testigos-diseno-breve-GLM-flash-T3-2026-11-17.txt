@@ -1,0 +1,21 @@
+**Hechos vs. propuesta**
+
+- Hechos declarados en el borrador: la recuperación puntual ya consulta Cuenta; nadie la ejecuta automáticamente; `unverified`/`unresolved` no crean incidencia durable por sí solos; `recoverTerminalObservation` ya comprueba identidad antes/después de la lectura; identidad de servicio/OIDC y todo lo demás (creación atómica, barrido, leasing, manejo de resultados) son propuestas no implementadas.
+- El borrador resuelve parcialmente: lease vencido a nivel de entrada (token, generación, comparación de versión/tupla), ACK que llega tarde (revalidación y conciliación), `unverified` (incidencia durable sin fiar del dueño) y caída al escribir la incidencia (conserva el trabajo).
+
+**Carreras no resueltas**
+
+- Pérdida de eventos en barrido: el checkpoint persistido no define su orden respecto a la creación de entradas; un avance de checkpoint antes de crear la entrada (o un fallo entre ambos) puede saltarse un testigo para siempre. Solo se exige "no inferir" y re-barrer pre-corte, no un invariante post-corte.
+- Idempotencia remota concurrente: el draft admite que el lease "no cercan una llamada remota ya enviada", pero solo cubre `closed/already_closed` secuencial; dos workers con leases vencidos pueden invocar el remoto simultáneamente y la seguridad de esa ejecución duplicada concurrente no está especificada (solo "ensayar idempotencia de Cuenta por separado").
+- Reclamo condicional: no se afirma explícitamente que la transacción de reclamo revalide vencimiento/generación dentro de la transacción (no solo en la consulta previa); dos reclamantes pueden serializarse y el segundo sobrescribir el token del primero.
+- Duplicación de incidencias: tras caída entre crear la incidencia y actualizar la entrada, el reintento puede crear la incidencia otra vez; no se define ID determinista ni deduplicación.
+- Fallo de transporte: el resultado `timeout`/sin respuesta (llamada enviada, desenlace desconocido) no figura en la taxonomía; no se define si reprograma y cómo se distingue de `not_found`.
+- Fuente de tiempo: `nextAttemptAt` numérico y el vencimiento carecen de fuente de tiempo definida; el draft solo exige "skew definidos y probados", sin resolver qué reloj escribe ni cómo compiten workers con relojes distintos.
+- Ciclo de vida del testigo: la entrada solo se crea en la transacción que crea un testigo nuevo ya terminal; si un testigo puede volverse terminal por actualización posterior, esa vía no crea entrada (hueco de eventos según ciclo de vida no declarado).
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: intro («Borrador para revisión; no implementado»); «Creación y barrido» (checkpoint persistido sin orden vs. creación de entradas; «Reclamarla en transacción» sin condicional interna explícita; «El reloj y el lease son coordinación local»; «no cercan una llamada remota ya enviada»); «Tratamiento del resultado» (taxonomía sin fallo de transporte; «Una caída al escribir o verificar la incidencia conserva el trabajo» sin deduplicación); «Condiciones para integrar» («Ensayar idempotencia de Cuenta por separado»).
+NEGATIVOS: revisión solo del borrador; sin código ni pruebas; la idempotencia remota real, el ciclo de vida de testigos y los índices no son verificables desde el texto.
+BLOQUEOS: orden checkpoint/entrada en barrido; ejecución remota duplicada concurrente tras lease vencido; condicionalidad interna del reclamo; idempotencia de incidencias durables; clasificación de timeout/sin respuesta; fuente de tiempo para `nextAttemptAt`/vencimiento; entrada ausente si un testigo deviene terminal por actualización.
+=== FIN RESUMEN ===

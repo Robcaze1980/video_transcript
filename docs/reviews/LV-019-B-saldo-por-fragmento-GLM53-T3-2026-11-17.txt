@@ -1,0 +1,29 @@
+Thread mcp:3c64e89c-b700-4576-8ce8-80d3f3dac994
+**Alcance y método**
+- Auditado solo el alcance solicitado en HEAD `8b8e3e4` con cambios locales. Solo lectura; no ejecuté pruebas ni accedí a cloud.
+- Codex reporta Account Emulator 33/33 y 13 pruebas integradas focalizadas; no las verifiqué en esta auditoría.
+
+**Riesgos accionables**
+- **Drenador sin scheduler garantizado:** `drainExternalHolds`/`drainExternalBilling` solo corren en modo manual `VISTAVO_FILES_MODE=billing` o al final del worker AI (`server/commercial/cloudFilesRuntime.ts:58`, `:61`, `:67`). No existe en el código ninguna programación periódica; sin Scheduler, holds, intents y outboxes quedan reteniendo saldo indefinidamente.
+- **Backlog >100 invisible:** `pendingExternalBillingIntents` consulta `reserve_pending` y `release_pending` con `limit(100)` fijo y recorta después (`server/commercial/firestoreBackend.ts:350`); `pendingExternalBilling` hace lo mismo con `pending`/`retry_wait` (`:634`). Un backlog mayor puede dejar eventos fuera de todo drenaje aunque existan.
+- **Índice no garantizado:** `pendingExternalHolds` exige consulta compuesta `state == pending`, `nextAttemptAt <= now`, `orderBy nextAttemptAt` (`server/commercial/firestoreBackend.ts:356`). No puede asumirse el índice real; si falta, el drenador de holds falla.
+- **Reloj no durable:** `nextAttemptAt`, `leaseUntil`, `admittedAtMs` y reintentos usan `Date.now()` del proceso (`server/commercial/firestoreBackend.ts:641`, `:645`; `server/commercial/firestoreAi.ts:254`). Un salto de reloj puede adelantar reintentos o congelarlos; no hay sello de tiempo servidor ni corrección de deriva.
+- **Holds sin separación fina de rol:** las rutas `billing-holds` aceptan cualquiera de los correos internos permitidos, sin restringir al servicio worker (`server/account/http.ts:39`–`:44`). Un error de despliegue en `allowedEmails` permitiría al servicio API bloquear cuentas sin validación local del incidente.
+- **ACK perdido deja dinero reservado:** tras admisión previa, `release` se rechaza siempre (`server/account/backend.ts:334`, `:337`), y la repetición de `admit` es solo recibo (`:286`). Es seguro contra doble cobro/doble llamada, pero requiere reconciliación manual para liberar saldos; no hay flujo automático de revisión.
+- **Estado `unknown` tras fallo de admisión:** `invoke` crea el intent local antes de llamar a Account (`server/commercial/firestoreAi.ts:249`); si la admisión falla o se pierde el ACK, el job queda `unknown` y el intent `intent` sin limpieza (`:255`). No repite proveedor, pero genera estados invisibles a menos que el job se recupere manualmente.
+
+**Verificaciones positivas relevantes**
+- Admisión por llamada: `admitVideoCall` exige tupla exacta `jobId/attemptId/callKey/model/requestSha256`, crea recibo y fence solo en la primera llamada y distingue `receiptOnly` de `created` (`server/account/backend.ts:258`–`:297`); replay no autoriza nueva llamada proveedor.
+- Hold posterior: `reserve` y nueva `admit` fallan con hold activo (`:232`, `:289`); admisiones ya emitidas pueden seguir en vuelo, y `capture`/`release` quedan cerrados ante hold.
+- Seal vs reserve: `seal` compite atómicamente con `reserve`; un 404 no cierra sin tombstone correlacionado (`:196`–`:217`; `server/commercial/accountBillingClient.ts:73`).
+- Incidente local: `authorizeExternalHold` valida identidad, dueño, guard y fuente antes de llamar a Account, y `recordExternalHoldAckMismatch` preserva evidencia si el evento local cambia tras el ACK (`server/commercial/firestoreBackend.ts:362`–`:407`).
+- Captura/descarga: `resultContext` exige outbox `settled` con job/intento coherente, terminal y artifact; descargas solo con captura asentada (`server/commercial/firestoreAi.ts:210`–`:231`).
+- Rutas: reserve/balance solo API; admit/seal/capture/release solo worker; cadenas con anclaje final estricto (`server/account/http.ts:32`, `:50`–`:61`).
+
+```
+**Auditoría LV-019.B (Vistavo)**
+HEAD: 8b8e3e4 + cambios locales
+Modo: solo lectura, sin cloud ni datos reales
+Resultado: FAIL parcial; riesgos accionables identificados
+Certificación de producción: NO otorgada
+```

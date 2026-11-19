@@ -1,0 +1,19 @@
+**Auditoría del código pegado**
+
+La función es coherente: valida forma exacta (sin campos extra, sin getters, sin símbolos), revalida el original vía codec (tiempos, orden, IDs deterministas), aplica UTF-8 round-trip tanto al texto fuente como a las ediciones, limita cada EN a 4 KiB y el draft a 64 KiB, y genera TXT/SRT/voz desde la misma segunda llamada al codec sobre el mismo conjunto canónico. No muta entradas; el resultado está congelado. Los límites de voz quedan explícitamente fuera ("at admission").
+
+Detecté tres brechas de validación y un límite aproximado, ninguna bloqueante:
+
+- `UNSAFE_TEXT` no rechaza caracteres invisibles de formato: bidi overrides (U+202A–U+202E, riesgo de spoofing visual en SRT), zero-width (U+200B–U+200D), BOM (U+FEFF) y word joiner (U+2060). No son "controles" según el diseño, pero son un hueco de seguridad textual.
+- El límite de 64 KiB del draft se aplica por contabilidad incremental que asume exactamente un LF por cue en el layout del codec. El tamaño real del TXT no se compara directamente; queda dominado por el límite de 64 KiB del SRT (que el codec sí impone), así que es seguro en la práctica pero no verificado contra el layout real.
+- El límite de 4 KiB por cue aplica solo a las ediciones EN; el texto ES fuente no está acotado por esa constante (se apoya en el límite de SRT del codec).
+- `jobId` no se valida en esta función; se confía en el codec/upstream.
+
+Los 35 pruebas informadas no fueron ejecutadas por mí.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Función pura sin mutación de entradas; validación estricta de forma exacta (prototype, sin símbolos, sin getters, sin campos extra); IDs correlacionados con el codec determinista por jobId/índice; UTF-8 round-trip aplicado a textos fuente y ediciones; límites 4 KiB/cue (EN) y 64 KiB/draft aplicados; SRT ≤64 KiB impuesto por el codec; TXT/SRT/voz derivados de la misma segunda llamada al codec sobre el mismo conjunto canónico; salida congelada; sin autenticación ni persistencia (declarado fuera de alcance).
+NEGATIVOS: Bidi overrides (U+202A–U+202E), zero-width (U+200B–U+200D), BOM (U+FEFF) y word joiner (U+2060) no rechazados por UNSAFE_TEXT — hueco de spoofing visual en SRT/TXT. Límite de draft 64 KiB aplicado por contabilidad incremental que asume un LF por cue; tamaño real del TXT no comparado directamente (dominado por el límite SRT del codec, que sí se impone). Límite 4 KiB/cue aplica solo a ediciones EN; ES fuente no acotado por esa constante. jobId no validado en esta función. Límites de voz específicos del pilot explícitamente diferidos a admission ("límites no conectados"). Las 35 pruebas informadas no fueron ejecutadas.
+BLOQUEOS: Ninguno; las brechas son mejoras de validación, no contradicciones ni errores bloqueantes para el alcance declarado.
+=== FIN RESUMEN ===

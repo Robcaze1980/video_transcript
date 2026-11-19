@@ -1,0 +1,25 @@
+Fecha: 17 nov 2026 (PST).
+Seguimiento único del editor local de frases; revisión limitada a cinco correcciones anteriores.
+T3: mcp:d288a06c-33e4-425d-b4b2-65fee712b742, turno 2; proveedor linguistvision-openrouter; modelo solicitado ~z-ai/glm-flash-latest. Modelo servido, tokens y costo: no medidos.
+Prompt SHA-256: 2cd92cbe4be73ee04184452331a37ee2b58a447cd57f647afcc66df79069db9d.
+Entrada sintética y salida JSON: outputs/lv019-b-editor-hardening-20261117/.
+Una revisión local sobre fragmentos no acredita el recorrido integrado, permisos reales ni teléfono físico.
+
+Informe íntegro del revisor:
+**Seguimiento LV-019.B**
+- **Corrección 1 — FALLA parcial (Media):** el barrido de sesión/input/job existe en `server/commercial/web/cloudCandidate.tsx:206`, pero no cerca descargas ya en vuelo. En `server/commercial/web/cloudCandidate.tsx:162-163`, `result()` vuelve a validar con `assertCurrentResult`, que no consulta `structuredAccessLost`; una descarga original iniciada antes del ACK+relectura denegada puede terminar después, crear URL y ejecutar el anchor aunque el padre ya haya ocultado resultados. Reproducción: iniciar descarga original → provocar ACK+relectura `401/403/404/410` → permitir que `result()` resuelva después. Lo mismo aplicaría a audio si esa vía queda alcanzable. Falta `setNotice('')` en `onAccessLost`, lo que puede dejar un aviso previo contradictorio.
+- **Corrección 2 — PASS local:** validación adecuada en `server/commercial/web/reviewedTranslationClient.ts:109-115`. La limitación sobre ausencia de `Content-Length` está correctamente declarada.
+- **Corrección 3 — PASS local:** límite UTF-8 sin recorte de Unicode válido ni saltos en `server/commercial/web/reviewedTranslationClient.ts:62`. Permite controles y surrogates inválidos; riesgo bajo de legibilidad/render, no asigna tiempos.
+- **Corrección 4 — PASS local:** compara `jobRevision` además de ES, IDs, tiempos, duración y texto en `server/commercial/web/reviewedTranslationEditor.tsx:74-75`. No puede demostrarse aquí el contrato del servicio ni races posteriores a la relectura.
+- **Corrección 5 — PASS local:** aviso y `beforeunload` condicionados en `server/commercial/web/reviewedTranslationEditor.tsx:39-43` y `:113`. No hay persistencia de texto ni clave en `localStorage`; el aviso móvil no está prometido.
+
+**Negativos faltantes:** ACK+denegación con descarga/audio en vuelo; denegación concurrente con polling, balance o guardado del padre; `Content-Length` duplicado/espaciado/`identity`; JSON con longitud truncada; legacy con controles/surrogates; carrera de `jobRevision` tras relectura; navegación real y móvil físico.
+
+**Gates:** no habilitar ni registrar el router antes de cerrar la carrera de resultados y probar revocación/IAM, idempotencia real, recargas reales y descargas físicas.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Las correcciones 2-5 son consistentes con los fragmentos y pruebas declaradas. La corrección 1 limpia estado y bloquea controles futuros, pero no impide que `result()` complete una descarga/audio en vuelo tras `structuredAccessLost`.
+NEGATIVOS: Falta la prueba de ACK+denegación durante descarga/audio en vuelo, además de carreras de sesión/input/job, validaciones HTTP adicionales, legacy hostil, relectura concurrente y navegación móvil real.
+BLOQUEOS: No habilitar la característica ni registrar el router hasta corregir la cerca de resultados en vuelo y ejecutar revocación/IAM, servicio idempotente y pruebas físicas.
+=== FIN RESUMEN ===

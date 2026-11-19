@@ -1,0 +1,20 @@
+Revisión completada. Todas las comprobaciones cruzadas pasan dentro de este alcance acotado; los hallazgos se limitan a un límite de diseño y una nota menor de registro.
+
+**Verificación LV-019.B — consulta de resolución de reservas**
+
+- Los seis SHA-256 coinciden exactamente con los archivos auditados.
+- `videoReservationResolution` (`server/account/backend.ts:349`) ejecuta `tx.getAll` y `sealedReservation` como predicado puro de lectura: no llama a `tx.create` ni `tx.update`, no crea sellos ni mueve saldo.
+- Valida identidad (`uidKey` ↔ `identityKey`, UUID de `accountId`, `accountRecord`), UUID/segundos (1–600), coherencia de segundos con la reserva o el sello (`conflict`), y rechaza como `invariant` la coexistencia de reserva activa y sello.
+- Ruta `/resolution` en `server/account/http.ts:59`: exige identidad de liquidación (`settlementCaller`) con 403 para cualquier otra, rechaza query extra, campos extra, segundos inválidos y origen/hostil sin tocar el store; el test HTTP (`server/account/http.test.ts:11`) lo demuestra con `calls:[]`.
+- El cliente (`server/commercial/accountBillingClient.ts:59`) mapea 404 a `not_found` sin reinterpretarlo como ausencia definitiva y no llama a `seal`; `seal()` es un método separado y solo se invoca desde `firestoreAi.ts:124` en el barrido de recuperación, no desde `resolution()`.
+- Timeout uniforme: `post()` central aplica `timeout:10000` a resolución y sello por igual. El guard de hold (`videoBillingGuards`) no participa en la lectura ni en el sello; por diseño, el hold bloquea reserva/captura/release pero no el sello protector ni la lectura. Carrera lectura/sello: ambas van en transacción Firestore; el test de 3 iteraciones acepta `{sealed}` o `not_found` en la carrera y confirma `sealed` después, sin crear sello desde la lectura.
+- El barrido (`drainExternalBilling`) y el worker (`cloudFilesRuntime.ts`) no llaman a `resolution()`: la ruta permanece aislada.
+- Cinco casos focalizados ✔ en `resolution-account-emulator-final-20261117.log`; regresión 38/38 ✔; Vitest 514/113 omitidas ✔ en `resolution-vitest-final-20261117.log`; los tres `*-red` registran fallos de primera intención coherentes con las validaciones introducidas. No se ejecutaron pruebas durante esta revisión.
+- `resolution-types-20261117.log` está vacío (0 bytes); no afecta el alcance acotado de lectura/resolución pero es una anomalía de evidencia menor.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: server/account/backend.ts:349, server/account/http.ts:47-59, server/commercial/accountBillingClient.ts:59-64, server/account/backend.emulator.mjs:193-271, server/account/http.test.ts:11-20, server/commercial/accountBillingClient.test.ts:56-68; outputs/lv-video-billing-20261116/resolution-account-emulator-final-20261117.log (38/38), resolution-vitest-final-20261117.log (514/113), resolution-status-red/http-red/client-red-20261117.log (negativos iniciales)
+NEGATIVOS: Guard de hold no se consulta en lectura ni sello (diseño: no bloquea sello protector); `resolution-types-20261117.log` vacío; no conectada al barrido ni worker en este alcance
+BLOQUEOS: ninguno para este alcance acotado
+=== FIN RESUMEN ===

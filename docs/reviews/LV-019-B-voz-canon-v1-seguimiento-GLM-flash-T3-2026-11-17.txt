@@ -1,0 +1,13 @@
+**Correcciones LV-019.B (seguimiento)**
+
+- `createdAtMs`: el módulo ahora exige igualdad (`reviewedVoiceCanonical.ts`, condición añadida tras los checks de timestamp), la prueba `mismatched creation times` cubre ±1 y el verificador Python la afirma. Queda correctamente acotada como coherencia de escritura, no procedencia.
+- Divisor: el código completo coincide con la semántica documentada (trim, corte solo tras `.!?`, umbral 320 unidades UTF-16 vía `.length`, palabra >320 lanza error que el módulo envuelve como `invalid_reviewed_voice`). Derivación manual confirma los resultados esperados de los vectores `lf-preserved` (LF interno conservado porque no hay puntuación previa) y `combining-boundary` (primera parte de exactamente 320 unidades terminada en `e\u0301`, segunda `9 mm.`).
+- Límites: las pruebas de payload >512 KiB (rechazo antes de decodificar), texto >12.000 unidades, palabra de 321 unidades y la argumentación de 1.000 chunks (pares adyacentes ≥320 unidades → ~160.000 mínimo, inalcanzable bajo 12.000) son consistentes con el orden de checks del módulo.
+- No ejecuté Vitest ni el verificador Python; los hashes declarados siguen sin verificación independiente por mi parte. Confirmo solo la lógica del script adjunto y la coherencia del material.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/reviewedVoiceCanonical.ts` (igualdad `createdAtMs`, orden de límites, wrapping de errores del divisor); `server/commercial/reviewedVoiceCanonical.test.ts` (`mismatched creation times`, `revision below saved-review minimum`, payload >512 KiB, >12.000 unidades, palabra 321, prototipos/símbolos, UUID/SHA inválidos, `expectedRevision`); `server/commercial/reviewedVoiceCanonical.vectors.json` (vectores 4 y 5 con LF conservado y secuencia combinante en el límite 320); divisor completo `pipelineVoiceProvider.ts` (semántica de trim, corte por puntuación, 320 unidades, palabra sobredimensionada); `scripts/verifyReviewedVoiceVectors.py` (afirma reviewId, hashes de payload/voz, fingerprint, igualdad `createdAtMs`, chunking y 8 cuerpos); `docs/specs/LV-019-B-voz-canon-v1.md` (igualdad documentada como coherencia, no procedencia; límites defensivos justificados).
+NEGATIVOS: Verificación de hashes y ejecución de pruebas no reproducida por este revisor; se confirma la lógica, no la corrida. El verificador Python cubre solo el subconjunto JSON/espacios representado y es reimplementación, no el módulo TS. `privateSha`/`privateUuid` no están en el material. La igualdad `createdAtMs` no prueba transacción, procedencia ni autorización; un par coherente fabricado sigue siendo aceptado por diseño. Reproducibilidad entre runtimes queda pendiente según la especificación.
+BLOQUEOS: ninguno para este alcance
+=== FIN RESUMEN ===

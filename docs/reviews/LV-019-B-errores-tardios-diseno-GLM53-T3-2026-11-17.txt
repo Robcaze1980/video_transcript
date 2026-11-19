@@ -1,0 +1,39 @@
+Thread mcp:2a262ec2-b019-49f7-9f62-d9b4e3afc2ee
+**Conclusión**
+- La observación es correcta: `recordExternalBillingIntentFailure` (`server/commercial/firestoreBackend.ts:741`) solo valida estado activo; no compara `updateTime`, tupla financiera ni lease propio. Por tanto, un error tardío puede sumar `attempts` y adelantar `nextAttemptAt` sobre un intent ya reintentado o tomado por otro worker.
+- Llamadores actuales:
+  - Error de `status` tras fallo de reserva: `server/commercial/firestoreAi.ts:65`.
+  - Catch del drenador: `server/commercial/firestoreAi.ts:153`.
+- `pendingExternalBillingIntents` (`server/commercial/firestoreBackend.ts:444`) aún no expone `snapshotVersion`; sí lo expone `pendingExternalBilling` para outbox (`server/commercial/firestoreBackend.ts:735`). Esto hace imposible hoy aplicar el guard propuesto sin cambiar el contrato.
+
+**Diseño sugerido**
+- Antes del POST, obtener una instantánea transaccional que incluya: estado, `updateTime`, tupla financiera completa y lease. Usar dos modos:
+  - `unleased`: se registra error solo si, en transacción, el documento sigue existiendo con el mismo `updateTime`, estado y tupla, y sin campos de lease.
+  - `leased`: primero tomar lease propio (`token`, `owner`, `generation`, `leaseUntil`); registrar error solo si esos cuatro valores siguen idénticos y el vencimiento sigue vigente con el reloj inyectado.
+- En ambos modos, registrar el error y calcular backoff en la misma transacción, no en dos escrituras. Así la comparación y el cambio son una unidad.
+- Si la instantánea cambió: soltar solo el lease propio, no escribir backoff, y dejar el intent recuperable. Para un nuevo POST, releer y obtener una nueva instantánea antes del envío; nunca adoptar una versión leída después del error como si validara el intento anterior.
+- Un ACK remoto auténtico debe conservarse y reconciliarse por tupla aunque el lease haya vencido. Un timeout no genera ACK. El diseño actual de observaciones confirmadas ya apunta en esa dirección (`recordConfirmedIntentObservation`, `server/commercial/firestoreBackend.ts:435`).
+- Tratar Firestore no disponible, filas malformadas y lease incoherente como resultado distinto de “error propio”: sin backoff y con cuarentena/incidente durable si la fila es inválida. No intentar “normalizar” silenciosamente.
+
+**Riesgos**
+- **Hot loop legacy:** con `recordExternalBillingIntentFailure` actual, un worker viejo que pierde su versión puede pisar reintentos y adelantar continuamente `nextAttemptAt`; combinado con consultas por fecha y filas retroactivas, puede monopolizar el drenador. El guard por versión/lease lo evita, pero no corruye retroactivamente a workers viejos.
+- **Reloj:** `Date.now()` para vencimiento y backoff es frágil ante saltos de reloj. Inyectar el reloj y monitorear duración; si el reloj retrocede, no extender leases ni interpretar vencimiento como prueba.
+- **Intercalados:** Firestore no ofrece una cerca distribuida con Account API; un lease local no cancela un POST enviado. El selector puede ganar una fila mientras otro POST sigue en vuelo, por lo que la reconciliación por tupla sigue obligatoria.
+- **`updateTime`:** no es una secuencia monotónica global ni prueba identidad financiera; úsalo solo como token de versión dentro de una transacción, no como causalidad distribuida.
+- **Fallos de Firestore:** un error al leer/validar antes del POST no puede avanzar `attempts`; un fallo al escribir backoff tampoco debe interpretarse como éxito. Dejar recuperable es más seguro que duplicar el POST.
+- **Filas malformadas:** hoy `pendingExternalBillingIntents` filtra por `nextAttemptAt`, pero no cuarentena tipos inválidos; una fila corrupta puede repetirse. Debe derivarse a revisión durable.
+- **Selector desconectado:** el diseño propuesto requiere cambiar el contrato actual de drenador; no se puede validar con `billingFairQueue.ts` que es sintético, desactivado y no importado por producción.
+
+**Pruebas críticas sugeridas**
+- Un worker posee la fila y otro con versión antigua intenta registrar error: el nuevo debe rechazar el registro y no cambiar `nextAttemptAt` ni `attempts`.
+- Error tardío llega tras cambio de tupla (cuenta, identidad, reserva o segundos): se omite el backoff y se deja la fila recuperable.
+- Lease vencido con POST aún en vuelo: no se aplica como ACK; el ACK auténtico posterior se conserva y reconcilia por tupla.
+- Fallo de Firestore al confirmar el error propio: no incrementa `attempts`, no escribe backoff y la fila sigue elegible para reconciliación.
+- Fila malformada o lease incoherente: se crea incidente/cuarentena durable y no se emiten POST ni backoff repetido.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: HEAD `8b8e3e4b55e6bd461aa693965d3be733eb3901a0`; revisión local en modo solo lectura. `server/commercial/firestoreBackend.ts:741` registra backoff solo por `accountId`/`requestKey` y estado activo, sin `updateTime`, tupla ni lease. Los llamadores están en `server/commercial/firestoreAi.ts:65` y `server/commercial/firestoreAi.ts:153`. `server/commercial/firestoreBackend.ts:444` no devuelve `snapshotVersion`; `server/commercial/firestoreBackend.ts:735` sí lo hace para outbox. `server/commercial/billingFairQueue.ts:17` documenta que el selector es sintético y no es el drenador de producción.
+NEGATIVOS: Riesgo de hot loop con worker legacy que sigue pisando backoff; `Date.now()` acopla vencimiento y reintentos al reloj local; `updateTime` no sustituye validación de tupla ni prueba causalidad distribuida; fallos de Firestore pueden dejar la operación en recuperable, no en éxito; filas malformadas pueden repetirse. Este análisis no valida producción, migración ni scheduler; no accedió a nube ni compartió datos reales.
+BLOQUEOS: Extender `pendingExternalBillingIntents` con versión y observación previa; condicionar el registro de error a identidad de estado/tupla/versión y lease propio vigente en transacción; calcular y escribir backoff en la misma transacción; conservar y reconciliar ACK remoto auténtico por tupla aunque el lease haya vencido; cuarentenar filas malformadas y leases incoherentes.
+=== FIN RESUMEN ===

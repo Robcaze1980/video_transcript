@@ -1,0 +1,24 @@
+**Resultado**
+- La implementación acotada corrige el defecto: la evidencia se captura antes del POST/status, y el backoff se escribe solo si versión, estado, testigo, tupla y turno siguen exactamente iguales en transacción.
+- `pendingExternalBillingIntents` ahora expone `snapshotVersion`; el drenador no adopta una versión nueva tras el error y omite backoff ante cambio.
+- El lease propio se suelta solo en éxito del backoff; un error o cambio no libera un turno ajeno. La expiración se valida con reloj interno (`Date.now()`), aunque no hay reloj inyectado.
+- `terminalObserved` distingue correctamente timeout/error de ACK real: el error del drenador no registra backoff si ya hubo observación terminal, y el ACK sigue reconciliándose aunque el turno cambie.
+- Los dos llamadores usan la evidencia previa. El flujo sin evidencia queda recuperable y no hace una llamada nueva a Account; el flujo anterior sin turno sigue recuperable.
+
+**Pruebas observadas**
+- No ejecuté pruebas.
+- Log rojo: 4 casos, 3 fallas y 1 pase, reproduciendo exactamente el pisado de lease, lease reemplazo y doble conteo.
+- Primer log verde: 16/16, incluyendo carreras en `enqueue`, drenador, tupla cambiada, lease expirado, deduplicación, Firestore caído y ACK tardío con turno reemplazado.
+
+**Límites**
+- `Date.now()` sigue acoplado al reloj; no prueba ausencia de saltos ni sustituye duración.
+- `updateTime` valida identidad local, no causalidad distribuida; el lease no detiene un POST remoto en vuelo.
+- Cuarentena durable, otros escritores/outbox, scheduler e integración del selector siguen pendientes; el selector sigue desconectado.
+- No certifica producción, migración ni dinero real.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Hashes congelados verificados en los cuatro archivos. `server/commercial/firestoreBackend.ts:297` captura evidencia antes del POST/status; `server/commercial/firestoreBackend.ts:772` compara versión, estado, testigo, tupla, lease y vigencia antes del backoff; `server/commercial/firestoreBackend.ts:474` expone `snapshotVersion`; `server/commercial/firestoreAi.ts:59` y `server/commercial/firestoreAi.ts:68` usan evidencia previa en `enqueue`; `server/commercial/firestoreAi.ts:105` y `server/commercial/firestoreAi.ts:164` la usan en el drenador y suprimen backoff tras observación terminal. Casos comprobados en `server/commercial/billingFailureFence.emulator.mjs:69`, `:77`, `:87`, `:103`, `:112`, `:119`, `:132`, `:144`, `:150`, `:164`, `:174`, `:181`, `:189`, `:204`, `:220`, `:234`, `:249`. Rojo `outputs/lv-video-billing-20261116/billing-failure-fence-red-20261117.log` (3 fallas/1 pase) y verde `outputs/lv-video-billing-20261116/billing-failure-fence-expanded-first-20261117.log` (16/16).
+NEGATIVOS: No ejecuté pruebas ni accedí a nube. El log verde observado es solo la primera ejecución expandida; no afirman cifras finales posteriores. Reloj no inyectado, lease no cancela POST remoto, `updateTime` no prueba causalidad distribuida, y faltan cuarentena durable de corruptos, otros escritores/outbox, scheduler e integración del selector.
+BLOQUEOS: ninguno para el cambio acotado.
+=== FIN RESUMEN ===

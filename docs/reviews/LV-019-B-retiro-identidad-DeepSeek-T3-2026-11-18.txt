@@ -1,0 +1,12 @@
+Riesgos del orden y las barreras propuestas:
+
+1. Orden/atomicidad: cerrar Cuenta y video antes de Auth deja una ventana sin revocación efectiva; si una etapa queda "pendiente", el UID sigue reautenticable. Las barreras locales por base no son atómicas ni globales: un fallo parcial deja una base cerrada y la otra operativa, sin rollback común.
+2. Altas/doble cobro: "probar positivamente que es usuario nuevo" es una comprobación-y-alta con carrera; un reintento puede reaprovisionar el mismo UID y admitir reserva nueva sobre una cuenta no liberada. Conservar reserva/cuenta original y no liberar UNKNOWN mantiene retención y, si se admite un segundo intento, duplica el cobro; los bytes ya entregados pueden re-facturarse.
+3. Privacidad: la autoridad durable/versionada y la conciliación conservan identidad, reserva y cuenta sin plazo de retención ni borrado, y verificar "usuario nuevo" añade datos personales. Además, el bloqueo de facto puede leerse como revocación oficial: no lo es.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Propuesta LV-019.B (texto aportado); sin revisión de código ni despliegue.
+NEGATIVOS: Orden, atomicidad entre bases, doble cobro y retención no demostrados.
+BLOQUEOS: Migración de usuarios y parada de escritores viejos pendientes; etapas sin criterio de cierre confirmado.
+=== FIN RESUMEN ===

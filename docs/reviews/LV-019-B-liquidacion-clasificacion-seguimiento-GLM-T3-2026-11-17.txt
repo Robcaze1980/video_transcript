@@ -1,0 +1,14 @@
+**Rectificación de alcance:** el PASS anterior cubría deriva de clasificación y de snapshot del outbox. No cubría la ventana entre prevalidación y POST para identity/intent/intentGuard/guard; esta aclaración sí.
+
+**Hallazgo reproducible en el código visible:**
+
+- `markExternalBillingSettled` solo relee `billingOutbox` + `jobs` y re-verifica `jobAccounting`. No relee ni re-verifica `identities`, `billingIntents`, `billingGuards` ni `billingIntentAdmissionGuards`.
+- Si durante el POST identity, intent, intentGuard o guard cambian o desaparecen mientras outbox/job/clasificación siguen iguales, la transacción retorna `true`, el caller hace `settled++; continue;` y **sí puede marcar `settled` sin crear incidencia ni cuarentena**.
+- La comprobación posterior **corrige** dos derivas: snapshot del outbox (`matchesOutboxSnapshot`) y pérdida de clasificación (`jobAccounting`) — ambas retornan `false` y caen a `quarantineExternalBillingOutbox` after_ack con evidencia. Para el resto (identity/intent/guard), **no corrige: es punto ciego**. El impacto queda reducido solo en el sentido de que el movimiento ya fue prevalidado antes del POST y no puede duplicarse por idempotencia del estado `settled` + `matchesOutboxSnapshot`; pero la transición de estado (guard bloqueado, intent/identity borrados) pasa sin registro ni atribución.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `markExternalBillingSettled` relee únicamente billingOutbox y jobs (`tx.getAll(ref, jobs)`), verifica matchesOutboxSnapshot y jobAccounting, y actualiza `state:'settled'` sin tocar identities/billingIntents/billingGuards/billingIntentAdmissionGuards. El caller hace `settled++; continue;` cuando retorna true: sin quarantine ni incidente. Hashes backend 9bf256e21f744914dc487abffb646d374123e3d753cb98fc6af75fc9fdad3fc9, AI 996601695df00712990192b443f79c0aa86abdeaf1c0c619655fe7eb89bf81a8.
+NEGATIVOS: Cambio o borrado de identity/intent/intentGuard/guard durante el POST no se detecta ni corrige: settled sin incidencia. La comprobación posterior corrige solo deriva de outbox y clasificación; para lo demás solo reduce el impacto (movimiento prevalidado, idempotencia de settled), no lo registra.
+BLOQUEOS: Gate de justicia scheduler/outbox sigue pendiente; no se asume resuelto.
+=== FIN RESUMEN ===

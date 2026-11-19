@@ -1,0 +1,23 @@
+**Revisión independiente LV-019.B**
+- **Relación revisión→voz:** el contrato va bien orientado: exige revisión estructurada, recibo, hash recalculado, vinculación inmutable y prohíbe voz sola. Falta definir con precisión el esquema de «revisión exacta», origen de cues, mapeo por fragmento y serialización canónica usada para los hashes.
+- **Reserva remota:** es correcto no tratar una falla local como prueba de ausencia remota. Pero falta un ciclo de vida explícito para la reserva: idempotencia, expiración, liberación/reconciliación si la escritura local falla o la evidencia queda obsoleta, y verificación de que el monto remoto coincide con la tupla financiera local.
+- **Sincronización/carreras:** las revalidaciones por fragmento y la prohibición de convertir consulta en autorización son adecuadas. Falta definir el estado y el protocolo seguro ante ACK perdido del proveedor: cuándo se consulta, quién libera el estado y cómo se evita repetir la llamada sin usar solo el recibo.
+- **Admisiones duplicadas:** el control con `reservationId + jobId + attemptId + callKey + model + requestSha256` es buena base, pero no queda demostrado que el proveedor acepte idempotencia por `callKey` ni qué ocurre con una admisión parcialmente entregada.
+- **Privacidad:** la exclusión de texto de cliente en registros operativos es adecuada, pero falta especificar retención/eliminación de texto y audio en el proveedor, limpieza de errores y métricas, y protección del artefacto de voz resultante.
+- **Activación:** mantener la ruta deshabilitada es correcto. Falta definir bandera/rollout autorizado, kill switch, auditoría de activación y monitoreo mínimo antes de habilitar cobros o procesamiento en línea.
+
+**Garantías locales vs remotas:** los hashes, recibos y transacciones locales pueden demostrar validez y vínculo, pero no garantizan reserva remota, no duplicación en el proveedor, cancelación de llamadas enviadas ni manejo remoto de datos. Esas garantías deben provenir del protocolo remoto y de pruebas integradas.
+
+**Cambios sugeridos:**
+1. Definir un esquema canónico y verificable de `reviewId → texto/cues → fragmento → voz`, incluyendo versión, hash y recibo.
+2. Especificar el ciclo completo de reserva remota: clave idempotente, expiración, liberación, reconciliación ante falla local o evidencia obsoleta.
+3. Añadir el protocolo de admisión ante ACK perdido: estado de incertidumbre, consulta remota permitida y criterios explícitos para continuar o liberar.
+4. Documentar retención, acceso, borrado y limpieza de errores para texto/audio en proveedor y sistemas propios.
+5. Añadir controles de activación: habilitación explícita, kill switch, auditoría y monitoreo de fallos financieros o de seguridad.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Solo el diseño LV-019.B incluido en la solicitud; sin revisión de código, pruebas ni evidencia de ejecución.
+NEGATIVOS: Falta precisar el esquema de vinculación revisión→voz, el ciclo de vida de la reserva remota, el protocolo seguro ante ACK perdido, la idempotencia real del proveedor y los controles de retención/activación.
+BLOQUEOS: Ninguno para esta revisión; la activación sigue bloqueada hasta cerrar esos vacíos con pruebas integradas.
+=== FIN RESUMEN ===

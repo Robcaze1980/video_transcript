@@ -1,0 +1,32 @@
+Auditoría estática solo de los extractos pegados; sin herramientas ni cambios.
+
+**Negativo (1) UID retirado/reasignado**
+- Cerrado en el replay interno: `previous()` → `priorExternalRequestForEnqueue` exige `verifiedUidAccountInTransaction(tx,this.root,accountId,requesterUid)` y además relee `identities[stored.identityKey]` y compara `uid!==requesterUid` → `LedgerFault('conflict')`; todo antes de `verifiedExternalJob` (que es quien lee `jobs`). `enqueue` convierte `prior` en `AiFault('unknown')`, así que no devuelve job.
+- Cerrado en el camino interno: `reserveAs` abre con `verifiedUidAccountInTransaction(...)` y exige `hash(['firebase',requesterUid])===externalBilling.identityKey`.
+- Límite real: sin epoch/versión de Cuenta, el cierre depende de que el doc `identities` esté fresco. Contraejemplo: reasignación en Cuenta/Firebase que no actualice (o actualice tarde) `identities[hash('firebase',uid)].accountId` → `verifiedUidAccountInTransaction` devuelve `true` y el replay podría devolver job al titular anterior. No hay prueba de autenticidad/epoch.
+
+**Negativo (2) reservado sin ACK creaba job**
+- `enqueue`/catch: `held.seconds` igual y estado reservado cae ahora en `recordReservedStatusUncertainty(...)` + `throw AiFault('unknown')`; no se alcanza el `return this.backend.reserve(...)`.
+- `reserveAs`: con `statusSnapshot&&statusWitness` retorna `null` tanto si la observación no coincide (`preserveDirectUncertainty`) como si coincide ("Even a matching status observation is not a reserve ACK"), y `null` ⇒ `LedgerFault('conflict')`. No crea job ni libera.
+- Drenador: el caso reservado sin match cae en `recordReservedStatusUncertainty(...)` + `intentsFailed++`; no hay `releaseAfter` ni creación de job en esa rama.
+
+**Incertidumbre al cambiar la historia**
+- Conservada: `seconds!==row.seconds||captured` → `recordExternalBillingReview` (no admite); `released` → `confirmedIntentObservation` (no admite); reservado → incidente `direct_status_uncertainty` con `attribution`/`ownerBlocked`, `review`/`hold` y guard `blocked:true` (bloquea futuras reservas, incluidas simuladas: riesgo de efecto amplio).
+- No admite reingreso ni "refund": no hay creación de job ni movimiento de balance en ninguna rama de estatus.
+- Límite: `recordReservedStatusUncertainty` etiqueta siempre `{state:'reserved',seconds:witness.seconds}`; ignora `held.state`. Contraejemplo: `status()` que devuelva `state:'sealed'`/`'not_found'` con segundos coincidentes se registra como `reserved`, falseando el historial.
+
+**Riesgos concretos adicionales**
+- Drenador: `if(row.state==='release_pending'){ await releaseAfter(statusSnapshot,'status_reserved') }` libera usando un estatus reservado, y en la rama `seal` con `sealed.state` reservado también `releaseAfter(...,'seal_reserved')`. Es una liberación disparada por un estatus reservado; sólo es legítima si `release_pending` proviene de una decisión de liberación independiente, provenance no visible.
+- Si `preserveDirectUncertainty` encuentra `oldIncident` con mismo id pero `directSnapshotHash` distinto, lanza `'invariant'` en vez de registrar la historia cambiada (falla cerrado, pero no preserva esa variación).
+- `enqueue` con `priorIntent`: compara `verified` (jobId) contra `priorIntent` (nombre de intent); si `beginExternalBillingIntent` no devuelve un jobId, siempre da `conflict`. Falla cerrado, semántica dudosa.
+- Ruta legada final de `enqueue` (`return this.backend.reserve(...,data,undefined,uid!)`) devuelve job tras ACK en memoria sin evidencia durable suficiente: el propio comentario lo admite y la API HTTP sigue apagada.
+
+**Bloqueos/límites de verificación**
+- No visibles: `verifiedExternalJob`, `matchingDirectObservation`, `directSnapshotHash`, `beginExternalBillingIntent`, `recheckExternalBillingAdmission`, `confirmedIntentObservation`, `releaseAfter`, `captureExternalBillingIntentFailureEvidence`, y la procedencia de `release_pending`; tampoco la capa HTTP/flags ni epoch de Cuenta.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: `priorExternalRequestForEnqueue` revalida `verifiedUidAccountInTransaction` y la identidad viva antes de `verifiedExternalJob`, y `reserveAs` hace lo mismo al entrar; `enqueue` no devuelve job en replay (`AiFault('unknown')`). El catch de `enqueue` manda el reservado sin match a `recordReservedStatusUncertainty` y lanza `unknown`, y `reserveAs` retorna `null` (⇒`conflict`) con cualquier `statusSnapshot`, incluido el que coincide: no crea job ni libera. El drenador no crea job en la rama reservada (`intentsFailed++`). Incertidumbre conservada: `captured`/segundos distintos → `recordExternalBillingReview`; `released` → `confirmedIntentObservation`; reservado → incidente con `attribution`/guard `blocked:true`.
+NEGATIVOS: (1) Cierre depende de la frescura del doc `identities`; sin epoch/autenticidad de Cuenta, una reasignación no reflejada deja pasar el replay al titular anterior. (2) En drenador, `release_pending` ejecuta `releaseAfter(statusSnapshot,'status_reserved')` y la rama `seal` reservada libera igual; es liberación disparada por estatus reservado, válida sólo si `release_pending` tiene provenance independiente no visible. (3) `recordReservedStatusUncertainty` etiqueta todo como `reserved`, ignorando `held.state`. (4) `oldIncident` con hash distinto lanza `'invariant'` sin registrar la historia cambiada. (5) `verified!==priorIntent` mezcla jobId con intent. (6) La ruta legada de `enqueue` devuelve job tras ACK en memoria sin evidencia durable.
+BLOQUEOS: API HTTP externa apagada; no se acepta producción, autenticidad/epoch de Cuenta ni recuperación durable; `verifiedExternalJob`, `directObservationDocs`/`matchingDirectObservation`, `directSnapshotHash`, `beginExternalBillingIntent`, `recheckExternalBillingAdmission`, `confirmedIntentObservation`, `releaseAfter` y la procedencia de `release_pending` no son visibles; los fragmentos del drenador empiezan a mitad del bucle.
+=== FIN RESUMEN ===

@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática de los fragmentos declarados, sin herramientas ni recálculo de hashes. DELETE y content usan `user.uid`; `removeForUid` y `downloadForUid` verifican `uid↔accountId` y leen `uploads` e `inputs` dentro de la misma transacción. El borrado lee antes de escribir, marca `deleting`/`input.deleted` y encola outbox; la descarga exige dueño, `ready`, vigencia, no borrado y misma generación. Range/HEAD se procesan tras autorización y no hay ruta cliente hacia `remove`/`download` internos.
+NEGATIVOS: Un stream ya autorizado puede continuar tras borrado o revocación posterior; la validación Firebase no es atómica con Firestore. La corrección por generación y la validación de `readyPrivateInput` dependen de funciones omitidas. Una inconsistencia de `input.accountId` devuelve `invariant` en vez de `not_found` (menor).
+BLOQUEOS: Ninguno.
+=== FIN RESUMEN ===

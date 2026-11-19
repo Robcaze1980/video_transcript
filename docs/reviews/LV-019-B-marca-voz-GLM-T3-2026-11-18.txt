@@ -1,0 +1,23 @@
+Revisión estática del código proporcionado, sin ejecución ni cambios.
+
+**Defectos**
+- **Tiempo, frontera 600000 ms:** con el propio modelo de truncamiento, `durationMs=600000` representa duraciones en [600000, 600001) ms, cuyo `ceil` real es 600 o 601 s. `Math.min(600, floor+1)` elimina 601: admite subfacturación indetectable (T=600000.5 cobrado como 600) y rechaza marcadores legítimos de 601 s. El tope de ms y el de segundos son inconsistentes entre sí.
+- **Identidad/colisión por clave:** `markerId` solo liga `(accountId, requestKey)`; no incluye `inputId`, `textJobId`, `revision`, `operation` ni digests. Dos bindings distintos con la misma cuenta y clave producen el mismo `markerId` con fingerprints distintos; el códec no previene ni detecta esa colisión. Solo es seguro si `requestKey` es único por contenido, lo que el código no garantiza ni documenta.
+- **Accessors rechazados en campos excluidos:** `!('value' in descriptor)` exige data-property también para `canonicalEvidence` y `versions`, que nunca se leen. Si el objeto real las expone como getter (típico para texto privado), `createReviewedVoiceMarker` rechaza entrada válida.
+- **Identidad sin normalizar:** `identifier` acepta UUID en mayúsculas/minúsculas y `key` no normaliza (trim/NFC). Representaciones equivalentes de la misma cuenta o clave generan `markerId` distintos → marcadores duplicados no detectados.
+- **`versions` sin ligadura:** se exige presencia pero el marcador no registra ni sella su contenido; la coherencia de versiones de documento queda solo en el `bindingHash` opaco, que el códec no recalcula. El marcador afirma `canonVersion`/`bindingVersion` fijos sin contrastarlos con `versions`.
+- **Enmascaramiento de errores:** el `catch` convierte cualquier error inesperado (bug interno) en `invalid_reviewed_voice_marker`, ocultando la causa real.
+
+**Pruebas más importantes**
+- Frontera temporal: `durationMs=600000` con `billableSeconds=601` → hoy FALLA; decidir si debe admitirse o si `ms=600000` debe rechazarse. Confirmar `2000/2` y `2000/3` → PASS ambos.
+- Colisión de identidad: dos bindings válidos con `inputId` distinto, mismo `accountId`+`requestKey` → mismo `markerId`; exigir unicidad o incluir contenido en el ID.
+- Accessor: binding con `canonicalEvidence` como getter no enumerable (`Object.defineProperty`, solo `get`) → hoy FALLA aunque el valor nunca se lee.
+- Normalización: mismo `requestKey` con `accountId` en mayúsculas vs minúsculas → `markerId` distintos hoy.
+- Mutación: marcador válido alterando cualquier campo cubierto por `fingerprint` (p. ej. `receiptId`, `operation`, `durationMs`) → `validateReviewedVoiceMarker` FALLA.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Revisión estática del código proporcionado; sin ejecución, sin delegación y sin acceso a rutas, saldo, Firestore ni proveedor.
+NEGATIVOS: Inconsistencia de topes en 600000 ms/601 s; markerId no liga contenido (colisión si requestKey no es único); accessors rechazados en campos nunca leídos; identidad sin normalización (duplicados); `versions` presente pero sin ligadura verificable; catch enmascara errores internos como marcador inválido.
+BLOQUEOS: Ninguno para esta revisión; la validación de proveniencia, cobro real y captura sigue fuera del alcance del códec según lo declarado.
+=== FIN RESUMEN ===

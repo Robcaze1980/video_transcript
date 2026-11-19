@@ -1,0 +1,42 @@
+**Hallazgos**
+
+**Crítico — Gate UID/cuenta no resuelto (bloqueo de conexión):**
+- El adaptador valida la forma de `caller.uid` (no vacío, ≤128, sin controles, UTF-8 válido) pero **nunca lo reenvía al servicio**. `readSource`, `saveReview` y `downloadReview` reciben solo `accountId`.
+- No existe verificación de que el UID pertenece a esa cuenta dentro del adaptador ni en la interfaz del servicio. Cualquier componente que construya un `caller` válido (router mal configurado, refactor futuro, bug de middleware) obtiene acceso a cualquier cuenta.
+- El comentario del código lo reconoce: *"the service currently receives only accountId"*. Es un gate obligatorio pendiente antes de conectar. **No resuelto.**
+
+**Límites — correctos:**
+- Body: `Content-Length` validado (regex estricta sin ceros a la izquierda, safe-integer, ≤400.000) y límite reforzado por streaming. Drenaje con `req.resume()` antes de responder 413.
+- Target URL ≤2.048; ruta estricta UUID-36 hex-dash + sufijo `/review(/download)?`; sin `%`, `..`, `;` ni bypass por codificación.
+- Query: parámetros exactos (`inputId` para lectura; `inputId+revision+format` para descarga), sin duplicados, sin extra, conteo exacto. `Object.create(null)` evita colisión con `__proto__`.
+- Edits: 1–1000, id único (Set), `privateSha`, `en` no vacío/trim, sin controles, UTF-8 válido, límite por cue y acumulado. `plainExact` con prototype check y claves exactas.
+- `requestKey`: ≤200, sin controles, UTF-8 válido, trim no vacío.
+- Respuesta JSON ≤2 MiB (RESONSE_LIMIT); descarga ≤`AI_TEXT_FILE_MAX`.
+
+**JSON claves duplicadas — correcto:**
+- Scanner manual ejecutado **después** de `JSON.parse` exitoso. Detecta duplicados incluyendo alias escapados (`"a"` vs `"\u0061"`) porque `string()` decodifica antes de insertar en el `Set`. Límite de profundidad 8. Escaneo lineal sobre raw ≤400 KB. Lógico correcto.
+
+**MIME/no-store — correcto:**
+- Todas las respuestas (JSON, descarga, errores 4xx/5xx) incluyen `Cache-Control: no-store` y `X-Content-Type-Options: nosniff`.
+- JSON: `application/json; charset=utf-8`. Descarga: `text/plain` o `application/x-subrip`, ambos con `charset=utf-8`; `Content-Disposition: attachment` con filename fijo (sin inyección); `Content-Length` correcto; HEAD sin body pero con headers.
+- `Content-Encoding` limitado a ausente o `identity` (case-insensitive); cualquier otro → 415.
+
+**Respuesta sin fuga de errores — correcto:**
+- Catch mapea `RequestFault` y `ReviewedTranslationFault` conocidos a `{error: code}` con status apropiado. Error desconocido → 500 `{error:'internal'}` sin stack, sin mensaje original. `headersSent` → `res.destroy()` sin intentar escribir.
+- 405 incluye header `Allow` correcto.
+
+**Observaciones menores (no bloqueantes):**
+- `TextDecoder` con `ignoreBOM: false` (default) elimina BOM UTF-8 silenciosamente: acepta cuerpos con BOM inicial, desviación cosmética de strictness.
+- No se rechazan caracteres Unicode de formato invisible (`\u200b`, `\ufeff`, `\u202e` RTL override) en `requestKey` ni `edit.en`. Hardening, no vector de explotación en el contrato actual.
+- Si `readSource` devuelve datos legítimos >2 MiB, el adaptador responde 500 `internal` en lugar de un 413 definido — límite de diseño, no bug.
+- Si `sendJson` lanza dentro del `catch` (ej. cliente desconectado), el error escapa como promesa rechazada no capturada por este catch. Robustez del caller.
+
+**Límites de esta revisión:**
+- Revisión estática del código fuente proporcionado únicamente. No ejecuté pruebas, no inspeccioné dependencias (`AI_TEXT_FILE_MAX`, `privateSha`, `privateUuid`, `REVIEWED_CUE_MAX_BYTES`, `REVIEWED_DRAFT_MAX_BYTES`, `ReviewedTranslationFault`), no verifiqué el router, ni el comportamiento en runtime.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Adaptador LV-019.B revisado estáticamente; SHA256 `e3dc9e9bdec261bdb117762bbc91f40c8152ea6fbb5a6bf9532229eaba7f4a7c`. Validación de caller.uid cosmética: uid validado pero nunca reenviado al servicio (`readSource`/`saveReview`/`downloadReview` reciben solo accountId). Sin revalidación UID↔cuenta en transacción. Límites de body/URL/query/edits correctos; scanner de claves duplicadas JSON lógicamente correcto; MIME/no-store/nosniff presentes en todas las respuestas; errores sin fuga de detalles internos.
+NEGATIVOS: No ejecuté pruebas ni verifiqué runtime. No revisé dependencias importadas (`aiContracts`, `privateObjectPlan`, `reviewedTranslation`, `firestoreReviewedTranslation`). No audité el router ni la cadena de autenticación previa. BOM UTF-8 aceptado silenciosamente; caracteres Unicode invisibles no filtrados en campos de texto.
+BLOQUEOS: Gate UID↔cuenta obligatorio sin resolver: la interfaz `ReviewedTranslationHttpService` no acepta `uid` y el servicio no puede revalidar la relación solicitante-cuenta en su transacción. El adaptador no debe conectarse a producción hasta que (1) la interfaz del servicio reciba el uid o un principal autorizado y (2) la implementación del servicio revalide la pertenencia UID↔accountId dentro de su transacción.
+=== FIN RESUMEN ===

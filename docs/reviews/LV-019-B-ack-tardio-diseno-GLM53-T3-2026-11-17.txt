@@ -1,0 +1,26 @@
+Thread mcp:3d43ba69-234e-4eae-8f9b-b7a45925816c
+Riesgos críticos
+- Firestore no da transacción atómica entre las dos bases; la relectura es una foto lógica, no un compromiso distribuido.
+- El testigo debe ser write-once y con ID determinista por operación; mismo ID con payload distinto es incidente.
+- Un cierre idéntico solo es coherente si referencia el testigo/operación y coincide dueño, reserva, segundos y solicitud.
+- “Sin job contradictorio” requiere registro histórico; si los jobs se borran, una lectura puntual no prueba que nunca existieron.
+- Un cierre que existía antes del testigo no debe aceptarse como igual: falta causalidad verificable.
+- 404, reserved o released no prueban creación ni ausencia de tombstone.
+- Timeout no genera ACK; un ACK tardío debe reconciliarse una sola vez.
+- Si Video cae tras el ACK, la recuperación debe buscar por testigo/operación y recibo en Cuenta, no por status.
+- Lease vencido no cancela un POST en vuelo; se necesita token idempotente y reconciliación antes de reintentar.
+- Cambio de intención, dueño, reserva, segundos o presencia de job: conservar ACK/observación en incidente idempotente y bloquear hasta verificar identidad/propietario con documentos independientes.
+
+Pruebas mínimas
+1. Testigo creado antes de cualquier llamada.
+2. Cierre idéntico, sin job, sin incidente; duplicado idempotente.
+3. Testigo duplicado con payload distinto.
+4. Cierre previo al testigo.
+5. Job creado después de la relectura.
+6. Timeout y ACK tardío.
+7. ACK perdido tras commit y recuperación posterior.
+8. 404 y reserved/released sin recibo de cierre.
+9. Lease vencido con POST aún en vuelo.
+10. Intención o dueño cambiados y verificación independiente.
+
+EXACTAMENTE: dentro de LV-019.B, cierra solo con testigo durable, recibo coherente y ausencia demostrable de job; 404, reserved/released, timeout, cambio de intención o lease vencido exigen reconciliación o incidente, nunca cierre.

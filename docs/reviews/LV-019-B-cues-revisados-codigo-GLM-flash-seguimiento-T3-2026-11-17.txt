@@ -1,0 +1,6 @@
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: jobId no se valida en esta función pura, pero Codex confirma que `encodeTextBundle` lo valida transitivamente al entrar (string no vacío ≤200, sin controles), así que la observación sobre jobId queda retirada. El límite 4 KiB/cue aplica solo a EN editado; ES fuente sigue el codec y el límite SRT. Sobre caracteres invisibles: no es válido prohibir todos los formateadores Unicode; ZWJ y otros pueden ser necesarios para nombres multilingües o escrituras legítimas. La alerta correcta es distinguir entre caracteres benignos (ZWJ, ZWNJ en escrituras que los requieren) y controles bidi sospechosos (overrides U+202A–U+202E, embedding U+2066–U+2069), que sí merecen alerta/visualización segura sin prohibirlos por defecto.
+NEGATIVOS: La auditoría no demostró un fallo explotable real; la distinción entre bidi sospechoso y formateadores benignos es una recomendación de política de presentación/visualización, no una regla universal de rechazo. Codex añadirá verificación del tamaño real del TXT además del conteo previo, cerrando la brecha contable. Las 35 pruebas informadas no fueron ejecutadas por mí.
+BLOQUEOS: Ninguno.
+=== FIN RESUMEN ===

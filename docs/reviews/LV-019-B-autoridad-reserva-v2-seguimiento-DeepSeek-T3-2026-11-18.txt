@@ -1,0 +1,15 @@
+Riesgos y correcciones sobre la v2
+
+- **Ventana de reintento tras estado terminal (doble débito).** La recuperación de §2.1 solo consulta ranuras *pendientes*. Escenario: POST confirmado, job creado, respuesta perdida, almacenamiento borrado; el reintento no encuentra intención pendiente, genera otro `requestKey` → otra `logicalKey` → segunda reserva y débito por una sola acción. La interfaz no es autoridad. Falta un registro durable de operaciones terminadas por ámbito (ventana acotada) o un identificador de acción aportado y verificable.
+- **Clave de coalescencia incompleta.** La búsqueda es por identidad, proyecto/input, operación y revisión: omite `snapshotSha256` y `seconds`, así que un borrador editado antes de admisión puede heredar la intención del anterior (cobro por contenido no pedido). Además, si la preparación incrementa `revision`, la segunda pestaña con la revisión leída crea otra intención. Debe deduplicarse por la tupla completa o exigir confirmación en discrepancia.
+- **Alcance del token de admisión indefinido.** Si el token es por `attemptId` en vez de por `logicalKey`, un `attemptId` nuevo obtiene token nuevo → segunda llamada pagada, contra «no repetir la llamada pagada». Falta fijar «máximo una admisión por clave lógica» y aclarar que un intento ≠ una llamada.
+- **Replay contra índice o contra vínculo vivo.** No se especifica si el replay idéntico compara con el índice registrado o con el vínculo actual. Bajo A→B→A con generación avanzada, la huella difiere y el reintento legítimo cae en «conflicto», con fondos retenidos y recuperación solo por conciliador. Hace falta la regla explícita, o el usuario benigno queda strandado.
+- **Sin testigo causal entre dominios.** Los contadores de Video no ven un retiro en Cuenta (bases separadas, sin transacción cruzada). §1 admite que Video puede crear job tras el cierre parcial, pero §5 se lee como si «comparar contadores aplicables» lo cubriera. Falta llevar la época de Cuenta a la intención de Video y reverificarla antes de crear job.
+- **Caso admisión-confirmada/POST-incierto sin salida.** No hay campo de clave idempotente hacia el proveedor, ni prueba de que éste permita consultar por ella, y no se autoriza devolución automática. Queda indefinido quién asume el costo y si hay liberación demostrable. Falta garantía verificada del proveedor o decisión de negocio; además, una intención incierta bloquea el ámbito sin política de retención decidida (DoS por bloqueo).
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Lectura del texto v2 y contraste con la FALLA previa; sin herramientas ni cambios, según lo pedido; no inspeccioné código, pruebas ni permisos reales.
+NEGATIVOS: Sin implementación, pruebas ni evidencia de IAM/proveedor; los puntos de token, replay e idempotencia externa quedan INCONCLUYENTES hasta ver el código y la garantía del proveedor.
+BLOQUEOS: Endpoint externo apagado; faltan reconciliador v2 y sincronización de revocación con Cuenta; sin prueba de corte v1/v2, retención, restauración ni idempotencia externa; no declarar producción lista.
+=== FIN RESUMEN ===
