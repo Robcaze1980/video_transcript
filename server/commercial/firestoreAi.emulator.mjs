@@ -1415,7 +1415,8 @@ test('intent rejects wrong model, call family and ordinal before provider receip
  }finally{globalThis.fetch=original;}
 });
 
-test('actual cloud worker voice path fences one mocked paid request, stores private WAV and captures once',async()=>{
+const VOICE_CLOSED='Paused: voice stays closed until reconciliation and privacy are closed (LV-019-B). Success/ACK code is kept for the future reviewed-text integration; closed-voice rejection is covered by the "closed voice:" tests.';
+test('actual cloud worker voice path fences one mocked paid request, stores private WAV and captures once',{skip:VOICE_CLOSED},async()=>{
  const c=await fixture(),id=await c.ai.enqueue(c.account,c.input,'narration:en:female',1,'worker-voice-fixture');
  const {processCloudAi}=await import('./cloudAiWorker.ts'),{buildWavRiff,validateWavRiff}=await import('./pipelineVoiceWav.ts');
  const pcm=Buffer.alloc(4800);for(let sample=0;sample<2400;sample++)pcm.writeInt16LE(Math.round(2000*Math.sin(sample/12)),sample*2);const wav=buildWavRiff(pcm);
@@ -1430,7 +1431,7 @@ test('actual cloud worker voice path fences one mocked paid request, stores priv
  const s=await server(c),response=await s.call('/api/cloud/ai/jobs/'+id+'/results/narration-en.wav');assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'audio/wav');assert.equal(validateWavRiff(Buffer.from(await response.arrayBuffer())).durationMs,100);
 });
 
-for(const lostAck of ['stage','finish'])test('actual cloud worker recovers lost '+lostAck+' ACK without repeating provider, object write or capture',async()=>{
+for(const lostAck of ['stage','finish'])test('actual cloud worker recovers lost '+lostAck+' ACK without repeating provider, object write or capture',{skip:VOICE_CLOSED},async()=>{
  const c=await fixture(),id=await c.ai.enqueue(c.account,c.input,'narration:en:female',1,'lost-'+lostAck+'-ack');
  const {processCloudAi}=await import('./cloudAiWorker.ts'),{buildWavRiff}=await import('./pipelineVoiceWav.ts'),wav=buildWavRiff(Buffer.alloc(4800));
  const method=lostAck==='stage'?'stageArtifactReceipt':'finish',originalMethod=c.backend[method].bind(c.backend);let ackLost=false;
@@ -1451,7 +1452,7 @@ for(const lostAck of ['stage','finish'])test('actual cloud worker recovers lost 
  }finally{globalThis.fetch=original;}
 });
 
-test('actual cloud worker records ambiguous mocked provider rejection as UNKNOWN and never repeats that request',async()=>{
+test('actual cloud worker records ambiguous mocked provider rejection as UNKNOWN and never repeats that request',{skip:VOICE_CLOSED},async()=>{
  const c=await fixture(),id=await c.ai.enqueue(c.account,c.input,'narration:en:male',1,'worker-provider-rejected'),{processCloudAi}=await import('./cloudAiWorker.ts');
  const original=globalThis.fetch;let providerRequests=0;globalThis.fetch=async(input,init)=>{
   if(String(input).startsWith('https://generativelanguage.googleapis.com/')){providerRequests++;return new Response(JSON.stringify({error:{message:'synthetic-rejection'}}),{status:503,headers:{'Content-Type':'application/json'}});}return original(input,init);

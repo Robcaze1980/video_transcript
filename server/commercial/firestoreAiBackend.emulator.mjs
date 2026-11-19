@@ -91,7 +91,8 @@ test('AI receipt model, attempt and complete deterministic window set must match
  await call.update({attemptId:attempt.attemptId});await providerReceipt(c,id,attempt,{callKey:'text-window:0001'});await reject(c.backend.stageArtifactReceipt(c.account,id,attempt.attemptId,receipt),'conflict');assert.equal((await c.backend.readBalance(c.account)).reserved,2);
 });
 
-test('AI multiwindow output requires every received call; voice uses its own deterministic receipt model',async()=>{
+const VOICE_CLOSED='Paused: voice stays closed until reconciliation and privacy are closed (LV-019-B). Success/ACK code is kept for the future reviewed-text integration; closed-voice rejection is covered by the "closed voice:" tests.';
+test('AI multiwindow output requires every received call; voice uses its own deterministic receipt model',{skip:VOICE_CLOSED},async()=>{
  const c=await fixture();await c.backend.creditVerifiedPurchase(c.account,'extra-'+randomUUID(),50,1,'fixture','sandbox');await ref(c,'inputs',c.input).update({metadata:{duration:31,audioTracks:1}});
  const id=await c.backend.reserve(c.account,c.input,'two-windows',31,'translation:en',1,profile),attempt=await start(c,id),receipt=await entries(c,id);await providerReceipt(c,id,attempt);
  await reject(c.backend.stageArtifactReceipt(c.account,id,attempt.attemptId,receipt),'conflict');await providerReceipt(c,id,attempt,{callKey:'text-window:0001'});assert.equal(await c.backend.stageArtifactReceipt(c.account,id,attempt.attemptId,receipt),true);assert.equal(await c.backend.finish(c.account,id,attempt.attemptId,true),true);
