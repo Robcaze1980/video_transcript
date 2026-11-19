@@ -1,0 +1,13 @@
+Thread mcp:79d4bda0-bc5e-4b48-b9b4-8835192dabf3
+Tercera pasada sobre las rutas de fallo, `alerted`, `hard`/`review`, parciales con `asRecord` y el resumen final.
+
+Observaciones menores (no bugs que bloqueen):
+
+1. `alerted` (tras el bloque de alertas): con hard y review ambos activos, si una alerta falla y la otra tiene éxito, `alerted` queda `false` aunque algo se entregó. Es conservador y coincide con `failures.includes('alert')`; no bloquea.
+2. `hard` se calcula antes de push de 'alert' y se usa después; como 'alert' solo se añade cuando ya había fallo, el resultado es correcto. Frágil pero no bug actual.
+3. `asRecord` con Proxy hostil que lanza en get podría romper la promesa de "nunca lanza"; escenario exótico, no bloquea.
+4. Contratos de `readPendingReport`/`clearResolvedAlerts` (formas de retorno) se asumen válidos; violaciones escapan como TypeError crudo fuera del alcance de esta función.
+
+No hallo bugs reales restantes en el comportamiento especificado.
+
+RESULTADO: PASS

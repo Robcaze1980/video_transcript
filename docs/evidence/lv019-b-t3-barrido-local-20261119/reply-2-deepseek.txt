@@ -1,0 +1,14 @@
+Thread mcp:1fe5a7b5-b081-40be-bfd9-477702702a6b
+**Hallazgos**
+
+1. `runPendingSweep`, bloques `catch` de raise y clear: `(error as {...}).partial` y `error.created` se leen sin comprobar tipo. Si el cliente lanza `undefined`/`null` (rechazo con valor no-objeto, común en Firestore/proxies), el propio `catch` lanza `TypeError`: se pierde la alerta y el `SweepError`. Bloquea.
+
+2. `catch` de raise: lee `created`/`seen` en la raíz del error, mientras clear los adjunta en `partial`. Contrato incoherente: si raise falla a mitad y su error sigue la convención de clear, `created`/`seen` quedan en 0. No bloquea (hay alerta), pero el resumen miente.
+
+3. `alertWith('sweep_failed')` falla y solo se marca `alerted:false`; no hay alerta durable para ese fallo, contra la garantía declarada. No bloquea, pero señaliza sin registrar.
+
+4. Con fallo hard y review juntos, si la alerta `sweep_review` falla, el `code` final es `sweep_failed`: la corrupción queda solo en `failures`, no en el código. Menor.
+
+5. `failures[0]` como `stage` da una etapa representativa, no la primera causa real. Cosmético.
+
+RESULTADO: FALLA

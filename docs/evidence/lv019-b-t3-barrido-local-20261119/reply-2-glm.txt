@@ -1,0 +1,5 @@
+Thread mcp:7520edc2-e193-4a40-8a5e-c706b2935a7f
+- `readPendingReport`: si la lectura falla, se rechaza con `summary` indefinido. Escenario: fallo de lectura con alerta creada o no; el llamador no recibe el resumen parcial estandarizado (`ok:false`, `failures:['read']`, contadores en cero). No bloquea; inconsistencia menor con el contrato de rechazo.
+- No se detectan otros errores reales en la transición fallo→alerta durable/rechazo, en los contadores parciales de `raise`/`clear`, en el tratamiento de alertas corruptas como `review`, ni en la semántica de `alerted` o `ok`.
+
+RESULTADO: PASS

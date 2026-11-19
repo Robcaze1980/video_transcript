@@ -1,0 +1,10 @@
+Thread mcp:6dd9da2a-a23b-4839-a2f2-7ed10257e7b3
+**Hallazgos**
+
+- **`runPendingSweep` (catches de `raise`/`clear`)**: no lanzan; resuelven con `ok:false`, mientras `read` sí lanza `SweepError`. El contrato exige fallar en voz alta en cada paso. Escenario: un ejecutor con try/catch (el patrón que el propio código usa para `read`) que solo trate el rechazo como fallo marcará el barrido exitoso; una prueba `rejects.toThrow(SweepError)` para fallos de `raise`/`clear` tampoco detectaría nada. Bloquea.
+- **Mismo punto, `alertFailure`**: si la alerta durable falla, solo se añade `'alert'` a `failures` y se devuelve el resumen; no hay reintento ni throw, así que la pérdida de la alerta durable es fácil de omitir. Bloquea junto con el anterior.
+- **Catch de `clear`**: `cleared` se descarta y vuelve a `empty`, perdiendo contadores de transacciones ya exitosas (resumen engañoso, doble conteo posible en contabilidad externa). No bloquea por sí solo.
+- **Extracción de parciales**: cast sin validar la forma del `AggregateError`; si `created`/`seen` no son propiedades propias, quedan en 0 con `failures:['raise']`. No bloquea.
+- **`attention:report.attention.length`**: si `attention` solo se llena con `audit`, un barrido sin `audit` lanza `TypeError` tras las escrituras, sin `SweepError` ni alerta durable. Bloquea si se confirma ese shape.
+
+RESULTADO: FALLA

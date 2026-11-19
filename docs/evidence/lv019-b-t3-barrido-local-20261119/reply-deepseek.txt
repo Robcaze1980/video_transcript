@@ -1,0 +1,11 @@
+Thread mcp:09cb926d-fdb4-497c-8d01-bde728d78a15
+**Hallazgos**
+
+- `ok` solo mira `failures`; ignora `unverified`, `corrupt` y `raced` del `ClearResult`. Si una fila es ilegible o corrupta, devuelve `ok:true` aunque la alerta no se cerró/verificó: alertas perdidas en silencio. **Bloquea.**
+- Si `raisePendingAlerts` lanza algo que no expone `created`/`seen` (p. ej. los parciales vienen en `error.partial`), el código los fuerza a `0`. Queda indistinguible de «no se creó ninguna»: subconteo y posible doble conteo en el barrido siguiente. **Bloquea.**
+- Si `clearResolvedAlerts` falla tras limpiar parte, `cleared` queda en `empty` y se descartan los contadores reales; el resumen miente sobre lo cerrado. **Bloquea (parcial).**
+- Ruta `read`: `alertFailure()` se evalúa dentro del `throw`; si la alerta falla, `alerted:false` sin más contexto, pero el error sí se propaga. No bloquea.
+- `attention` puede contar la misma fila dos veces si aparece en varios `kind`. No bloquea.
+- Pruebas: si solo afirman `ok===false` sin comprobar `failures` (etapa concreta), `alerted` ni los parciales `created/seen`, no detectan los fallos anteriores.
+
+RESULTADO: FALLA

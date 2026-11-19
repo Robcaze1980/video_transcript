@@ -1,0 +1,40 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa este codigo nuevo (TypeScript, Firestore): barrido LOCAL de saldo que encadena (1) un reporte de solo lectura de filas no terminales, (2) alertas durables idempotentes y (3) el cierre de alertas cuya fila se lee en estado terminal. NO debe mover saldo, llamar a otro servicio ni editar filas; un paso que falla debe dejar una alerta durable 'sweep_failed' Y fallar en voz alta, sin filtrar mensajes de error. Barridos solapados deben ser seguros (cada escritura es una transaccion idempotente). Contexto: readPendingReport pagina todas las filas con cursor; raisePendingAlerts lanza AggregateError con {created,seen} parciales si alguna alerta falla pero procesa todas; clearResolvedAlerts devuelve contadores; el ejecutor local es un script aparte que solo acepta emulador loopback + proyecto demo-*. Busca bugs REALES: manejo de errores parciales, perdida de alertas, doble conteo, fuga de datos, que 'ok' sea verdadero cuando algo fallo, y pruebas que no detectarian el fallo. Por hallazgo: lugar, escenario concreto y si bloquea. Sin numeros arbitrarios.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+```typescript
+export type SweepStage='read'|'raise'|'clear'|'alert';
+export interface SweepOptions{audit?:boolean;pageSize?:number;policy?:AlertPolicy}
+export interface SweepSummary extends ClearResult{
+  ok:boolean;generatedAtMs:number;reported:number;byKind:Record<PendingKind,number>;attention:number;created:number;seen:number;failures:SweepStage[];
+}
+/** Carries only a code and a stage, never the underlying message (which could contain private detail). */
+export class SweepError extends Error{
+  constructor(readonly code:'sweep_failed',readonly stage:SweepStage,readonly alerted:boolean){super(`${code}:${stage}`);}
+}
+const empty:ClearResult={cleared:0,superseded:0,kept:0,unverified:0,raced:0,corrupt:0};
+
+export async function runPendingSweep(db:Firestore,root:DocumentReference,nowMs:number,options:SweepOptions={}):Promise<SweepSummary>{
+  if(!Number.isSafeInteger(nowMs)||nowMs<0)throw new RangeError('invalid clock');
+  const pageSize=options.pageSize;
+  if(pageSize!==undefined&&(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500))throw new RangeError('invalid page size');
+  const threshold=options.policy?.ageThresholdMs;
+  if(threshold!==undefined&&(!Number.isSafeInteger(threshold)||threshold<1))throw new RangeError('invalid age threshold');
+  const alertFailure=async()=>{try{await raiseSweepAlert(db,root,'sweep_failed',nowMs);return true;}catch{return false;}};
+
+  let report;
+  try{report=await readPendingReport(root,nowMs,{pageSize,audit:options.audit});}
+  catch{throw new SweepError('sweep_failed','read',await alertFailure());}
+
+  const failures:SweepStage[]=[];let created=0,seen=0,cleared:ClearResult=empty;
+  try{({created,seen}=await raisePendingAlerts(db,root,report,nowMs,options.policy));}
+  catch(error){
+    failures.push('raise');
+    // Rows that could be alerted were; partial counts travel on the error so nothing is silently lost.
+    const partial=error as {created?:unknown;seen?:unknown};
+    if(typeof partial.created==='number')created=partial.created;if(typeof partial.seen==='number')seen=partial.seen;
+  }
+  try{cleared=await clearResolvedAlerts(db,root,report,nowMs,options.policy);}catch{failures.push('clear');}
+  if(failures.length&&!await alertFailure())failures.push('alert');
+  return {ok:failures.length===0,generatedAtMs:nowMs,reported:report.total,byKind:report.byKind,attention:report.attention.length,created,seen,...cleared,failures};
+}
+```

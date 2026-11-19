@@ -79,7 +79,7 @@ export async function raisePendingAlerts(db:Firestore,root:DocumentReference,rep
     try{(await raiseOne(db,root,{kind:row.kind,rowId:row.id,state:row.state,reason,accountId:row.accountId},nowMs))==='created'?created++:seen++;}
     catch(error){failures.push(error);}
   }
-  if(failures.length)throw new AggregateError(failures,`${failures.length} alert(s) could not be raised`);
+  if(failures.length)throw Object.assign(new AggregateError(failures,`${failures.length} alert(s) could not be raised`),{created,seen});
   return {created,seen};
 }
 /** A failed or unreviewed sweep is itself an alert: a loud failure with nobody listening is not observable. */
@@ -108,6 +108,7 @@ export async function clearResolvedAlerts(db:Firestore,root:DocumentReference,re
   const reported=new Map(report.rows.map(r=>[r.kind+' '+r.id,r]));
   const out:ClearResult={cleared:0,superseded:0,kept:0,unverified:0,raced:0,corrupt:0};
   let last:DocumentSnapshot|null=null;
+  try{
   for(;;){
     let query=root.collection(ALERT_COLLECTION).where('status','==','open').orderBy('__name__');
     if(last)query=query.startAfter(last);
@@ -152,6 +153,10 @@ export async function clearResolvedAlerts(db:Firestore,root:DocumentReference,re
     }
     if(page.docs.length<200)break;
     last=page.docs[page.docs.length-1];
+  }
+  }catch(error){
+    // What was already closed is real: the counters travel on the error so a caller never reports less than happened.
+    throw Object.assign(error instanceof Error?error:new Error('clear failed'),{partial:{...out}});
   }
   return out;
 }

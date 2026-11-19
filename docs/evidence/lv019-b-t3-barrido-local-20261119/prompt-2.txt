@@ -1,0 +1,54 @@
+Responde SOLO con texto, sin herramientas. Maximo 180 palabras.
+Segunda revision. La primera dio FALLA por: pasos que fallaban devolvian ok:false en vez de rechazar; contadores perdidos si clear falla a mitad; ok ignoraba alertas corruptas. Correcciones: la promesa solo resuelve si TODO salio bien; cualquier fallo deja una alerta durable (sweep_failed, o sweep_review si una alerta almacenada esta corrupta) y rechaza con SweepError con codigo, etapa y resumen parcial (sin mensajes); clearResolvedAlerts adjunta sus contadores parciales al error. No adoptado: 'attention' siempre es un arreglo del reporte (tipado y probado); 'unverified' y 'raced' no son fallos (raced es normal con barridos solapados; unverified ya es una alerta abierta). Busca bugs REALES restantes; por hallazgo: lugar, escenario concreto y si bloquea. Sin numeros arbitrarios.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+```typescript
+export type SweepStage='read'|'raise'|'clear'|'review'|'alert';
+export interface SweepOptions{audit?:boolean;pageSize?:number;policy?:AlertPolicy}
+export interface SweepSummary extends ClearResult{
+  ok:boolean;generatedAtMs:number;reported:number;byKind:Record<PendingKind,number>;attention:number;created:number;seen:number;failures:SweepStage[];
+}
+/** Carries only codes, a stage and the partial counts, never the underlying message (which could contain private detail). */
+export class SweepError extends Error{
+  constructor(readonly code:'sweep_failed'|'sweep_review',readonly stage:SweepStage,readonly alerted:boolean,readonly summary?:SweepSummary){super(`${code}:${stage}`);}
+}
+const zero=():ClearResult=>({cleared:0,superseded:0,kept:0,unverified:0,raced:0,corrupt:0});
+const counters:Array<keyof ClearResult>=['cleared','superseded','kept','unverified','raced','corrupt'];
+
+export async function runPendingSweep(db:Firestore,root:DocumentReference,nowMs:number,options:SweepOptions={}):Promise<SweepSummary>{
+  if(!Number.isSafeInteger(nowMs)||nowMs<0)throw new RangeError('invalid clock');
+  const pageSize=options.pageSize;
+  if(pageSize!==undefined&&(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500))throw new RangeError('invalid page size');
+  const threshold=options.policy?.ageThresholdMs;
+  if(threshold!==undefined&&(!Number.isSafeInteger(threshold)||threshold<1))throw new RangeError('invalid age threshold');
+  const alertWith=async(code:'sweep_failed'|'sweep_review')=>{try{await raiseSweepAlert(db,root,code,nowMs);return true;}catch{return false;}};
+
+  let report;
+  try{report=await readPendingReport(root,nowMs,{pageSize,audit:options.audit});}
+  catch{throw new SweepError('sweep_failed','read',await alertWith('sweep_failed'));}
+
+  const failures:SweepStage[]=[];let created=0,seen=0,cleared=zero();
+  try{({created,seen}=await raisePendingAlerts(db,root,report,nowMs,options.policy));}
+  catch(error){
+    failures.push('raise');
+    // Rows that could be alerted were; the partial counts travel on the error so nothing is silently lost.
+    const partial=error as {created?:unknown;seen?:unknown};
+    if(typeof partial.created==='number')created=partial.created;if(typeof partial.seen==='number')seen=partial.seen;
+  }
+  try{cleared=await clearResolvedAlerts(db,root,report,nowMs,options.policy);}
+  catch(error){
+    failures.push('clear');
+    const partial=(error as {partial?:Partial<ClearResult>}).partial;
+    if(partial&&typeof partial==='object')for(const key of counters)if(typeof partial[key]==='number')cleared[key]=partial[key] as number;
+  }
+  // An alert document whose key does not match its content is an integrity problem that needs a person, not a retry.
+  if(cleared.corrupt>0)failures.push('review');
+  const hard=failures.some(f=>f!=='review'),review=failures.includes('review');
+  let alerted=true;
+  if(hard&&!await alertWith('sweep_failed'))alerted=false;
+  if(review&&!await alertWith('sweep_review'))alerted=false;
+  if(!alerted)failures.push('alert');
+  const summary:SweepSummary={ok:failures.length===0,generatedAtMs:nowMs,reported:report.total,byKind:report.byKind,attention:report.attention.length,created,seen,...cleared,failures};
+  if(!summary.ok)throw new SweepError(hard?'sweep_failed':'sweep_review',failures[0],alerted,summary);
+  return summary;
+}
+```

@@ -1,0 +1,12 @@
+Thread mcp:ed397a9e-4706-4732-9396-50cce2174a0d
+Reviso el flujo completo: validaciones de entrada; lectura defensiva con `asRecord` en ambos `catch` (no lanza con rechazos `undefined`/`null`/string/proxy plausible); parciales de `raise` (directos) y `clear` (`.partial`) sin sobrescribir con `undefined`; marcado de `review` por `corrupt`; cálculo de `hard`/`review`; alertas; resumen y umbral de resolución.
+
+Todo es autoconsistente:
+- `stage` = `failures[0]` respeta el orden de ejecución; la rama `read` lanza con su propio `SweepError('sweep_failed','read',...)`.
+- `ok` solo es `true` con `failures` vacío; un fallo de alerta se agrega a `failures`.
+- `alertWith` no propaga; `alerted` refleja cada intento.
+- La firma `readPendingReport(root,...)` difiere de `raise`/`clear` (`db,root,...`) por aridad/tipos; es coherente, no defecto.
+
+No encuentro bugs reales restantes en el fragmento: sin hallazgos bloqueantes ni no bloqueantes.
+
+RESULTADO: PASS
