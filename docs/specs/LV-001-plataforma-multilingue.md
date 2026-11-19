@@ -33,16 +33,18 @@ El piloto incluye [LV-008, revisión sobre el video y descarga](LV-008-revision-
 
 El [plan completo del editor](LV-009-plan-del-editor.md) registra las funciones adicionales, su orden y las decisiones de alcance que se cierran antes de ampliar los idiomas.
 
-## Decisiones pendientes
+## Decisiones confirmadas y pendientes de validación
 
-El propietario eligió DigitalOcean y aprobó tres recargas: US$1 por 10 minutos, US$5 por 50 y US$10 por 100. El saldo de video de origen se reparte entre varios archivos. La selección del Droplet y la validación de la oferta se detallan en [LV-007](LV-007-candidata-comercial.md#alojamiento-y-paquete-candidato).
+Rob confirmó el 16 de noviembre el selector de idioma origen/destino entre pares validados y los precios por duración fuente: texto/subtítulos US$0,10/min; voz estándar opcional desde el texto traducido y revisado añade US$0,10/min; ambos US$0,20/min. Se redondea hacia arriba al segundo y el saldo de video se reserva una vez por cada servicio elegido. No hay voz sola ni recargas habilitadas. Los paquetes de US$1/5/10 dan 10/50/100 minutos de texto o 5/25/50 minutos si también se elige voz. La decisión de precios está cerrada; la validación de costos por proveedor, pares e idiomas sigue pendiente por LV-004/LV-007. La selección de alojamiento y la oferta se detallan en [LV-007](LV-007-candidata-comercial.md#alojamiento-y-paquete-candidato).
 
 La [propuesta comercial](LV-001-propuesta-comercial.md) reúne la selección candidata de diez idiomas, el inventario de expansión, los primeros pares dirigidos y la oferta SRT/MP4 que se evaluará en el piloto.
 
-La cobertura objetivo de 90 direcciones está aprobada. Confirmar variantes, la entrega SRT con o sin MP4 y los límites comerciales. Validar los tres precios aprobados con costes medidos antes de publicar. La activación y las promesas visibles dependen de evidencia por dirección según el [plan revisado por T3](LV-004-plan-90-direcciones.md). Registrar el motivo, impacto, responsable y criterio actualizado al resolver cada decisión.
+La cobertura objetivo de 90 direcciones está aprobada, pero no todas están habilitadas. La activación de cada par, voz e idioma y las promesas visibles dependen de evidencia de calidad por capacidad según el [plan revisado por T3](LV-004-plan-90-direcciones.md). Medir costos por proveedor/par para confirmar sostenibilidad antes de ampliar cobertura; no volver a etiquetar los precios decididos como pendientes.
 
 Seguimiento: [backlog](../../backlog.md) · [cronograma](../../gantt.md) · [incidentes](../../errorlogs.md).
 
+
+> **Historial de entregas:** los bloques fechados que siguen conservan el estado y las decisiones de su fecha. Para precios, pares habilitados y prioridades vigentes, consultar las secciones anteriores y el [Master Plan](../../MASTERPLAN.md).
 
 ## Estado incremental LV-016.C · 2026-11-12
 El ensayo privado incorpora [narración inglesa Kore/Charon](LV-016-C-voz.md) desde texto guardado, sin clonación ni cobro de saldo. Ambas voces se generan, reproducen y descargan como WAV con cuenta/revisión/TTL. Técnica verificada; calidad humana inglesa pendiente. No acredita otros idiomas, mezcla con video ni MP4 largo; permanecen D/F y LV-004.

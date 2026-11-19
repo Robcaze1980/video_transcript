@@ -1,6 +1,8 @@
 # LV-019.B · Propuesta de puente para la API privada de Cloud Run
 
-**Estado: diseño cloud sin aprobar; Rob autorizó preparar un prototipo local aislado.** Esta autorización cubre solo código reversible y pruebas con Auth/Firestore Emulator y un backend privado simulado en loopback. No permite usar credenciales, URLs, IAM, red VPC, Firebase Hosting o servicios Cloud Run reales. El prototipo simula el token de invocador con un secreto efímero generado por el runner; no prueba una firma OIDC de Google ni acceso a Cloud Run. La web pública permanece en Firebase Hosting. El backend real conserva `ingress=internal` e IAM. Su futura conexión requerirá aprobación explícita para invocador IAM en `vistavo-files-api`, egress VPC, costos y cambios acotados de Hosting/CSP/guards. No se crea Cloud SQL. Qwen4 Max dio PASS condicionado al diseño; DeepSeek dio PASS de seguimiento al borrador corregido. Ninguna revisión autoriza cambios cloud.
+**Estado vigente · 16 nov 2026: Rob autorizó conectar el flujo y publicar la integración si el trabajo pasa los gates técnicos y solo procesa contra saldo real.** La autorización previa de solo prototipo local queda superada para este alcance. Se permite preparar/modificar de forma acotada el gateway, IAM del servicio, red VPC, rutas/CSP de Hosting y los servicios de video necesarios. El diseño y el costo estimado del gateway fueron revisados; el usuario pidió que no se cree Cloud SQL ni se habiliten compras/PayPal o créditos ficticios. No se ha cambiado Cloud Run, IAM, VPC o Hosting todavía. La lectura de gcloud de esta sesión no respondió; antes de mutar, completar readback de recursos y permisos efectivos, reconciliar invocadores y validar que el diff respeta este diseño. Si un readback no puede verificarse, no desplegar con estado incierto.
+
+**Histórico del diseño:** cuando se escribió este documento la autorización cubría únicamente el prototipo emulado. Las frases de aprobación pendiente más abajo describen esa etapa y se sustituyen por el estado vigente anterior; los PASS T3 revisaron diseño/prototipo y no se interpretan como revisión del deploy nuevo.
 
 ## Diseño recomendado
 
@@ -47,19 +49,19 @@ El gateway es la única pieza nueva que recibe tráfico desde Internet. Aunque e
 ## Riesgos y condiciones antes de implementar
 
 - La guía de Firebase para Hosting → Cloud Run pide permitir invocación no autenticada en el servicio receptor. Por eso el receptor debe ser el gateway aislado, que impone autenticación Firebase a nivel de aplicación; no el backend de video. Sus controles no sustituyen la verificación de ID token y propiedad que el backend privado ya ejecuta.
-- `vistavo-files-api` hoy solo permite al service account `vistavo-bootstrap` invocarlo. Antes de implementar, Rob debe autorizar en concreto que el service account dedicado del gateway reciba `roles/run.invoker` únicamente sobre `vistavo-files-api`; sin ese permiso, no habrá conexión entre gateway y servicio privado. La solicitud anterior de diseño no concede esta autorización.
+- El readback disponible mostró vacía la política IAM propia de `vistavo-files-api` y no concilió permisos heredados/efectivos; por eso no se debe afirmar que `vistavo-bootstrap` sea el único invocador actual. Rob ya autorizó el 16 nov conectar el flujo completo, condicionado a saldo real, y aceptó la estimación del gateway como base. Bajo esa autorización, preparar la identidad dedicada y el `roles/run.invoker` mínimo en el servicio privado después de obtener un readback fresco. No desplegar si la lectura falla o el estado difiere materialmente del alcance/costo acordado.
 - Cloud Run clasifica como interno el tráfico originado en una VPC elegible y pide enrutar las llamadas entre servicios por una VPC. La configuración exacta de salida VPC, DNS, URL destino y región debe verificarse para el proyecto real antes de tocar IAM.
 - El límite de 60 s de Hosting descarta procesar una transcripción larga en la misma petición. El flujo debe separar crear trabajo, consultar estado y obtener resultado. Para medios, confirmar tamaño máximo por bloque, memoria, tiempo y reintento idempotente.
-- El gateway público añade cómputo, transferencia y superficie expuesta. Antes de crear o desplegarlo: cotizar el tráfico esperado, acordar límites de instancias/cuotas, revisar reglas de log y obtener aprobación explícita de Rob para costos y cambios de IAM/publicación.
-- No unir las bases de cuenta y video ni reutilizar la identidad/rol de los servicios existentes. No activar saldo, precio, compras, proveedores, Drive o voz como parte del puente.
+- El gateway público añade cómputo, transferencia y superficie expuesta. La estimación para volúmenes acordados fue aceptada como base; aplicar límites de instancias/cuotas y revisar logs. Si el readback o la cotización actual muestran un costo materialmente distinto, detener ese cambio y explicarlo antes de continuar.
+- No unir las bases de cuenta y video ni reutilizar la identidad/rol de los servicios existentes. El precio y la reserva en saldo real están definidos en LV-019.B; no despachar sin reserva válida. Compras/PayPal y Drive no son parte de este puente.
 
 ## Gates de implementación propuestos
 
-1. Completar con Rob el inicio de sesión local y observar en navegador la descarga TXT/SRT; la suite API ya cubre propietario y denegación a otra cuenta, pero no reemplaza esa observación.
-2. Congelar un contrato del gateway con tabla fija `/api/video`→`/api/cloud`, allowlist de métodos/headers/query, límites de 400.000 B JSON y 8 MiB por bloque, formato de errores y presupuesto. Probar emuladores con dos cuentas, token expirado/revocado/no verificado, ruta/método desconocido, carga fragmentada, descarga/HEAD/range y cacheo; `download=1` solo en rutas de resultados AI, no en la ruta MP4 actual. Probar timeout e idempotencia.
-3. Crear una candidata aislada del gateway sin endpoint a GCS ni proveedores. Confirmar configuración Direct VPC egress `ALL_TRAFFIC` + Private Google Access que corresponda al proyecto, probar acceso positivo y negativo al servicio interno y verificar ID token de invocador con audiencia exacta igual a la URL del servicio, además de `roles/run.invoker` solo para el gateway.
-4. Hacer revisión independiente T3 de la implementación y ejecutar verificación de seguridad/costos. No habilitar el flag comercial.
-5. Presentar inventario, costo estimado, la concesión de `roles/run.invoker` puntual, egress VPC, CSP/rewrites/guards exactos y plan de reversión a Rob. Desplegar/publicar solo después de aprobación explícita.
+1. **Local/en paralelo:** conectar la reserva existente al worker/UI en candidata aislada. Probar dos cuentas y estados suficiente/insuficiente, token revocado/no verificado, idempotencia, captura, fallo confirmado, UNKNOWN, descargas y eliminación. Flags de proveedores reales apagados en estas pruebas.
+2. **Readback cloud:** con proyecto `vistavo-prod` explícito, verificar IAM efectivo/heredado del servicio, ingress, identidad que lo invoca, VPC/egress/Private Google Access, cuotas, Hosting y CSP. Si no se obtiene evidencia actual, no mutar ni desplegar.
+3. **Implementar conexión real bajo autorización vigente:** gateway dedicado y público solo como entrada de Hosting, ID token Firebase obligatorio en API, service account exclusivo, `roles/run.invoker` mínimo sobre la API privada, ruta interna VPC/OIDC con audiencia exacta, rewrite `/api/video/**` y CSP limitada a la página de cuenta. Mantener la API de video interna.
+4. Probar positivos y negativos con identidades Google reales y servicios Cloud Run: token de usuario válido, correo/UID/propiedad, caller de servicio válido, rechazo de bypass/token falso, no exposición de rutas ajenas, límites, timeout e idempotencia. Revisión T3/Qwen del conjunto y pruebas/types/builds antes de producción.
+5. Publicar Hosting y comprobar online con un saldo real suficiente disponible; sin saldo, demostrar que no se crea job ni se llama proveedor. Si el readback revela permisos/costos materialmente fuera de la autorización acordada, escalar ese delta antes de aplicarlo.
 
 ## Base documental
 
@@ -69,6 +71,16 @@ El gateway es la única pieza nueva que recibe tráfico desde Internet. Aunque e
 - [Verificar ID tokens de Firebase](https://firebase.google.com/docs/auth/admin/verify-id-tokens): verificación del token de usuario en el backend.
 
 Esta propuesta no acredita que Hosting pueda alcanzar directamente un servicio con `ingress=internal`; el gateway separado evita depender de esa premisa.
+
+## Implementación local de reserva y liquidación · snapshot histórico del 16 nov 2026
+
+Este bloque conserva lo observado el 16 nov. Para el estado vigente del emulador y el readback posterior, consultar el Master Plan y HANDOFF.
+
+`AccountBillingClient` reserva `ceil(duración fuente)` segundos mediante Account API antes de crear el job; voz se reserva como segundo servicio solo para la revisión guardada. Un ID estable vincula reintentos. El backend de video no carga unidades en su ledger simulado cuando se usa esta ruta. La reserva se vuelve a verificar antes del procesamiento; job terminal guarda una acción en `billingOutbox`; el resultado no se puede descargar hasta confirmar capture. Reintentos de capture/release son idempotentes en Account API. UNKNOWN no genera liquidación automática. Un modo `billing` del worker puede drenar la outbox; el Scheduler/Job que lo ejecute todavía no está configurado.
+
+La ausencia de habla comprobada libera saldo por decisión expresa de Rob, aunque el paso local de análisis de audio ya ocurrió. Esta excepción no se aplica a errores ambiguos. Cotización de texto y voz usa el mismo ceil de segundos y prorratea US$0.10/min por cada servicio elegido; la vista actual del candidato sigue en simulación. Tests unitarios focalizados PASS; la suite Firestore Emulator quedó colgada sin resultados y no acredita estas transacciones.
+
+Este bloque no acredita conexión del gateway Hosting, permisos Cloud Run, IAM, VPC, proveedores reales, costo/factura, ni online con saldo positivo. La consulta de Cloud Run/IAM/VPC de esta sesión no respondió; no se modificaron recursos.
 
 ## Revisiones T3
 
