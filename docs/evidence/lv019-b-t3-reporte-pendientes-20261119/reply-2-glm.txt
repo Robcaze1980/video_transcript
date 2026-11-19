@@ -1,0 +1,14 @@
+Thread mcp:f4a32f18-d90d-4e85-9aa8-fb49027466d5
+Revisión (solo del fragmento visible, sin acceso a archivos):
+
+1. **Validación de pageSize: correcta.** `pageSize: 501` que rechace con `rejects.toThrow()` es coherente con un límite máximo de 500. El `await expect(...).rejects.toThrow()` está bien formado.
+
+2. **Fragmento incompleto.** La línea `cts.toThrow();` parece cortada (probablemente el final de un `rejects.toThrow()` anterior). No puedo evaluar ese test sin el bloque completo.
+
+3. **Sugerencias:**
+   - Considera probar también el límite válido (`pageSize: 500`) y el inválido por debajo (`0` o negativo), no solo 501.
+   - `as never` en `stubRoot({})` funciona para forzar el tipo, pero un cast más específico (p. ej. `as unknown as Root`) comunica mejor la intención.
+   - Si la validación produce mensajes distintos por parámetro, valora `rejects.toThrow(/pageSize/)` para que el test falle si la implementación rechaza por otra razón.
+   - Verifica que el rechazo ocurra antes de cualquier I/O real (validación temprana), no solo que rechace.
+
+4. **Pendiente:** no puedo confirmar cobertura completa de `readPendingReport` (cursor, filtros, orden) ni el estado del resto de la suite sin leer el archivo. Si compartes el bloque completo, continúo la revisión.

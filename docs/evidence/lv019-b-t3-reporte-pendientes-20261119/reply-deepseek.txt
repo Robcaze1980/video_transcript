@@ -1,0 +1,16 @@
+Thread mcp:cd4e099e-7cd4-4d34-aae1-c87105615c5f
+Revisión breve:
+
+1. **Doble causa de fallo**: el objeto tiene dos posibles motivos de `malformed`: `state:'reserve_pending'` (si no es un estado válido) y `createdAtMs:'soon'` (tipo incorrecto). Si el test falla, no sabrás cuál campo lo provocó. Sepáralo en dos casos: uno solo con estado inválido y otro solo con timestamp inválido.
+
+2. **Riesgo de falso positivo**: si `normalizePending` ignora `createdAtMs` o lo coerciona (`Number('soon')` → `NaN`, o peor, lo descarta), el test podría pasar por el estado y no por el timestamp. Añade también un caso de control con timestamp válido y ese mismo estado, para aislar el comportamiento.
+
+3. **Aserción débil**: `toBe(true)` está bien (estricto), pero no verifica el motivo ni el campo. Conviene comprobar también la estructura de error, p. ej. que `errors`/`reasons` incluya `createdAtMs`, o el código de error esperado.
+
+4. **Nombres mágicos**: `'intent'`, `'x'`, `'reserve_pending'` y `'soon'` como literales sueltos. Si son valores de dominio, usa constantes o builders (`pendingIntent({createdAtMs:'soon'})`) para que el test comunique intención y no se rompa por cambios de contrato.
+
+5. **Sintaxis**: los paréntesis están balanceados; el paréntesis inicial del mensaje es solo envoltorio. Nada que corregir ahí.
+
+6. **Falta contexto**: sin `describe/it` ni el resto del caso, no se ve si cubre el camino de `reserve_pending` legítimo. Añade al menos un caso feliz para ese estado.
+
+En resumen: el test es válido, pero ambiguo y poco diagnóstico. Divídelo por campo y aserta el motivo del `malformed`.

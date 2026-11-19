@@ -1,0 +1,9 @@
+Thread mcp:65e99db1-888a-4085-94da-f7422b2c2f47
+- `billingPendingReport.ts`, `readPendingReport` (~L130): `where('state','in',...)` excluye documentos sin `state`, con `state` no string o con estado non-terminal no listado. Firestore omite los que no coinciden; `normalizePending` nunca los verá. Escenario: fila con `{}`, `state:42` o un estado nuevo. Bloquea cierre: viola “TODAS” y “marcar malformed en vez de omitir”.
+- `billingPendingReport.ts`, `normalizePending` (~L25): `lastErrorCode` o `accountId` inválidos se vuelven `null` sin `malformed`; `createdAtMs` futuro es válido y produce `ageMs:0`. No bloquea por sí solo, pero oculta datos corruptos.
+- `billingPendingReport.ts`, `readPendingReport` (~L128): `last:{id:string}` tipa el cursor como objeto plano; el valor real es un snapshot. La combinación con `orderBy('__name__')` es correcta si se pasa el snapshot real; el stub usa `{id}`, así que no prueba el contrato real de `startAfter`. Corrección de tipos recomendada; no bloquea por sí sola.
+- `billingPendingReport.test.ts`: no hay caso `readPendingReport` con documento malformado/sin `state`, y el emulador real sigue pendiente. Las pruebas actuales pueden pasar mientras el reporte omite filas debidas. Bloquea la evidencia de cierre.
+
+No vi escrituras ni copia de `uid`/email/identityKey. `accountId` sí se expone; si se considera identidad, requiere decisión.
+
+RESULTADO: FALLA

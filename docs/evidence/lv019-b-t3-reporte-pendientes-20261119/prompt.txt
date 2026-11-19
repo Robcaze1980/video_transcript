@@ -1,0 +1,134 @@
+Responde SOLO con texto, sin usar herramientas ni leer archivos. Maximo 220 palabras.
+Revisa este codigo nuevo (TypeScript, Firestore Admin) y sus pruebas. Es el reporte de solo lectura de filas de saldo no terminales: debe listar TODAS (sin que filas futuras oculten una debida), no escribir nunca, no copiar identidades, marcar datos malformados en vez de omitirlos, y ser determinista. Busca bugs reales: paginacion con startAfter y orderBy('__name__') combinado con where('state','in',...), orden total, duplicados, filas sin createdAtMs, escrituras accidentales, fuga de datos privados, casos de prueba que no detectarian un fallo. Para cada hallazgo di archivo/linea aproximada, escenario concreto y si bloquea el cierre. No propongas numeros arbitrarios.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+=== billingPendingReport.ts ===
+/**
+ * LV-019.B phase 2, piece B: a strictly read-only report of every non-terminal
+ * billing row (intents, terminal recovery, hold outbox, settlement outbox, unknown
+ * jobs). It never writes, never calls the Account service and never moves balance.
+ * Every non-terminal row is listed (cursor over all pages), so a due row cannot be
+ * hidden behind future rows the way the batched selectors can.
+ * Design: docs/specs/LV-019-B-conciliacion-fase2-barrido-diseno.md
+ */
+import type {DocumentReference} from 'firebase-admin/firestore';
+
+export type PendingKind='intent'|'terminal_recovery'|'hold'|'outbox'|'job_unknown';
+export type PendingAttention='needs_review'|'malformed'|'unknown_age'|'pending';
+
+export interface PendingSource{kind:PendingKind;collection:string;states:readonly string[]}
+/** Only non-terminal states are ever queried; terminal ones (settled, applied, closed...) are absent on purpose. */
+export const PENDING_SOURCES:readonly PendingSource[]=Object.freeze([
+  {kind:'intent',collection:'billingIntents',states:['reserve_pending','release_pending','needs_review']},
+  {kind:'terminal_recovery',collection:'billingIntentTerminalRecovery',states:['pending']},
+  {kind:'hold',collection:'billingHoldOutbox',states:['pending','needs_review']},
+  {kind:'outbox',collection:'billingOutbox',states:['pending','retry_wait','needs_review']},
+  {kind:'job_unknown',collection:'jobs',states:['unknown']},
+]);
+
+export interface PendingRow{kind:PendingKind;id:string;state:string;createdAtMs:number|null;nextAttemptAt:number|null;attempts:number|null;lastErrorCode:string|null;accountId:string|null;malformed:boolean}
+export interface ReportRow extends PendingRow{ageMs:number|null;attention:PendingAttention}
+export interface PendingReport{generatedAtMs:number;total:number;byKind:Record<PendingKind,number>;oldest:ReportRow|null;attention:ReportRow[];rows:ReportRow[]}
+
+const nonNegativeInteger=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const errorCode=/^[a-z_]{1,40}$/;
+
+/** Copies only what an operator needs; identity keys, uids and emails are never copied. */
+export function normalizePending(kind:PendingKind,id:string,data:Record<string,unknown>|undefined):PendingRow{
+  const d=data&&typeof data==='object'?data:{};
+  const state=typeof d.state==='string'&&d.state?d.state:'';
+  const createdAtMs=nonNegativeInteger(d.createdAtMs)?d.createdAtMs:null;
+  const present=(value:unknown)=>value!==undefined&&value!==null;
+  const nextAttemptAt=nonNegativeInteger(d.nextAttemptAt)?d.nextAttemptAt:null;
+  const attempts=nonNegativeInteger(d.attempts)?d.attempts:null;
+  const lastErrorCode=typeof d.lastErrorCode==='string'&&errorCode.test(d.lastErrorCode)?d.lastErrorCode:null;
+  const accountId=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null;
+  const malformed=!data||typeof data!=='object'||!state||(present(d.createdAtMs)&&createdAtMs===null)||(present(d.nextAttemptAt)&&nextAttemptAt===null)||(present(d.attempts)&&attempts===null);
+  return {kind,id,state,createdAtMs,nextAttemptAt,attempts,lastErrorCode,accountId,malformed};
+}
+
+const kindOrder:Record<PendingKind,number>={intent:0,terminal_recovery:1,hold:2,outbox:3,job_unknown:4};
+function attentionOf(row:PendingRow):PendingAttention{
+  if(row.malformed)return 'malformed';
+  if(row.state==='needs_review')return 'needs_review';
+  if(row.createdAtMs===null)return 'unknown_age';
+  return 'pending';
+}
+/** Pure and deterministic: total order (unknown age first, then oldest, kind, id) and exact-duplicate removal. */
+export function buildPendingReport(input:readonly PendingRow[],nowMs:number):PendingReport{
+  if(!nonNegativeInteger(nowMs))throw new RangeError('invalid clock');
+  const unique=new Map<string,PendingRow>();
+  for(const row of input){const key=row.kind+'\u0000'+row.id;if(!unique.has(key))unique.set(key,row);}
+  const rows:ReportRow[]=[...unique.values()].map(row=>({...row,ageMs:row.createdAtMs===null?null:Math.max(0,nowMs-row.createdAtMs),attention:attentionOf(row)}));
+  rows.sort((a,b)=>{
+    if((a.createdAtMs===null)!==(b.createdAtMs===null))return a.createdAtMs===null?-1:1;
+    if(a.createdAtMs!==b.createdAtMs&&a.createdAtMs!==null&&b.createdAtMs!==null)return a.createdAtMs-b.createdAtMs;
+    if(a.kind!==b.kind)return kindOrder[a.kind]-kindOrder[b.kind];
+    return a.id<b.id?-1:a.id>b.id?1:0;
+  });
+  const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0};
+  for(const row of rows)byKind[row.kind]++;
+  return {generatedAtMs:nowMs,total:rows.length,byKind,oldest:rows.find(row=>row.createdAtMs!==null)??null,attention:rows.filter(row=>row.attention!=='pending'),rows};
+}
+
+/** Exhaustive read: one query per source, paged by document id until a page comes back short. */
+export async function readPendingReport(root:DocumentReference,nowMs:number,options:{pageSize?:number}={}):Promise<PendingReport>{
+  const pageSize=options.pageSize??200;
+  if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500)throw new RangeError('invalid page size');
+  const rows:PendingRow[]=[];
+  for(const source of PENDING_SOURCES){
+    let last:{id:string}|null=null;
+    for(;;){
+      let query=root.collection(source.collection).where('state','in',[...source.states]).orderBy('__name__');
+      if(last)query=query.startAfter(last);
+      const page=await query.limit(pageSize).get();
+      for(const doc of page.docs)rows.push(normalizePending(source.kind,doc.id,doc.data() as Record<string,unknown>|undefined));
+      if(page.docs.length<pageSize)break;
+      last=page.docs[page.docs.length-1];
+    }
+  }
+  return buildPendingReport(rows,nowMs);
+}
+
+=== billingPendingReport.test.ts (resumen: usa un stub en memoria de where/orderBy/startAfter/limit/get; 10 pruebas; mutaciones de paginacion y deduplicacion hacen fallar 2 pruebas cada una) ===
+// LV-019.B phase 2, piece B: read-only report of every non-terminal billing row.
+// The reader is exercised against an in-memory stub of the Firestore query surface;
+// the real emulator test is still pending (see docs/specs/LV-019-B-conciliacion-fase2-barrido-diseno.md).
+import {describe,expect,it} from 'vitest';
+import {buildPendingReport,normalizePending,PENDING_SOURCES,readPendingReport,type PendingRow} from './billingPendingReport';
+
+type Doc={id:string;data:Record<string,unknown>};
+function stubRoot(collections:Record<string,Doc[]>,log:string[]=[],duplicateBoundary=false){
+  return {
+    collection(name:string){
+      const docs=collections[name]??[];
+      const build=(states:string[]|null,after:string|null,limit:number|null)=>({
+        where(field:string,op:string,value:string[]){log.push(`where:${name}:${field}:${op}:${value.join('|')}`);return build(value,after,limit);},
+        orderBy(field:string){log.push(`orderBy:${name}:${field}`);return build(states,after,limit);},
+        startAfter(snapshot:{id:string}){log.push(`startAfter:${name}`);return build(states,snapshot.id,limit);},
+        limit(n:number){log.push(`limit:${name}:${n}`);return build(states,after,n);},
+        async get(){
+          log.push(`get:${name}`);
+          let rows=docs.filter(d=>!states||states.includes(String(d.data.state))).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+          if(after!==null)rows=rows.filter(d=>d.id>after!);
+          let page=limit===null?rows:rows.slice(0,limit);
+          if(duplicateBoundary&&after!==null&&page.length&&rows.length<docs.length)page=[docs.find(d=>d.id===after)!,...page];
+          return {docs:page.map(d=>({id:d.id,data:()=>d.data}))};
+        }
+      });
+      return build(null,null,null);
+    }
+  };
+}
+const NOW=10_000_000;
+const row=(over:Partial<PendingRow>):PendingRow=>({kind:'intent',id:'a',state:'reserve_pending',createdAtMs:1000,nextAttemptAt:null,attempts:0,lastErrorCode:null,accountId:null,malformed:false,...over});
+
+describe('normalizePending',()=>{
+  it('keeps a valid row and never copies identity material',()=>{
+    const r=normalizePending('outbox','job-1',{state:'retry_wait',createdAtMs:5,nextAttemptAt:9,attempts:3,lastErrorCode:'conflict',accountId:'11111111-1111-4111-8111-111111111111',identityKey:'secret-key',uid:'u1',email:'x@y.z'});
+    expect(r).toMatchObject({kind:'outbox',id:'job-1',state:'retry_wait',createdAtMs:5,attempts:3,lastErrorCode:'conflict',malformed:false});
+    expect(JSON.stringify(r)).not.toMatch(/secret-key|"uid"|email|identityKey/);
+  });
+  it('marks malformed data instead of dropping or trusting it',()=>{
+    expect(normalizePending('intent','x',{state:'reserve_pending',createdAtMs:'soon'}).malformed).toBe(true);

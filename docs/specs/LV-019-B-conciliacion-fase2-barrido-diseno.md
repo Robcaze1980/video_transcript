@@ -50,6 +50,12 @@ Latencia y tasa de fallos reales de cada `drain`; distribución de antigüedad d
 - **Pruebas añadidas:** fallo inyectado tras la admisión (retener y alertar, nunca automático); doble resolución simultánea; reinicio a mitad de cursor; cambio de estado que re-dispara la alerta; soak concurrente B+C+D+bloqueo con «unión del barrido = libro».
 - **Criterio observable de cierre (adoptado):** ninguna reserva no terminal sin alerta activa o disposición auditada; cada fallo (de acción o de barrido) produce exactamente una alerta durable y un registro de auditoría; el umbral de antigüedad sale de la distribución medida por B.
 
+## 6.2 Decisiones técnicas tomadas por Codex (19 nov, delegadas por el dueño)
+- **Se implementa primero la pieza B** (solo lectura, no mueve saldo): `server/commercial/billingPendingReport.ts`, con pruebas unitarias (12) y comprobación contra emulador ([recibo T3 y contraste](../evidence/lv019-b-t3-reporte-pendientes-20261119/RECIBO.md)). Límites declarados: el modo rápido no ve filas sin estado usable (el modo `audit` sí, a costo de leer todo); los trabajos no se auditan; los índices en la nube no están verificados; aún no hay alerta (C) ni resolución (D).
+- **Valor por defecto del §3:** opción 1 (retener y alertar). No se implementa ninguna liberación automática ni manual.
+- **Canal de alerta:** hasta que el dueño elija, la alerta será un registro durable consultable (pieza C), sin envío externo.
+- **Pieza A (disparador en la nube):** sigue sin hacerse; requiere aprobación expresa del dueño.
+
 ## 7. Decisiones que necesito del dueño (no técnicas)
 Canal y responsable de la alerta; opción 1 u opción 2 de §3; y si autoriza más adelante el cambio de nube de la pieza A. Hasta entonces: solo documentos.
 

@@ -1,0 +1,10 @@
+Thread mcp:5b03706a-727c-44f9-bc01-f5cb2471261f
+Archivo único: `billingPendingReport.ts`.
+
+**1. Falsos positivos en `malformed` (≈L31‑34, regex de `errorCode`/`uuid`)** — No bloquea. Un outbox con `lastErrorCode:'rate_limited_5xx'` o `'TIMEOUT'`, o un `accountId` no‑UUID (`acct_7`), se marcan `malformed`; en audit eso los expulsa de `pending/needs_review` y produce alertas falsas. El alfabeto/tope del regex es arbitrario. La suite no tiene ninguna fila con código o cuenta válidos, así que endurecer ese regex no rompería ninguna prueba.
+
+**2. Consulta rápida `where('state','in',…).orderBy('__name__')` (≈L100)** — Riesgo no verificado, potencialmente bloqueante. El stub en memoria sólo registra llamadas: no valida semántica de Firestore. Si el SDK exige el campo filtrado como primer `orderBy`, el modo por defecto falla en producción y ninguna prueba lo detectaría. Hace falta una corrida contra emulador/Firestore real.
+
+**3. `job_unknown` con `terminalStates:null` (≈L19)** — No bloquea, pero engañoso. El audit omite jobs y el informe no expone qué fuentes quedaron sin auditar; un job en estado inesperado (`stuck`) es invisible en ambos modos y el llamante no distingue audit parcial de completo.
+
+RESULTADO: PASS
