@@ -19,7 +19,7 @@ import { build } from 'esbuild';
 
 const project = 'demo-vistavo-ledger';
 const host = '127.0.0.1:8185';
-const expectedTests = 7;
+const expectedTests = 8;
 const guardFile = 'scripts/reviewEmulatorNetworkGuard.cjs';
 const fixtureFile = 'server/commercial/firestoreReviewedTranslationHttp.emulator.mjs';
 const fixedTracked = Object.freeze([
@@ -132,12 +132,13 @@ function nodeIdentity() {
 }
 function summary(stdout, stderr) {
   const combined = `${stdout}\n${stderr}`;
-  const cleanups = [...combined.matchAll(/Synthetic review HTTP cleanup verified (\d+)\/7/g)].map(match => Number(match[1]));
+  const cleanups = [...combined.matchAll(new RegExp(`Synthetic review HTTP cleanup verified (\\d+)\\/${expectedTests}`, 'g'))].map(match => Number(match[1]));
   const exact = cleanups.length === expectedTests && cleanups.every((number, index) => number === index + 1);
   const requiredNames = [
     'default off: both optional review service and AI are required',
     'verified owner edits, saves, reopens and downloads matching reviewed TXT and SRT',
     'another account cannot read, edit or download the owner review',
+    'a verified user without access cannot read, edit or download the owner reviewed text',
     'invalid or unverified tokens and forged body identities fail without content',
     ...['removed','reassigned','uid_changed'].map(mutation => `identity ${mutation} after routing denies read, save and download without disclosure`),
   ];
@@ -145,14 +146,14 @@ function summary(stdout, stderr) {
     guardActive: stderr.includes('VISTAVO_REVIEW_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS'),
     guardDeniedDuringRun: stderr.includes('VISTAVO_REVIEW_NETWORK_DENIED'),
     syntheticTsxIpcRequests: [...stderr.matchAll(/^VISTAVO_REVIEW_TSX_IPC_SYNTHETIC\s*$/gm)].length,
-    tests: /^# tests 7\s*$/m.test(stdout),
-    allPassed: /^# pass 7\s*$/m.test(stdout),
+    tests: new RegExp(`^# tests ${expectedTests}\\s*$`, 'm').test(stdout),
+    allPassed: new RegExp(`^# pass ${expectedTests}\\s*$`, 'm').test(stdout),
     noFailures: /^# fail 0\s*$/m.test(stdout),
     namedCases: requiredNames.every(name => stdout.split('\n').some(line => /^ok \d+ - /.test(line) && line.trimEnd().endsWith(name))),
     noCancelled: /^# cancelled 0\s*$/m.test(stdout),
     noSkipped: /^# skipped 0\s*$/m.test(stdout),
     noTodo: /^# todo 0\s*$/m.test(stdout),
-    cleanups: exact && combined.includes('Synthetic review HTTP cleanup total: 7/7'),
+    cleanups: exact && combined.includes(`Synthetic review HTTP cleanup total: ${expectedTests}/${expectedTests}`),
   };
 }
 
@@ -240,7 +241,7 @@ if (args.length === 1 && args[0] === '--prepare') {
     mismatchAfter, pathChanges, checks, before: before.files, after: after?.files ?? null,
     limitation: 'The preload is not an OS firewall; esbuild, native addons, native children and unsupported APIs are not covered. Static bundle inputs and listed loader files are hashed, but dynamic/runtime-only dependencies are not guaranteed complete and pre/post hashes do not create an immutable snapshot.' };
   writeFileSync(path.join(run, 'result.json'), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
-  process.stdout.write(`Synthetic review HTTP fixture: ${confirmed ? 'PASS (7 cases passed)' : 'INCONCLUSIVE'}; evidence: ${run}\n`);
+  process.stdout.write(`Synthetic review HTTP fixture: ${confirmed ? `PASS (${expectedTests} cases passed)` : 'INCONCLUSIVE'}; evidence: ${run}\n`);
   if (!confirmed) process.exitCode = 1;
 } else {
   fail('Use --prepare or --run <task-manifest>; the fixture was not started');

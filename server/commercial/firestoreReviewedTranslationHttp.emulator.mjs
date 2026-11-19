@@ -19,7 +19,7 @@ import {privateBucket} from './privateObjectPlan.ts';
 import {encodeTextBundle} from './pipelineTextCodec.ts';
 import {textModel} from './pipelineTextProvider.ts';
 
-const project='demo-vistavo-ledger',host='127.0.0.1:8185',collection='vistavo_review_http_synthetic',testCount=7;
+const project='demo-vistavo-ledger',host='127.0.0.1:8185',collection='vistavo_review_http_synthetic',testCount=8;
 const contexts=[],sha=value=>createHash('sha256').update(value).digest('hex');let verifiedCleanups=0;
 const ref=(c,name,id)=>c.root.collection(name).doc(id);
 function assertSafeEnvironment(){
@@ -51,11 +51,13 @@ class FakeObjects{
  data=new Map();reads=0;
  async read(object){this.reads++;const entry=this.data.get(object.key);assert.ok(entry);assert.equal(entry.generation,object.generation);assert.equal(entry.bytes.length,object.size);return Readable.from([Buffer.from(entry.bytes)]);}
 }
-function makeClient(c,{includeAi=true,includeReview=true,service=c.service}={}){
- const handler=firestoreHttp({origin:'http://127.0.0.1',backend:c.backend,...(includeAi?{ai:c.ai}:{}),...(includeReview?{reviewedTranslation:service}:{}),identity:{async verifyIdToken(token,checkRevoked){
+function makeClient(c,{includeAi=true,includeReview=true,service=c.service,authorizeUser}={}){
+ const handler=firestoreHttp({origin:'http://127.0.0.1',backend:c.backend,...(authorizeUser?{authorizeUser}:{}),...(includeAi?{ai:c.ai}:{}),...(includeReview?{reviewedTranslation:service}:{}),identity:{async verifyIdToken(token,checkRevoked){
   assert.equal(checkRevoked,true);c.tokenChecks++;
   if(token==='synthetic-owner')return {uid:c.uid,email_verified:true};
   if(token==='synthetic-other')return {uid:c.otherUid,email_verified:true};
+  if(token==='synthetic-newcomer')return {uid:c.newcomerUid,email_verified:true};
+  if(token==='synthetic-nopilot')return {uid:c.noPilotUid,email_verified:true};
   if(token==='synthetic-unverified')return {uid:c.uid,email_verified:false};
   throw Error('Synthetic invalid token');
  }}});
@@ -66,9 +68,9 @@ function makeClient(c,{includeAi=true,includeReview=true,service=c.service}={}){
   const res=new SyntheticResponse();await handler(req,res);await finished(res);return res;
  };
 }
-function assertNoContent(response,c){
+function assertNoContent(response,c,extraErrors=[]){
  const body=response.body.toString('utf8');
- const parsed=JSON.parse(body);assert.deepEqual(Object.keys(parsed),['error']);assert.ok(['request_rejected','not_found','invalid'].includes(parsed.error));
+ const parsed=JSON.parse(body);assert.deepEqual(Object.keys(parsed),['error']);assert.ok(['request_rejected','not_found','invalid',...extraErrors].includes(parsed.error),'unexpected error code '+parsed.error);
  for(const value of [...c.cues.flatMap(cue=>[cue.es,cue.en]),...c.edits.map(edit=>edit.en),'00:00:00,000','synthetic video'])assert.equal(body.includes(value),false,'Denied response exposed synthetic content');
  assert.equal(response.headers['cache-control'],'no-store');
 }
@@ -90,8 +92,8 @@ after(()=>{assert.equal(verifiedCleanups,testCount,'Every synthetic root must be
 
 async function fixture(){
  const db=new Firestore({projectId:project,host,ssl:false,preferRest:false});assertSafeClient(db);
- const root=db.collection(collection).doc(randomUUID()),backend=new FirestoreBackend(db,root),uid='synthetic-owner-'+randomUUID(),otherUid='synthetic-other-'+randomUUID();
- const c={db,root,backend,uid,otherUid,tokenChecks:0,markerConfirmed:false,marker:{purpose:'vistavo-review-http-synthetic',project,nonce:randomUUID()}};assertSafeRoot(c);contexts.push(c);
+ const root=db.collection(collection).doc(randomUUID()),backend=new FirestoreBackend(db,root),uid='synthetic-owner-'+randomUUID(),otherUid='synthetic-other-'+randomUUID(),newcomerUid='synthetic-newcomer-'+randomUUID(),noPilotUid='synthetic-nopilot-'+randomUUID();
+ const c={db,root,backend,uid,otherUid,newcomerUid,noPilotUid,tokenChecks:0,markerConfirmed:false,marker:{purpose:'vistavo-review-http-synthetic',project,nonce:randomUUID()}};assertSafeRoot(c);contexts.push(c);
  assert.equal((await root.get()).exists,false,'Synthetic root must start absent');assert.deepEqual(await descendants(root),[],'Synthetic root must have no descendants');
  await root.create(c.marker);const marker=await root.get();assert.ok(marker.exists);assert.deepEqual(marker.data(),c.marker);assert.deepEqual(await descendants(root),[]);c.markerConfirmed=true;
  const account=await backend.accountForUid(uid),other=await backend.accountForUid(otherUid),input=randomUUID(),sourceSha=sha('synthetic video');
@@ -167,6 +169,24 @@ test('another account cannot read, edit or download the owner review',async()=>{
   const response=await c.call(url,{...options,token:'synthetic-other'});assert.equal(response.statusCode,404);assertNoContent(response,c);
  }
  assert.equal(c.objects.reads,reads);assert.deepEqual(await state(c),before);
+});
+
+test('a verified user without access cannot read, edit or download the owner reviewed text',async()=>{
+ const c=await fixture();await ownerSaved(c);const before=await state(c),reads=c.objects.reads;
+ // Three kinds of caller without access to this job: a brand-new verified user with no account, a verified user whose
+ // account has no pilot flags, and the owner's own verified token when the operator authorization denies the uid.
+ const denyAll=makeClient(c,{authorizeUser:async()=>false});
+ // Accounts without pilot access are refused earlier (503 disabled) than accounts that merely do not own the job (404);
+ // both are acceptable denials. What must never happen is content, a state change or a financial change.
+ const cases=[['synthetic-newcomer',c.call,[404,503]],['synthetic-nopilot',c.call,[404,503]],['synthetic-owner',denyAll,[403]]];
+ for(const [token,call,statuses] of cases){
+  for(const [url,options] of [[readPath(c),{}],[reviewPath(c),{method:'PUT',data:body(c,{expectedRevision:2})}],[downloadPath(c,'txt'),{}],[downloadPath(c,'srt'),{}],[downloadPath(c,'txt'),{method:'HEAD'}]]){
+   const response=await call(url,{...options,token});assert.ok(statuses.includes(response.statusCode),token+' '+url+' got '+response.statusCode);
+   if(response.body.length>0)assertNoContent(response,c,['disabled','forbidden','unavailable']);// an empty denial body is also acceptable
+   assert.equal(response.headers['cache-control'],'no-store');
+  }
+ }
+ assert.equal(c.objects.reads,reads);assert.deepEqual(await state(c),before);assert.deepEqual(await financialState(c),c.baseline);
 });
 
 test('invalid or unverified tokens and forged body identities fail without content',async()=>{
