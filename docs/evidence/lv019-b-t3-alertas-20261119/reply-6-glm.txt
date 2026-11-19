@@ -1,0 +1,4 @@
+Thread mcp:74891549-8698-403c-a729-d37e6db7ec1c
+No veo bugs reales. `openAlertState` valida existencia, estado `open`, tipos de `kind/rowId/state/reason`, hash contra `snap.id` y forma del documento. La transacción releee la alerta, sucesor y fila; un sucesor inexistente, `raced`, `corrupt` o con estado/razón distinto produce `unverified` y no escribe. La fila debe seguir en `current.state` con la misma razón, evitando supresión de atención. Firestore detecta cambios concurrentes entre lecturas y escritura. Observación no bloqueante: `validOpenShape` acepta `status:'cleared'`, pero es inalcanzable porque `openAlertState` ya exige `open`; es redundancia, no bug.
+
+RESULTADO: PASS

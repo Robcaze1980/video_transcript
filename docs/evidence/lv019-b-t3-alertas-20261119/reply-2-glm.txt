@@ -1,0 +1,12 @@
+Thread mcp:a0c79e26-bbe1-44c5-8f25-76ec4ecdc62e
+Lugar: inmediatamente después de `nonNegativeInteger`. Escenario: el archivo pasa de esa definición a `let query` sin declaración de función, cierre ni contexto de `root`, `db`, `reported`, `nowMs`, `cleared`, `kept`. Bug: archivo incompleto / no compila. Bloquea: sí.
+
+Lugar: lógica de reapertura ausente. Escenario: no aparece el código que conserva `reopenCount` ni `previousClearedAtMs` al reabrir una alerta `cleared`. Bug: requisito declarado no verificable. Bloquea: sí para revisión.
+
+Lugar: `nonNegativeInteger` y comentario de `AlertPolicy.ageThresholdMs`. Escenario: si valida el umbral, acepta `0` aunque la política exige entero positivo. Bug: validación más débil que la política. Bloquea: no.
+
+Lugar: paginación visible. Escenario: el cursor por `__name__` y `startAfter` parece estable, pero no se puede auditar intercalado ni las 230 alertas sin el resto del archivo. Bloquea: sí para verificación.
+
+La parte visible del cierre sí lee la fila dentro de la transacción junto con la alerta, corrigiendo el TOCTOU señalado.
+
+RESULTADO: INCONCLUYENTE

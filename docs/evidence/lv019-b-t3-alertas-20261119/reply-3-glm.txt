@@ -1,0 +1,6 @@
+Thread mcp:680aaf21-eb70-434b-943c-9d288082f38c
+Hallazgo: la rama `superseded` valida solo que el sucesor exista y esté `open`; no valida `validOpenShape(successor.data(), successorRef.id)` ni su coherencia clave/contenido. Escenario: la fila cambió a otro estado/motivo y existe un documento sucesor con `status:'open'`, pero corrupto o con campos que no corresponden a esa clave. La alerta original queda `superseded`, dejando como única atención un documento no interpretable, con lo que se puede perder atención. Bloquea el cierre por sucesión.
+
+No veo otro bloqueo en la lógica mostrada.
+
+RESULTADO: FALLA

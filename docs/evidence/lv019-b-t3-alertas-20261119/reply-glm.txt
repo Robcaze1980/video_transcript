@@ -1,0 +1,13 @@
+Thread mcp:f2684c95-9db4-458d-9736-172935534a7d
+No puedo revisar el código porque no llegó: tu mensaje contiene solo fragmentos ("alertas still reported…", "raises one open alert per allowed failure code…") y no el código TypeScript real.
+
+Con lo que describes, estos son los puntos que verificaría cuando lo pegues:
+
+1. **Un alerta abierta por código de fallo**: usar `set(..., { merge: true })` o transacción (`runTransaction`) para evitar duplicados en carreras; la clave del documento debería ser determinística (p. ej. `alert_{code}` o hash de código+recurso), no `doc()` con ID aleatorio.
+2. **Conteo de repeticiones**: incrementar con `FieldValue.increment(1)` dentro de la misma transacción; evitar leer-then-write sin transacción (condición de carrera).
+3. **"Never writes anything but alerts"**: revisar que no haya escritos colaterales (logs en Firestore, timestamps en otros documentos, borrados). Verificar también que no escriba si no hay fallo.
+4. **Estados terminales verificables**: definir estados explícitos (`open`, `resolved`, `acknowledged`) y cómo un alerta pasa a `resolved`; comprobar qué pasa si el proceso muere a mitad de transacción.
+5. **Códigos permitidos**: validar contra una lista cerrada (`allowedFailureCodes`); rechazar/ignorar códigos desconocidos en lugar de crear alertas.
+6. **Firestore Admin**: reglas no aplican al Admin SDK, así que la protección es solo en código; revisar índices y colección configurada, y que los errores del propio SDK no generen escritos infinitos.
+
+Pega el código y hago la revisión línea por línea.

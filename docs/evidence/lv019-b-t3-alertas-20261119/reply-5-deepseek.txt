@@ -1,0 +1,7 @@
+Thread mcp:96b52205-0d53-4edc-9d11-669e76311bd6
+**Hallazgo (bloquea).** Lugar: relectura de la alerta original (`fresh=openAlertState(mine)`). Solo se comprueba que siga `'open'`; nunca se revalida su contenido contra su propia clave. La corrección (2) exigía clave↔contenido para la alerta, y aquí solo se aplica al sucesor.
+Escenario concreto: un doc de alerta con `status:'open'` pero cuyos campos `kind/rowId/state/reason` no coinciden con `hash(tipo,fila,estado,motivo)` de su id (escritura previa buggy, migración o corrupción). El flujo lo acepta, lo marca `'superseded'` y propaga el defecto: la coherencia clave↔contenido que el gate pedía queda sin verificar en la alerta original.
+
+Secundario: el sucesor se valida contra `current.state`/`now` derivados del snapshot del reporte (`current`), no de `mine` releído; si difieren, no se detecta.
+
+RESULTADO: FALLA

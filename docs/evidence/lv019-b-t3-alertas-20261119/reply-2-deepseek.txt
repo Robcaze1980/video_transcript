@@ -1,0 +1,8 @@
+Thread mcp:5d7a436a-a713-46a2-b6b6-2ef77b01a696
+1) `clearResolvedAlerts`, guarda `reported.has(kind+'\u0000'+rowId)`: ignora estado y motivo. Escenario: la fila R se alerta como `needs_review` (state `pending`); en el barrido siguiente R sigue listada pero ahora con motivo `age`. Se crea la alerta nueva y la antigua queda `open` para siempre, contradiciendo «un motivo distinto es otra alerta». Todo cambio de state o motivo deja una alerta inborrable: la colección crece sin límite. No bloquea el cierre de otras, pero invalida el contrato de durabilidad/dedupe y ninguna prueba nueva lo cubre.
+
+2) La transacción de cierre no valida identidad ni forma del documento (alertKey == doc.id, seenCount, status), a diferencia de `raiseOne`. Escenario: documento con `kind`/`rowId` divergentes de su clave → se cierra contra el estado de una fila ajena. No bloquea hoy (solo este módulo escribe), pero es brecha de integridad real.
+
+3) `kept` mezcla saltos estructurales (sweep, sin terminalStates, fila reportada) con rechazos de la transacción (estado no terminal, alerta ya cerrada por otro escritor). Escenario: dos barridos solapados → `kept` inflado e indistinguible de un conflicto real. No bloquea; rompe la observabilidad exigida.
+
+RESULTADO: FALLA

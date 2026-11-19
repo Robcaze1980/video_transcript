@@ -1,0 +1,4 @@
+Thread mcp:117ddd3c-c874-4774-9bef-fcc39bed6ac9
+La objeción previa no se sostiene: `openAlertState` sí reconstruye `alertKey(kind,rowId,state,reason)` y exige que coincida con `snap.id`; además `validOpenShape` valida `alertKey`, `status` abierto, `seenCount>=1` y timestamps enteros no negativos. En la transacción se releen el documento propio, el sucesor y la fila; solo se marca `superseded` si el sucesor está abierto y bien formado para ese `kind/rowId/state/reason` y si la fila releída conserva `state` y `reasonFor`. Eso cubre la carrera y evita perder atención. No encuentro bug real ni bloqueante en lo mostrado. La única observación menor es que `validOpenShape` admite `'cleared'`, pero `openAlertState` ya filtra `status!=='open'`; esa rama no se alcanza y no altera el comportamiento. Sin hallazgos que justifiquen FALLA.
+
+RESULTADO: PASS

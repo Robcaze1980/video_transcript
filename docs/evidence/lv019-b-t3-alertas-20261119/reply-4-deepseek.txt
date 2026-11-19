@@ -1,0 +1,6 @@
+Thread mcp:f8048d01-7a19-498e-b73e-1110c546ed7f
+Hallazgo (bloqueante): `current`/`now` se calculan fuera de la transacción; dentro solo se releen `mine` y `successor`. La condición "la fila sigue reportada con otro estado/motivo" no se revalida. Escenario: la fila reporta B al leerla, pero vuelve a A o su reporte se elimina antes de la transacción; el sucesor B sigue abierto y bien formado; la transacción marca A como `superseded` aunque la fila ya reporta A o ya no reporta. Se pierde la alerta A. Solución: leer el reporte dentro de la transacción y recalcular `reasonFor`/estado; si ya no aplica, no superseder. Bloquea: sí.
+
+Hallazgo adicional (bloqueante si se permite mutación en sitio): la transacción solo valida `mine.status==='open'`; no que su kind/rowId/state/reason coincidan con la clave. Escenario: una actualización concurrente cambia `state` del doc sin cambiar su id; se supersede otra alerta. Bloquea si se permite mutación en sitio; si no, no.
+
+RESULTADO: FALLA

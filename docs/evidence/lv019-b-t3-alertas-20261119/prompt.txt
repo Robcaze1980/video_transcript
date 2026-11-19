@@ -1,0 +1,115 @@
+Responde SOLO con texto, sin usar herramientas ni leer archivos. Maximo 230 palabras.
+Revisa este codigo nuevo (TypeScript, Firestore Admin): alertas durables y deduplicadas sobre un reporte de solo lectura de filas de saldo no terminales. Debe: escribir SOLO en su coleccion de alertas, no mover saldo, una alerta por (tipo, fila, estado, motivo) bajo concurrencia, re-alertar si cambia el estado, cerrar una alerta solo tras leer la fila en estado terminal conocido, no inventar umbral de edad por defecto, no guardar identidades. Busca bugs reales: carreras entre raiseOne y clearResolvedAlerts (p. ej. una alerta cerrada que se reabre o una fila que vuelve a un estado no terminal), paginacion de alertas abiertas mientras se modifican, reabrir una alerta cleared con la misma clave, errores parciales, estados terminales mal supuestos, y pruebas que no detectarian el fallo. Por hallazgo: lugar aproximado, escenario concreto y si bloquea el cierre. Sin numeros arbitrarios.
+Contexto verificado: pruebas unitarias con stub (10) y una comprobacion en emulador real con escritores concurrentes (4 sin fallos; con 20 el emulador puede abortar por lock timeout y el error se propaga, nunca duplica); mutaciones de dedup, de cierre sin leer terminal y de motivos hacen fallar pruebas.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+=== billingPendingAlerts.ts (archivo completo) ===
+/**
+ * LV-019.B phase 2, piece C: durable, deduplicated alerts derived from the read-only pending report.
+ * It writes ONLY to `billingPendingAlerts`. It never moves balance, never calls the Account service and never resolves
+ * a billing row: an alert is cleared only after the row itself is read in a known terminal state, and otherwise stays
+ * open for a human (piece D). There is no default age threshold: age alerts exist only when the owner supplies one.
+ * Design: docs/specs/LV-019-B-conciliacion-fase2-barrido-diseno.md
+ */
+import {createHash} from 'node:crypto';
+import type {DocumentReference,DocumentSnapshot,Firestore} from 'firebase-admin/firestore';
+import {PENDING_SOURCES,type PendingKind,type PendingReport,type ReportRow} from './billingPendingReport';
+
+export const ALERT_COLLECTION='billingPendingAlerts';
+export type AlertKind=PendingKind|'sweep';
+export type AlertReason='needs_review'|'malformed'|'unknown_age'|'age'|'sweep_failed'|'sweep_review';
+export const SWEEP_REASONS=['sweep_failed','sweep_review'] as const;
+export interface AlertPolicy{/** Owner-chosen, positive integer milliseconds. Absent = no age alerts. */ageThresholdMs?:number}
+
+const nonNegativeInteger=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
+/** A state change or a different reason is a different alert, so it can never hide inside an older one. */
+export function alertKey(kind:AlertKind,rowId:string,state:string,reason:AlertReason):string{
+  return createHash('sha256').update(JSON.stringify(['billing-pending-alert-v1',kind,rowId,state,reason])).digest('hex');
+}
+function reasonFor(row:ReportRow,threshold:number|undefined):AlertReason|null{
+  if(row.attention!=='pending')return row.attention;
+  if(threshold!==undefined&&row.ageMs!==null&&row.ageMs>=threshold)return 'age';
+  return null;
+}
+function validOpenShape(data:Record<string,unknown>|undefined,key:string){
+  return !!data&&data.alertKey===key&&['open','cleared'].includes(String(data.status))&&nonNegativeInteger(data.seenCount)&&data.seenCount>=1&&nonNegativeInteger(data.firstSeenAtMs)&&nonNegativeInteger(data.lastSeenAtMs);
+}
+/** One transaction per alert: under concurrency exactly one writer creates it, the others count a sighting. */
+async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKind;rowId:string;state:string;reason:AlertReason;accountId:string|null},nowMs:number):Promise<'created'|'seen'>{
+  const key=alertKey(fields.kind,fields.rowId,fields.state,fields.reason),ref=root.collection(ALERT_COLLECTION).doc(key);
+  return db.runTransaction(async tx=>{
+    const snap=await tx.get(ref);
+    if(!snap.exists){
+      tx.create(ref,{alertKey:key,...fields,status:'open',seenCount:1,firstSeenAtMs:nowMs,lastSeenAtMs:nowMs});
+      return 'created' as const;
+    }
+    const data=snap.data() as Record<string,unknown>|undefined;
+    if(!validOpenShape(data,key))throw new Error('Corrupt alert document');
+    tx.update(ref,{status:'open',seenCount:(data!.seenCount as number)+1,lastSeenAtMs:Math.max(nowMs,data!.lastSeenAtMs as number),clearedAtMs:null,observedState:null});
+    return 'seen' as const;
+  });
+}
+/** Every row that needs attention gets one open alert; all rows are processed even if one alert document is corrupt. */
+export async function raisePendingAlerts(db:Firestore,root:DocumentReference,report:PendingReport,nowMs:number,policy:AlertPolicy={}):Promise<{created:number;seen:number}>{
+  if(!nonNegativeInteger(nowMs))throw new RangeError('invalid clock');
+  const threshold=policy.ageThresholdMs;
+  if(threshold!==undefined&&(!Number.isSafeInteger(threshold)||threshold<1))throw new RangeError('invalid age threshold');
+  let created=0,seen=0;const failures:unknown[]=[];
+  for(const row of report.rows){
+    const reason=reasonFor(row,threshold);if(!reason)continue;
+    try{(await raiseOne(db,root,{kind:row.kind,rowId:row.id,state:row.state,reason,accountId:row.accountId},nowMs))==='created'?created++:seen++;}
+    catch(error){failures.push(error);}
+  }
+  if(failures.length)throw new AggregateError(failures,`${failures.length} alert(s) could not be raised`);
+  return {created,seen};
+}
+/** A failed or unreviewed sweep is itself an alert: a loud failure with nobody listening is not observable. */
+export async function raiseSweepAlert(db:Firestore,root:DocumentReference,code:string,nowMs:number):Promise<{created:boolean}>{
+  if(!nonNegativeInteger(nowMs))throw new RangeError('invalid clock');
+  if(!(SWEEP_REASONS as readonly string[]).includes(code))throw new RangeError('invalid sweep alert code');
+  return {created:(await raiseOne(db,root,{kind:'sweep',rowId:'sweep',state:code,reason:code as AlertReason,accountId:null},nowMs))==='created'};
+}
+/**
+ * Closes an alert only when the row is no longer reported AND a direct read shows a known terminal state.
+ * A missing row, an unexpected state, a job (no verifiable terminal set) or a sweep alert stays open for a human.
+ */
+export async function clearResolvedAlerts(db:Firestore,root:DocumentReference,report:PendingReport,nowMs:number):Promise<{cleared:number;kept:number}>{
+  if(!nonNegativeInteger(nowMs))throw new RangeError('invalid clock');
+  const reported=new Set(report.rows.map(r=>r.kind+'\u0000'+r.id));
+  let cleared=0,kept=0,last:DocumentSnapshot|null=null;
+  for(;;){
+    let query=root.collection(ALERT_COLLECTION).where('status','==','open').orderBy('__name__');
+    if(last)query=query.startAfter(last);
+    const page=await query.limit(200).get();
+    for(const doc of page.docs){
+      const alert=doc.data() as Record<string,unknown>,kind=alert.kind as AlertKind,rowId=alert.rowId;
+      const source=PENDING_SOURCES.find(s=>s.kind===kind);
+      if(kind==='sweep'||!source||source.terminalStates===null||typeof rowId!=='string'||reported.has(kind+'\u0000'+rowId)){kept++;continue;}
+      const row=await root.collection(source.collection).doc(rowId).get();
+      const state=row.exists?(row.data() as Record<string,unknown>|undefined)?.state:undefined;
+      if(typeof state!=='string'||!source.terminalStates.includes(state)||source.states.includes(state)){kept++;continue;}
+      const done=await db.runTransaction(async tx=>{
+        const current=await tx.get(doc.ref);const data=current.data() as Record<string,unknown>|undefined;
+        if(!current.exists||data?.status!=='open')return false;
+        tx.update(doc.ref,{status:'cleared',clearedAtMs:nowMs,observedState:state});return true;
+      });
+      done?cleared++:kept++;
+    }
+    if(page.docs.length<200)break;
+    last=page.docs[page.docs.length-1];
+  }
+  return {cleared,kept};
+}
+
+=== nombres de pruebas ===
+is deterministic and changes with kind, row, state and reason (so a state change re-alerts)
+creates exactly one alert per needs_review/malformed/unknown-age row and none for healthy rows
+a repeated run only counts a sighting: no second alert, firstSeen kept
+a state change on the same row raises a new alert instead of hiding in the old one
+age alerts exist only when the owner supplies a valid threshold, and never invent a default
+stores only operator fields, writes only the alert collection and never touches balance data
+:
+clears an alert only after reading the row itself in a known terminal state
+keeps the alert when the row is missing, unexpected, still reported, or has no verifiable terminal set
+never writes anything but alerts
+raises one open alert per allowed failure code and counts repeats

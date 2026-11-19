@@ -1,0 +1,12 @@
+Thread mcp:2249e95d-6b93-4ed7-bf0a-2971c87edfff
+**Hallazgos (piece C)**
+
+1. `clearResolvedAlerts` — ventana TOCTOU. Lugar: `row=await ...collection(...).get()` fuera de la transacción y el `runTransaction` que solo revalida `data?.status==='open'`, no la fila. Escenario: clear lee la fila como terminal (t1); `raiseOne` reabre la misma clave porque la fila volvió a un estado no terminal (t2); el commit de clear (t3) la cierra igual. Se cierra una alerta cuya fila ya no es terminal. **Bloquea.**
+
+2. `raiseOne` sobre clave `cleared`. Escenario: la condición reaparece con idéntico (tipo,fila,estado,motivo). Se reabre con `seenCount+1`, `firstSeenAtMs` original y `clearedAtMs:null`: queda indistinguible de una alerta nunca cerrada y se pierde que fue resuelta antes. **Bloquea** observabilidad/procedencia.
+
+3. Cobertura. Lugar: pruebas unitarias y comprobación en emulador. Solo ejercen concurrencia de `raiseOne`; ninguna intercala clear/raise, ni la reapertura de una `cleared`, ni paginación de >200 abiertas mientras se cierran. Por eso 1–2 no se detectan: pruebas que no detectarían el fallo.
+
+4. Sin defecto observado: el umbral de edad solo existe si el dueño lo aporta; la paginación por `__name__` con `startAfter` no repite documentos.
+
+RESULTADO: FALLA

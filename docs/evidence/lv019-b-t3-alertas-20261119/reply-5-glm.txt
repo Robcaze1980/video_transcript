@@ -1,0 +1,6 @@
+Thread mcp:a97addcd-3549-4cae-a077-402f31fa0ab5
+1. `mine` (tx.get(doc.ref)): solo se valida `openAlertState(mine)==='open'`; falta comprobar que el contenido releído coincide con su propia clave (alertKey de `mine.data()` vs `doc.ref.id`). Escenario: la alerta original mutó de `reason` sin regenerar clave; se supersedea usando `now` calculado desde `current` viejo. Bloquea: sí.
+2. `successorRef`/`now`: se derivan fuera de la transacción; la revalidación cubre fila y sucesora, pero no reancla `now` al contenido fresco de `mine`, heredando el desalineo del punto 1. Bloquea: sí (mismo caso).
+3. `out[result]++`: si `fresh!=='open'` devuelve estados como `'missing'`, o `result` es `'unverified'` sin clave previa, se escribe `NaN`. Bloquea: sí si `out` es `Record<string,number>`; no compila si su tipo es cerrado.
+
+RESULTADO: FALLA

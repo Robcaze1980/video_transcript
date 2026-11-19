@@ -1,0 +1,4 @@
+Thread mcp:6bbf9ad1-7609-487f-93be-f96f9cc37da4
+Revisé la transición y no encontré bugs reales. La transacción verifica el estado de la alerta original, la existencia de la sucesora, su forma válida, su estado `open`, y que `kind`, `rowId`, `state` y `reason` coincidan exactamente antes de marcar `superseded`. Los caminos `raced` y `unverified` dejan la alerta original abierta, sin pérdida silenciosa. No identifico escenario concreto que bloquee el cierre.
+
+RESULTADO: PASS
