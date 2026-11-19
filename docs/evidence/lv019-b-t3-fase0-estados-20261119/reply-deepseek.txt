@@ -1,0 +1,14 @@
+Thread mcp:3839b68f-7237-4f9b-8233-1b616f70de29
+**Faltan o son ambiguos:**
+- Timeout de `reserved` y de `reserve_pending` sin confirmación remota (debe ir a `needs_review`, no vencer en silencio).
+- `blocked`: no define estados de origen permitidos, efecto sobre época, ni quién reabre (explícito, nunca automático).
+- `insufficient`: terminalidad no declarada.
+- `release_pending` sin `job_created` previo.
+- Cola al agotar reintentos: falta destino final.
+- Ambigüedad: si `needs_review` es terminal o espera; si el bloqueo invalida la época y descarta acciones de cola.
+
+**Prohibida adicional a probar:** `blocked -> reserved` automático, incluso con época vigente y sin titular original verificado (debe rechazarse).
+
+**Criterio fase 0 (observable):** el documento enumera todo estado y transición con actor, precondición, terminalidad y reapertura; cada invariante figura como ≥1 prohibición explícita con caso de prueba asociado; ninguna transición queda sin desenlace definido; un revisor traza cada invariante a su prohibición, sin huecos ni estados huérfanos.
+
+RESULTADO: PASS
