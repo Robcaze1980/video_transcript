@@ -1,0 +1,47 @@
+# LV-019.B · Conciliación de saldo · Fase 2: diseño del barrido y la alerta (BORRADOR)
+
+**Estado:** diseño del 19 nov 2026, **sin código, sin cambios de nube, sin mover saldo**. Parte de la [máquina de estados (fase 0 aprobada, respuestas de fase 1 en §4.3)](LV-019-B-conciliacion-fase0-maquina-de-estados.md). La voz sigue cerrada. **No tiene revisión T3 todavía.** No se fija ningún número (tiempos, topes): se miden primero (§5).
+
+## 1. Qué existe hoy (evidencia)
+| Pieza | Estado | Fuente |
+|---|---|---|
+| Barrido de intenciones, salidas de saldo y bloqueos | Existe como **ejecución puntual**: modo `billing` hace `drainExternalHolds` → `drainExternalBilling` → `drainExternalHolds` y **falla con error** si queda algo fallido o en revisión | `cloudFilesRuntime.ts:58–61` |
+| Quién lo ejecuta periódicamente | **Nadie verificado:** el propio código dice «a scheduler is still required» | `firestoreAi.ts:146`, `:163` |
+| Reintentos | Espera `min(15 min, 1 s·2^min(n,10))`; **sin tope de intentos**, y nunca pasa solo a `needs_review` por agotamiento | `firestoreBackend.ts:1024`, `:1343`, `:1367` |
+| Selección de filas | Límite por tanda (25 por defecto, 100 máx.); el diagnóstico del 18 nov mostró que filas futuras pueden ocultar una debida | bitácora 18 nov (selector de intenciones) |
+| Reserva en Cuenta sin salida (llamada admitida, resultado desconocido; cuenta con hold) | Sin vencimiento ni barrido; solo salida manual | fase 1, P1 |
+| Alerta entregable al operador | No existe; solo el fallo del trabajo (`Billing settlement needs retry or review`) | `cloudFilesRuntime.ts:61` |
+
+## 2. Diseño propuesto (cuatro piezas, todas sin mover saldo por su cuenta)
+**A. Ejecución periódica.** Un disparador que lance el modo `billing` existente. Qué lo dispara (por ejemplo un planificador de la nube) es un cambio de nube y de costo: **requiere aprobación expresa**. Hasta entonces el diseño no depende de él: la pieza B se puede ejecutar a mano.
+
+**B. Reporte de pendientes (solo lectura).** Una consulta que clasifica, por antigüedad desde `createdAtMs`, todo lo no resuelto: intenciones `reserve_pending`/`release_pending`; pares de recuperación terminal `pending`; `billingHoldOutbox` `pending`/`needs_review`; `billingOutbox` `pending`/`retry_wait`/`needs_review`; trabajos `unknown`. Debe recorrer **todas** las filas no terminales (con cursor), no solo las primeras de la tanda, para no repetir el sesgo del selector. No lee ni escribe Cuenta.
+
+**C. Alerta.** Un registro durable y deduplicado por incidente que salta cuando: (1) aparece cualquier `needs_review`, o (2) una fila no terminal supera la antigüedad que fije el dueño tras medir (§5). El canal (correo, panel, otro) y quién la atiende son **decisión del dueño** (pregunta abierta de la fase 0). Una alerta no ejecuta ninguna acción de saldo.
+
+**D. Resolución auditada, una sola vez.** Toda resolución manual (corrección, liberación autorizada) escribe antes un registro de auditoría con evidencia y quién la autorizó. La unicidad de la acción ya la impone Cuenta con la entrada de libro por reserva y acción (`ledgerId([cuenta,reserva,acción])`, `backend.ts:352`): una segunda acción falla. La ruta que **decide** reembolsar es comercial y no se implementa aquí.
+
+## 3. Caso crítico: llamada admitida con resultado desconocido
+Cuenta prohíbe liberar tras una admisión (`backend.ts:347`) y bloquea toda captura/liberación con hold (`:345`). Opciones, para decisión del dueño (no técnica: afecta a cuándo se devuelve dinero a un cliente):
+1. **Dejar la reserva retenida y alertar** (comportamiento actual + alerta). Seguro, pero el cupo y el saldo quedan atrapados hasta intervención.
+2. **Protocolo de reconciliación manual auditado** que, con evidencia del proveedor, capture o libere una sola vez. Nunca automático; nunca repite la llamada al proveedor; nunca acredita una cuenta supuesta.
+Recomendación técnica: la 1 como valor por defecto y la 2 solo cuando exista el reporte B y la evidencia que exigirá (se define en la fase 3/4).
+
+## 4. Invariantes que este diseño debe respetar
+I2 (incierto no prueba ausencia), I4 (`needs_review` no se resuelve solo ni acredita a una cuenta supuesta) y I5 (toda reserva llega a estado final o a revisión **con alerta**). La alerta C es la parte que hoy falta de I5.
+
+## 5. Qué se mide antes de fijar números (sin proponerlos aquí)
+Latencia y tasa de fallos reales de cada `drain`; distribución de antigüedad de filas no terminales en el emulador con carga sembrada; cuántas filas debidas oculta el límite de tanda; tiempo de recuperación tras caída entre dos transacciones. Con esos datos el dueño decide la antigüedad de alerta y el tope de reintentos.
+
+## 6. Pruebas que debe superar la implementación (fases siguientes)
+- Una reserva huérfana sembrada aparece en B, dispara una sola alerta (deduplicada) y se concilia **una sola vez** (plan 2b).
+- Con más filas futuras que el límite de tanda, B sigue listando la debida.
+- Dos barridos concurrentes no producen dos acciones sobre la misma reserva (I1).
+- Caída entre cualquier par de transacciones: tras reiniciar, B y el barrido convergen sin duplicar.
+- Un `needs_review` nunca sale de ese estado sin registro de auditoría.
+
+## 7. Decisiones que necesito del dueño (no técnicas)
+Canal y responsable de la alerta; opción 1 u opción 2 de §3; y si autoriza más adelante el cambio de nube de la pieza A. Hasta entonces: solo documentos.
+
+## 8. Gate de salida de la fase 2 (diseño)
+Revisión T3 con criterio observable (cada pieza traza a un invariante y a una prueba de §6), decisiones de §7 tomadas y aprobación del dueño. No se escribe código antes.
