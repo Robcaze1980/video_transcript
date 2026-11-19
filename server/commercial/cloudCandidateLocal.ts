@@ -11,6 +11,7 @@ import {getAuth} from 'firebase-admin/auth';
 import {FirestoreBackend} from './firestoreBackend';
 import {FirestoreAi} from './firestoreAi';
 import {FirestoreFiles} from './firestoreFiles';
+import {FirestoreReviewedTranslation} from './firestoreReviewedTranslation';
 import {GcsObjects} from './gcsObjects';
 import {privateBucket,privateUuid} from './privateObjectPlan';
 import {firestoreHttp} from './firestoreHttp';
@@ -86,8 +87,8 @@ export async function createLocalCloudRuntime(){
  const db=new Firestore({projectId:project,auth:googleAuth,preferRest:true}),root=db.collection('vistavo').doc('candidate-v1');
  try{
   const marker=(await root.get()).data();if(marker?.schemaVersion!==2||marker.service!=='vistavo'||marker.environment!=='candidate'||marker.storageProtocol!=='immutable-chunks-v1')throw Error('Cloud schema boundary');
-  const backend=new FirestoreBackend(db,root),objects=new GcsObjects({bucket:privateBucket,projectId:project,accessToken}),ai=new FirestoreAi(db,root,backend,objects,{maxSourceSeconds:30,maxNarrationChars:600,maxVoiceChunks:3}),files=new FirestoreFiles(db,root,objects,{},(accountId,inputId)=>ai.purgeInput(accountId,inputId));
-  return {web,apiForOrigin:(origin:string)=>firestoreHttp({origin,backend,identity:getAuth(app),authorizeUser:existingPilotAuthorization(root),requirePilotBalance:true,files,ai}),close:async()=>{await db.terminate();await deleteApp(app);}};
+  const backend=new FirestoreBackend(db,root),objects=new GcsObjects({bucket:privateBucket,projectId:project,accessToken}),ai=new FirestoreAi(db,root,backend,objects,{maxSourceSeconds:30,maxNarrationChars:600,maxVoiceChunks:3}),files=new FirestoreFiles(db,root,objects,{},(accountId,inputId)=>ai.purgeInput(accountId,inputId)),reviewedTranslation=new FirestoreReviewedTranslation(db,root,backend,objects);
+  return {web,apiForOrigin:(origin:string)=>firestoreHttp({origin,backend,identity:getAuth(app),authorizeUser:existingPilotAuthorization(root),requirePilotBalance:true,files,ai,reviewedTranslation}),close:async()=>{await db.terminate();await deleteApp(app);}};
  }catch(error){await db.terminate();await deleteApp(app);throw error;}
 }
 export async function startCloudCandidateLocal(){
