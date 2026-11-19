@@ -1,0 +1,19 @@
+Thread mcp:5dac2ec2-797d-4947-852b-6787522cbe47
+**Casos de riesgo**
+- Saldo atrapado: ACK perdido en `reserve_pending` o `release_pending` sin conciliación ni alerta.
+- Liberación errónea: status ambiguo tratado como fallo sin barrera autoritativa; doble liberación ante ACK duplicado.
+- Captura doble: reintentos no idempotentes, o dos procesos confirmando la misma reserva en paralelo.
+- Bloqueo equivocado: heredar restricción a un titular nuevo sin verificar identidad original, o migración que mapea cuenta errónea.
+
+**Faltante / orden**
+Falta observabilidad y ruta de reembolso/alerta operativa. El orden (barrera antes del conciliador) es correcto; añadir pruebas de doble ACK entre fases 2 y 4.
+
+**Criterios observables**
+- F0: cada transición documentada con precondición y efecto en saldo.
+- F1: ninguna decisión sin leer guard+hold en la misma transacción.
+- F2: cada reserva tiene un estado final; reintentos idempotentes y alertado.
+- F3: solo videos nuevos afectados; en curso concluye.
+- F4: migración con verificación de titular y registro auditable.
+- F5: diseño no ejecuta nada sin autenticación.
+
+RESULTADO: PASS

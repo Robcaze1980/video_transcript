@@ -1,0 +1,15 @@
+Thread mcp:83064fbc-1898-40b6-9789-112882589d33
+Riesgos por fase:
+
+- Fase 0: sin máquina de estados con marca de idempotencia por reserva, todo lo demás es frágil.
+- Fase 1: si el guard/hold no se lee en la misma transacción y no hay clave idempotente previa, hay doble captura/liberación. La verificación de titular debería preceder al bloqueo, no llegar en Fase 3: hoy bloquearía la cuenta equivocada.
+- Fase 2: sin UNKNOWN persistente y tope con alerta, una reserva queda eterna o se libera dos veces.
+- Fase 3: correcta, pero depende de la titularidad previa.
+- Fase 4: sin barrera de activación, la migración deja reservas huérfanas eternas.
+- Falta fase de observabilidad/auditoría de huérfanas y de ACK ambiguo.
+
+Orden más seguro: titularidad e idempotencia antes de la barrera.
+
+Criterio observable por fase: 0 diagrama aprobado; 1 prueba concurrente sin doble asiento; 2 reserva huérfana conciliada una sola vez; 3 solo videos nuevos bloqueados; 4 cero huérfanas post-migración; 5 scheduler autenticado probado.
+
+RESULTADO: PASS
