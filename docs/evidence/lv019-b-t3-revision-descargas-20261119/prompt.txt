@@ -1,0 +1,4 @@
+Responde SOLO con texto, sin usar herramientas ni leer archivos. Maximo 140 palabras.
+Contexto agregado (sin datos privados): un servicio de revision permite que el dueno de un trabajo de traduccion de video edite el texto por frases, lo guarde como revision inmutable (numero de revision, huella de solicitud para reintentos) y descargue TXT/SRT generados desde ESA revision guardada. Las descargas exigen token verificado, autorizacion vigente de la cuenta, propietario del trabajo y revision esperada; respuestas con cache-control no-store. Hoy el servicio funciona y esta probado en emulador pero esta apagado en el entorno candidato; se va a conectar al router y a la interfaz. El saldo no se toca.
+Pregunta: ¿que casos podrian servir texto viejo (revision anterior u original), texto de otro usuario, o saltarse la revalidacion de acceso? Dame un criterio de aceptacion observable.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.

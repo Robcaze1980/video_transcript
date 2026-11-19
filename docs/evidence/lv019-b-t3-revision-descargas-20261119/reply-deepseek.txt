@@ -1,0 +1,13 @@
+Thread mcp:a5cd5ea5-d446-4613-8a5b-c357a16890f9
+Casos de riesgo:
+
+- Caché/proxy o `ETag` sirviendo revisión previa; descarga sin parámetro de revisión esperada (default = última u original).
+- Reintento con huella de solicitud reutilizada que devuelve una revisión antigua.
+- IDOR: no verificar propietario; IDs enumerables; token de otra cuenta o de trabajo ajeno.
+- No revalidar autorización vigente: token caducado, cuenta suspendida o permisos cacheados.
+- Revisión borrada/supersedida con fallback silencioso al texto original.
+- Carrera entre guardar y descargar, leyendo estado intermedio.
+
+Criterio de aceptación observable: pruebas que devuelvan 403/404 con token ajeno, cuenta sin autorización o revisión no esperada; y que el archivo descargado coincida byte a byte (hash) con la revisión solicitada, con `Cache-Control: no-store` verificado.
+
+RESULTADO: PASS

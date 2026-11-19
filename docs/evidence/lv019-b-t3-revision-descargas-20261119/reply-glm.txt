@@ -1,0 +1,12 @@
+Thread mcp:016ec2bf-46d4-45a7-89c6-641307b73e69
+Casos de riesgo:
+1. Caché CDN/navegador o artefacto TXT/SRT pregenerado sin `cache-control: no-store`.
+2. Huella de solicitud validada solo al crear la revisión, no al descargar: un reintento con huella vieja sirve texto anterior.
+3. IDOR: se valida propiedad del trabajo pero no que la revisión pertenezca a ese trabajo/usuario.
+4. Autorización verificada al generar el token pero no revalidada al descargar (cuenta suspendida aún descarga).
+5. Regeneración desde el original cuando falta el id de revisión en la petición.
+6. Token sin chequeo de expiración/revocación en el endpoint.
+
+Criterio de aceptación observable: con usuario B autenticado, la descarga de la revisión N del trabajo de A devuelve 403/404 sin texto; con la huella de N tras existir N+1, la descarga devuelve exactamente el texto almacenado de esa huella y el encabezado `cache-control: no-store`; revocada la autorización de B, el mismo GET devuelve 401/403.
+
+RESULTADO: PASS
