@@ -12,3 +12,13 @@ Orden (guía completa: `docs/reviews/LV-019-B-navegador-integrado-emuladores-pre
 6. `powershell -File tools/clean-env/stop-emulators.ps1 -Boot <boot>`: detiene solo el árbol de procesos guardado en `emulators.pid` y comprueba que los puertos queden libres.
 
 Límites: el guard del lanzador y estos scripts no son un cortafuegos del sistema; Firebase CLI y Java quedan fuera del guard. La historia usa Chromium headless con tamaño móvil simulado y un plugin de prueba que sustituye el interruptor del editor: **no prueba `npm run build:candidate` en navegador ni un teléfono físico.**
+
+## Variables extra de `start-emulators.ps1` (añadido a la guía)
+
+La guía de preparación solo pide para los emuladores: perfil/temporales propios sin credenciales, `FIREBASE_EMULATORS_PATH` y `PATH` con Java y System32. `start-emulators.ps1` añade tres variables **que no están en la guía**; se dejaron a propósito y conviene no quitarlas sin repetir la prueba:
+
+- `HOME`: apunta a la carpeta sintética `emu-profile`. Evita que Firebase CLI o Java resuelvan configuración, caché o credenciales desde el `HOME` real del usuario.
+- `CI=true`: modo no interactivo; el CLI no pide confirmaciones ni abre avisos durante el arranque.
+- `FIREBASE_CLI_DISABLE_UPDATE_CHECK=true`: evita la consulta de actualizaciones del CLI, una conexión de red innecesaria.
+
+Ninguna lleva credenciales ni datos reales. Con ellas se verificó el ciclo de arrancar y parar los emuladores y la historia con navegador (PASS, 20 nov 2026). Si se eliminan, repetir `--attest` y `--run`.
