@@ -1,0 +1,8 @@
+Thread mcp:567d2264-1ff4-44ed-b9b3-e9e93fa6cbd9
+Reserva eterna: el backoff agota intentos o el worker muere sin estado terminal; el sondeo deja de observar la cuenta; no hay TTL ni barrido, y `reserve_pending` queda huérfano aunque el remoto ya no esté `reserved`.
+
+Doble liberación: timeout en la liberación pero el movimiento sí se creó; dos reintentos concurrentes sin clave de idempotencia; el barrido por expiración y el reintento liberan a la vez; el remoto pasa a `released` y el local no persiste el recibo.
+
+Criterio de aceptación observable: por cada reserva, como máximo un movimiento de liberación con clave de idempotencia = id de reserva; toda reserva llega a estado terminal (liberada o reconciliada) dentro de un TTL/intentos acotados; existe métrica/alerta si sigue `reserve_pending`. Prueba: inyectar timeout, duplicado y reintento concurrente y verificar exactamente un movimiento.
+
+RESULTADO: PASS

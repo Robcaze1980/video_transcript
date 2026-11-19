@@ -1,0 +1,17 @@
+Thread mcp:566a6f22-11d8-4e75-abb2-277a2d5b5f18
+Riesgos identificados:
+
+**Saldo reservado para siempre**
+- La liberación se difiere indefinidamente porque no existe tope de reintentos ni TTL: si el remoto permanece `reserved` y el backoff solo reagenda, nunca escala.
+- Crash o pérdida del job de reintento antes de programarlo (no hay recibo de admisión ni registro durable del retry pendiente).
+- Condición de disparo nunca satisfecha (p. ej., espera un evento/recibo que jamás llega).
+
+**Liberación doble**
+- Reintento concurrente o posterior que ejecuta liberación sin idempotencia; ambas llamadas remota y local tienen éxito.
+- Movimiento de saldo creado por cada intento (reintento = doble débito/crédito) por falta de unicidad por reserva.
+- Race entre reconciliador y job original.
+
+**Criterio de aceptación observable**
+Dada una reserva `reserve_pending` con remoto `reserved`, al ejecutar la liberación dos veces (job + reintento) el sistema produce exactamente **un** movimiento de saldo y **una** llamada remota efectiva (idempotencia verificada por clave única por reserva); y si tras N reintentos/TTL el remoto sigue `reserved`, el sistema marca la reserva en estado de alerta/escalamiento observable en auditoría, sin crear movimiento.
+
+RESULTADO: PASS

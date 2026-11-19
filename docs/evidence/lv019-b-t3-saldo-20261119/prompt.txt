@@ -1,0 +1,4 @@
+Responde SOLO con texto, sin usar herramientas ni leer archivos. Maximo 140 palabras.
+Contexto (sistema de saldo prepago de video, sin datos privados): una reserva de saldo tiene un estado local `reserve_pending`. Si el status remoto de la cuenta dice `reserved`, sin job creado ni recibo de admision, y el sistema DIFIERE la liberacion (no libera, reintenta despues con backoff, no crea movimiento):
+Pregunta: ¿que casos podrian dejar saldo reservado para siempre o liberarlo dos veces? Dame un criterio de aceptacion observable.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
