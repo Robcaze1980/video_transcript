@@ -12,11 +12,11 @@ import {createReadOnlyRoot,type CollectionPolicy,type ReadOnlyOptions,type ReadO
 export type {ReadOnlyDoc,ReadOnlyOptions,ReadOnlyQuery,ReadOnlyRoot} from './readOnlyFirestoreRoot';
 const policies:Record<string,CollectionPolicy>={
   accounts:{select:['credited','available','reserved','consumed','active'],expose:['credited','available','reserved','consumed','active'],where:{}},
-  videoReservations:{select:['ownerAccountId','seconds','state','createdAtMs','admissionProtocol','providerAdmission'],expose:['ownerAccountId','seconds','state','createdAtMs','admissionProtocol'],dropIfNotScalar:['state'],presence:{providerAdmission:'hasProviderAdmission'},where:{state:['reserved','captured','released']}},
+  videoReservations:{select:['ownerAccountId','seconds','state','createdAtMs','admissionProtocol','providerAdmission'],expose:['ownerAccountId','seconds','state','createdAtMs','admissionProtocol'],dropIfNotScalar:['state'],presence:{providerAdmission:'hasProviderAdmission'},where:{state:['reserved','captured','released'],partialSettlement:[true]}},
   videoReservationTombstones:{select:['state'],expose:['state'],dropIfNotScalar:['state'],where:{state:['sealed']}},
   videoBillingGuards:{select:['blocked','incidentCount'],expose:['blocked','incidentCount'],where:{blocked:[true]}},
   videoBillingIncidents:{select:['state'],expose:['state'],dropIfNotScalar:['state'],where:{state:['active']}},
-  ledgerEntries:{select:['kind','seconds'],expose:['kind','seconds'],dropIfNotScalar:['kind'],where:{kind:['video_reserve','video_capture','video_release']}},
+  ledgerEntries:{select:['kind','seconds'],expose:['kind','seconds'],dropIfNotScalar:['kind'],where:{kind:['video_reserve','video_capture','video_release','video_release_remainder']}},
 };
 export const ACCOUNT_READABLE_COLLECTIONS:readonly string[]=Object.freeze(Object.keys(policies));
 export function accountReadOnlyRoot(root:DocumentReference,options:ReadOnlyOptions={}):ReadOnlyRoot{return createReadOnlyRoot(root,{collections:policies},options);}

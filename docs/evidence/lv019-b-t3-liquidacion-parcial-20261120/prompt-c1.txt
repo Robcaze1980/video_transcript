@@ -1,0 +1,44 @@
+Responde SOLO con texto, sin herramientas. Maximo 300 palabras. Revisa CODIGO TypeScript recien escrito (Cuenta, Firestore). Hallazgos numerados, severidad ALTA/MEDIA/BAJA, con el fallo concreto (entrada -> resultado erroneo) y la correccion. No repitas lo correcto. Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+CONTRATO (C2a). Cuenta guarda saldo en segundos; reserva N (max 600) con estados reserved|captured|released; cuenta {credited=available+reserved+consumed, active}. Una reserva admite UN solo intento de proveedor (providerAdmission {jobId,attemptId,admittedAtMs}, inmutable). Nuevo: (1) `capture` con `capturedSeconds` K (1<=K<N) = captura parcial: consumed+=K, available+=N-K, reserved-=N, active-=1; reserva captured con capturedSeconds, releasedSeconds=N-K y partialSettlement:true; dos asientos de libro (video_capture K, video_release_remainder N-K). K=N explicito es invalido. (2) `release` con la admision suministrada + resolution {kind in no_speech|not_delivered|unknown_expired, evidenceSha256 hex64}: si Cuenta TIENE admision almacenada debe coincidir (jobId,attemptId) y haber resolucion; queda released con releaseAdmission y resolution; si NO la tiene es la liberacion simple de hoy (la suministrada es solo una afirmacion; se guarda la resolucion) y la respuesta lleva admitted:false. unknown_expired exige edad minima (time-admittedAtMs>=15 min) o error too_early sin cambios. Admision y resolucion viajan juntas en release; capture no admite resolution. Replay con la misma tupla -> settled:false sin escribir; tupla distinta -> conflict; datos corruptos -> invariant. Cuenta bloqueada (guard) -> conflict. Reserva legada (admissionProtocol!==2) -> conflict.
+
+CODIGO 1/3: opciones validadas antes de la transaccion y rama de REPLAY (estado ya terminal) dentro de la transaccion. Variables previas en la transaccion: seconds (N reservado), previous=storedAdmission(reservation) o null, capturedWith=reservation.captureAdmission, supplied=admision suministrada o null, partial=K o undefined, resolution=claim o undefined.
+```typescript
+function settlementOptions(action:'capture'|'release',expectedSeconds:number,hasAdmission:boolean,options:unknown):{partial:number|undefined;resolution:VideoResolution|undefined}{
+ if(options!==undefined&&(!options||typeof options!=='object'||Array.isArray(options)))bad();
+ const row=(options??{}) as Record<string,unknown>;
+ for(const key of Object.keys(row))if(key!=='capturedSeconds'&&key!=='resolution')bad();
+ const partial=row.capturedSeconds,resolution=row.resolution;
+ if(partial!==undefined&&(action!=='capture'||!integer(partial,1)||partial>=expectedSeconds))bad();
+ if(resolution!==undefined&&(action!=='release'||!validResolution(resolution)))bad();
+ // An admission and its resolution travel together on a release; neither may appear alone.
+ if(action==='release'&&hasAdmission!==(resolution!==undefined))bad();
+ return {partial:partial as number|undefined,resolution:resolution as VideoResolution|undefined};
+}
+
+    if(state===action+'d'){
+     const storedKept=reservation.get('capturedSeconds'),storedReturned=reservation.get('releasedSeconds'),marker=reservation.get('partialSettlement'),split=storedKept!==undefined||storedReturned!==undefined||marker!==undefined;
+     if(action==='capture'){
+      if(split&&(marker!==true||!integer(storedKept,1)||storedKept>=seconds||storedReturned!==seconds-storedKept))invariant();
+      if(previous){if(!supplied||!sameAdmission(previous,supplied)||!sameAdmission(capturedWith,supplied))throw new AccountFault('conflict');}
+      else if(supplied||capturedWith!==undefined)throw new AccountFault('conflict'); // Legacy terminal receipt, never an admission.
+      if((partial??null)!==(split?storedKept as number:null))throw new AccountFault('conflict');
+      return {settled:false,state,seconds,account:view(accountId,current),...(split?{capturedSeconds:storedKept as number,releasedSeconds:storedReturned as number}:{})};
+     }
+     if(split||capturedWith!==undefined)invariant();
+     const releasedWith=reservation.get('releaseAdmission'),storedResolution=reservation.get('resolution');
+     if(storedResolution!==undefined&&!validResolution(storedResolution))invariant();
+     if(previous){
+      // Released with a provider admission but without the matching releaseAdmission and a resolution is corruption.
+      if(!sameAdmission(releasedWith,previous)||storedResolution===undefined)invariant();
+      if(!supplied||!resolution||!sameAdmission(previous,supplied)||!sameResolution(storedResolution,resolution))throw new AccountFault('conflict');
+     }else{
+      if(releasedWith!==undefined)invariant();
+      // No admission on record: the supplied admission was only a claim; a repeated claim must repeat the stored resolution.
+      if(resolution&&(storedResolution===undefined||!sameResolution(storedResolution,resolution)))throw new AccountFault('conflict');
+     }
+     return {settled:false,state,seconds,account:view(accountId,current),admitted:previous!==null};
+    }
+```
+
+PREGUNTAS: (a) replays/invariantes incompletos (K distinto, release con/sin admision, released con admision sin releaseAdmission, marcador partialSettlement)? (b) alguna combinacion de opciones que pase la validacion y no deberia?

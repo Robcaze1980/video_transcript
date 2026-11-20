@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {GoogleAuth, type IdTokenClient} from 'google-auth-library';
+import {isResolutionKind,type VideoSettlementOptions} from '../account/settlementContract';
 
 const accountApiUrl='https://vistavo-account-api-v5lc7z6dyq-uc.a.run.app';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/i;
@@ -9,7 +10,7 @@ export type VideoAdmission={reservationId:string;seconds:number;jobId:string;att
 export type VideoReservationSeal={reservationId:string;seconds:number;state:'sealed'|'reserved'|'captured'|'released';created:boolean};
 export type VideoReservationResolution={reservationId:string;seconds:number;state:'sealed'|'reserved'|'captured'|'released'};
 export type VideoSecondsBalance={unit:'video_seconds';credited:number;available:number;reserved:number;consumed:number;active:number};
-export class AccountBillingFault extends Error {constructor(readonly code:'unavailable'|'insufficient'|'conflict'|'invalid'|'quota'|'not_found'|'forbidden'){super(code);}}
+export class AccountBillingFault extends Error {constructor(readonly code:'unavailable'|'insufficient'|'conflict'|'invalid'|'quota'|'not_found'|'forbidden'|'too_early'){super(code);}}
 export function accountIdentityKey(uid:string){
  if(typeof uid!=='string'||!uid||uid.length>128)throw new AccountBillingFault('invalid');
  return createHash('sha256').update(JSON.stringify(['firebase',uid])).digest('hex');
@@ -31,13 +32,15 @@ type IdClient={request:(request:{url:string;method:'POST';data:Record<string,unk
 export class AccountBillingClient {
  private readonly base:string;
  constructor(baseUrl=accountApiUrl,private readonly client?:IdClient){this.base=endpoint(baseUrl);}
- private async post(path:string,data:Record<string,unknown>){
+ private async post(path:string,data:Record<string,unknown>,earlyRefusal=false){
   try{
    const client=this.client??await new GoogleAuth().getIdTokenClient(this.base) as IdTokenClient as unknown as IdClient;
    const response=await client.request({url:this.base+path,method:'POST',data,timeout:10000,headers:{'content-type':'application/json'}});
    return response.data;
   }catch(error){
    const status=(error as {response?:{status?:number}})?.response?.status;
+   // 409 carries a distinct error only for the minimum-age refusal of an `unknown_expired` release (earlyRefusal); everything else is a plain conflict.
+   if(earlyRefusal&&status===409&&(error as {response?:{data?:{error?:unknown}}})?.response?.data?.error==='too_early')throw new AccountBillingFault('too_early');
    if(status===402)throw new AccountBillingFault('insufficient');
    if(status===400)throw new AccountBillingFault('invalid');
    if(status===409)throw new AccountBillingFault('conflict');
@@ -94,10 +97,23 @@ export class AccountBillingClient {
   if(row.reservationId!==reservationId||row.seconds!==seconds||row.jobId!==jobId||row.attemptId!==attemptId||row.callKey!==callKey||row.model!==model||row.requestSha256!==requestSha256||typeof row.created!=='boolean'||typeof row.receiptOnly!=='boolean'||row.receiptOnly===row.created)throw new AccountBillingFault('unavailable');
   return row as VideoAdmission;
  }
- async settle(identityKey:string,reservationId:string,action:'capture'|'release',seconds:number,admission?:{jobId:string;attemptId:string}){
+ /**
+  * LV-019.B C2a: `options.capturedSeconds` (1 <= K < seconds) settles K and returns the rest in one Account transaction; a release after a provider admission sends that
+  * admission together with `options.resolution`, which is Video's own claim (Account stores it with its evidence hash and cannot verify it). Without options this is the original call.
+  */
+ async settle(identityKey:string,reservationId:string,action:'capture'|'release',seconds:number,admission?:{jobId:string;attemptId:string},options?:VideoSettlementOptions){
   if(!validVideoTuple(identityKey,reservationId,seconds)||!['capture','release'].includes(action))throw new AccountBillingFault('invalid');
-  if(action==='capture'&&(!admission||!uuid.test(admission.jobId)||!uuid.test(admission.attemptId))||action==='release'&&admission)throw new AccountBillingFault('invalid');
-  return reservation(await this.post('/api/internal/video/reservations/'+reservationId+'/'+action,{identityKey,seconds,...(admission??{})}),reservationId,[action==='capture'?'captured':'released'],seconds);
+  if(admission!==undefined&&(!uuid.test(admission.jobId)||!uuid.test(admission.attemptId)))throw new AccountBillingFault('invalid');
+  if(action==='capture'&&!admission)throw new AccountBillingFault('invalid');
+  if(options!==undefined&&(!options||typeof options!=='object'||Array.isArray(options)||Object.keys(options).some(k=>k!=='capturedSeconds'&&k!=='resolution')))throw new AccountBillingFault('invalid');
+  const partial=options?.capturedSeconds,resolution=options?.resolution;
+  if(partial!==undefined&&(action!=='capture'||!Number.isSafeInteger(partial)||partial<1||partial>=seconds))throw new AccountBillingFault('invalid');
+  if(resolution!==undefined&&(action!=='release'||!resolution||typeof resolution!=='object'||Object.keys(resolution).sort().join(',')!=='evidenceSha256,kind'||!isResolutionKind(resolution.kind)||typeof resolution.evidenceSha256!=='string'||!hex64.test(resolution.evidenceSha256)))throw new AccountBillingFault('invalid');
+  // On a release the admission and the resolution travel together; neither may appear alone.
+  if(action==='release'&&(admission!==undefined)!==(resolution!==undefined))throw new AccountBillingFault('invalid');
+  // Explicit whitelist: extra keys on the caller's objects can never override a validated field.
+  const body={identityKey,seconds,...(admission?{jobId:admission.jobId,attemptId:admission.attemptId}:{}),...(partial!==undefined?{capturedSeconds:partial}:{}),...(resolution?{resolutionKind:resolution.kind,evidenceSha256:resolution.evidenceSha256}:{})};
+  return reservation(await this.post('/api/internal/video/reservations/'+reservationId+'/'+action,body,action==='release'&&resolution!==undefined),reservationId,[action==='capture'?'captured':'released'],seconds);
  }
  async balance(identityKey:string):Promise<VideoSecondsBalance>{
   if(!hex64.test(identityKey))throw new AccountBillingFault('invalid');const value=await this.post('/api/internal/video/balance',{identityKey});

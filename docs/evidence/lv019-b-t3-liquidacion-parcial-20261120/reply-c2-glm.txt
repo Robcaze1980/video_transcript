@@ -1,0 +1,13 @@
+1. **ALTA** — `capture` con `partial` inválido: `seconds=600, partial=600` (o `0`, negativo, mayor que `N`) entra en `splitNow`; con `partial=N` acepta la captura total prohibida y con `partial<1` aumenta `available` o deja `consumed` inválido. Corregir: validar `Number.isSafeInteger(partial) && partial >= 1 && partial < seconds` antes de crear `splitNow`.
+
+2. **ALTA** — replay de liberación simple: reserva `released` sin `releaseAdmission` + misma tupla `previous` → `sameAdmission(undefined, previous)` es falso y lanza `invariant()`, aunque el replay debe devolver recibo. Corregir: exigir coincidencia solo si `reservation.get('releaseAdmission')` existe; si no existe, tratar replay exacto como recibo y admisión nueva como `conflict`.
+
+3. **MEDIA** — liberación simple sin admission/resolution válidas: `previous` ausente y `supplied`/`resolution` ausentes o corruptos produce `released` sin guardar una resolución válida. Corregir: exigir `supplied` y validar `resolution.kind` y `evidenceSha256` como hex64 antes de efectos.
+
+4. **MEDIA** — `unknown_expired` demasiado pronto en liberación simple: sin `previous`, con `resolution.kind === 'unknown_expired'` y `admittedAtMs` a 1 ms, el chequeo de edad se salta y se libera. Corregir: aplicar la edad mínima usando `previous?.admittedAtMs ?? supplied?.admittedAtMs`; sin edad admisible, `too_early`.
+
+5. **BAJA** — respuesta de liberación simple: si `previous` es `undefined` en lugar de `null`, `previous !== null` devuelve `admitted: true`. Corregir: usar `admitted: Boolean(previous)`.
+
+El orden bloquea guard y protocolo antes de efectos; no permite saltarse el bloqueo/legado en esta rama.
+
+RESULTADO: FALLA

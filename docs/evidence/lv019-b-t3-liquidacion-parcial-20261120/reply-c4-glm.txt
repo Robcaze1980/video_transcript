@@ -1,0 +1,9 @@
+1. **ALTA** — Se acepta replay sobre corrupción: con `previous=null`, `state='released'`, `fence` inexistente y documentos huérfanos en `providerCalls`, la rama `protocol===2` no exige que `calls` esté vacía y el replay devuelve `settled:false, admitted:false`. Corrección: con `previous===null`, además de `state!=='captured'` y `!fence.exists`, validar que `providerCalls` no tenga documentos; si tiene, `invariant()`.
+
+2. **MEDIA** — Corrupción interna se reporta como `conflict`: si existe `previous` pero `releaseAdmission` falta, está malformada o no coincide (`release`), o `capturedWith` falta/está malformada/no coincide (`capture`), el código lanza `AccountFault('conflict')` al comparar datos almacenados. Eso oculta estado corrupto como conflicto de tupla. Corrección: primero validar existencia/forma/coherencia de los enlaces almacenados con `invariant()`; solo después comparar la admisión suministrada y lanzar `conflict` si la tupla entrante difiere.
+
+3. **BAJA** — `settlementOptions` acepta claves irrelevantes con valor `undefined`: `capture` con `{resolution:undefined}` y `release` con `{capturedSeconds:undefined,...}` pasan porque el chequeo usa `!==undefined`. Si el contrato exige solo las claves aplicables a la acción, rechace la clave sin importar su valor o normalice explícitamente que `undefined` equivale a clave ausente.
+
+No veo que un replay con tupla externa distinta sea aceptado cuando los enlaces almacenados son válidos: `capture` compara `previous`, `capturedWith` y la admisión enviada, mientras `release` compara admisión y resolución previas. La validación de `capturedSeconds` también impide `K=N` explícito.
+
+RESULTADO: FALLA

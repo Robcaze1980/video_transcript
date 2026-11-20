@@ -1,0 +1,42 @@
+Responde SOLO con texto, sin herramientas. Maximo 300 palabras. Revisa CODIGO TypeScript recien escrito (transporte HTTP interno de Cuenta y su cliente). Hallazgos numerados, severidad ALTA/MEDIA/BAJA, con el fallo concreto (entrada -> resultado erroneo) y la correccion. No repitas lo correcto. Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+CONTRATO: ruta interna POST /api/internal/video/reservations/<uuid>/(capture|release|...), solo para la identidad de servicio de liquidacion; `json(req,allowed)` rechaza cualquier clave fuera de `allowed`. Nuevo: capture admite `capturedSeconds` K (entero 1<=K<seconds) = captura parcial; release admite, TODOS juntos o ninguno, jobId, attemptId (uuid), resolutionKind (no_speech|not_delivered|unknown_expired) y evidenceSha256 (hex64) = liberacion tras admision. El store valida de nuevo (defensa en profundidad). Un Cuenta antiguo rechaza las claves nuevas con 400 (lista exacta). La refusal por edad minima es AccountFault 'too_early' -> HTTP 409 {error:'too_early'}, distinta de 'conflict'. El cliente de Video valida combinaciones antes de enviar y mapea ese 409 a un codigo propio.
+
+RUTA (http.ts; `b` es el JSON ya filtrado por la lista de claves permitidas, `uuid` es la regex de uuid v4):
+```typescript
+     const fields=action==='status'?['identityKey']:action==='admit'?['identityKey','seconds','jobId','attemptId','callKey','model','requestSha256']:action==='capture'?['identityKey','seconds','jobId','attemptId','capturedSeconds']:action==='release'?['identityKey','seconds','jobId','attemptId','resolutionKind','evidenceSha256']:['identityKey','seconds'];
+     const b=await json(req,fields);
+     if(!uuid.test(match[1])||typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey))throw new HttpFault(400,'invalid');
+     if(action!=='status'&&(!Number.isSafeInteger(b.seconds)||Number(b.seconds)<1||Number(b.seconds)>600))throw new HttpFault(400,'invalid');
+     if((action==='capture'||action==='admit')&&(typeof b.jobId!=='string'||!uuid.test(b.jobId)||typeof b.attemptId!=='string'||!uuid.test(b.attemptId)))throw new HttpFault(400,'invalid');
+     if(action==='capture'&&b.capturedSeconds!==undefined&&(!Number.isSafeInteger(b.capturedSeconds)||Number(b.capturedSeconds)<1||Number(b.capturedSeconds)>=Number(b.seconds)))throw new HttpFault(400,'invalid');
+     // A release after a provider admission carries the admission and Video's resolution together; any partial set is refused here.
+     const claim=['jobId','attemptId','resolutionKind','evidenceSha256'].filter(k=>b[k]!==undefined);
+     if(action==='release'&&claim.length>0&&(claim.length!==4||typeof b.jobId!=='string'||!uuid.test(b.jobId)||typeof b.attemptId!=='string'||!uuid.test(b.attemptId)||typeof b.resolutionKind!=='string'||!['no_speech','not_delivered','unknown_expired'].includes(b.resolutionKind)||typeof b.evidenceSha256!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.evidenceSha256)))throw new HttpFault(400,'invalid');
+     if(action==='admit'&&(typeof b.callKey!=='string'||!(/^(text-window|voice-chunk):\d{4}(?![\s\S])/.test(b.callKey))||typeof b.requestSha256!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.requestSha256)||b.model!==(b.callKey.startsWith('text-window:')?'gemini-3.8-flash':'gemini-3.8-flash-tts')))throw new HttpFault(400,'invalid');
+     if(action==='status'){const result=await store.videoReservation(b.identityKey,match[1]);send(200,{...result,reservationId:match[1]});return;
+```
+CLIENTE (accountBillingClient.ts):
+```typescript
+   // 409 carries a distinct error only for the minimum-age refusal of an `unknown_expired` release; everything else is a plain conflict.
+   if(status===409&&(error as {response?:{data?:{error?:unknown}}})?.response?.data?.error==='too_early')throw new AccountBillingFault('too_early');
+ /**
+  * LV-019.B C2a: `options.capturedSeconds` (1 <= K < seconds) settles K and returns the rest in one Account transaction; a release after a provider admission sends that
+  * admission together with `options.resolution`, which is Video's own claim (Account stores it with its evidence hash and cannot verify it). Without options this is the original call.
+  */
+ async settle(identityKey:string,reservationId:string,action:'capture'|'release',seconds:number,admission?:{jobId:string;attemptId:string},options?:VideoSettlementOptions){
+  if(!validVideoTuple(identityKey,reservationId,seconds)||!['capture','release'].includes(action))throw new AccountBillingFault('invalid');
+  if(admission!==undefined&&(!uuid.test(admission.jobId)||!uuid.test(admission.attemptId)))throw new AccountBillingFault('invalid');
+  if(action==='capture'&&!admission)throw new AccountBillingFault('invalid');
+  if(options!==undefined&&(!options||typeof options!=='object'||Array.isArray(options)||Object.keys(options).some(k=>k!=='capturedSeconds'&&k!=='resolution')))throw new AccountBillingFault('invalid');
+  const partial=options?.capturedSeconds,resolution=options?.resolution;
+  if(partial!==undefined&&(action!=='capture'||!Number.isSafeInteger(partial)||partial<1||partial>=seconds))throw new AccountBillingFault('invalid');
+  if(resolution!==undefined&&(action!=='release'||!resolution||typeof resolution!=='object'||Object.keys(resolution).sort().join(',')!=='evidenceSha256,kind'||!isResolutionKind(resolution.kind)||typeof resolution.evidenceSha256!=='string'||!hex64.test(resolution.evidenceSha256)))throw new AccountBillingFault('invalid');
+  // On a release the admission and the resolution travel together; neither may appear alone.
+  if(action==='release'&&(admission!==undefined)!==(resolution!==undefined))throw new AccountBillingFault('invalid');
+  const body={identityKey,seconds,...(admission??{}),...(partial!==undefined?{capturedSeconds:partial}:{}),...(resolution?{resolutionKind:resolution.kind,evidenceSha256:resolution.evidenceSha256}:{})};
+  return reservation(await this.post('/api/internal/video/reservations/'+reservationId+'/'+action,body),reservationId,[action==='capture'?'captured':'released'],seconds);
+ }
+```
+
+PREGUNTAS: (a) alguna entrada HTTP que pase y no deberia (tipos, null, arrays, combinaciones parciales), o que se rechace y deberia pasar? (b) el cliente puede enviar una combinacion que Cuenta interpretaria distinto de lo que se quiso (p.ej. capture sin K = captura entera, release sin reclamo)? (c) mapear 409 + data.error==='too_early' es seguro o permite que una respuesta ajena cambie el codigo de error?

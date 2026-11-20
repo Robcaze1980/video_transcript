@@ -1,0 +1,17 @@
+**Hallazgos (C2a, replay/validación)**
+
+1. ALTA — Captura con admisión: el replay exige `sameAdmission(capturedWith,supplied)`. Entrada: replay idéntico de una captura completa (K=N, sin `capturedSeconds` persistido → `capturedWith===undefined`) con su misma admisión → resultado `conflict` en vez de `settled:false`. Además, si `providerAdmission` y `captureAdmission` divergieran, la corrupción sale como `conflict`, no `invariant`. Corrección: comparar `supplied` sólo contra `previous`, y usar `invariant()` si `capturedWith!==undefined && !sameAdmission(capturedWith,previous)`.
+
+2. MEDIA — `expectedSeconds` se usa para validar K antes de la transacción; N real se lee dentro. Entrada: `expectedSeconds` desincronizado (mayor que N) con K≥N real → pasa validación, y luego el invariante de split dispara `invariant()` en vez del `bad()` que exige el contrato. Corrección: revalidar K contra `seconds` de la reserva dentro de la transacción.
+
+3. MEDIA — Release sin admisión almacenada: la admisión reclamada (`jobId,attemptId`) no se persiste ni se compara. Entrada: replay con admisión distinta y misma resolución → `settled:false`, cuando una tupla distinta debe ser `conflict`. Corrección: guardar la reclamación o comparar la resolución **y** el par suministrado.
+
+4. MEDIA — La rama sin admisión tolera `storedResolution!==undefined` sin `releaseAdmission` (devuelve `settled:false`): eso es corrupción, pues admisión y resolución viajan juntas. Corrección: `invariant()`.
+
+5. BAJA — Replay de captura no valida que la admisión almacenada sea admisión válida ni que `capturedWith`/`previous` compartan `attemptId`; corrupción detectada como `conflict`.
+
+6. BAJA — Asimetría de respuesta: el replay de captura devuelve `capturedSeconds/releasedSeconds` y omite `admitted`; el de release omite `resolution/releasedSeconds`. El reintento no puede reconstruir el recibo.
+
+7. BAJA — (b) La validación delega en `integer()`/`validResolution()` no mostrados: si no exigen `typeof number` y `evidenceSha256` hex64 exacto, entradas como `capturedSeconds:"3"` o hashes de longitud ≠64 se persisten como válidos.
+
+RESULTADO: FALLA

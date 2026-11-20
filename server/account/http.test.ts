@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {createServer} from 'node:http';
 import {accountHttp} from './http';
 import {validateAccountEnvironment,verifyDatabaseBoundary,validateAccountOidcAudience,trustedServiceClaims} from './runtime';
-import type {AccountStore} from './backend';
+import {AccountFault,type AccountStore} from './backend';
 async function api(test:(origin:string,calls:string[],details:Array<{method:string;args:unknown[]}>)=>Promise<void>){const calls:string[]=[],details:Array<{method:string;args:unknown[]}>=[],reserveCalls={value:0},store=new Proxy({}, {get:(_t,key)=>async(...args:unknown[])=>{calls.push(String(key));details.push({method:String(key),args});if(key==='reserveVideo')return {created:++reserveCalls.value===1,state:'reserved',seconds:60,account:{}};return {created:true,account:{},project:{}};}}) as AccountStore;const apiEmail='vistavo-files-api@vistavo-prod.iam.gserviceaccount.com',workerEmail='vistavo-runtime@vistavo-prod.iam.gserviceaccount.com',server=createServer((req,res)=>{void accountHttp(store,{verifyIdToken:async token=>{if(token==='revoked'||token==='disabled'||token==='expired'||token==='foreign')throw Error('denied');return {uid:token,email_verified:token!=='unverified'};}},'https://vistavo.app',{audience:'https://vistavo-account-api-test-1234567890-uc.a.run.app',allowedEmails:[apiEmail,workerEmail],reservationCaller:apiEmail,settlementCaller:workerEmail,verifier:{verifyIdToken:async(token,audience)=>{if(!['service','worker'].includes(token)||audience!=='https://vistavo-account-api-test-1234567890-uc.a.run.app')throw Error('denied');return {email:token==='service'?apiEmail:workerEmail,email_verified:true};}}})(req,res);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();if(!address||typeof address==='string')throw Error();try{await test('http://127.0.0.1:'+address.port,calls,details);}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}}
 describe('account transport trust boundary',()=>{
  it('permits the read-only resolution receipt only to the settlement identity',async()=>api(async(origin,calls,details)=>{
@@ -73,6 +73,47 @@ describe('account transport trust boundary',()=>{
   expect(details[3].args).toEqual([identityKey,reservationId,60,jobId,attemptId,call.callKey,call.model,call.requestSha256]);
   expect(details[4].args).toEqual([identityKey,reservationId,'capture',60,{jobId,attemptId}]);
  }));
+ it('accepts a partial capture and a release after admission only with exact fields and complete pairs (LV-019.B C2a)',async()=>api(async(origin,calls,details)=>{
+  const identityKey='a'.repeat(64),reservationId='00000000-0000-4000-8000-000000000001',jobId='00000000-0000-4000-8000-000000000002',attemptId='00000000-0000-4000-8000-000000000003',path='/api/internal/video/reservations/'+reservationId+'/';
+  const post=(action:string,token:string,body:unknown)=>fetch(origin+path+action,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const full={identityKey,seconds:60,jobId,attemptId},proof={resolutionKind:'no_speech',evidenceSha256:'d'.repeat(64)},release={identityKey,seconds:60,jobId,attemptId,...proof};
+  expect((await post('capture','service',{...full,capturedSeconds:25})).status).toBe(403);
+  expect((await post('release','service',release)).status).toBe(403);
+  for(const bad of [0,60,61,-1,1.5,'5',null,true,[]])expect((await post('capture','worker',{...full,capturedSeconds:bad})).status).toBe(400);
+  expect((await post('capture','worker',{...full,resolutionKind:'no_speech'})).status).toBe(400);
+  expect((await post('capture','worker',{...full,evidenceSha256:proof.evidenceSha256})).status).toBe(400);
+  for(const missing of ['jobId','attemptId','resolutionKind','evidenceSha256']){const body:Record<string,unknown>={...release};delete body[missing];expect((await post('release','worker',body)).status).toBe(400);}
+  expect((await post('release','worker',{identityKey,seconds:60,...proof})).status).toBe(400); // resolution without admission
+  expect((await post('release','worker',{...release,resolutionKind:'refunded'})).status).toBe(400);
+  expect((await post('release','worker',{...release,evidenceSha256:'D'.repeat(64)})).status).toBe(400);
+  expect((await post('release','worker',{...release,evidenceSha256:'d'.repeat(63)})).status).toBe(400);
+  expect((await post('release','worker',{...release,jobId:'bad'})).status).toBe(400);
+  expect((await post('release','worker',{...release,capturedSeconds:5})).status).toBe(400);
+  expect((await post('release','worker',{...release,extra:1})).status).toBe(400);
+  expect((await post('resolution','worker',{identityKey,seconds:60,capturedSeconds:5})).status).toBe(400);
+  expect(calls).toEqual([]);
+  expect((await post('capture','worker',{...full,capturedSeconds:25})).status).toBe(200);
+  expect((await post('release','worker',release)).status).toBe(200);
+  expect((await post('capture','worker',full)).status).toBe(200);
+  expect((await post('release','worker',{identityKey,seconds:60})).status).toBe(200);
+  expect(calls).toEqual(['settleVideo','settleVideo','settleVideo','settleVideo']);
+  expect(details[0].args).toEqual([identityKey,reservationId,'capture',60,{jobId,attemptId},{capturedSeconds:25}]);
+  expect(details[1].args).toEqual([identityKey,reservationId,'release',60,{jobId,attemptId},{resolution:{kind:'no_speech',evidenceSha256:proof.evidenceSha256}}]);
+  expect(details[2].args).toEqual([identityKey,reservationId,'capture',60,{jobId,attemptId}]);
+  expect(details[3].args).toEqual([identityKey,reservationId,'release',60,undefined]);
+ }));
+ it('maps the too_early refusal to its own 409 error and keeps conflict distinct',async()=>{
+  const apiEmail='vistavo-files-api@vistavo-prod.iam.gserviceaccount.com',workerEmail='vistavo-runtime@vistavo-prod.iam.gserviceaccount.com',code={value:'too_early' as 'too_early'|'conflict'};
+  const store=new Proxy({}, {get:()=>async()=>{throw new AccountFault(code.value);}}) as AccountStore;
+  const server=createServer((req,res)=>{void accountHttp(store,{verifyIdToken:async()=>({uid:'unused',email_verified:true})},'https://vistavo.app',{audience:'https://vistavo-account-api-test-1234567890-uc.a.run.app',allowedEmails:[apiEmail,workerEmail],reservationCaller:apiEmail,settlementCaller:workerEmail,verifier:{verifyIdToken:async()=>({email:workerEmail,email_verified:true})}})(req,res);});
+  await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();if(!address||typeof address==='string')throw Error();
+  try{
+   const body={identityKey:'a'.repeat(64),seconds:60,jobId:'00000000-0000-4000-8000-000000000002',attemptId:'00000000-0000-4000-8000-000000000003',resolutionKind:'unknown_expired',evidenceSha256:'d'.repeat(64)};
+   const send=()=>fetch('http://127.0.0.1:'+address.port+'/api/internal/video/reservations/00000000-0000-4000-8000-000000000001/release',{method:'POST',headers:{Authorization:'Bearer worker','Content-Type':'application/json'},body:JSON.stringify(body)});
+   const early=await send();expect(early.status).toBe(409);expect(await early.json()).toEqual({error:'too_early'});
+   code.value='conflict';const conflict=await send();expect(conflict.status).toBe(409);expect(await conflict.json()).toEqual({error:'conflict'});
+  }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}
+ });
  it('rejects a verified service identity outside the internal allowlist before reading a hold',async()=>{
   let storeCalls=0;const store=new Proxy({}, {get:()=>async()=>{storeCalls++;return {};}}) as AccountStore;
   const apiEmail='vistavo-files-api@vistavo-prod.iam.gserviceaccount.com',workerEmail='vistavo-runtime@vistavo-prod.iam.gserviceaccount.com';

@@ -1,8 +1,9 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {FieldPath,type Firestore,type DocumentReference,type Transaction,type DocumentSnapshot} from 'firebase-admin/firestore';
 import type {AccountView,AccountProject,ProjectKind,ProjectPage,ProjectSummary,LedgerPage} from './contracts';
+import {UNKNOWN_RESOLUTION_MIN_AGE_MS,sameResolution,validResolution,type VideoResolution,type VideoSettlementOptions} from './settlementContract';
 
-export class AccountFault extends Error {constructor(readonly code:'invalid'|'not_found'|'account_not_provisioned'|'conflict'|'deleted'|'quota'|'insufficient'|'invariant'){super(code);}}
+export class AccountFault extends Error {constructor(readonly code:'invalid'|'not_found'|'account_not_provisioned'|'conflict'|'deleted'|'quota'|'insufficient'|'invariant'|'too_early'){super(code);}}
 const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
 function ledgerId(value:unknown){const chars=hash(value).slice(0,32).split('');chars[12]='4';chars[16]='89ab'[parseInt(chars[16],16)%4];const h=chars.join('');return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);}
 export const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/;
@@ -26,6 +27,19 @@ function admission(value:unknown):VideoProviderAdmission{
  const data=value as Record<string,unknown>;
  if(typeof data.jobId!=='string'||typeof data.attemptId!=='string')bad();
  return {jobId:id(data.jobId as string),attemptId:id(data.attemptId as string)};
+}
+function settlementOptions(action:'capture'|'release',expectedSeconds:number,hasAdmission:boolean,options:unknown):{partial:number|undefined;resolution:VideoResolution|undefined}{
+ if(options!==undefined&&(!options||typeof options!=='object'||Array.isArray(options)))bad();
+ const row=(options??{}) as Record<string,unknown>;
+ // Plain data only: an inherited `capturedSeconds` or a class instance must not be read as options.
+ const proto=Object.getPrototypeOf(row);if(proto!==Object.prototype&&proto!==null)bad();
+ for(const key of Object.keys(row)){if(key!=='capturedSeconds'&&key!=='resolution')bad();const d=Object.getOwnPropertyDescriptor(row,key);if(!d||!('value' in d))bad();} // data properties only, never getters
+ const partial=row.capturedSeconds,resolution=row.resolution;
+ if(partial!==undefined&&(action!=='capture'||!integer(partial,1)||partial>=expectedSeconds))bad();
+ if(resolution!==undefined&&(action!=='release'||!validResolution(resolution)))bad();
+ // An admission and its resolution travel together on a release; neither may appear alone.
+ if(action==='release'&&hasAdmission!==(resolution!==undefined))bad();
+ return {partial:partial as number|undefined,resolution:resolution as VideoResolution|undefined};
 }
 function billingHold(doc:DocumentSnapshot,accountId:string,identityKey:string){
  if(!doc.exists)return false;const value=doc.data();
@@ -283,7 +297,7 @@ export class AccountStore {
    if(capturedWith!==undefined&&(state!=='captured'||!previous))invariant();
    if(previous){
     if(!sameAdmission(previous,key))throw new AccountFault('conflict');
-    if(state==='released')invariant();
+    if(state==='released'&&!sameAdmission(reservation.get('releaseAdmission'),previous))invariant();
     if(state==='captured'&&!sameAdmission(capturedWith,key))invariant();
     const first=firstCall(previous),firstRef=calls.doc(callDocId(first.callKey)),firstReceipt=firstRef.path===callRef.path?call:await tx.get(firstRef);
     if(!sameCall(storedCall(fence,accountId,identityKey,reservationId,seconds),first)||fence.get('admittedAtMs')!==previous.admittedAtMs)invariant();
@@ -305,10 +319,13 @@ export class AccountStore {
    return {reservationId,seconds,...key,created:true,receiptOnly:false};
   });
  }
- /** Capture requires the admitted attempt; release after admission remains closed for manual reconciliation. */
- async settleVideo(identityKey:string,reservationId:string,action:'capture'|'release',expectedSeconds:number,providerAdmission?:VideoProviderAdmission){
+ /**
+  * Capture requires the admitted attempt. LV-019.B C2a: `capturedSeconds` settles K of N seconds and returns the remainder in the same transaction; a release after a
+  * provider admission needs that admission plus a resolution, which is Video's unverifiable claim and is stored as such. Without a stored admission a release is the plain one.
+  */
+ async settleVideo(identityKey:string,reservationId:string,action:'capture'|'release',expectedSeconds:number,providerAdmission?:VideoProviderAdmission,options?:VideoSettlementOptions){
   id(reservationId);if((action!=='capture'&&action!=='release')||!integer(expectedSeconds,1)||expectedSeconds>600)bad();
-  const supplied=providerAdmission===undefined?null:admission(providerAdmission);if(action==='release'&&supplied)bad();
+  const supplied=providerAdmission===undefined?null:admission(providerAdmission),{partial,resolution}=settlementOptions(action,expectedSeconds,supplied!==null,options);
   const identityRef=this.identityFromKey(identityKey),time=this.now();
   return this.db.runTransaction(async tx=>{
    const identity=await tx.get(identityRef);
@@ -332,11 +349,30 @@ export class AccountStore {
        else if(state==='captured'||fence.exists)invariant();
      }
     if(state===action+'d'){
+     const storedKept=reservation.get('capturedSeconds'),storedReturned=reservation.get('releasedSeconds'),marker=reservation.get('partialSettlement'),split=storedKept!==undefined||storedReturned!==undefined||marker!==undefined;
      if(action==='capture'){
-      if(previous){if(!supplied||!sameAdmission(previous,supplied)||!sameAdmission(capturedWith,supplied))throw new AccountFault('conflict');}
-      else if(supplied||capturedWith!==undefined)throw new AccountFault('conflict'); // Legacy terminal receipt, never an admission.
-     }else if(previous||capturedWith!==undefined)invariant();
-     return {settled:false,state,seconds,account:view(accountId,current)};
+      if(split&&(marker!==true||!integer(storedKept,1)||storedKept>=seconds||storedReturned!==seconds-storedKept))invariant();
+      // A captured reservation never carries release fields, and its captureAdmission exists exactly when and as its provider admission does: anything else is corruption.
+      if(reservation.get('releaseAdmission')!==undefined||reservation.get('resolution')!==undefined)invariant();
+      if(previous?!sameAdmission(capturedWith,previous):capturedWith!==undefined)invariant();
+      if(previous){if(!supplied||!sameAdmission(previous,supplied))throw new AccountFault('conflict');}
+      else if(supplied)throw new AccountFault('conflict'); // Legacy terminal receipt, never an admission.
+      if((partial??null)!==(split?storedKept as number:null))throw new AccountFault('conflict');
+      return {settled:false,state,seconds,account:view(accountId,current),...(split?{capturedSeconds:storedKept as number,releasedSeconds:storedReturned as number}:{})};
+     }
+     if(split||capturedWith!==undefined)invariant();
+     const releasedWith=reservation.get('releaseAdmission'),storedResolution=reservation.get('resolution');
+     if(storedResolution!==undefined&&!validResolution(storedResolution))invariant();
+     if(previous){
+      // Released with a provider admission but without the matching releaseAdmission and a resolution is corruption.
+      if(!sameAdmission(releasedWith,previous)||storedResolution===undefined)invariant();
+      if(!supplied||!resolution||!sameAdmission(previous,supplied)||!sameResolution(storedResolution,resolution))throw new AccountFault('conflict');
+     }else{
+      if(releasedWith!==undefined)invariant();
+      // No admission on record: the supplied admission was only a claim; a repeated claim must repeat the stored resolution.
+      if(resolution&&(storedResolution===undefined||!sameResolution(storedResolution,resolution)))throw new AccountFault('conflict');
+     }
+     return {settled:false,state,seconds,account:view(accountId,current),admitted:previous!==null};
     }
    if(state!=='reserved')throw new AccountFault('conflict');
      // Legacy active reservations cannot prove the absence of earlier provider calls.
@@ -344,13 +380,20 @@ export class AccountStore {
     if(capturedWith!==undefined)invariant();
     if(blocked)throw new AccountFault('conflict');
     if(action==='capture'&&(!previous||!supplied||!sameAdmission(previous,supplied)))throw new AccountFault('conflict');
-    if(action==='release'&&previous)throw new AccountFault('conflict');
+    if(action==='release'&&previous){
+     // Account cannot see whether the provider delivered: the admission must match and Video's resolution is stored with its evidence hash.
+     if(!supplied||!resolution||!sameAdmission(previous,supplied))throw new AccountFault('conflict');
+     if(resolution.kind==='unknown_expired'&&time-previous.admittedAtMs<UNKNOWN_RESOLUTION_MIN_AGE_MS)throw new AccountFault('too_early');
+    }
    if(current.reserved<seconds||current.active<1)invariant();
-   const next={...current,reserved:current.reserved-seconds,available:current.available+(action==='release'?seconds:0),consumed:current.consumed+(action==='capture'?seconds:0),active:current.active-1};
-   if(![next.reserved,next.available,next.consumed,next.active].every(Number.isSafeInteger)||next.active<0||next.credited!==next.available+next.reserved+next.consumed)invariant();
-    tx.update(accountRef,next);tx.update(reservationRef,{state:action+'d',updatedAtMs:time,...(action==='capture'?{captureAdmission:supplied}: {})});
-   tx.create(this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,action])),{ownerAccountId:accountId,createdAtMs:time,seconds,kind:action==='capture'?'video_capture':'video_release'});
-   return {settled:true,state:action+'d',seconds,account:view(accountId,next)};
+   const splitNow=action==='capture'&&partial!==undefined,kept=action==='capture'?(splitNow?partial as number:seconds):0,returned=seconds-kept;
+   const next={...current,reserved:current.reserved-seconds,available:current.available+returned,consumed:current.consumed+kept,active:current.active-1};
+   if(![next.reserved,next.available,next.consumed,next.active].every(Number.isSafeInteger)||next.active<0||next.reserved<0||next.available<0||next.consumed<0||next.credited!==next.available+next.reserved+next.consumed)invariant();
+    tx.update(accountRef,next);
+    tx.update(reservationRef,{state:action+'d',updatedAtMs:time,...(action==='capture'?{captureAdmission:supplied,...(splitNow?{capturedSeconds:kept,releasedSeconds:returned,partialSettlement:true}:{})}:{...(previous?{releaseAdmission:supplied}:{}),...(resolution?{resolution}:{})})});
+   tx.create(this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,action])),{ownerAccountId:accountId,createdAtMs:time,seconds:action==='capture'?kept:seconds,kind:action==='capture'?'video_capture':'video_release'});
+   if(splitNow)tx.create(this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,'release'])),{ownerAccountId:accountId,createdAtMs:time,seconds:returned,kind:'video_release_remainder'});
+   return {settled:true,state:action+'d',seconds,account:view(accountId,next),...(splitNow?{capturedSeconds:kept,releasedSeconds:returned}:{}),...(action==='release'?{admitted:previous!==null}:{})};
   });
  }
  /** Read the resolution evidence without creating a tombstone or moving balance. */

@@ -33,3 +33,28 @@ Vía: T3 local (`~/.t3/bin/t3.cmd`, instancia `linguistvision-openrouter`), prom
 Adoptado de la ronda 2: error propio `too_early` que no cuenta en el tope de conflictos, constante de edad en un módulo compartido con prueba de que el plazo de Video es mayor o igual, rechazo de cada campo nuevo por un Cuenta antiguo, y las pruebas de `admitted:false`, sellado idempotente y `capturedSeconds` igual a N.
 
 Clasificación: ronda 1, un PASS y tres FALLA con hallazgos reales; ronda 2, PASS de ambos. **El PASS valida el diseño; no hay implementación ni prueba ejecutada.**
+
+## Revisión del código de la etapa 1 (Cuenta, transporte HTTP y cliente) · [prompt 1](prompt-c1.txt) · [prompt 2](prompt-c2.txt) · [prompt 3](prompt-c3.txt)
+
+Se enviaron tres extractos completos del código ya escrito (opciones y replay; liquidación nueva y efectos; ruta HTTP y cliente) a los dos modelos. Resultados: [c1 GLM FALLA](reply-c1-glm.txt) · [c1 DeepSeek FALLA](reply-c1-deepseek.txt) · [c2 GLM FALLA](reply-c2-glm.txt) · [c2 DeepSeek FALLA](reply-c2-deepseek.txt) · [c3 GLM PASS](reply-c3-glm.txt) · [c3 DeepSeek FALLA](reply-c3-deepseek.txt).
+
+La mayoría de los hallazgos ALTA parten de que cada extracto no mostraba las comprobaciones previas; se contrastó cada uno con el código real:
+
+| Hallazgo | Decisión |
+| --- | --- |
+| `partial` sin validar: K = 0, negativo, > N o = N (GLM c2-1, DeepSeek c2-1) | **Refutado:** `settlementOptions` lo rechaza con `invalid` antes de la transacción (1 ≤ K < N, entero) y `seconds === expectedSeconds` se exige después; hay pruebas para cada valor. |
+| `admitted:previous!==null` con `previous` indefinido (GLM c2-5, DeepSeek c2-2) | **Refutado:** `storedAdmission` devuelve `null`, nunca `undefined` (`backend.ts`, función `storedAdmission`). |
+| Reserva liberada sin `releaseAdmission` pero con admisión almacenada pasa o lanza mal (GLM c2-2) | **Refutado:** debe lanzar `invariant` y lo hace (prueba «released with a provider admission but without releaseAdmission»). |
+| La liberación simple sin admisión almacenada no exige resolución ni aplica la edad mínima (GLM c2-3/4, DeepSeek c2-3/4, c1-3/4) | **Refutado por diseño:** sin admisión almacenada no pudo haber llamada, la liberación simple de hoy sigue igual y la resolución solo es obligatoria cuando hay reclamo; el emparejamiento admisión + resolución se exige en `settlementOptions`. Límite aceptado: la admisión reclamada se ignora y no se guarda. |
+| Replay de captura completa daría `conflict` (DeepSeek c1-1) | **Refutado:** toda captura guarda `captureAdmission`; hay prueba del replay completo. |
+| `capture` con `resolution` no se rechaza (DeepSeek c2-5) | **Refutado:** `settlementOptions` la rechaza. |
+| Captura sin admisión pasa el replay (GLM c1-1) | **Refutado:** en protocolo 2 la ausencia de admisión en un estado `captured` ya es invariante (comprobación previa existente). |
+| Propiedades heredadas en las opciones (GLM c1-4) | **Adoptado:** solo objetos planos (prototipo `Object.prototype` o nulo). |
+| El cuerpo del cliente esparce `admission` y pueda pisar `seconds` (DeepSeek c3-1) | **Adoptado:** el cuerpo se construye con lista blanca `{jobId, attemptId}`; prueba nueva. |
+| `too_early` se mapea para cualquier acción (DeepSeek c3-2) | **Adoptado:** solo en `release`; prueba nueva. |
+| Un `release` sin reclamo no avisa si Video quería la forma posadmisión (DeepSeek c3-3) | **Trasladado a la etapa 2:** es una regla del llamador de Video (con llamadas registradas, siempre reclamo); se prueba allí. |
+| Corrupción de `captureAdmission` ausente se informa como `conflict` (GLM c1-3, DeepSeek c1-1b/5) | **Aceptado como existente:** comportamiento anterior a este cambio, falla cerrado. |
+| `json()` con `null` o arrays (DeepSeek c3-4) | **Refutado:** `json()` ya rechaza todo lo que no sea objeto con 400. |
+| Regex de hash del cliente distinta del servidor (DeepSeek c3-5) | **Refutado:** `$` en JavaScript sin banderas no admite salto de línea final; ambos rechazan. |
+
+Clasificación honesta: 5 FALLA y 1 PASS, con dos hallazgos reales de endurecimiento y uno trasladado a la etapa 2. No es un PASS limpio: la ronda siguiente se hará sobre el código final.

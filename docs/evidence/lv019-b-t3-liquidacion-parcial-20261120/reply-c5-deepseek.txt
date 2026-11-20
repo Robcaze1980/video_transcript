@@ -1,0 +1,13 @@
+**Hallazgos**
+
+1. ALTA — captura parcial sin validar K. Si `settlementOptions` no impone 1<=K<N y llega `partial>=seconds` (partial=700, seconds=600): kept=700, returned=−100 → `consumed+=700`, `available−=100`; el invariante `credited` cancela algebraicamente y los enteros son seguros, así que pasa. Resultado: cobra más de N y deja `available` negativo. Corrección: `if(splitNow&&!(partial>=1&&partial<seconds))throw new AccountFault('invalid')` y añadir `if(next.available<0)invariant()`.
+
+2. MEDIA — `too_early` solo bajo `previous`. Con reserva sin admisión almacenada (`previous===null`) y `resolution.kind='unknown_expired'` no se comprueba edad → libera prematuramente con `admitted:false`. Igual para `action==='capture'` con resolution (no hay check de edad). Corrección: exigir edad mínima contra la edad real de la reserva cuando kind sea `unknown_expired`, y rechazar resolution en capture.
+
+3. BAJA — capture persiste resolution ajena (`...(resolution?{resolution}:{})`) sobre reserva capturada → auditoría sucia aunque el estado es terminal. Corrección: prohibir resolution si `action==='capture'`.
+
+4. BAJA — orden: `capturedWith!==undefined`→invariant se evalúa antes que `blocked`→conflict; solo cambia el código de error. Conflict/legado/estado sí preceden a too_early: correcto.
+
+(a) Sí, por el hallazgo 1; por lo demás `active--` con guard `active<1`, `reserved−seconds` con guard `reserved>=seconds` y terminal única por `state!=='reserved'`. (b) Correcto salvo el 2. (c) Faltan los checks de 1 y 2; admisión inmutable + conflict por no coincidencia están bien. Remainder `'release'` colisionaría con release real, pero el guard de estado lo hace inalcanzable.
+
+RESULTADO: FALLA

@@ -1,0 +1,15 @@
+**Revisión código 2/2 (segunda ronda)**
+
+1. **ALTA — `capture` con admisión guardada pero `resolution` no filtrada.** En `action==='capture'`, si la llamada trae `resolution`, no se valida ni se descarta; el spread `...(resolution?{resolution}:{})` solo aplica a release, pero en capture `resolution` queda sin efecto (no se guarda), correcto; sin embargo, si `resolution` viene junto a capture, el código no lo rechaza ni lo ignora explícitamente: entrada `capture` + `resolution` válida → se ejecuta capture normal y `resolution` se descarta silenciosamente. Corrección: rechazar `resolution` en capture (`if(action==='capture'&&resolution)throw new AccountFault('conflict')`) o documentar que se ignora.
+
+2. **MEDIA — `partial` no validado antes de usar.** `splitNow=action==='capture'&&partial!==undefined` y `kept=partial as number`. Si `partial` llega como `0`, negativo, no entero o `>=seconds`, el extracto 1 no lo muestra validado; `kept=0` violaría `1<=K<N`; `kept=N` rompe `returned=0` (debería ser inválido). Entrada `capture` con `partial=0` o `partial===seconds` → asientos de libro erróneos o inconsistentes. Corrección: validar `Number.isSafeInteger(partial)&&partial>=1&&partial<seconds`, y tratar `partial===seconds` como capture completo explícito o `invalid` según contrato (K=N explícito = invalid).
+
+3. **MEDIA — liberación posadmisión sin admitted:false respondido en captura.** En release sin `previous` la respuesta lleva `admitted:false` (`previous!==null`), correcto. Pero en release con `previous` y sin `supplied` el guard ya lanza conflict, correcto. Falta: si la cuenta NO tiene admisión (`previous===null`) y llega `resolution`, el código la guarda — coherente con contrato ("la resolucion, si viene, se guarda"). OK. Sin hallazgo adicional aquí.
+
+4. **BAJA — doble terminal imposible.** El doc de reserva se actualiza una sola vez por transacción; `state` solo pasa a `captured`/`released` desde `reserved` (guard inicial). Dos terminales no alcanzables.
+
+5. **BAJA — orden conflict/too_early.** Los guards `state`, `protocol`, `capturedWith`, `blocked` preceden a los de admisión y a `too_early`; un intento sobre reserva bloqueada o legada no puede colarse. Correcto.
+
+6. **BAJA — invariantes de saldo.** `credited===available+reserved+consumed` y `active>=0` se comprueban tras mutar; `kept+returned===seconds` por construcción (salvo hallazgo 2). Correcto.
+
+RESULTADO: FALLA

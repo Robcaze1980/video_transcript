@@ -49,18 +49,23 @@ export function accountHttp(store:AccountStore,identity:IdentityVerifier,origin=
      if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');
      const action=match[2];
      if(action!=='status'&&caller.email!==internal.settlementCaller)throw new HttpFault(403,'forbidden');
-     const fields=action==='status'?['identityKey']:action==='admit'?['identityKey','seconds','jobId','attemptId','callKey','model','requestSha256']:action==='capture'?['identityKey','seconds','jobId','attemptId']:['identityKey','seconds'];
+     const fields=action==='status'?['identityKey']:action==='admit'?['identityKey','seconds','jobId','attemptId','callKey','model','requestSha256']:action==='capture'?['identityKey','seconds','jobId','attemptId','capturedSeconds']:action==='release'?['identityKey','seconds','jobId','attemptId','resolutionKind','evidenceSha256']:['identityKey','seconds'];
      const b=await json(req,fields);
      if(!uuid.test(match[1])||typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey))throw new HttpFault(400,'invalid');
      if(action!=='status'&&(!Number.isSafeInteger(b.seconds)||Number(b.seconds)<1||Number(b.seconds)>600))throw new HttpFault(400,'invalid');
      if((action==='capture'||action==='admit')&&(typeof b.jobId!=='string'||!uuid.test(b.jobId)||typeof b.attemptId!=='string'||!uuid.test(b.attemptId)))throw new HttpFault(400,'invalid');
+     if(action==='capture'&&b.capturedSeconds!==undefined&&(!Number.isSafeInteger(b.capturedSeconds)||Number(b.capturedSeconds)<1||Number(b.capturedSeconds)>=Number(b.seconds)))throw new HttpFault(400,'invalid');
+     // A release after a provider admission carries the admission and Video's resolution together; any partial set is refused here.
+     const claim=['jobId','attemptId','resolutionKind','evidenceSha256'].filter(k=>b[k]!==undefined);
+     if(action==='release'&&claim.length>0&&(claim.length!==4||typeof b.jobId!=='string'||!uuid.test(b.jobId)||typeof b.attemptId!=='string'||!uuid.test(b.attemptId)||typeof b.resolutionKind!=='string'||!['no_speech','not_delivered','unknown_expired'].includes(b.resolutionKind)||typeof b.evidenceSha256!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.evidenceSha256)))throw new HttpFault(400,'invalid');
      if(action==='admit'&&(typeof b.callKey!=='string'||!(/^(text-window|voice-chunk):\d{4}(?![\s\S])/.test(b.callKey))||typeof b.requestSha256!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.requestSha256)||b.model!==(b.callKey.startsWith('text-window:')?'gemini-3.8-flash':'gemini-3.8-flash-tts')))throw new HttpFault(400,'invalid');
      if(action==='status'){const result=await store.videoReservation(b.identityKey,match[1]);send(200,{...result,reservationId:match[1]});return;}
      if(action==='resolution'){const result=await store.videoReservationResolution(b.identityKey,match[1],b.seconds as number);send(200,result);return;}
      if(action==='seal'){const result=await store.sealVideoReservation(b.identityKey,match[1],b.seconds as number);send(result.created?201:200,result);return;}
      if(action==='admit'){const result=await store.admitVideoCall(b.identityKey,match[1],b.seconds as number,b.jobId as string,b.attemptId as string,b.callKey as string,b.model as string,b.requestSha256 as string);send(result.created?201:200,result);return;}
-     const admission=action==='capture'?{jobId:b.jobId as string,attemptId:b.attemptId as string}:undefined;
-     const result=await store.settleVideo(b.identityKey,match[1],action as 'capture'|'release',b.seconds as number,admission);send(200,{...result,reservationId:match[1]});return;
+     const admission=action==='capture'||action==='release'&&claim.length===4?{jobId:b.jobId as string,attemptId:b.attemptId as string}:undefined;
+     const options=action==='capture'&&b.capturedSeconds!==undefined?{capturedSeconds:b.capturedSeconds as number}:action==='release'&&claim.length===4?{resolution:{kind:b.resolutionKind,evidenceSha256:b.evidenceSha256}}:undefined;
+     const result=options?await store.settleVideo(b.identityKey,match[1],action as 'capture'|'release',b.seconds as number,admission,options):await store.settleVideo(b.identityKey,match[1],action as 'capture'|'release',b.seconds as number,admission);send(200,{...result,reservationId:match[1]});return;
     }
     throw new HttpFault(404,'not_found');
    }
@@ -89,7 +94,7 @@ export function accountHttp(store:AccountStore,identity:IdentityVerifier,origin=
   }catch(error){
    req.resume();if(res.headersSent){res.destroy();return;}
    if(error instanceof HttpFault){send(error.status,{error:error.code});return;}
-   if(error instanceof AccountFault){const statuses={invalid:400,not_found:404,account_not_provisioned:404,conflict:409,deleted:410,quota:429,insufficient:402,invariant:503};send(statuses[error.code],{error:error.code==='invariant'?'unavailable':error.code});return;}
+   if(error instanceof AccountFault){const statuses={invalid:400,not_found:404,account_not_provisioned:404,conflict:409,deleted:410,quota:429,insufficient:402,invariant:503,too_early:409};send(statuses[error.code],{error:error.code==='invariant'?'unavailable':error.code});return;}
    // No user identifiers, bodies, URLs, token contents, SDK errors or content in logs.
    send(503,{error:'unavailable'});
   }

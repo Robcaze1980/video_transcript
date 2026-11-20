@@ -35,7 +35,11 @@ describe('account policy: which collections, filters and fields are reachable',(
     expect(()=>root.collection('videoBillingGuards').where('blocked','==',false)).toThrow(/value/i);
     expect(()=>root.collection('videoBillingGuards').where('ownerAccountId','==','A1')).toThrow(/field/i);
     expect(()=>root.collection('videoBillingIncidents').where('state','==','active')).not.toThrow();
-    for(const kind of ['video_reserve','video_capture','video_release'])expect(()=>root.collection('ledgerEntries').where('kind','==',kind)).not.toThrow();
+    for(const kind of ['video_reserve','video_capture','video_release','video_release_remainder'])expect(()=>root.collection('ledgerEntries').where('kind','==',kind)).not.toThrow();
+    // C2a: the marker of a partial capture may be counted, only as `true` (a boolean says nothing about the seconds involved)
+    expect(()=>root.collection('videoReservations').where('partialSettlement','==',true)).not.toThrow();
+    expect(()=>root.collection('videoReservations').where('partialSettlement','==',false)).toThrow(/value/i);
+    for(const field of ['capturedSeconds','releasedSeconds'])expect(()=>root.collection('videoReservations').where(field,'==',1)).toThrow(/field/i);
     expect(()=>root.collection('ledgerEntries').where('kind','==','credit')).toThrow(/value/i);
     expect(()=>root.collection('ledgerEntries').where('ownerAccountId','==','A1')).toThrow(/field/i);
     for(const field of ['credited','available','reserved','state','identityKey'])expect(()=>root.collection('accounts').where(field,'==',1)).toThrow(/field/i); // balances cannot be probed by bisection

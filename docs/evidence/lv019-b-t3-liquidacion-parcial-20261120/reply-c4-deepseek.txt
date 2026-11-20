@@ -1,0 +1,11 @@
+1. **MEDIA — replay de `capture` oculta corrupción como `conflict`.** Reserva con `state='captured'` y admisión almacenada (`previous` válida) pero sin `captureAdmission` (`capturedWith===undefined`): al reenviar la MISMA admisión, `!sameAdmission(capturedWith,supplied)` es true → `conflict`. Ese registro es corrupto (`captureAdmission` solo se escribe junto a la admisión), así que debe ser `invariant`. Corrección: `if(previous&&capturedWith===undefined)invariant();` antes de comparar.
+
+2. **MEDIA — mismo punto, caso inverso.** `previous===null` con `capturedWith!==undefined` (admisión de captura sin `providerAdmission`) → `conflict`; es inconsistencia interna → `invariant`. Corrección: separar `if(supplied)throw conflict; if(capturedWith!==undefined)invariant();`.
+
+3. **BAJA — replay de `capture` sobre estado corrupto devuelve `settled:false`.** La rama `capture` nunca lee `releaseAdmission`/`resolution` (asimétrica con el `invariant` de `split||capturedWith` en `release`): una reserva `captured` con `releaseAdmission` presente (corrupta) se acepta como replay. Corrección: `invariant()` si `releaseAdmission!==undefined||resolution!==undefined`.
+
+4. **BAJA — guard de datos planos incompleto.** `Object.getPrototypeOf` filtra herencia e instancias de clase, pero no propiedades accesoras propias (`defineProperty` con getter), que sí se leen como opciones. Con `JSON.parse` no es explotable; para cerrar la intención, rechazar descriptores con `get`.
+
+(a) Sí: hallazgos 1–3 (`conflict`/`settled:false` donde corresponde `invariant`); no encontré replay que acepte tupla distinta por lo demás. (b) No: `partial>=expectedSeconds` (K=N inválido), exclusividad `capture`/`release` y el emparejamiento admisión↔resolución son correctos.
+
+RESULTADO: FALLA

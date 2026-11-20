@@ -4,7 +4,8 @@
  *  - per account: credited = available + reserved + consumed (a `reserve` moves seconds from available to reserved, a capture from reserved
  *    to consumed, a release from reserved back to available);
  *  - per account: `reserved` and `active` equal what its open (`reserved`) reservations add up to;
- *  - one ledger entry per reservation (`video_reserve`) and per capture / release.
+ *  - one ledger entry per reservation (`video_reserve`) and per capture / release; a partial capture (C2a) adds one `video_release_remainder` entry that
+ *    returns the unconsumed seconds, so remainder entries must equal the partially captured reservations.
  * It returns only totals and counts: no account id, reservation id or per-row value. Account ids are used in memory to join reservations to
  * balances and are never emitted. It never writes: the root it receives has no write surface.
  */
@@ -13,11 +14,11 @@ import type {ReadOnlyRoot} from './accountReadOnlyRoot';
 export interface AccountCounts{
   generatedAtMs:number;
   /** Documents per collection (count aggregation, so not an exact snapshot while writers are active). */sizes:Record<string,number>;
-  reservations:{total:number;byState:{reserved:number;captured:number;released:number;/** total minus the three listed: negative only if the counts were read at different instants (writers active). */other:number}};
-  ledger:{total:number;byKind:{video_reserve:number;video_capture:number;video_release:number;other:number}};
+  reservations:{total:number;byState:{reserved:number;captured:number;released:number;/** total minus the three listed: negative only if the counts were read at different instants (writers active). */other:number};/** Captured reservations that settled only part of their seconds (C2a); a boolean marker, nothing about the seconds. */partiallyCaptured:number};
+  ledger:{total:number;byKind:{video_reserve:number;video_capture:number;video_release:number;video_release_remainder:number;other:number}};
   tombstonesSealed:number;guardsBlocked:number;incidentsActive:number;
   /** Ledger entries minus reservations in the matching state: 0 = consistent. `reserve` is compared with ALL reservations. */
-  ledgerMinusReservations:{reserve:number;capture:number;release:number};
+  ledgerMinusReservations:{reserve:number;capture:number;release:number;/** `video_release_remainder` entries minus partially captured reservations. */remainder:number};
   accounts:{scanned:number;/** Accounts whose balance fields are not non-negative safe integers; they are EXCLUDED from `totals` and from every other figure below. */invalid:number;/** credited != available + reserved + consumed. */balanceBreaks:number;withReservedBalance:number;
     totals:{credited:number;available:number;reserved:number;consumed:number;active:number};/** `reserved` differs from the seconds of the account's open reservations. */reservedMismatch:number;/** `active` differs from the number of its open reservations. */activeMismatch:number};
   openReservations:{count:number;secondsTotal:number;/** Age of the oldest open reservation with a known creation time (malformed ones included); null if none. */oldestAgeMs:number|null;withProviderAdmission:number;/** `admissionProtocol` other than 2: cannot prove the absence of earlier provider calls. */legacyProtocol:number;/** Owner is not among the scanned accounts (or that account is malformed). */orphan:number;invalid:number};
@@ -32,7 +33,8 @@ export async function summarizeAccounts(root:ReadOnlyRoot,nowMs:number):Promise<
   const reservationCount=async(state:string)=>root.collection('videoReservations').where('state','==',state).count();
   const reserved=await reservationCount('reserved'),captured=await reservationCount('captured'),released=await reservationCount('released');
   const kindCount=async(kind:string)=>root.collection('ledgerEntries').where('kind','==',kind).count();
-  const lReserve=await kindCount('video_reserve'),lCapture=await kindCount('video_capture'),lRelease=await kindCount('video_release');
+  const lReserve=await kindCount('video_reserve'),lCapture=await kindCount('video_capture'),lRelease=await kindCount('video_release'),lRemainder=await kindCount('video_release_remainder');
+  const partiallyCaptured=await root.collection('videoReservations').where('partialSettlement','==',true).count();
   const tombstonesSealed=await root.collection('videoReservationTombstones').where('state','==','sealed').count();
   const guardsBlocked=await root.collection('videoBillingGuards').where('blocked','==',true).count();
   const incidentsActive=await root.collection('videoBillingIncidents').where('state','==','active').count();
@@ -88,10 +90,10 @@ export async function summarizeAccounts(root:ReadOnlyRoot,nowMs:number):Promise<
   const total=sizes.videoReservations,ledgerTotal=sizes.ledgerEntries;
   return {
     generatedAtMs:nowMs,sizes,
-    reservations:{total,byState:{reserved,captured,released,other:total-reserved-captured-released}},
-    ledger:{total:ledgerTotal,byKind:{video_reserve:lReserve,video_capture:lCapture,video_release:lRelease,other:ledgerTotal-lReserve-lCapture-lRelease}},
+    reservations:{total,byState:{reserved,captured,released,other:total-reserved-captured-released},partiallyCaptured},
+    ledger:{total:ledgerTotal,byKind:{video_reserve:lReserve,video_capture:lCapture,video_release:lRelease,video_release_remainder:lRemainder,other:ledgerTotal-lReserve-lCapture-lRelease-lRemainder}},
     tombstonesSealed,guardsBlocked,incidentsActive,
-    ledgerMinusReservations:{reserve:lReserve-total,capture:lCapture-captured,release:lRelease-released},
+    ledgerMinusReservations:{reserve:lReserve-total,capture:lCapture-captured,release:lRelease-released,remainder:lRemainder-partiallyCaptured},
     accounts,openReservations:open,
   };
 }

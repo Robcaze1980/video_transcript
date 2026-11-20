@@ -63,10 +63,10 @@ try{
   const result=JSON.parse(readFileSync(outFile,'utf8')),c=result.counts;
   assert.equal(result.scope,'account');
   assert.deepEqual(c.sizes,{accounts:205,videoReservations:237,videoReservationTombstones:2,videoBillingGuards:5,videoBillingIncidents:6,ledgerEntries:472});
-  assert.deepEqual(c.reservations,{total:237,byState:{reserved:206,captured:20,released:10,other:1}});
-  assert.deepEqual(c.ledger,{total:472,byKind:{video_reserve:237,video_capture:20,video_release:10,other:205}});
+  assert.deepEqual(c.reservations,{total:237,byState:{reserved:206,captured:20,released:10,other:1},partiallyCaptured:0});
+  assert.deepEqual(c.ledger,{total:472,byKind:{video_reserve:237,video_capture:20,video_release:10,video_release_remainder:0,other:205}});
   assert.equal(c.tombstonesSealed,2);assert.equal(c.guardsBlocked,3);assert.equal(c.incidentsActive,4);
-  assert.deepEqual(c.ledgerMinusReservations,{reserve:0,capture:0,release:0});
+  assert.deepEqual(c.ledgerMinusReservations,{reserve:0,capture:0,release:0,remainder:0});
   assert.equal(c.accounts.scanned,205);assert.equal(c.accounts.invalid,0);assert.equal(c.accounts.balanceBreaks,1);assert.equal(c.accounts.reservedMismatch,1);assert.equal(c.accounts.activeMismatch,1);assert.equal(c.accounts.withReservedBalance,205);
   assert.deepEqual(c.accounts.totals,{credited:20500,available:12300,reserved:6151,consumed:2050,active:206});
   assert.equal(c.openReservations.count,206);assert.equal(c.openReservations.secondsTotal,6157);assert.equal(c.openReservations.orphan,1);assert.equal(c.openReservations.invalid,0);

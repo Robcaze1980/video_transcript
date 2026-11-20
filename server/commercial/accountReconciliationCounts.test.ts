@@ -34,11 +34,11 @@ describe('summarizeAccounts',()=>{
     const c=await run(seed());
     expect(c.generatedAtMs).toBe(NOW);
     expect(c.sizes).toEqual({accounts:4,videoReservations:6,videoReservationTombstones:2,videoBillingGuards:2,videoBillingIncidents:3,ledgerEntries:8});
-    expect(c.reservations).toEqual({total:6,byState:{reserved:3,captured:1,released:1,other:1}});
-    expect(c.ledger).toEqual({total:8,byKind:{video_reserve:5,video_capture:1,video_release:1,other:1}});
+    expect(c.reservations).toEqual({total:6,byState:{reserved:3,captured:1,released:1,other:1},partiallyCaptured:0});
+    expect(c.ledger).toEqual({total:8,byKind:{video_reserve:5,video_capture:1,video_release:1,video_release_remainder:0,other:1}});
     expect(c.tombstonesSealed).toBe(2);expect(c.guardsBlocked).toBe(1);expect(c.incidentsActive).toBe(2);
     // one ledger entry per reservation and action: reserve 5 entries for 6 reservations (one is the unknown-state row), capture and release match
-    expect(c.ledgerMinusReservations).toEqual({reserve:-1,capture:0,release:0});
+    expect(c.ledgerMinusReservations).toEqual({reserve:-1,capture:0,release:0,remainder:0});
   });
   it('checks the balance invariants over every account and against the open reservations',async()=>{
     const a=(await run(seed())).accounts;
@@ -71,7 +71,22 @@ describe('summarizeAccounts',()=>{
     });
     const c=await run(s);
     expect(c.accounts.reservedMismatch).toBe(0);expect(c.accounts.activeMismatch).toBe(1);
-    expect(c.ledgerMinusReservations).toEqual({reserve:0,capture:2,release:-1});
+    expect(c.ledgerMinusReservations).toEqual({reserve:0,capture:2,release:-1,remainder:0});
+  });
+  it('counts a partial capture as one capture entry plus one remainder entry, and reports a missing or extra remainder (C2a)',async()=>{
+    const base={
+      accounts:{A1:{credited:100,available:65,reserved:0,consumed:25,active:0}},
+      videoReservations:{r1:{ownerAccountId:'A1',seconds:60,state:'captured',createdAtMs:NOW-1,partialSettlement:true},r2:{ownerAccountId:'A1',seconds:5,state:'captured',createdAtMs:NOW-2}},
+    };
+    const ok=await run(seed({...base,ledgerEntries:{l1:{kind:'video_reserve'},l2:{kind:'video_reserve'},l3:{kind:'video_capture'},l4:{kind:'video_capture'},l5:{kind:'video_release_remainder'}}}));
+    expect(ok.reservations.partiallyCaptured).toBe(1);expect(ok.ledger.byKind.video_release_remainder).toBe(1);expect(ok.ledger.byKind.other).toBe(0);
+    expect(ok.ledgerMinusReservations).toEqual({reserve:0,capture:0,release:0,remainder:0});
+    const missing=await run(seed({...base,ledgerEntries:{l1:{kind:'video_reserve'},l2:{kind:'video_reserve'},l3:{kind:'video_capture'},l4:{kind:'video_capture'}}}));
+    expect(missing.ledgerMinusReservations.remainder).toBe(-1);
+    const extra=await run(seed({...base,ledgerEntries:{l1:{kind:'video_reserve'},l2:{kind:'video_reserve'},l3:{kind:'video_capture'},l4:{kind:'video_capture'},l5:{kind:'video_release_remainder'},l6:{kind:'video_release_remainder'}}}));
+    expect(extra.ledgerMinusReservations.remainder).toBe(1);
+    // the boolean marker is a count only: nothing else about the reservation leaks
+    expect(JSON.stringify(ok)).not.toMatch(/partialSettlement|capturedSeconds|releasedSeconds/);
   });
   it('rejects instead of reporting wrong totals when the sums stop being exact integers',async()=>{
     const max=Number.MAX_SAFE_INTEGER; // each account is a valid integer on its own; their sum is not
@@ -98,7 +113,7 @@ describe('summarizeAccounts',()=>{
     const c=await run(stub({}));
     expect(Object.values(c.sizes)).toEqual([0,0,0,0,0,0]);expect(c.accounts.scanned).toBe(0);expect(c.accounts.totals).toEqual({credited:0,available:0,reserved:0,consumed:0,active:0});
     expect(c.openReservations).toEqual({count:0,secondsTotal:0,oldestAgeMs:null,withProviderAdmission:0,legacyProtocol:0,orphan:0,invalid:0});
-    expect(c.ledgerMinusReservations).toEqual({reserve:0,capture:0,release:0});
+    expect(c.ledgerMinusReservations).toEqual({reserve:0,capture:0,release:0,remainder:0});
   });
   it('returns counts only: no account id, reservation id, per-row value or secret anywhere',async()=>{
     const s=seed({accounts:{A1:{credited:100,available:70,reserved:20,consumed:10,active:1,identityKey:'LEAK-ik',uid:'LEAK-uid'}},videoReservations:{r1:{ownerAccountId:'A1',identityKey:'LEAK-ik2',reservationId:'LEAK-rid',seconds:20,state:'reserved',createdAtMs:NOW-5,providerAdmission:{jobId:'LEAK-job'}}}});

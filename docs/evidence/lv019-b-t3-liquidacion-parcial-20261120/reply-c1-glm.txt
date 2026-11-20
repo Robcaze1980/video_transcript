@@ -1,0 +1,11 @@
+1. **ALTA** — Reserva capturada sin admisión del proveedor pasa el replay. Entrada: `state='captured'`, `previous=null`, `capturedWith=undefined`, asiento parcial válido. Resultado: `settled:false`. Corrección: marcar `invariant()` cuando no exista `providerAdmission` para reservas del protocolo actual.
+
+2. **ALTA** — Reserva liberada sin resolución almacenada pasa el replay. Entrada: `state='released'`, `previous=null`, `storedResolution=undefined`, llamada simple sin opciones. Resultado: `settled:false` con `admitted:false`. Corrección: exigir resolución almacenada en todo estado `released` del contrato actual; si falta, `invariant()`.
+
+3. **MEDIA** — Reserva capturada con `previous` pero sin `capturedWith` produce `AccountFault('conflict')`. Entrada: `previous=A`, `capturedWith=undefined`, `supplied=A`. Corrección: la falta o discordancia del asiento inmutable de captura es corrupción de datos, no replay conflictivo; usar `invariant()`.
+
+4. **BAJA** — `settlementOptions` puede aceptar propiedades heredadas. Entrada: objeto creado con prototipo `{ capturedSeconds: 2 }`, sin propiedades propias, en `capture`. `Object.keys()` queda vacío, pero `row.capturedSeconds` es `2` y la validación lo acepta. Corrección: usar `Object.hasOwn(row, key)`/`Object.prototype.hasOwnProperty.call` y validar solo propiedades propias; opcionalmente con prototipo nulo.
+
+Las verificaciones de `K` distinto, `K=N`, marcador `partialSettlement`, armonía entre `captureAdmission` y admisión almacenada, y liberación con admisión sin `releaseAdmission`/resolución están cubiertas en las rutas mostradas. El punto crítico es que el replay trata estados imposibles como conflictos u omite la validación de invariantes cuando la petición coincide con el estado terminal.
+
+RESULTADO: FALLA

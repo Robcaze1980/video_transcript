@@ -1,0 +1,60 @@
+Responde SOLO con texto, sin herramientas. Maximo 280 palabras. SEGUNDA RONDA de revision de CODIGO TypeScript (Cuenta, Firestore). En la ronda 1 varios hallazgos eran falsos porque no viste las comprobaciones previas: ahora van completas. Hallazgos numerados, severidad ALTA/MEDIA/BAJA, con el fallo concreto (entrada -> resultado erroneo) y la correccion; si todo es correcto dilo. Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+CONTRATO (C2a). Saldo en segundos; reserva N (max 600) con estados reserved|captured|released; credited=available+reserved+consumed. UN solo intento de proveedor por reserva (providerAdmission inmutable; otro intento = conflict). Nuevo: `capture` con `capturedSeconds` K (1<=K<N) = captura parcial (consumed+=K, available+=N-K; marcador partialSettlement:true; dos asientos de libro video_capture K y video_release_remainder N-K); K=N explicito = invalid. `release` con la admision suministrada + resolution {kind no_speech|not_delivered|unknown_expired, evidenceSha256 hex64} (siempre JUNTAS, validado en settlementOptions): si Cuenta TIENE admision almacenada debe coincidir y queda released con releaseAdmission+resolution; si NO la tiene es la liberacion simple de hoy (la suministrada es solo un reclamo; la resolucion, si viene, se guarda) y la respuesta lleva admitted:false. unknown_expired exige edad minima o `too_early`. Replay con la misma tupla -> settled:false sin escribir; tupla distinta -> conflict; datos corruptos -> invariant. Guard de cuenta -> conflict; reserva legada (protocolo != 2) -> conflict.
+
+CODIGO 1/2 (comprobaciones previas completas dentro de la transaccion, validacion de opciones y rama de REPLAY):
+```typescript
+function storedAdmission(doc:DocumentSnapshot){
+ const value=doc.get('providerAdmission');if(value===undefined)return null;
+ if(!value||typeof value!=='object'||Array.isArray(value)||typeof value.jobId!=='string'||!uuid.test(value.jobId)||typeof value.attemptId!=='string'||!uuid.test(value.attemptId)||!integer(value.admittedAtMs))invariant();
+ return value as VideoProviderAdmission & {admittedAtMs:number};
+}
+function settlementOptions(action:'capture'|'release',expectedSeconds:number,hasAdmission:boolean,options:unknown):{partial:number|undefined;resolution:VideoResolution|undefined}{
+ if(options!==undefined&&(!options||typeof options!=='object'||Array.isArray(options)))bad();
+ const row=(options??{}) as Record<string,unknown>;
+ // Plain data only: an inherited `capturedSeconds` or a class instance must not be read as options.
+ const proto=Object.getPrototypeOf(row);if(proto!==Object.prototype&&proto!==null)bad();
+ for(const key of Object.keys(row))if(key!=='capturedSeconds'&&key!=='resolution')bad();
+ const partial=row.capturedSeconds,resolution=row.resolution;
+ if(partial!==undefined&&(action!=='capture'||!integer(partial,1)||partial>=expectedSeconds))bad();
+ if(resolution!==undefined&&(action!=='release'||!validResolution(resolution)))bad();
+ // An admission and its resolution travel together on a release; neither may appear alone.
+ if(action==='release'&&hasAdmission!==(resolution!==undefined))bad();
+ return {partial:partial as number|undefined,resolution:resolution as VideoResolution|undefined};
+}
+   const state=reservation.get('state'),seconds=reservation.get('seconds') as number;
+   if(!['reserved','captured','released'].includes(state))invariant();
+   if(seconds!==expectedSeconds)throw new AccountFault('conflict');
+     const previous=storedAdmission(reservation),capturedWith=reservation.get('captureAdmission'),protocol=reservation.get('admissionProtocol');
+     if(protocol!==undefined&&protocol!==1&&protocol!==2)invariant();
+     if(protocol===2){
+      const calls=reservationRef.collection('providerCalls');
+       if(previous){const first=firstCall(previous),receipt=await tx.get(calls.doc(callDocId(first.callKey)));if(!sameCall(storedCall(fence,accountId,identityKey,reservationId,seconds),first)||fence.get('admittedAtMs')!==previous.admittedAtMs||!sameCall(storedCall(receipt,accountId,identityKey,reservationId,seconds),first)||receipt.get('admittedAtMs')!==previous.admittedAtMs)invariant();}
+       else if(state==='captured'||fence.exists)invariant();
+     }
+    if(state===action+'d'){
+     const storedKept=reservation.get('capturedSeconds'),storedReturned=reservation.get('releasedSeconds'),marker=reservation.get('partialSettlement'),split=storedKept!==undefined||storedReturned!==undefined||marker!==undefined;
+     if(action==='capture'){
+      if(split&&(marker!==true||!integer(storedKept,1)||storedKept>=seconds||storedReturned!==seconds-storedKept))invariant();
+      if(previous){if(!supplied||!sameAdmission(previous,supplied)||!sameAdmission(capturedWith,supplied))throw new AccountFault('conflict');}
+      else if(supplied||capturedWith!==undefined)throw new AccountFault('conflict'); // Legacy terminal receipt, never an admission.
+      if((partial??null)!==(split?storedKept as number:null))throw new AccountFault('conflict');
+      return {settled:false,state,seconds,account:view(accountId,current),...(split?{capturedSeconds:storedKept as number,releasedSeconds:storedReturned as number}:{})};
+     }
+     if(split||capturedWith!==undefined)invariant();
+     const releasedWith=reservation.get('releaseAdmission'),storedResolution=reservation.get('resolution');
+     if(storedResolution!==undefined&&!validResolution(storedResolution))invariant();
+     if(previous){
+      // Released with a provider admission but without the matching releaseAdmission and a resolution is corruption.
+      if(!sameAdmission(releasedWith,previous)||storedResolution===undefined)invariant();
+      if(!supplied||!resolution||!sameAdmission(previous,supplied)||!sameResolution(storedResolution,resolution))throw new AccountFault('conflict');
+     }else{
+      if(releasedWith!==undefined)invariant();
+      // No admission on record: the supplied admission was only a claim; a repeated claim must repeat the stored resolution.
+      if(resolution&&(storedResolution===undefined||!sameResolution(storedResolution,resolution)))throw new AccountFault('conflict');
+     }
+     return {settled:false,state,seconds,account:view(accountId,current),admitted:previous!==null};
+    }
+```
+
+PREGUNTAS: (a) con TODAS las comprobaciones a la vista, queda algun replay que acepte una tupla distinta, devuelva settled:false sobre un estado corrupto, o lance conflict donde deberia ser invariant de forma que oculte corrupcion? (b) alguna combinacion de opciones valida que no deberia serlo?

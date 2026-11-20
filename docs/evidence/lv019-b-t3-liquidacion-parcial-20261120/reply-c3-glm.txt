@@ -1,0 +1,10 @@
+**Hallazgos**
+Ninguno bloqueante.
+
+**(a)** No detecto entradas indebidas ni rechazos incorrectos. `json(fields)` acota claves; cada campo se valida por tipo (`typeof`, `Number.isSafeInteger`), y `null`/arrays caen en esos chequeos (`capturedSeconds:null` → no safe integer; `resolutionKind:[...]` → no string). Los conjuntos parciales de release caen por `claim.length!==4`; `K<1` y `K>=seconds` se rechazan. No hay rechazo indebido: captura con admisión y sin `capturedSeconds` (entera) y release sin reclamo siguen siendo casos válidos del contrato.
+
+**(b)** No. Capture sin `capturedSeconds` → cuerpo sin esa clave → Cuenta hace captura entera. Release sin los cuatro campos → `claim.length===0` → liberación simple. Con admisión+resolución, el cuerpo lleva exactamente `jobId,attemptId,resolutionKind,evidenceSha256`, que Cuenta valida como bloque. El cliente bloquea `capturedSeconds` en release y `resolution` en capture, y su XOR admisión/resolución coincide con el «todos o ninguno» del servidor; no hay combinación que Cuenta interprete distinto de lo pretendido.
+
+**(c)** Seguro. El mapeo exige status 409 y `error==='too_early'` exacto; según contrato, solo Account emite esa combinación, y el cliente apunta únicamente a ese endpoint. Una respuesta ajena debería falsificar exactamente ese cuerpo para colar el código; no hay colisión accidental con `conflict` ni con otros 409. Defensa opcional (no requerida): validar un marcador de origen de Account si el cliente pudiera reutilizarse contra otros servicios.
+
+RESULTADO: PASS

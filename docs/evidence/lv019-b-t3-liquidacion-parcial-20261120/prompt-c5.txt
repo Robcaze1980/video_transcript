@@ -1,0 +1,31 @@
+Responde SOLO con texto, sin herramientas. Maximo 280 palabras. SEGUNDA RONDA de revision de CODIGO TypeScript (Cuenta, Firestore). En la ronda 1 varios hallazgos eran falsos porque no viste las comprobaciones previas: ahora van completas. Hallazgos numerados, severidad ALTA/MEDIA/BAJA, con el fallo concreto (entrada -> resultado erroneo) y la correccion; si todo es correcto dilo. Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+CONTRATO (C2a). Saldo en segundos; reserva N (max 600) con estados reserved|captured|released; credited=available+reserved+consumed. UN solo intento de proveedor por reserva (providerAdmission inmutable; otro intento = conflict). Nuevo: `capture` con `capturedSeconds` K (1<=K<N) = captura parcial (consumed+=K, available+=N-K; marcador partialSettlement:true; dos asientos de libro video_capture K y video_release_remainder N-K); K=N explicito = invalid. `release` con la admision suministrada + resolution {kind no_speech|not_delivered|unknown_expired, evidenceSha256 hex64} (siempre JUNTAS, validado en settlementOptions): si Cuenta TIENE admision almacenada debe coincidir y queda released con releaseAdmission+resolution; si NO la tiene es la liberacion simple de hoy (la suministrada es solo un reclamo; la resolucion, si viene, se guarda) y la respuesta lleva admitted:false. unknown_expired exige edad minima o `too_early`. Replay con la misma tupla -> settled:false sin escribir; tupla distinta -> conflict; datos corruptos -> invariant. Guard de cuenta -> conflict; reserva legada (protocolo != 2) -> conflict.
+
+CODIGO 2/2 (liquidacion NUEVA y efectos; las comprobaciones previas son las del extracto 1: seconds===expectedSeconds, protocolo 2 con barrera `first` y admision coherente, state valido):
+```typescript
+   if(state!=='reserved')throw new AccountFault('conflict');
+     // Legacy active reservations cannot prove the absence of earlier provider calls.
+     if(protocol!==2)throw new AccountFault('conflict');
+    if(capturedWith!==undefined)invariant();
+    if(blocked)throw new AccountFault('conflict');
+    if(action==='capture'&&(!previous||!supplied||!sameAdmission(previous,supplied)))throw new AccountFault('conflict');
+    if(action==='release'&&previous){
+     // Account cannot see whether the provider delivered: the admission must match and Video's resolution is stored with its evidence hash.
+     if(!supplied||!resolution||!sameAdmission(previous,supplied))throw new AccountFault('conflict');
+     if(resolution.kind==='unknown_expired'&&time-previous.admittedAtMs<UNKNOWN_RESOLUTION_MIN_AGE_MS)throw new AccountFault('too_early');
+    }
+   if(current.reserved<seconds||current.active<1)invariant();
+   const splitNow=action==='capture'&&partial!==undefined,kept=action==='capture'?(splitNow?partial as number:seconds):0,returned=seconds-kept;
+   const next={...current,reserved:current.reserved-seconds,available:current.available+returned,consumed:current.consumed+kept,active:current.active-1};
+   if(![next.reserved,next.available,next.consumed,next.active].every(Number.isSafeInteger)||next.active<0||next.credited!==next.available+next.reserved+next.consumed)invariant();
+    tx.update(accountRef,next);
+    tx.update(reservationRef,{state:action+'d',updatedAtMs:time,...(action==='capture'?{captureAdmission:supplied,...(splitNow?{capturedSeconds:kept,releasedSeconds:returned,partialSettlement:true}:{})}:{...(previous?{releaseAdmission:supplied}:{}),...(resolution?{resolution}:{})})});
+   tx.create(this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,action])),{ownerAccountId:accountId,createdAtMs:time,seconds:action==='capture'?kept:seconds,kind:action==='capture'?'video_capture':'video_release'});
+   if(splitNow)tx.create(this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,'release'])),{ownerAccountId:accountId,createdAtMs:time,seconds:returned,kind:'video_release_remainder'});
+   return {settled:true,state:action+'d',seconds,account:view(accountId,next),...(splitNow?{capturedSeconds:kept,releasedSeconds:returned}:{}),...(action==='release'?{admitted:previous!==null}:{})};
+  });
+ }
+```
+
+PREGUNTAS: (a) hay un camino que cobre de mas, libere de mas, deje active/available inconsistentes o permita dos terminales? (b) el orden conflict/too_early filtra o permite saltarse bloqueo/legado? (c) falta alguna comprobacion en la liberacion posadmision?

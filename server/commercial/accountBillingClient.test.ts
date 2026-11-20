@@ -38,6 +38,46 @@ describe('Account API balance bridge',()=>{
   await expect(client.settle(identityKey,reservationId,'capture',60,{jobId,attemptId})).rejects.toMatchObject({code:'unavailable'});
   expect(request).toHaveBeenCalledWith(expect.objectContaining({data:{identityKey,seconds:60,jobId,attemptId}}));
  });
+ it('sends a partial capture and a release after admission with their exact fields and validates the combinations first (LV-019.B C2a)',async()=>{
+  const jobId='00000000-0000-4000-8000-000000000002',attemptId='00000000-0000-4000-8000-000000000003',evidenceSha256='d'.repeat(64),admission={jobId,attemptId},resolution={kind:'no_speech' as const,evidenceSha256};
+  const request=vi.fn(async({data}:any)=>({data:{reservationId,state:data.capturedSeconds||data.jobId&&!data.resolutionKind?'captured':'released',seconds:data.seconds,settled:true}})),client=new AccountBillingClient(undefined,{request});
+  await expect(client.settle(identityKey,reservationId,'capture',60,admission,{capturedSeconds:25})).resolves.toMatchObject({state:'captured',seconds:60});
+  expect(request).toHaveBeenLastCalledWith(expect.objectContaining({url:expect.stringContaining('/capture'),data:{identityKey,seconds:60,jobId,attemptId,capturedSeconds:25}}));
+  await expect(client.settle(identityKey,reservationId,'release',60,admission,{resolution})).resolves.toMatchObject({state:'released',seconds:60});
+  expect(request).toHaveBeenLastCalledWith(expect.objectContaining({url:expect.stringContaining('/release'),data:{identityKey,seconds:60,jobId,attemptId,resolutionKind:'no_speech',evidenceSha256}}));
+  await client.settle(identityKey,reservationId,'release',60);
+  expect(request).toHaveBeenLastCalledWith(expect.objectContaining({data:{identityKey,seconds:60}}));
+  const calls=request.mock.calls.length;
+  for(const bad of [0,60,61,-1,1.5,'5',null])await expect(client.settle(identityKey,reservationId,'capture',60,admission,{capturedSeconds:bad as number})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.settle(identityKey,reservationId,'release',60,admission,{capturedSeconds:5})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.settle(identityKey,reservationId,'capture',60,admission,{resolution})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.settle(identityKey,reservationId,'release',60,admission)).rejects.toMatchObject({code:'invalid'}); // admission without resolution
+  await expect(client.settle(identityKey,reservationId,'release',60,undefined,{resolution})).rejects.toMatchObject({code:'invalid'}); // resolution without admission
+  await expect(client.settle(identityKey,reservationId,'release',60,admission,{resolution:{kind:'refunded' as 'no_speech',evidenceSha256}})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.settle(identityKey,reservationId,'release',60,admission,{resolution:{kind:'no_speech',evidenceSha256:'bad'}})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.settle(identityKey,reservationId,'release',60,admission,{resolution,extra:1} as never)).rejects.toMatchObject({code:'invalid'});
+  expect(request.mock.calls.length).toBe(calls);
+ });
+ it('builds the settlement body from an explicit whitelist: extra keys on the admission cannot override validated fields',async()=>{
+  const jobId='00000000-0000-4000-8000-000000000002',attemptId='00000000-0000-4000-8000-000000000003',request=vi.fn(async({data}:any)=>({data:{reservationId,state:'captured',seconds:data.seconds}})),client=new AccountBillingClient(undefined,{request});
+  await client.settle(identityKey,reservationId,'capture',60,{jobId,attemptId,seconds:1,capturedSeconds:59,resolutionKind:'no_speech'} as never,{capturedSeconds:25});
+  expect(request).toHaveBeenLastCalledWith(expect.objectContaining({data:{identityKey,seconds:60,jobId,attemptId,capturedSeconds:25}}));
+  await client.settle(identityKey,reservationId,'capture',60,{jobId,attemptId,identityKey:'f'.repeat(64)} as never);
+  expect(request).toHaveBeenLastCalledWith(expect.objectContaining({data:{identityKey,seconds:60,jobId,attemptId}}));
+ });
+ it('maps the too_early refusal to its own code only for a release',async()=>{
+  const early=new AccountBillingClient(undefined,{request:async()=>{throw Object.assign(Error('hidden'),{response:{status:409,data:{error:'too_early'}}});}}),admission={jobId:'00000000-0000-4000-8000-000000000002',attemptId:'00000000-0000-4000-8000-000000000003'};
+  await expect(early.settle(identityKey,reservationId,'capture',60,admission)).rejects.toMatchObject({code:'conflict'});
+  await expect(early.admit(identityKey,reservationId,60,admission.jobId,admission.attemptId,'text-window:0000','gemini-3.8-flash','c'.repeat(64))).rejects.toMatchObject({code:'conflict'});
+  await expect(early.settle(identityKey,reservationId,'release',60)).rejects.toMatchObject({code:'conflict'});
+ });
+ it('maps the too_early refusal separately from a plain conflict',async()=>{
+  const early=new AccountBillingClient(undefined,{request:async()=>{throw Object.assign(Error('hidden'),{response:{status:409,data:{error:'too_early'}}});}}),plain=new AccountBillingClient(undefined,{request:async()=>{throw Object.assign(Error('hidden'),{response:{status:409,data:{error:'conflict'}}});}}),bare=new AccountBillingClient(undefined,{request:async()=>{throw Object.assign(Error('hidden'),{response:{status:409}});}});
+  const args=[identityKey,reservationId,'release',60,{jobId:'00000000-0000-4000-8000-000000000002',attemptId:'00000000-0000-4000-8000-000000000003'},{resolution:{kind:'unknown_expired' as const,evidenceSha256:'d'.repeat(64)}}] as const;
+  await expect(early.settle(...args)).rejects.toMatchObject({code:'too_early'});
+  await expect(plain.settle(...args)).rejects.toMatchObject({code:'conflict'});
+  await expect(bare.settle(...args)).rejects.toMatchObject({code:'conflict'});
+ });
  it('requires an Account hold receipt and does not mistake a different incident for confirmation',async()=>{
   const incidentId='b'.repeat(64),request=vi.fn(async({url}:any)=>({data:url.endsWith('/status')?{blocked:true,recorded:false}:{blocked:true,recorded:true,created:true}})),client=new AccountBillingClient(undefined,{request});
   await expect(client.block(identityKey,'invalid')).rejects.toMatchObject({code:'invalid'});expect(request).not.toHaveBeenCalled();

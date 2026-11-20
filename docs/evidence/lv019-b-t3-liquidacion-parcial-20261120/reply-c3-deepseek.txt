@@ -1,0 +1,15 @@
+Hallazgos sobre el código mostrado (servidor `http.ts` + `accountBillingClient.ts`):
+
+1. ALTA — Cliente, construcción de `body`: `...(admission??{})` se esparce DESPUÉS de `identityKey`/`seconds`, así que cualquier clave extra en `admission` pisa valores ya validados. Entrada: `settle(k,id,'capture',300,{jobId,attemptId,seconds:1})` → se envía `seconds:1` y Cuenta liquida 1 s; un `capturedSeconds`/`resolutionKind` colado cambia la semántica o provoca 400. La validación previa no protege porque valida el argumento, no el cuerpo final. Corrección: construir con whitelist `{jobId:admission.jobId, attemptId:admission.attemptId}`.
+
+2. MEDIA — Cliente, 409: el mapeo no se restringe a la liberación `unknown_expired`. Cualquier 409 con `{error:'too_early'}` (de `capture`/`admit`, o de un intermediario) se convierte en `AccountBillingFault('too_early')`. Corrección: condicionar a `action==='release'`/reserva correspondiente, o exigir un código/estado inequívoco de Cuenta.
+
+3. MEDIA — Cliente, liberación sin reclamo: `settle(...,'release',seconds)` sin `admission` envía `{identityKey,seconds}`, que Cuenta interpreta como liberación plana; si Video quería la liberación tras admisión, no hay error y el reclamo no se registra. Corrección: exigir `resolution` en la ruta post-admisión (o método/flag separado).
+
+4. BAJA — `http.ts`: si `json()` puede devolver `null`, array o escalar (solo filtra claves), `b.identityKey` lanza TypeError → 500 en vez de 400. Corrección: validar `b` objeto no nulo antes de leer campos.
+
+5. BAJA — Anclaje de regex dispar: el servidor usa `(?![\s\S])`; si el `hex64` del cliente es `$`, un `\n` final pasa el cliente y Cuenta responde 400. Corrección: patrón estricto compartido.
+
+Nota (a): con `json` estricto, tipos/null/arrays y reclamos parciales quedan cubiertos; no hallé hueco en el servidor.
+
+RESULTADO: FALLA

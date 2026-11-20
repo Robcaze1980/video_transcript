@@ -1,0 +1,17 @@
+**Hallazgos**
+
+1. ALTA — `partial` no se valida. `kept=partial as number` acepta K=0, K<0, K>N o K===seconds. Entrada `capture partial=0` → reserva `captured` con `capturedSeconds:0`, `releasedSeconds:N`, `partialSettlement:true` (contrato exige 1<=K<N). Entrada `partial=-100` → `available` sube N+100 (libera de más) y el invariant pasa porque `returned+kept=seconds` mantiene la identidad. Corregir: exigir `Number.isSafeInteger(partial) && partial>=1 && partial<seconds`, si no `conflict`.
+
+2. ALTA — `admitted:previous!==null` contradice el guard. El guard usa truthiness (`&&previous`), luego `previous` puede ser `undefined`; `undefined!==null` es `true`. Entrada `release` sin admisión almacenada → responde `admitted:true` cuando debe ser `false`. Usar el mismo predicado del guard.
+
+3. MEDIA — release sin admisión almacenada no exige `resolution`: el bloque `if(previous)` la salta y `...(resolution?{resolution}:{})` la omite. Entrada `release` sin resolution → reserva `released` sin resolution (contrato: resolution viaja siempre). Exigir `resolution.kind` válido y `evidenceSha256` hex64 en ambos caminos.
+
+4. MEDIA — `unknown_expired` evade la edad mínima cuando no hay admisión almacenada: el chequeo está dentro de `if(previous)`. Entrada `release` con admisión suministrada fresca + `unknown_expired` → acepta sin esperar 15 min. Validar edad contra la admisión suministrada.
+
+5. BAJA — `capture` con `resolution` no se rechaza (se ignora); contrato: capture no admite resolution → `conflict`.
+
+6. BAJA — Orden: `capturedWith!==undefined` → invariant antes de `blocked`; cuenta bloqueada con `capturedWith` devuelve `invariant` en vez de `conflict`.
+
+Las preguntas (a)/(b)/(c): no hay doble terminal (`state!=='reserved'` lo corta) ni se salta el legado; el hueco real es (1) y la ausencia de validación de resolution/edad (3,4).
+
+RESULTADO: FALLA
