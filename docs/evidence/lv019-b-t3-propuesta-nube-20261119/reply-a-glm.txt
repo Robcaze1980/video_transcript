@@ -1,0 +1,10 @@
+**Hallazgos**
+
+- **P1, recomendación 1C — bloquea.** Ejecutar código probado solo con emuladores contra Firestore real, escribiendo en dos colecciones desde credenciales del dueño, es prematuro: falta paso de validación contra el proyecto real antes de escribir, y el bloque "Riesgos" solo cubre cambio de imagen, no escrituras en producción.
+- **P1, contradicción — no bloquea.** «Alertas durables» frente a 1C manual: si la máquina local está apagada, no hay barrido ni alertas. Debe declararse esa limitación.
+- **Costos, Scheduler — no bloquea.** «0,10 USD cada 31 días» y «un pausado cuenta» se presentan con fuente vía buscador; el trato facturado de planificadores pausados debe confirmarse en la documentación oficial antes de citarlo como hecho.
+- **Costos, Firestore — no bloquea.** «Unas 3.200 al día» solo aplica con cadencia de 5 minutos (1A/1B); en 1C manual la proyección no aplica. El conteo «10 consultas por estado» es supuesto de diseño, no verificado.
+- **Lectura de autorización — no bloquea.** «Recomendación: 1C para medir, luego 1A» podría leerse como secuencia preaprobada; el propio documento exige aprobar cada cambio de nube por separado, lo que mitiga.
+- **Riesgos faltantes — no bloquea.** Sin identidad/principio de menor privilegio del barrido ni política de retención/borrado de las colecciones de alertas.
+
+RESULTADO: FALLA

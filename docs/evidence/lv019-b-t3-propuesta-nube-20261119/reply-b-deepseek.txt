@@ -1,0 +1,12 @@
+**Hallazgos resueltos**
+1. Autorización implícita — Encabezado y P0/P1: ya separa documento de aprobación y declara P0 no concedido. No bloquea.
+2. 1C cerca de escritura — P1: dividido en reporte (lectura) y alertas con aprobación aparte. No bloquea.
+3. Costos — sección Costos: ahora son tarifas publicadas y lecturas contadas, sin presentarlas como costo medido. No bloquea.
+4. Riesgos — lista añadida: identidad/cuota, retención, limitador, túnel, correo, frío. No bloquea.
+
+**Problemas nuevos**
+5. Recomendación: propone no programar nunca el modo `audit`, pero los hechos dicen que el modo que mueve saldo es `billing`; `audit` no consta. Queda sin cubrir el modo peligroso real. BLOQUEA.
+6. Costos: "3.200 al día" sale de 11×288=3.168; el redondeo es correcto, pero "10 consultas por estado" no está verificado contra el código. No bloquea; aclarar.
+7. P1/1B: "puede no ser posible" está bien planteado, pero la cuota alcanzada el 13 nov se menciona sin fecha ni margen. No bloquea.
+
+RESULTADO: FALLA

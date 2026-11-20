@@ -1,0 +1,12 @@
+**Hallazgos**
+- `Costos`, cifras Scheduler ("3 gratis, 0,10 USD/31 días"): se presentan como hecho con fuente vaga ("página oficial vía buscador") y contradicen "ninguna cifra en dólares". Bloquea el gate de costo.
+- `P1/1C "para medir"`: medir en local con emuladores no produce datos reales de costo ni de comportamiento cloud. Supuesto falso. Bloquea parcialmente.
+- `P0 "sin cambiar nada"` + `Decisiones: permitir P0`: leer el proyecto real exige credenciales y ya es acceso a producción; y la autorización aparece listada como decidida sin que el dueño la haya dado. Bloquea.
+- `P0 "un pausado cuenta"` y `cuántos planificadores hay`: afirmación no verificada presentada como hecho. No bloquea.
+- `1A/1B "con su propio planificador"`: se redacta como ejecución, no como propuesta sujeta a aprobación; solo P0 dice "pide permiso". Riesgo de leerse como autorización. Bloquea.
+- `P3/3B "túnel autenticado, limitador por proceso"`: limitador por proceso es ineficaz con min 0/escalado, y exponer el servicio interno cambia la postura de red. Falta ese riesgo. Bloquea.
+- `"El modo audit nunca se programa"`: decisión de alcance no confirmada por el dueño. No bloquea.
+- `"escrituras solo en dos colecciones nuevas"` e índices: verificado solo en emulador. No bloquea.
+- Faltan: entrega real del correo, autorización por operador y auditoría de sus acciones, y cold start/min 0.
+
+RESULTADO: FALLA

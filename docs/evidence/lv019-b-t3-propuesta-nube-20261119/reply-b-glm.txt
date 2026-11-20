@@ -1,0 +1,14 @@
+**Ronda 2 — verificación**
+
+- 1C: ahora inicia solo con lectura; escrituras requieren aprobación aparte y comprobación previa. Resuelto; no bloquea.
+- Redacción: el encabezado desautoriza ejecución, marca P0 como acceso a producción no concedido y declara todo como propuesta sin opciones preaprobadas. Resuelto; no bloquea.
+- Costos: distingue tarifas publicadas de costos medidos, marca los de Google como no medidos y exige confirmar la fuente de Scheduler. Las cifras de lecturas son cálculos declarados, no invenciones. Resuelto; no bloquea.
+- Riesgos: cubre identidad y cuota de cuentas de servicio, retención, limitador inefectivo con min 0, postura de red, entrega de correo y arranque en frío. Resuelto; no bloquea.
+
+**Observaciones menores (no bloquean)**
+- La cifra "unas 11 lecturas por ejecución" depende de supuestos de conteo del código; conviene verificarla contra la implementación si se decide pasar a P0/1C.
+- La tarifa de Scheduler citada debe confirmarse en la página oficial antes de cualquier decisión, como el propio texto indica.
+
+No detecto supuestos presentados como hecho, autorización implícita ni cifras inventadas.
+
+RESULTADO: PASS

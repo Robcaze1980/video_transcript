@@ -1,0 +1,15 @@
+Responde SOLO con texto, sin herramientas. Maximo 220 palabras.
+Revisa esta PROPUESTA (un documento, sin codigo ni cambios de nube) para llevar a la nube un barrido de conciliacion de saldo (solo lectura de filas + alertas durables) y un endpoint de operador. Busca: supuestos falsos o no verificados presentados como hechos, recomendaciones inseguras o prematuras, riesgos que falten, cualquier frase que pueda leerse como autorizacion para cambiar la nube, y cifras inventadas. Por hallazgo: lugar, motivo y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+Contexto verificado en el repositorio: existe un servicio privado de mantenimiento (Cloud Run, min 0, sin invocadores publicos) con ruta POST /internal/maintenance que drena archivos e IA; un planificador de 5 minutos con token OIDC se creo PAUSADO y su estado vivo no se ha comprobado; el modo `billing` (mueve saldo) existe como ejecucion puntual y nadie lo programa; costos de Google no medidos. Lo implementado (reporte, alertas, resolucion auditada, endpoint) solo corre en local con emuladores.
+
+Propuesta:
+- P0 (opcional, pide permiso): lecturas en el proyecto real sin cambiar nada (planificador, servicios, indices, cuantos planificadores hay en la cuenta).
+- P1 ejecutar el barrido: 1A ruta nueva /internal/pending-sweep en el servicio de mantenimiento con su propio planificador; 1B trabajo de Cloud Run nuevo con su planificador; 1C nada en la nube, ejecucion manual local con credenciales del dueño. Recomendacion: 1C para medir, luego 1A. El modo `audit` (escanea colecciones enteras) nunca se programa.
+- P2 alerta a una persona: 2A solo registro; 2B metrica por registros + politica de Monitoring con correo (por verificar en la documentacion); 2C correo directo con proveedor externo (no recomendado).
+- P3 operador: 3A herramienta local; 3B endpoint en servicio interno por tunel autenticado, limitador por proceso; 3C Hosting publico fuera de alcance.
+- P4 programar `billing` queda fuera, con sus propios gates.
+- Costos: Scheduler 3 trabajos gratis por cuenta y 0,10 USD por trabajo cada 31 dias (un pausado cuenta; fuente: pagina oficial via buscador); Firestore: 10 consultas por estado + 1 de alertas = unas 11 lecturas minimas por ejecucion (unas 3.200 al dia a 5 minutos), precios NO verificados; Cloud Run y Monitoring NO verificados; ninguna cifra en dolares.
+- Riesgos: cambiar la imagen del servicio de mantenimiento (ruta separada y apagada, ensayo en seco, reversion); escrituras solo en dos colecciones nuevas; indices por igualdad + orden por id de documento sin verificar contra el proyecto real.
+- Decisiones del dueño: permitir P0; cadencia (valido empezar a mano); canal y destinatario; lista de operadores (por defecto solo el dueño); aprobar cada cambio de nube por separado.
