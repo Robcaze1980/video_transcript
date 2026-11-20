@@ -1,0 +1,101 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Ronda 2 de revision de una FACHADA DE SOLO LECTURA sobre la raiz de Firestore (se usara con credenciales con permiso de escritura contra un proyecto REAL). La ronda 1 dio FALLA. Cambios: `data()` devuelve copia congelada de SEIS campos escalares (lo no escalar pasa a '[object]'); `where` solo igualdad sobre `state` con los estados de los lectores; `startAfter` exige cursor de la MISMA coleccion; `maxDocs` limita cada consulta ANTES de ejecutarla (presupuesto restante mas uno). La raiz es el DOCUMENTO del espacio candidato: `collection(nombre)` abre sus subcolecciones, como se pretende. Verifica si los hallazgos quedaron resueltos y busca fallos NUEVOS reales (escritura, otra coleccion, referencia o dato fuera de los seis campos, valores en el diario, mutacion); por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```typescript
+import {PENDING_SOURCES} from './billingPendingReport';
+
+export const READABLE_COLLECTIONS:readonly string[]=Object.freeze(['billingIntents','billingIntentTerminalRecovery','billingHoldOutbox','billingOutbox','jobs']);
+const COLLECTIONS=new Set(READABLE_COLLECTIONS),SELECTABLE=new Set(['state','nextAttemptAt']);
+/** The only states the readers filter by (listed non-terminal states of the pending sources). */
+const STATES=new Set(PENDING_SOURCES.flatMap(source=>source.states));
+const EXPOSED=['state','createdAtMs','nextAttemptAt','attempts','lastErrorCode','accountId'] as const;
+
+export interface ReadOnlyDoc{readonly id:string;data():Readonly<Record<string,unknown>>|undefined}
+export interface ReadOnlyQuery{
+  where(field:'state',op:'==',value:string):ReadOnlyQuery;
+  orderBy(field:'__name__'):ReadOnlyQuery;
+  select(...fields:Array<'state'|'nextAttemptAt'>):ReadOnlyQuery;
+  limit(n:number):ReadOnlyQuery;
+  startAfter(cursor:ReadOnlyDoc):ReadOnlyQuery;
+  get():Promise<{readonly docs:readonly ReadOnlyDoc[]}>;
+  count():Promise<number>;
+}
+export interface ReadOnlyRoot{collection(name:string):ReadOnlyQuery}
+export interface ReadOnlyOptions{journal?:(entry:{collection:string;op:'get'|'count';filters:number;docs:number})=>void;maxDocs?:number}
+
+type RawSnap={id:string;data():Record<string,unknown>|undefined};
+type RawQuery={where(...a:unknown[]):RawQuery;orderBy(...a:unknown[]):RawQuery;select(...a:unknown[]):RawQuery;limit(n:number):RawQuery;startAfter(c:unknown):RawQuery;get():Promise<{docs:RawSnap[]}>;count?:()=>{get():Promise<{data():{count:number}}>}};
+
+/** Frozen copy of the exposed scalar fields only. */
+function project(data:Record<string,unknown>|undefined):Readonly<Record<string,unknown>>|undefined{
+  if(data===undefined||data===null||typeof data!=='object')return undefined;
+  const out:Record<string,unknown>={};
+  for(const key of EXPOSED){
+    if(!Object.prototype.hasOwnProperty.call(data,key))continue;
+    const value=data[key];
+    if(value===null||typeof value==='string'||typeof value==='number'||typeof value==='boolean')out[key]=value;
+    else if(key!=='state')out[key]='[object]'; // present, but not a usable scalar
+  }
+  return Object.freeze(out);
+}
+
+export function readOnlyRoot(root:DocumentReference,options:ReadOnlyOptions={}):ReadOnlyRoot{
+  if(options.maxDocs!==undefined&&(!Number.isSafeInteger(options.maxDocs)||options.maxDocs<1))throw new RangeError('invalid maxDocs');
+  const raw=new WeakMap<object,{snap:RawSnap;collection:string}>();let read=0;
+  // `docs` is informational; only documents actually read (`reads`) count against the cap. A count() aggregation reads none.
+  const account=(collection:string,op:'get'|'count',filters:number,docs:number,reads:number)=>{
+    read+=reads;options.journal?.({collection,op,filters,docs});
+    if(options.maxDocs!==undefined&&read>options.maxDocs)throw new Error('maximum documents exceeded');
+  };
+  const wrapDoc=(collection:string,snap:RawSnap):ReadOnlyDoc=>{
+    const data=project(snap.data());
+    const doc=Object.freeze({id:snap.id,data:()=>data});raw.set(doc,{snap,collection});return doc;
+  };
+  const wrap=(collection:string,query:RawQuery,filters:number,lim:number|undefined):ReadOnlyQuery=>Object.freeze({
+    where(field:string,op:'==',value:string){
+      if(op!=='==')throw new TypeError('where: equality only');
+      if(field!=='state')throw new TypeError('where: invalid field');
+      if(typeof value!=='string'||!STATES.has(value))throw new TypeError('where: invalid value');
+      return wrap(collection,query.where(field,'==',value),filters+1,lim);
+    },
+    orderBy(...args:unknown[]){
+      if(args.length!==1||args[0]!=='__name__')throw new TypeError('orderBy: only the document id, ascending');
+      return wrap(collection,query.orderBy('__name__'),filters,lim);
+    },
+    select(...fields:unknown[]){
+      if(fields.length<1||fields.length>SELECTABLE.size||new Set(fields).size!==fields.length||!fields.every(f=>typeof f==='string'&&SELECTABLE.has(f)))throw new TypeError('select: only state and nextAttemptAt');
+      return wrap(collection,query.select(...fields),filters,lim);
+    },
+    limit(n:number){
+      if(typeof n!=='number'||!Number.isSafeInteger(n)||n<1||n>1000)throw new RangeError('limit: invalid');
+      return wrap(collection,query,filters,n);
+    },
+    startAfter(cursor:ReadOnlyDoc){
+      const entry=typeof cursor==='object'&&cursor!==null?raw.get(cursor):undefined;
+      if(!entry||entry.collection!==collection)throw new TypeError('startAfter: not a cursor returned by this facade for this collection');
+      return wrap(collection,query.startAfter(entry.snap),filters,lim);
+    },
+    async get(){
+      // Limit BEFORE running: never more than what is left of the budget plus one (the extra document proves the cap was exceeded).
+      const budget=options.maxDocs===undefined?Infinity:Math.max(0,options.maxDocs-read)+1;
+      const effective=Math.min(lim??Infinity,budget);
+      const page=await (Number.isFinite(effective)?query.limit(effective):query).get();
+      account(collection,'get',filters,page.docs.length,page.docs.length);
+      return Object.freeze({docs:Object.freeze(page.docs.map(snap=>wrapDoc(collection,snap)))});
+    },
+    async count(){
+      if(typeof query.count!=='function')throw new TypeError('count: not supported by this query');
+      const n=(await query.count().get()).data().count;
+      account(collection,'count',filters,n,0);
+      return n;
+    },
+  });
+  return Object.freeze({
+    collection(name:string){
+      if(typeof name!=='string'||!COLLECTIONS.has(name))throw new TypeError('collection not readable');
+      return wrap(name,root.collection(name) as unknown as RawQuery,0,undefined);
+    },
+  });
+}
+```

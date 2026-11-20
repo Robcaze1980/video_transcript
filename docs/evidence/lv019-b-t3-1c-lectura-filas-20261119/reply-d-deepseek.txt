@@ -1,0 +1,10 @@
+**Hallazgos**
+
+- Declaraciones duplicadas: `const KNOWN`, `const failureCode`, `let db` y `const journal` aparecen dos veces en el mismo ámbito (top-level) → `SyntaxError` al parsear; el script no llega a ejecutarse. Bloquea (salvo que sea artefacto del recorte).
+- `--root` con `--target real`: se acepta y se ignora en silencio (siempre `REAL_ROOT`); el llamante cree apuntar a otra raíz y no hay rechazo ni contraste. No bloquea, pero el alcance queda mal declarado.
+- Emulador sin validación de raíz: el marcador `root document is not the expected candidate namespace` solo corre en real, así que contra el emulador se puede leer cualquier `collection/doc`. No bloquea (demo-*), rompe el límite de raíz.
+- `--out` solo exige acabar en `.json`: puede sobrescribir `application_default_credentials.json` (la credencial aislada) o cualquier JSON del repo; el rótulo «no writes» es falso a nivel de sistema de archivos. No bloquea.
+- `finally` usa `db?.terminate()`; si `terminate` no existe (modo REST) el throw se traga y los recursos quedan abiertos. No bloquea.
+- Correcto: todo dentro del `try`, códigos de error fijos, `LOCALAPPDATA` + archivo aislado, rechazo de `GOOGLE_APPLICATION_CREDENTIALS` y comprobación de `x-goog-user-project`.
+
+RESULTADO: FALLA

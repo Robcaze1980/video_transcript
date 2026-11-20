@@ -1,0 +1,157 @@
+{
+  "target": "real",
+  "project": "vistavo-prod",
+  "root": "vistavo/candidate-v1",
+  "mode": "READ-ONLY, counts only, no writes",
+  "maxDocs": 200000,
+  "reads": {
+    "billingIntents": {
+      "queries": 4,
+      "documents": 0,
+      "countAggregations": 1
+    },
+    "billingIntentTerminalRecovery": {
+      "queries": 1,
+      "documents": 0,
+      "countAggregations": 1
+    },
+    "billingHoldOutbox": {
+      "queries": 3,
+      "documents": 0,
+      "countAggregations": 1
+    },
+    "billingOutbox": {
+      "queries": 4,
+      "documents": 0,
+      "countAggregations": 1
+    },
+    "jobs": {
+      "queries": 1,
+      "documents": 0,
+      "countAggregations": 1
+    }
+  },
+  "counts": {
+    "generatedAtMs": 1795151029794,
+    "sizes": {
+      "billingIntents": 0,
+      "billingIntentTerminalRecovery": 0,
+      "billingHoldOutbox": 0,
+      "billingOutbox": 0,
+      "jobs": 11
+    },
+    "report": {
+      "total": 0,
+      "byKind": {
+        "intent": {
+          "total": 0,
+          "byState": {},
+          "needsReview": 0,
+          "malformed": 0,
+          "unknownAge": 0,
+          "oldestAgeMs": null
+        },
+        "terminal_recovery": {
+          "total": 0,
+          "byState": {},
+          "needsReview": 0,
+          "malformed": 0,
+          "unknownAge": 0,
+          "oldestAgeMs": null
+        },
+        "hold": {
+          "total": 0,
+          "byState": {},
+          "needsReview": 0,
+          "malformed": 0,
+          "unknownAge": 0,
+          "oldestAgeMs": null
+        },
+        "outbox": {
+          "total": 0,
+          "byState": {},
+          "needsReview": 0,
+          "malformed": 0,
+          "unknownAge": 0,
+          "oldestAgeMs": null
+        },
+        "job_unknown": {
+          "total": 0,
+          "byState": {},
+          "needsReview": 0,
+          "malformed": 0,
+          "unknownAge": 0,
+          "oldestAgeMs": null
+        }
+      },
+      "oldestAgeMs": null,
+      "byLastErrorCode": {}
+    },
+    "inventory": {
+      "generatedAtMs": 1795151029794,
+      "collections": [
+        {
+          "collection": "billingIntents",
+          "scanned": 0,
+          "noState": 0,
+          "otherStates": 0,
+          "selectable": {
+            "reserve_pending": {
+              "due": 0,
+              "future": 0,
+              "missing": 0,
+              "invalid": 0,
+              "nonNumeric": 0
+            },
+            "release_pending": {
+              "due": 0,
+              "future": 0,
+              "missing": 0,
+              "invalid": 0,
+              "nonNumeric": 0
+            }
+          }
+        },
+        {
+          "collection": "billingOutbox",
+          "scanned": 0,
+          "noState": 0,
+          "otherStates": 0,
+          "selectable": {
+            "pending": {
+              "due": 0,
+              "future": 0,
+              "missing": 0,
+              "invalid": 0,
+              "nonNumeric": 0
+            },
+            "retry_wait": {
+              "due": 0,
+              "future": 0,
+              "missing": 0,
+              "invalid": 0,
+              "nonNumeric": 0
+            }
+          }
+        },
+        {
+          "collection": "billingHoldOutbox",
+          "scanned": 0,
+          "noState": 0,
+          "otherStates": 0,
+          "selectable": {
+            "pending": {
+              "due": 0,
+              "future": 0,
+              "missing": 0,
+              "invalid": 0,
+              "nonNumeric": 0
+            }
+          }
+        }
+      ],
+      "maxFuturePerState": 0,
+      "neverSelectedAtLeast": 0
+    }
+  }
+}

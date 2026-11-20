@@ -1,0 +1,17 @@
+**Revisión ronda 2 (fragmento visible):**
+
+Resuelto en lo que se muestra:
+- `startAfter` valida que el cursor sea un objeto registrado en `raw` y que `entry.collection` coincida con la colección consultada; descarta cursores de otra colección.
+- `get()` aplica el presupuesto **antes** de ejecutar: `maxDocs - read + 1`, con `limit(effective)`, evitando lecturas excesivas.
+- `collection()` valida contra la lista blanca congelada; la raíz y los resultados llevan `Object.freeze`.
+
+No verificable en el fragmento (falta la implementación de `wrap`, `wrapDoc`, `where`, `select`, `orderBy`, `limit` y `account`):
+- Que `data()` exponga solo los seis campos escalares y convierta lo no escalar a `'[object]'` con copia congelada.
+- Que `where` acepte únicamente igualdad sobre `state` con valores de `STATES`.
+- Que `select` restrinja a `SELECTABLE` y que `orderBy` solo admita `__name__`.
+- Que el diario reciba solo conteos (colección, op, filters, docs) y ninguna referencia o dato crudo.
+- Mutabilidad de `ReadOnlyDoc` envuelto y protección de `id`.
+
+Los hallazgos críticos de la ronda 1 dependen justo del código omitido; con este extracto no puedo confirmarlos ni descartar fallos nuevos allí.
+
+RESULTADO: INCONCLUYENTE

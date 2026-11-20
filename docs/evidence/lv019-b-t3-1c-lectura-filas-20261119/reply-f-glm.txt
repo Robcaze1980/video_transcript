@@ -1,0 +1,21 @@
+**Análisis de fallos reales:**
+
+1. **`summarizeQueues`, `readOnlyRoot`, `path`, `existsSync`, `writeFileSync`, `GoogleAuth`, `Firestore` sin import (contexto)** — El enunciado aclara que va completo; no es hallazgo.
+
+2. **`root.get()` no cuenta contra `maxDocs` ni contra `journal`** — Lugar: bloque `real`, lectura del documento raíz. Escenario: la lectura del marcador no pasa por la fachada `readOnlyRoot`, así que no registra en el diario ni en el límite. Impacto: solo recuento, un documento extra no auditado; no bloquea el objetivo de solo-lectura. **No bloquea.**
+
+3. **`if(documents>maxDocs)` es inalcanzable con `readonlyRoot` correcto** — Lugar: defensa post-hoc. Escenario: si la fachada ya trunca en `maxDocs`, `documents` nunca lo supera. Es redundante, no un fallo. **No bloquea.**
+
+4. **`client.quotaProjectId=REAL_PROJECT` puede no persistir si `getClient()` devuelve un cliente reutilizado en caché por `GoogleAuth`** — Lugar: `real`. Escenario: si `googleAuth.getRequestHeaders` es la fuente real de la cabecera (que sí se verifica), el fallo se detecta. **No bloquea** (la verificación posterior lo cubre).
+
+5. **`writeFileSync(out,...)` solo se ejecuta tras pasar todas las validaciones** — Si falla alguna, `out` nunca se crea. Correcto.
+
+6. **Emulador: `root=db.doc(rootPath)` con `rootPath` validado solo por regex de 2 segmentos** — El emulador es `demo-*` en loopback; bajo `readOnlyRoot` con límite. Sin riesgo real.
+
+7. **`db?.terminate()` en `finally`** — Si `db` nunca se asignó (fallo temprano), es `undefined`, el `?.` lo salta. Correcto.
+
+8. **`journal` solo se llena vía callback de `readOnlyRoot`** — Si `summarizeQueues` lanza antes de que el callback complete, el diario queda parcial y no se escribe salida. Correcto (no se escribe).
+
+**Conclusión:** No se identifican fallos que escriban, filten datos, salten el límite o dejen recursos abiertos. Las validaciones previas son correctas y el flujo de errores preserva el contrato de solo-lectura.
+
+RESULTADO: PASS

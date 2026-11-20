@@ -1,0 +1,11 @@
+**Fallos reales detectados (ninguno bloquea el uso normal)**
+
+- `out`: `existsSync(out)` + `writeFileSync` con flag por defecto `w`, no `wx`. Lugar: guarda de salida. Escenario: el archivo aparece entre comprobación y escritura (enlace duro, nombre 8.3, otro proceso) → se trunca y reemplaza, incumpliendo «nunca reemplazar un archivo existente». No bloquea, pero el invariante no es atómico; usar `{flag:'wx'}`.
+- `--max-docs`: sin tope superior. Escenario: `--max-docs 1000000000` eleva el límite que protege al proyecto real; se salta el límite de coste/dosis (no la lectura). No bloquea.
+- Emulador: el regex `\d{2,5}` acepta puertos >65535 → solo fallo de conexión. No bloquea.
+- El `root.get()` del marcador queda fuera del contador `maxDocs` (total ≤ maxDocs+1). No bloquea.
+- `db?.terminate()` en `finally`: recursos liberados correctamente.
+
+**Inconcluyente**: `readOnlyRoot` y `summarizeQueues` están omitidas; si algún campo de `counts`/`journal` derivara de contenido documental, podría filtrar valores. El resto solo emite agregados, proyecto y raíz fijos; no hay ruta a otro proyecto ni escritura.
+
+RESULTADO: PASS

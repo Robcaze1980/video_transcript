@@ -1,0 +1,11 @@
+Reviso solo el código dado (ronda 2). Hallazgos:
+
+1. `project()`: si `state` es no escalar no se emite nada (`else if(key!=='state')`), así que el documento aparece sin `state` sin marca '[object]'. Inconsistente con el resto; no bloquea (no hay escritura).
+2. `'[object]'` colisiona con un string legítimo: un lector no puede distinguir "campo presente pero no escalar" de un valor real. Riesgo de mala interpretación; no bloquea.
+3. `count()` pasa `reads=0`, por lo que nunca consume presupuesto `maxDocs`: con `maxDocs` definido se pueden ejecutar counts ilimitados. El diario los registra, pero el tope solo cubre lecturas de documentos; es ambiguo, no bloquea.
+4. `startAfter` valida solo el *nombre* de colección, no la instancia/raíz: cursores de dos fachadas sobre la misma colección con raíces distintas son intercambiables. Con una sola raíz no es real.
+5. Revisado y resuelto: `data()` copia congelada y `wrapDoc` no expone `snap` (solo `WeakMap`); no hay `.set/update/delete` ni `doc()` alcanzables; `where/orderBy/select/limit` revalidan y devuelven wrappers congelados; `get()` limita antes con presupuesto+1. Sin superficie de escritura.
+
+Ninguno bloquea. Los puntos 1–3 son defectos reales menores; no veo escritura, otra colección ni mutación.
+
+RESULTADO: PASS

@@ -1,0 +1,32 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa este script Node: ejecutor de SOLO LECTURA contra un proyecto REAL de Google Cloud, autorizado por el dueño: leer filas de colas de saldo y devolver SOLO recuentos (sin ids, cuentas ni valores por fila), SIN escribir nada. El lector recibe unicamente `readOnlyRoot(root,…)` (fachada ya revisada aparte: lista fija de colecciones, solo lecturas). Garantias: el objetivo real solo es el proyecto `vistavo-prod` y la raiz `vistavo/candidate-v1`, comprobada por su documento marcador (solo booleanos); se niega a ejecutar si hay variables de emulador o de credenciales por archivo; limite de documentos leidos; la salida es un JSON con recuentos y el numero de lecturas por coleccion. Busca fallos REALES (apuntar a otro proyecto o raiz, escribir, filtrar datos en la salida o en errores, saltarse el limite, dejar recursos abiertos); por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```javascript
+const REAL_PROJECT='vistavo-prod',REAL_ROOT='vistavo/candidate-v1',DEFAULT_MAX_DOCS=200000;
+let db,root,projectLabel,rootLabel;
+if(target==='real'){
+  for(const key of ['FIRESTORE_EMULATOR_HOST','FIREBASE_AUTH_EMULATOR_HOST','STORAGE_EMULATOR_HOST','GOOGLE_APPLICATION_CREDENTIALS'])if(process.env[key]!==undefined)refuse('unexpected variable set: '+key);
+  const credentialPath=path.join(process.env.LOCALAPPDATA??'','LinguistVision/gcloud/application_default_credentials.json');
+  const googleAuth=new GoogleAuth({keyFilename:credentialPath,projectId:REAL_PROJECT,scopes:['https://www.googleapis.com/auth/cloud-platform']});
+  const client=await googleAuth.getClient();client.quotaProjectId=REAL_PROJECT; // the owner's isolated ADC, as the rest of the project's tooling
+  db=new Firestore({projectId:REAL_PROJECT,auth:googleAuth,preferRest:true});root=db.doc(REAL_ROOT);projectLabel=REAL_PROJECT;rootLabel=REAL_ROOT;
+  // Boundary: the root must be the known candidate namespace. Only booleans are kept from this one root-document read.
+  const marker=(await root.get()).data();
+  const markerOk=marker?.schemaVersion===2&&marker?.service==='vistavo'&&marker?.environment==='candidate'&&marker?.storageProtocol==='immutable-chunks-v1';
+  if(!markerOk){await db.terminate();refuse('the root document is not the expected candidate namespace');}
+}
+// (the emulator branch is omitted)
+
+const journal=[];
+try{
+  const counts=await summarizeQueues(readOnlyRoot(root,{maxDocs,journal:e=>journal.push(e)}),Date.now());
+  const reads={};
+  for(const e of journal){const r=reads[e.collection]??={queries:0,documents:0,countAggregations:0};if(e.op==='count')r.countAggregations++;else{r.queries++;r.documents+=e.docs;}}
+  const result={target,project:projectLabel,root:rootLabel,mode:'READ-ONLY, counts only, no writes',maxDocs,reads,counts};
+  writeFileSync(out,JSON.stringify(result,null,2));
+  console.log(JSON.stringify({ok:true,target,project:projectLabel,sizes:counts.sizes,pending:counts.report.total,neverSelectedAtLeast:counts.inventory.neverSelectedAtLeast,maxFuturePerState:counts.inventory.maxFuturePerState,reads}));
+}catch(error){
+  console.log(JSON.stringify({ok:false,code:String(error?.message??'error').slice(0,120)}));process.exitCode=1;
+}finally{await db.terminate();}
+```

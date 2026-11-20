@@ -1,0 +1,10 @@
+**Ronda 2: revisión**
+
+- **Bloquea:** declaración duplicada de `KNOWN`, `failureCode`, `db` y `journal` (aparecen dos veces). `const` duplicado = SyntaxError; el script no arranca. Si el extracto repitió un bloque, falta confirmar.
+- **Bloquea:** no se ven importaciones (`path`, `existsSync`, `writeFileSync`, `GoogleAuth`, `Firestore`). Si son literales, todo falla por `ReferenceError`.
+- **No bloquea:** el chequeo del emulador exige puerto de 2–5 dígitos; el puerto 80 quedaría rechazado (solo afecta emulador).
+- **No bloquea:** `x-goog-user-project` se valida antes de leer; correcto. `keyFilename` explícito y rechazo de `GOOGLE_APPLICATION_CREDENTIALS` cierran la fuga de proyecto. La marca del root descarta otro proyecto/raíz. Errores usan códigos fijos sin datos. La escritura local de `out` es el único efecto de E/S y solo contiene recuentos. `finally` cierra `db`.
+
+Pendiente confirmar si la duplicación es real del archivo o artefacto del pegado; con ella literal el script no puede ejecutarse, así que no es verificable.
+
+RESULTADO: FALLA

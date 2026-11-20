@@ -1,0 +1,6 @@
+- `count()`: no consume `maxDocs`. Escenario: `maxDocs=1` y `count()` repetido sobre una subcolección grande; permite coste agregación sin bloqueo. No bloquea la solo-lectura.
+- `get()`: al agotar `maxDocs`, consulta un documento extra antes de fallar. Diseño declarado; no expone datos ni referencias.
+- Falta import/type de `DocumentReference` si el módulo no hereda un global de Firestore; bloquearía compilación, no seguridad.
+- No vi bypass para escribir, abrir colecciones fuera de la lista, obtener `ref`, cruzar cursores entre colecciones ni proyectar campos fuera de `EXPOSED`.
+
+RESULTADO: PASS

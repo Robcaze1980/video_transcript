@@ -1,0 +1,71 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Ronda 2: script Node de SOLO LECTURA contra un proyecto REAL de Google Cloud autorizado por el dueño (solo recuentos, sin escribir). La ronda 1 dio FALLA en parte por un extracto incompleto; ahora va completo (la fachada `readOnlyRoot` y `summarizeQueues` se revisan aparte). Cambios: toda la conexion dentro del `try`; errores como codigo fijo, nunca texto; se exige LOCALAPPDATA y el archivo de credencial aislado; se comprueba `x-goog-user-project`; defensa en profundidad del tope. El `keyFilename` explicito es la credencial aislada del dueño; se rechaza la VARIABLE GOOGLE_APPLICATION_CREDENTIALS. Busca fallos REALES (otro proyecto o raiz, escribir, filtrar datos, saltarse el limite, recursos abiertos); por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```javascript
+const REAL_PROJECT='vistavo-prod',REAL_ROOT='vistavo/candidate-v1',DEFAULT_MAX_DOCS=200000;
+function refuse(message){console.error('REFUSED: '+message);process.exit(2);}
+const args=process.argv.slice(2);let target,out,rootPath,maxDocs=DEFAULT_MAX_DOCS;
+for(let i=0;i<args.length;i++){
+  if(args[i]==='--target')target=args[++i];else if(args[i]==='--out')out=args[++i];else if(args[i]==='--root')rootPath=args[++i];
+  else if(args[i]==='--max-docs')maxDocs=Number(args[++i]);else refuse('unknown argument');
+}
+if(!['real','emulator'].includes(target))refuse('--target real|emulator is required');
+if(!out||!/\.json$/.test(out))refuse('--out <file.json> is required');
+if(!Number.isSafeInteger(maxDocs)||maxDocs<1)refuse('--max-docs must be a positive integer');
+
+// Refusals that need no connection are decided before anything is opened.
+let credentialPath;
+if(target==='real'){
+  for(const key of ['FIRESTORE_EMULATOR_HOST','FIREBASE_AUTH_EMULATOR_HOST','STORAGE_EMULATOR_HOST','GOOGLE_APPLICATION_CREDENTIALS'])if(process.env[key]!==undefined)refuse('unexpected variable set: '+key);
+  if(!process.env.LOCALAPPDATA)refuse('LOCALAPPDATA is required to find the isolated credential');
+  credentialPath=path.join(process.env.LOCALAPPDATA,'LinguistVision','gcloud','application_default_credentials.json');
+  if(!existsSync(credentialPath))refuse('the isolated credential file was not found');
+}else{
+  const host=process.env.FIRESTORE_EMULATOR_HOST,project=process.env.GCLOUD_PROJECT;
+  if(!/^127\.0\.0\.1:\d{2,5}$/.test(host??''))refuse('a loopback Firestore emulator is required');
+  if(!/^demo-[a-z0-9-]+$/.test(project??''))refuse('a demo-* project is required');
+  for(const key of ['GOOGLE_APPLICATION_CREDENTIALS','K_SERVICE'])if(process.env[key]!==undefined)refuse('unexpected variable set: '+key);
+  if(typeof rootPath!=='string'||!/^[A-Za-z0-9_-]{1,100}\/[A-Za-z0-9_-]{1,100}$/.test(rootPath))refuse('--root <collection/doc> is required');
+}
+
+/** Failures are reported as a short fixed code: the text of an error may name documents, paths or values. */
+const KNOWN=new Set(['maximum documents exceeded','invalid clock','root document is not the expected candidate namespace','requests would not be attributed to the project']);
+const failureCode=error=>KNOWN.has(error?.message)?error.message:'read failed ('+(typeof error?.code==='number'||/^[A-Z_]{3,40}$/.test(String(error?.code))?'code '+error.code:String(error?.name??'Error').slice(0,40))+')';
+
+let db;
+const journal=[];
+try{ /* conexion y lectura: ver abajo */ }
+/** Failures are reported as a short fixed code: the text of an error may name documents, paths or values. */
+const KNOWN=new Set(['maximum documents exceeded','invalid clock','root document is not the expected candidate namespace','requests would not be attributed to the project']);
+const failureCode=error=>KNOWN.has(error?.message)?error.message:'read failed ('+(typeof error?.code==='number'||/^[A-Z_]{3,40}$/.test(String(error?.code))?'code '+error.code:String(error?.name??'Error').slice(0,40))+')';
+
+let db;
+const journal=[];
+try{
+  let root,projectLabel,rootLabel;
+  if(target==='real'){
+    const googleAuth=new GoogleAuth({keyFilename:credentialPath,projectId:REAL_PROJECT,scopes:['https://www.googleapis.com/auth/cloud-platform']});
+    const client=await googleAuth.getClient();client.quotaProjectId=REAL_PROJECT;
+    // Requests must be attributed to the Vistavo project (never to another project of this account).
+    if((await googleAuth.getRequestHeaders('https://firestore.googleapis.com')).get('x-goog-user-project')!==REAL_PROJECT)throw new Error('requests would not be attributed to the project');
+    db=new Firestore({projectId:REAL_PROJECT,auth:googleAuth,preferRest:true});root=db.doc(REAL_ROOT);projectLabel=REAL_PROJECT;rootLabel=REAL_ROOT;
+    // Boundary: the root must be the known candidate namespace. Only booleans are kept from this one root-document read.
+    const marker=(await root.get()).data();
+    if(!(marker?.schemaVersion===2&&marker?.service==='vistavo'&&marker?.environment==='candidate'&&marker?.storageProtocol==='immutable-chunks-v1'))throw new Error('root document is not the expected candidate namespace');
+  }else{
+    const project=process.env.GCLOUD_PROJECT;
+    db=new Firestore({projectId:project});root=db.doc(rootPath);projectLabel=project;rootLabel=rootPath;
+  }
+  const counts=await summarizeQueues(readOnlyRoot(root,{maxDocs,journal:e=>journal.push(e)}),Date.now());
+  const reads={};let documents=0;
+  for(const e of journal){const r=reads[e.collection]??={queries:0,documents:0,countAggregations:0};if(e.op==='count')r.countAggregations++;else{r.queries++;r.documents+=e.docs;documents+=e.docs;}}
+  if(documents>maxDocs)throw new Error('maximum documents exceeded'); // defense in depth: the facade already enforces it
+  writeFileSync(out,JSON.stringify({target,project:projectLabel,root:rootLabel,mode:'READ-ONLY, counts only, no writes',maxDocs,reads,counts},null,2));
+  console.log(JSON.stringify({ok:true,target,project:projectLabel,sizes:counts.sizes,pending:counts.report.total,neverSelectedAtLeast:counts.inventory.neverSelectedAtLeast,maxFuturePerState:counts.inventory.maxFuturePerState,reads}));
+}catch(error){
+  console.log(JSON.stringify({ok:false,code:failureCode(error)}));process.exitCode=1;
+}finally{
+  try{await db?.terminate();}catch{/* nothing left to release */}
+}
+```

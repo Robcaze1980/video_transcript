@@ -1,0 +1,13 @@
+FALLA por fuga real.
+
+1. **Referencia de documento / escritura** — `wrapDoc.data()` devuelve `snap.data()` sin sanitizar. Sin `select()`, entrega todo el documento; con `select('state')`, ese campo o un mapa anidado puede contener `DocumentReference`. El consumidor obtiene `.doc().set()/.delete()` reales y escapa al write access. No bloquea.
+
+2. **Mutación de objetos devueltos** — `Object.freeze({id, data})` solo congela la fachada; el objeto de `data()` es mutable, permitiendo alterar el payload visible. No es escritura en Firestore, pero rompe integridad de lo devuelto. No bloquea.
+
+3. **Fuga por campos no controlados** — no valida el contenido de `data()`: referencias, buffers u objetos internos quedan expuestos. No bloquea.
+
+4. **maxDocs no limita lectura real** — `get()` hace `await query.get()` antes de verificar el tope. Si no se usa `limit()`, o se usa uno mayor que el presupuesto, Firestore puede leer miles o todos los documentos y solo después el facade lanza el error. `maxDocs` solo rechaza el resultado, no acota la lectura real. No bloquea.
+
+5. **Cursor cruzado** — `startAfter()` no exige misma colección; puede aceptar un cursor de otra colección permitida. Riesgo menor de orden/paginación. No bloquea el contrato principal.
+
+RESULTADO: FALLA

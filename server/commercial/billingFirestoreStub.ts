@@ -12,6 +12,7 @@ export function stub(initial:Record<string,Record<string,Record<string,unknown>>
     startAfter(s:{id:string}){return query(c,filters,s.id,limit,fields);},
     limit(n:number){return query(c,filters,after,n,fields);},
     select(...f:string[]){return query(c,filters,after,limit,f);},
+    count(){return {get:async()=>{let ids=[...store.keys()].filter(k=>k.startsWith(c+'/')).map(k=>k.slice(c.length+1));ids=ids.filter(id=>filters.every(([f,op,v])=>{const d=store.get(`${c}/${id}`)!;return op==='=='?d[f]===v:Array.isArray(v)&&v.includes(d[f]);}));reads.push(`count:${c}`);return {data:()=>({count:ids.length})};}};},
     async get(){
       let ids=[...store.keys()].filter(k=>k.startsWith(c+'/')).map(k=>k.slice(c.length+1)).sort();
       ids=ids.filter(id=>filters.every(([f,op,v])=>{const d=store.get(`${c}/${id}`)!;return op==='=='?d[f]===v:Array.isArray(v)&&v.includes(d[f]);}));

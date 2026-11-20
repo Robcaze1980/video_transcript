@@ -1,0 +1,19 @@
+Revisión (hallazgos reales, lugar / escenario / ¿bloquea?):
+
+1. **`db` no definido en la rama no-real** (`target!=='real'`): `db` queda `undefined`; `finally { await db.terminate(); }` lanza `TypeError` y sustituye el error real. Además, `projectLabel`/`rootLabel` no se inicializan → fugan `undefined` en la salida. *Escenario:* cualquier `target` distinto de `'real'`. *Bloquea:* sí (falla en runtime).
+
+2. **`marker` puede ser `undefined`** si el documento no existe (`get()` no lanza en Firestore). `marker?.schemaVersion` lo maneja, pero `refuse` tras `db.terminate()` está bien solo si `refuse` hace `process.exit` o throw; si `refuse` lanza y este `try` está fuera (está fuera del `try`), el `finally` cubre `db.terminate()` de nuevo → doble `terminate()` inofensivo. *No bloquea*, pero verificar que `refuse` no intente escribir/leer.
+
+3. **`writeFileSync(out, ...)`**: no se valida `out` ni se asegura que sea ruta de solo escritura local. Si `out` apunta a un recurso compartido/remote, no es "sin escribir nada" en el proyecto (pero sí es local). *No bloquea* si `out` es archivo local controlado.
+
+4. **`counts.sizes`, `counts.report.total`, `counts.inventory.*`** se exponen en consola: asumiendo que `summarizeQueues` devuelve solo recuentos, OK. Pero no se verifica que `counts` no contenga IDs/cuentas por fila — depende de `readOnlyRoot`/`summarizeQueues` (revisados aparte). *Riesgo residual aceptado.*
+
+5. **`maxDocs`**: se pasa a `readOnlyRoot`, pero no se valida que `maxDocs` sea número finito >0. Si `undefined`/`0`, `readOnlyRoot` podría no aplicar límite. *Escenario:* `maxDocs` no definido. *Bloquea:* no (depende de fachada), pero recomendar `if (!Number.isFinite(maxDocs)||maxDocs<1) refuse(...)`.
+
+6. **`console.log` de error**: `String(error?.message).slice(0,120)` — puede filtrar detalles, pero también puede filtrar contenido de datos. Aceptable para recuentos; **no bloquea**.
+
+7. **Recursos**: `db.terminate()` en `finally` cubre éxito y error. Bien. Pero si `target!=='real'` y `db` es `undefined`, lanza (hallazgo 1). Si `refuse` se llama antes de asignar `db` (emulador detectado), `db` es `undefined` → mismo problema. *Bloquea:* sí, runtime.
+
+**Resumen:** El script no arranca en la rama no-real (hallazgo 1) y no valida `maxDocs` (hallazgo 5). Los demás son riesgos menores, no bloqueantes.
+
+RESULTADO: FALLA

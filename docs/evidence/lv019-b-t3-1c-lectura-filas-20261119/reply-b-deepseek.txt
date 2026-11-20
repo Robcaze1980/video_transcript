@@ -1,0 +1,19 @@
+**Hallazgos**
+
+1. `maxDocs` no está definido (solo existe `DEFAULT_MAX_DOCS`); se usa en `summarizeQueues` y en `result` → ReferenceError. **Bloquea**: no se produce ningún recuento.
+
+2. `finally{await db.terminate()}` con `db` sin asignar (rama no-real/emulador omitida) lanza TypeError que oculta el error original. **Bloquea** el diagnóstico.
+
+3. La configuración real (auth, `root.get()`, marcador) queda fuera del `try`: si falla ahí no hay `terminate()` → recurso abierto. **Bloquea** la garantía de no dejar recursos.
+
+4. `process.env.LOCALAPPDATA??''` vacío → ruta relativa al CWD, sin comprobar existencia: puede cargar una credencial arbitraria. **Bloquea** (seguridad).
+
+5. Contradice su propia garantía: usa `keyFilename` (credencial por archivo) mientras afirma rechazarla. **Bloquea** el invariante declarado.
+
+6. `error.message` (120 caracteres) puede incluir rutas de documentos o credenciales → fuga en la salida de error. **Bloquea** "no filtrar datos".
+
+7. No se contrasta el total del `journal` con `maxDocs`: el tope no se verifica, depende solo de la fachada. No bloquea si la fachada es fiable, pero no hay defensa en profundidad.
+
+8. `quotaProjectId` asignado tras `getClient()` puede no aplicarse (menor).
+
+RESULTADO: FALLA

@@ -1,0 +1,78 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa este codigo (TypeScript): una FACHADA DE SOLO LECTURA sobre la raiz de Firestore. Se usara para leer filas de colas de saldo en un proyecto REAL con credenciales del dueño con permisos de escritura; el codigo que recibe la fachada no debe poder escribir, ni leer otras colecciones, ni obtener una referencia a un documento. Contrato: solo `collection(nombre)` de una lista fija; en la consulta solo where(campo,'==',valor), orderBy('__name__'), select('state','nextAttemptAt'), limit(1..1000), startAfter(documento devuelto por la propia fachada), get() y count(); los documentos devueltos tienen solo `id` y `data()`; el diario no contiene valores; `maxDocs` limita los documentos leidos (count no cuenta). Busca formas REALES de saltarse el contrato (escritura, otra coleccion, referencia al documento, prototipo, mutacion de objetos devueltos, valores en el diario) o bugs; por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```typescript
+export const READABLE_COLLECTIONS:readonly string[]=Object.freeze(['billingIntents','billingIntentTerminalRecovery','billingHoldOutbox','billingOutbox','jobs']);
+const COLLECTIONS=new Set(READABLE_COLLECTIONS),FIELD=/^[A-Za-z][A-Za-z0-9_]{0,63}$/,SELECTABLE=new Set(['state','nextAttemptAt']);
+
+export interface ReadOnlyDoc{readonly id:string;data():Record<string,unknown>|undefined}
+export interface ReadOnlyQuery{
+  where(field:string,op:'==',value:string|number|boolean):ReadOnlyQuery;
+  orderBy(field:'__name__'):ReadOnlyQuery;
+  select(...fields:Array<'state'|'nextAttemptAt'>):ReadOnlyQuery;
+  limit(n:number):ReadOnlyQuery;
+  startAfter(cursor:ReadOnlyDoc):ReadOnlyQuery;
+  get():Promise<{readonly docs:readonly ReadOnlyDoc[]}>;
+  count():Promise<number>;
+}
+export interface ReadOnlyRoot{collection(name:string):ReadOnlyQuery}
+export interface ReadOnlyOptions{journal?:(entry:{collection:string;op:'get'|'count';filters:number;docs:number})=>void;maxDocs?:number}
+
+type RawQuery={where(...a:unknown[]):RawQuery;orderBy(...a:unknown[]):RawQuery;select(...a:unknown[]):RawQuery;limit(n:number):RawQuery;startAfter(c:unknown):RawQuery;get():Promise<{docs:Array<{id:string;data():Record<string,unknown>|undefined}>}>;count?:()=>{get():Promise<{data():{count:number}}>}};
+
+export function readOnlyRoot(root:DocumentReference,options:ReadOnlyOptions={}):ReadOnlyRoot{
+  if(options.maxDocs!==undefined&&(!Number.isSafeInteger(options.maxDocs)||options.maxDocs<1))throw new RangeError('invalid maxDocs');
+  const raw=new WeakMap<object,{id:string;data():Record<string,unknown>|undefined}>();let read=0;
+  // `docs` is informational; only documents actually read (`reads`) count against the cap. A count() aggregation reads none.
+  const account=(collection:string,op:'get'|'count',filters:number,docs:number,reads:number)=>{
+    read+=reads;options.journal?.({collection,op,filters,docs});
+    if(options.maxDocs!==undefined&&read>options.maxDocs)throw new Error('maximum documents exceeded');
+  };
+  const wrapDoc=(snap:{id:string;data():Record<string,unknown>|undefined}):ReadOnlyDoc=>{
+    const doc=Object.freeze({id:snap.id,data:()=>snap.data()});raw.set(doc,snap);return doc;
+  };
+  const wrap=(collection:string,query:RawQuery,filters:number):ReadOnlyQuery=>Object.freeze({
+    where(field:string,op:'==',value:string|number|boolean){
+      if(op!=='==')throw new TypeError('where: equality only');
+      if(typeof field!=='string'||!FIELD.test(field))throw new TypeError('where: invalid field');
+      if(typeof value!=='string'&&typeof value!=='number'&&typeof value!=='boolean')throw new TypeError('where: invalid value');
+      return wrap(collection,query.where(field,'==',value),filters+1);
+    },
+    orderBy(...args:unknown[]){
+      if(args.length!==1||args[0]!=='__name__')throw new TypeError('orderBy: only the document id, ascending');
+      return wrap(collection,query.orderBy('__name__'),filters);
+    },
+    select(...fields:unknown[]){
+      if(fields.length<1||fields.length>SELECTABLE.size||new Set(fields).size!==fields.length||!fields.every(f=>typeof f==='string'&&SELECTABLE.has(f)))throw new TypeError('select: only state and nextAttemptAt');
+      return wrap(collection,query.select(...fields),filters);
+    },
+    limit(n:number){
+      if(typeof n!=='number'||!Number.isSafeInteger(n)||n<1||n>1000)throw new RangeError('limit: invalid');
+      return wrap(collection,query.limit(n),filters);
+    },
+    startAfter(cursor:ReadOnlyDoc){
+      const snapshot=typeof cursor==='object'&&cursor!==null?raw.get(cursor):undefined;
+      if(!snapshot)throw new TypeError('startAfter: not a cursor returned by this facade');
+      return wrap(collection,query.startAfter(snapshot),filters);
+    },
+    async get(){
+      const page=await query.get();
+      account(collection,'get',filters,page.docs.length,page.docs.length);
+      return Object.freeze({docs:Object.freeze(page.docs.map(wrapDoc))});
+    },
+    async count(){
+      if(typeof query.count!=='function')throw new TypeError('count: not supported by this query');
+      const n=(await query.count().get()).data().count;
+      account(collection,'count',filters,n,0);
+      return n;
+    },
+  });
+  return Object.freeze({
+    collection(name:string){
+      if(typeof name!=='string'||!COLLECTIONS.has(name))throw new TypeError('collection not readable');
+      return wrap(name,root.collection(name) as unknown as RawQuery,0);
+    },
+  });
+}
+```

@@ -1,0 +1,9 @@
+Hallazgo 1 — `count()` fuera de la cadena y sin límite. Lugar: `wrap().count()`. Escenario: `collection('jobs').limit(5).count()` ignora `limit` (Firestore cuenta todo el conjunto filtrado), no pasa por `chain` (rompe la serialización declarada) y llama `account(...,reads=0)`, saltándose `maxDocs`. Devuelve el total real y filtra cardinalidad. Bloquea: sí.
+
+Hallazgo 2 — `project()` filtra presencia de campos. Lugar: rama `else if(key!=='state')out[key]='[object]'` y omisión de `state` no escalar. Escenario: `data()` revela qué campos EXPOSED existen/están vacíos, permitiendo sondear estructura. Bloquea: no.
+
+Hallazgo 3 — concurrencia. Lugar: `read` mutado en `account`. Escenario: `count()` concurrente no lo altera, pero la invariante «Reads are serialized» es falsa; un `get()` posterior puede leer `read` desfasado. Bloquea: no (mitigado porque `count` suma 0).
+
+Sin hallazgo de escritura, colecciones ajenas ni referencia de documento: esos vectores quedan cerrados.
+
+RESULTADO: FALLA

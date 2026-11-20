@@ -1,0 +1,15 @@
+**Hallazgos**
+
+1. `where` (sin lista blanca de campos) + `count()`. Oráculo de existencia: pese a que el diario no guarda valores, un consumidor puede hacer `where('apiKey','==','x')` sobre CUALQUIER campo y usar `count()>0` o `get().docs.length` para extraer valores sensibles campo por campo (búsqueda por fuerza bruta/bisección). La regex sólo valida la forma del nombre, no que sea filtrable. **Bloqueante** (fuga de confidencialidad).
+
+2. `readOnlyRoot(root: DocumentReference)`. Tipo incorrecto: la implementación invoca `root.collection(name)`. Con un `DocumentReference` real, Firestore devuelve **subcolecciones de ese documento**, no las colecciones raíz de la lista fija; el consumidor lee otro ámbito silenciosamente. Debe ser `Firestore`. **No bloquea** (fallo de contrato/alcance).
+
+3. `wrapDoc.data()` devuelve `snap.data()` sin copiar ni congelar. El consumidor puede mutar el registro y `Object.setPrototypeOf` sobre él; si Firestore reutiliza el objeto, contamina lecturas posteriores. **No bloquea**.
+
+4. `account()` resta/valida **después** de `query.get()`: los documentos ya se leyeron (costo real) y el diario registra la entrada incluso al exceder. Menor.
+
+5. `startAfter` acepta un cursor de otra colección. Menor.
+
+Escritura, referencia cruda al documento y prototipo del wrapper: correctamente bloqueados.
+
+RESULTADO: FALLA

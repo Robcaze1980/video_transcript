@@ -1,0 +1,13 @@
+Sin fugas de `DocumentReference`, escritura ni colecciones fuera de `COLLECTIONS`: el núcleo resiste. Fallos reales:
+
+1. `get()` (`budget`/`await`/`account`): el presupuesto se calcula antes del `await`. Dos `get()` concurrentes con `maxDocs=10` descargan 10 documentos cada una del proyecto REAL (20 lecturas facturadas) antes de que la segunda lance. El tope limita devoluciones, no lecturas. **Bloquea** el criterio "never more than what is left".
+
+2. `account()`: `read` nunca se reinicia. Tras un `maxDocs` excedido, toda `get()` no vacía lanza indefinidamente en esa instancia; además el journal ya registró los documentos. **Bloquea** reutilizar el facade.
+
+3. `limit()` no se propaga a `query`, y `count()` ignora `lim` y el presupuesto: `.limit(10).count()` cuenta todo y permite recuentos ilimitados por estado. No bloquea.
+
+4. `project()`: `'[object]'` para `accountId/attempts/lastErrorCode` crea un oráculo de presencia/tipo (sondeo de campos) y expone `accountId` de cliente. No bloquea, incumple el objetivo.
+
+5. `where` solo admite estados de `PENDING_SOURCES`; un lector de estados terminales (p. ej. `billingIntentTerminalRecovery`) recibe `TypeError`. Bloquea si ese lector existe.
+
+RESULTADO: FALLA
