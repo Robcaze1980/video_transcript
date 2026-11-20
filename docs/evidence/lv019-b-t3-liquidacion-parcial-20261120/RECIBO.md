@@ -58,3 +58,19 @@ La mayoría de los hallazgos ALTA parten de que cada extracto no mostraba las co
 | Regex de hash del cliente distinta del servidor (DeepSeek c3-5) | **Refutado:** `$` en JavaScript sin banderas no admite salto de línea final; ambos rechazan. |
 
 Clasificación honesta: 5 FALLA y 1 PASS, con dos hallazgos reales de endurecimiento y uno trasladado a la etapa 2. No es un PASS limpio: la ronda siguiente se hará sobre el código final.
+
+### Segunda ronda sobre el código, con las comprobaciones previas a la vista · [prompt 4](prompt-c4.txt) · [prompt 5](prompt-c5.txt)
+
+Resultados: [c4 GLM FALLA](reply-c4-glm.txt) · [c4 DeepSeek FALLA](reply-c4-deepseek.txt) · [c5 GLM FALLA](reply-c5-glm.txt) · [c5 DeepSeek FALLA](reply-c5-deepseek.txt). El extracto 5 volvió a no incluir `settlementOptions`, así que sus hallazgos ALTA sobre K sin validar (GLM 2, DeepSeek 1) y sobre `resolution` en una captura (GLM 1, DeepSeek 3) **se refutan igual que en la ronda 1**: están validados antes de la transacción y probados.
+
+| Hallazgo | Decisión |
+| --- | --- |
+| La corrupción de `captureAdmission` ausente o discordante se informa como `conflict` (DeepSeek c4-1/2, GLM c4-2) | **Adoptado:** ahora es `invariant` cuando la admisión almacenada y la de captura no coinciden (prueba nueva). |
+| Una reserva capturada con `releaseAdmission` o `resolution` sueltas se acepta como replay (DeepSeek c4-3) | **Adoptado:** `invariant` (prueba nueva). |
+| Opciones con propiedades accesoras (DeepSeek c4-4) | **Adoptado:** solo propiedades de datos. |
+| Saldo negativo no comprobado (DeepSeek c5-1) | **Adoptado como defensa en profundidad:** `reserved`, `available` y `consumed` no negativos antes de escribir. No es alcanzable por construcción (K < N); no hay prueba directa. |
+| Documentos huérfanos en `providerCalls` sin barrera `first` (GLM c4-1) | **Aceptado como límite:** la barrera y la llamada se crean en la misma transacción. |
+| `{resolution:undefined}` en una captura (GLM c4-3) | **Aceptado:** `undefined` equivale a ausente. |
+| `too_early` solo bajo admisión almacenada (DeepSeek c5-2) | **Refutado por diseño**, como en la ronda 1. |
+
+Clasificación honesta: todas las respuestas de la segunda ronda son FALLA, pero ningún hallazgo restante muestra un camino que cobre de más, libere de más o permita dos resoluciones; lo adoptado es endurecimiento. No se pidió una tercera ronda: la verificación que sostiene esta etapa es la combinación de pruebas, mutaciones y regresión, no un PASS de T3.
