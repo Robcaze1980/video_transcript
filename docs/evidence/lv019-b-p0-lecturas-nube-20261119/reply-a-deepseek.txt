@@ -1,0 +1,10 @@
+Hallazgos reales (lugar → escenario → ¿bloquea?):
+
+- `get()` validación de ruta — usa `includes('/projects/'+PROJECT)`, substring: `/projects/vistavo-prod-evil/<recurso>` pasa y se lee otro proyecto. Además valida el path decodificado pero envía `parsed` (sin normalizar): desincronía encode. Bloquea: sí.
+- `fetch` sin `redirect:'manual'` — sigue 3xx hacia hosts fuera de `HOSTS`, rompiendo «solo estos hosts». Bloquea: sí.
+- `bindings()` — solo redacta `user:`/`group:`; no cubre `deleted:user:a@b.com`, `principal:`, ni service accounts de persona. Fuga de correo personal en salida. Bloquea: sí.
+- `envSummary` — imprime `flags` con sus valores (`VISTAVO_FILES_MODE`, `VISTAVO_PROJECT_ID`): datos de negocio/config en la salida, contra lo declarado. Bloquea: sí.
+- `parsed.search` no se valida — APIs que reciben el proyecto por query (billing, resourcemanager `filter`) pueden leer otro proyecto. Bloquea: parcial (mitigado por permisos de la SA).
+- Método/host/token: `method:'GET'` fijo y token no impreso: correcto. Scope `cloud-platform.read-only` es amplio pero de solo lectura; aceptable si la SA no tiene escritura. Sin cuerpo: correcto.
+
+RESULTADO: FALLA

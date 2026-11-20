@@ -1,0 +1,76 @@
+{
+  "project": "vistavo-prod",
+  "note": "GET requests only; paths and HTTP status; no tokens or bodies",
+  "requests": [
+    {
+      "host": "cloudresourcemanager.googleapis.com",
+      "path": "/v1/projects/vistavo-prod",
+      "status": 200
+    },
+    {
+      "host": "cloudbilling.googleapis.com",
+      "path": "/v1/projects/vistavo-prod/billingInfo",
+      "status": 200
+    },
+    {
+      "host": "cloudscheduler.googleapis.com",
+      "path": "/v1/projects/vistavo-prod/locations/us-central1/jobs",
+      "status": 200
+    },
+    {
+      "host": "run.googleapis.com",
+      "path": "/v2/projects/vistavo-prod/locations/us-central1/services",
+      "status": 200
+    },
+    {
+      "host": "run.googleapis.com",
+      "path": "/v2/projects/vistavo-prod/locations/us-central1/services/vistavo-account-api:getIamPolicy",
+      "status": 200
+    },
+    {
+      "host": "run.googleapis.com",
+      "path": "/v2/projects/vistavo-prod/locations/us-central1/services/vistavo-files-maintenance:getIamPolicy",
+      "status": 200
+    },
+    {
+      "host": "run.googleapis.com",
+      "path": "/v2/projects/vistavo-prod/locations/us-central1/services/vistavo-files-api:getIamPolicy",
+      "status": 200
+    },
+    {
+      "host": "run.googleapis.com",
+      "path": "/v2/projects/vistavo-prod/locations/us-central1/jobs",
+      "status": 200
+    },
+    {
+      "host": "iam.googleapis.com",
+      "path": "/v1/projects/vistavo-prod/serviceAccounts",
+      "status": 200
+    },
+    {
+      "host": "firestore.googleapis.com",
+      "path": "/v1/projects/vistavo-prod/databases",
+      "status": 200
+    },
+    {
+      "host": "firestore.googleapis.com",
+      "path": "/v1/projects/vistavo-prod/databases/vistavo-live/collectionGroups/-/indexes",
+      "status": 200
+    },
+    {
+      "host": "firestore.googleapis.com",
+      "path": "/v1/projects/vistavo-prod/databases/vistavo-live/collectionGroups/-/fields",
+      "status": 200
+    },
+    {
+      "host": "firestore.googleapis.com",
+      "path": "/v1/projects/vistavo-prod/databases/(default)/collectionGroups/-/indexes",
+      "status": 200
+    },
+    {
+      "host": "firestore.googleapis.com",
+      "path": "/v1/projects/vistavo-prod/databases/(default)/collectionGroups/-/fields",
+      "status": 200
+    }
+  ]
+}

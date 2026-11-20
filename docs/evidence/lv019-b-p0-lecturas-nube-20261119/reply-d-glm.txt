@@ -1,0 +1,12 @@
+Ronda 2 — Verificación de conclusiones corregidas:
+
+1. **Planificador cada 5 min** — Lugar: conclusión 1. Respaldo: ENABLED, cron `*/5`, lastAttemptTime avanza 04:10→04:15Z. El matiz sobre ausencia de error es correcto. No bloquea.
+2. **Ningún modo `billing`** — Lugar: conclusión 2. Respaldo: modos leídos (maintenance/api/ai/cleanup/validate) no incluyen `billing`; el matiz de invocación manual evita sobreafirmación. No bloquea.
+3. **Índice faltante** — Lugar: conclusión 3. Respaldo: Firestore muestra 0 índices para `billingHoldOutbox`; la consulta (state ==, nextAttemptAt <=, orderBy) requiere índice compuesto. El condicional "cuando se despliegue" es correcto y coherente con la conclusión 6. No bloquea.
+4. **Exclusiones** — Lugar: conclusión 4. Respaldo directo: solo `jobs.snapshot` y `projects.draft` excluidos; `state`/`nextAttemptAt`/`id` indexados por defecto. No bloquea.
+5. **Cuota desconocida** — Lugar: conclusión 5. La nota del 13 nov (429 «al alcanzar 10», con 11 cuentas existentes) sugiere fallo al crear, pero la conclusión es más débil que la evidencia, no más fuerte. No bloquea.
+6. **Imagen no verificada** — Lugar: conclusión 6. Correcto: no se leyó la imagen desplegada. No bloquea.
+
+Sin sobreafirmaciones nuevas detectadas.
+
+RESULTADO: PASS

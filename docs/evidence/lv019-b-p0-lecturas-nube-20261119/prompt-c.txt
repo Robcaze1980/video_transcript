@@ -1,0 +1,23 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Ronda 2. La ronda 1 dio FALLA por: (1) filtro de ruta por subcadena; (2) fetch seguia redirecciones; (3) redaccion de miembros IAM incompleta (solo user:/group:); (4) parametros de consulta sin validar. Abajo, el codigo corregido de las garantias de un script Node de SOLO LECTURA de metadatos de un proyecto real (solo GET, solo estos hosts, solo rutas del proyecto, sin cuerpo, token nunca impreso ni guardado, sin correos de personas en la salida). Verifica si quedaron resueltos y busca fallos NUEVOS reales; por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```javascript
+const PROJECT='vistavo-prod';
+const HOSTS=new Set(['cloudresourcemanager.googleapis.com','cloudbilling.googleapis.com','cloudscheduler.googleapis.com','run.googleapis.com','firestore.googleapis.com','iam.googleapis.com']);
+async function get(url){
+  const parsed=new URL(url);
+  if(parsed.protocol!=='https:'||!HOSTS.has(parsed.hostname))throw Error('host refused');
+  const p=decodeURIComponent(parsed.pathname);
+  if(!new RegExp('^/v[12]/projects/'+PROJECT+'(?:[/:]|$)').test(p))throw Error('foreign project path refused');
+  if(/%2e|%2f|%5c|%25|\.\./i.test(parsed.pathname)||parsed.username||parsed.password)throw Error('path was not canonical');
+  for(const key of parsed.searchParams.keys())if(!['pageSize','pageToken','filter'].includes(key))throw Error('query parameter refused');
+  const {token}=await client.getAccessToken();
+  const response=await fetch(parsed,{method:'GET',headers:{Authorization:'Bearer '+token,'x-goog-user-project':PROJECT},redirect:'error',signal:AbortSignal.timeout(60000)});
+  ...
+}
+function bindings(policy){
+  const keep=m=>/^serviceAccount:[A-Za-z0-9._-]+@[A-Za-z0-9.-]+\.gserviceaccount\.com$/.test(m)||m==='allUsers'||m==='allAuthenticatedUsers';
+  return (policy?.bindings??[]).map(b=>({role:b.role,members:(b.members??[]).map(m=>keep(m)?m:'<other member redacted>')}));
+}
+```

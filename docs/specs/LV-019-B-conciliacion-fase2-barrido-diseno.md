@@ -6,7 +6,7 @@
 | Pieza | Estado | Fuente |
 |---|---|---|
 | Barrido de intenciones, salidas de saldo y bloqueos | Existe como **ejecución puntual**: modo `billing` hace `drainExternalHolds` → `drainExternalBilling` → `drainExternalHolds` y **falla con error** si queda algo fallido o en revisión | `cloudFilesRuntime.ts:58–61` |
-| Quién lo ejecuta periódicamente | **Nadie verificado:** el propio código dice «a scheduler is still required» | `firestoreAi.ts:146`, `:163` |
+| Quién lo ejecuta periódicamente | **Nadie verificado:** el propio código dice «a scheduler is still required». *(Lectura P0 del 19 nov: el único planificador del proyecto lanza el servicio de mantenimiento cada 5 minutos; ningún trabajo ni servicio está configurado en modo `billing`.)* | `firestoreAi.ts:146`, `:163` |
 | Reintentos | Espera `min(15 min, 1 s·2^min(n,10))`; **sin tope de intentos**, y nunca pasa solo a `needs_review` por agotamiento | `firestoreBackend.ts:1024`, `:1343`, `:1367` |
 | Selección de filas | Límite por tanda (25 por defecto, 100 máx.); el diagnóstico del 18 nov mostró que filas futuras pueden ocultar una debida | bitácora 18 nov (selector de intenciones) |
 | Reserva en Cuenta sin salida (llamada admitida, resultado desconocido; cuenta con hold) | Sin vencimiento ni barrido; solo salida manual | fase 1, P1 |

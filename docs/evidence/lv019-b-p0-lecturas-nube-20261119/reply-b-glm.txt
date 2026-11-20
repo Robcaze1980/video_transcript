@@ -1,0 +1,8 @@
+1. **Conclusión 1 — respaldada.** `state ENABLED` y `*/5` en UTC sustentan «habilitado» y «cada 5 minutos». No bloquea.
+2. **Conclusión 2 — sobreestirada.** Los datos muestran solo tres Cloud Run Jobs y ninguno en modo `billing`; «nada puede ejecutarlo hoy» añade ausencia de toda ruta de invocación que no está probada. Bloquea si se usa como cierre.
+3. **Conclusión 3 — razonable.** Si la consulta es igualdad en `state`, rango/orden en `nextAttemptAt` y no existe índice `billingHoldOutbox`, la falta de índice compuesto es consistente con el error esperado. No bloquea, salvo que el código evite la consulta.
+4. **Conclusión 4 — mal afirmada.** Las exclusiones de campo pueden afectar consultas por igualdad; no afectarían solo si los campos consultados no están excluidos o el índice está cubierto. Falta ese mapeo. Puede bloquear el diagnóstico.
+5. **Conclusión 5 — contradice la evidencia.** Existir 11 cuentas tras un 429 «al alcanzar 10» muestra que crear otra no es improbable o que el límite/nota cambió. El margen sigue siendo desconocido. Bloquea si excluye una identidad nueva.
+6. **Conclusión 6 — no demostrada.** Solo se leyó el SHA compartido, no la fecha de build; «no está desplegado» es suposición. Bloquea como afirmación.
+
+RESULTADO: FALLA

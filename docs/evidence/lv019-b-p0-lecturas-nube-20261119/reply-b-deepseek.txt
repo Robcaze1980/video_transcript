@@ -1,0 +1,10 @@
+Revisión contra los extractos:
+
+1. Concl. 1 (planificador): soportada por `state ENABLED` + `*/5`. Menor: la ausencia de `status.code` no prueba éxito; «corre» describe configuración, no ejecución verificada. No bloquea.
+2. Concl. 2: los extractos nunca muestran un campo `mode` del trabajo; «no existe trabajo billing» se infiere de ausencia y «nada puede ejecutarlo hoy» excede los datos (invocación manual/API no descartada). El `VISTAVO_FILES_MODE=maintenance` citado pertenece al *servicio*, no al planificador: posible confusión. Bloquea si cierra tarea.
+3. Concl. 3: el índice ausente sí se desprende; el error «índice requerido» y el orden por `nextAttemptAt` son supuestos de código no leídos. Bien acotada («cuando se despliegue»). No bloquea.
+4. Concl. 4: semántica general de Firestore, no derivada de estos extractos (solo 2 exclusiones listadas). No bloquea.
+5. Concl. 5: cuota desconocida correcto; «improbable» es juicio y el 429 es del 13 nov, pudo variar. No bloquea.
+6. Concl. 6: sin tag ni fecha de build, «no está desplegado» es conclusión sin evidencia, y el propio paréntesis admite no haber leído el dato. Bloquea.
+
+RESULTADO: FALLA

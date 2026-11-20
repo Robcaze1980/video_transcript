@@ -1,0 +1,12 @@
+**Ronda 1 — resuelto:** (1) la ruta se valida con regex anclada `^/v[12]/projects/vistavo-prod(?:[/:]|$)`, ya no por subcadena; (2) `redirect:'error'` impide seguir redirecciones; (3) la redacción cubre `user:`, `group:`, `deleted:`, etc. (solo sobrevive serviceAccount y los comodines públicos); (4) los parámetros de consulta se limitan por lista blanca.
+
+**Hallazgos nuevos (no bloquean):**
+- `get`, línea del `decodeURIComponent`: el decode ocurre antes del regex, sin `try/catch`; un `%` malformado lanza `URIError` y aborta la llamada. Es disponibilidad, no bypass (los `%2e/%2f` sí se bloquean).
+- Validación de consulta: se comprueban claves, no valores (`pageSize` sin tope). Cierra parcialmente el punto 4; sin fuga.
+- Regex solo ancla el prefijo, no la forma del recurso; el bloqueo de `..` y de escapes sostiene la garantía, pero falta lista blanca de rutas.
+- `PROJECT` se interpola sin escapar en `RegExp` (frágil si cambiara el id).
+- `iam.googleapis.com` v3 y otras versiones legítimas no encajan → falso rechazo, no riesgo.
+
+Sin fuga de correos ni de token, sin escritura ni hosts externos. No veo fallo de seguridad real.
+
+RESULTADO: PASS

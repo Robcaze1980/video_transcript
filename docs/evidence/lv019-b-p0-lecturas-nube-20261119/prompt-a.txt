@@ -1,0 +1,26 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa este codigo (Node, google-auth-library): lectura P0 de SOLO LECTURA de metadatos de un proyecto real de Google Cloud, autorizada por el dueño. Garantias que debe cumplir: solo solicitudes GET, solo estos hosts, solo rutas bajo projects/vistavo-prod, sin cuerpo, el token de acceso nunca se imprime ni se guarda, la salida no contiene correos de personas, valores de secretos ni datos de negocio. Busca bugs REALES: forma de saltarse una garantia (host, ruta, metodo), fuga de datos en la salida, uso de credenciales mas amplio de lo necesario; por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```javascript
+const PROJECT='vistavo-prod',REGION='us-central1';
+const HOSTS=new Set(['cloudresourcemanager.googleapis.com','cloudbilling.googleapis.com','cloudscheduler.googleapis.com','run.googleapis.com','firestore.googleapis.com','iam.googleapis.com']);
+const client=await new GoogleAuth({keyFilename:credentialPath,scopes:['https://www.googleapis.com/auth/cloud-platform.read-only']}).getClient();
+const journal=[];
+async function get(url){
+  const parsed=new URL(url);
+  if(parsed.protocol!=='https:'||!HOSTS.has(parsed.hostname))throw Error('host refused');
+  const p=decodeURIComponent(parsed.pathname);
+  if(!p.includes('/projects/'+PROJECT))throw Error('foreign project path refused');
+  const {token}=await client.getAccessToken();
+  const response=await fetch(parsed,{method:'GET',headers:{Authorization:'Bearer '+token,'x-goog-user-project':PROJECT},signal:AbortSignal.timeout(60000)});
+  let data;try{data=await response.json();}catch{data=undefined;}
+  journal.push({host:parsed.hostname,path:p,status:response.status});
+  return {status:response.status,data};
+}
+// la ruta de cada llamada se construye solo con constantes y nombres leidos de respuestas anteriores (listas de servicios y bases)
+function bindings(policy){return (policy?.bindings??[]).map(b=>({role:b.role,members:(b.members??[]).map(m=>m.startsWith('user:')?'user:<redacted>':m.startsWith('group:')?'group:<redacted>':m)}));}
+const FLAGS=new Set(['VISTAVO_AI_ENABLED','VISTAVO_FILES_MODE','VISTAVO_PROJECT_ID']);
+const envSummary=env=>({names:(env??[]).map(e=>e.name).sort(),fromSecret:(env??[]).filter(e=>e.valueSource).map(e=>e.name).sort(),flags:Object.fromEntries((env??[]).filter(e=>FLAGS.has(e.name)&&typeof e.value==='string').map(e=>[e.name,e.value]))});
+// la salida conserva: nombres cortos de recurso, estados, horarios, correos de CUENTAS DE SERVICIO (no personales), digest de imagen, nombres de variables de entorno
+```

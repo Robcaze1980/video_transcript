@@ -1,0 +1,11 @@
+Los cuatro puntos de la ronda 1 quedan resueltos en el fragmento: (1) regex con frontera `[/:]|$` sobre ruta decodificada, con rechazo de `%25/%2e/%2f/%5c/..` en la ruta cruda; (2) `redirect:'error'`; (3) allowlist de miembros que redacta todo lo no reconocido (incluye `user:`, `group:`, `domain:`, `deleted:`); (4) allowlist de claves de consulta.
+
+Hallazgos nuevos:
+
+- `decodeURIComponent` lanza `URIError` ante `%` inválida: el script falla controladamente, no bloquea seguridad.
+- `PROJECT` no se escapa al construir `RegExp`: con el literal actual es seguro; latente si cambia el valor (no bloqueante hoy).
+- Valores de `pageSize`/`pageToken`/`filter` sin validar: no alteran destino (host/ruta fijos); riesgo nulo de SSRF, solo errores del servidor.
+- La redacción solo cubre `policy.bindings`. Si el `...` imprime otros campos (etiquetas/annotations de Cloud Run, metadatos con creadores, etc.), pueden salir correos de personas; eso bloquearía la garantía de salida.
+- No se ve el manejo de errores de `fetch`: no puedo confirmar que el token o encabezados nunca se impriman.
+
+RESULTADO: INCONCLUYENTE

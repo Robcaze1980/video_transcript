@@ -1,0 +1,445 @@
+{
+  "project": "vistavo-prod",
+  "region": "us-central1",
+  "generatedAt": "2026-11-20T04:15:07.924Z",
+  "mode": "GET only; read-only scope; no business data",
+  "project_state": {
+    "readable": true,
+    "lifecycleState": "ACTIVE"
+  },
+  "billing": {
+    "readable": true,
+    "billingEnabled": true
+  },
+  "scheduler": {
+    "readable": true,
+    "count": 1,
+    "jobs": [
+      {
+        "name": "vistavo-files-maintenance",
+        "state": "ENABLED",
+        "schedule": "*/5 * * * *",
+        "timeZone": "Etc/UTC",
+        "target": {
+          "method": "POST",
+          "host": "vistavo-files-maintenance-v5lc7z6dyq-uc.a.run.app",
+          "path": "/internal/maintenance",
+          "oidcServiceAccount": "vistavo-files-scheduler@vistavo-prod.iam.gserviceaccount.com"
+        },
+        "lastAttemptTime": "2026-11-20T04:15:00.844193Z",
+        "scheduleTime": "2026-11-20T04:20:00.008897Z",
+        "lastStatusCode": null,
+        "attemptDeadline": "120s",
+        "retryCount": null
+      }
+    ]
+  },
+  "cloud_run_services": {
+    "readable": true,
+    "count": 3,
+    "services": [
+      {
+        "name": "vistavo-account-api",
+        "ingress": "INGRESS_TRAFFIC_ALL",
+        "invokerIamCheck": "enabled",
+        "minInstances": null,
+        "maxInstances": 2,
+        "timeout": "30s",
+        "serviceAccount": "vistavo-account-api@vistavo-prod.iam.gserviceaccount.com",
+        "image": "us-central1-docker.pkg.dev/vistavo-prod/vistavo/account@sha256:9cdc51b05c6ffda1fa8bd509fc97fa5573fd33a8022c704ff92d6b33d010709a",
+        "env": {
+          "names": [
+            "NODE_ENV",
+            "VISTAVO_ACCOUNT_DATABASE",
+            "VISTAVO_ACCOUNT_MODE",
+            "VISTAVO_PROJECT_ID"
+          ],
+          "fromSecret": [],
+          "flags": {
+            "VISTAVO_PROJECT_ID": "vistavo-prod"
+          }
+        },
+        "latestReadyRevision": "vistavo-account-api-00001-ldx",
+        "conditionState": "CONDITION_SUCCEEDED",
+        "iam": {
+          "readable": true,
+          "bindings": [
+            {
+              "role": "roles/run.invoker",
+              "members": [
+                "allUsers"
+              ]
+            }
+          ]
+        },
+        "publicInvoker": true
+      },
+      {
+        "name": "vistavo-files-maintenance",
+        "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+        "invokerIamCheck": "enabled",
+        "minInstances": null,
+        "maxInstances": 1,
+        "timeout": "120s",
+        "serviceAccount": "vistavo-files-maintenance@vistavo-prod.iam.gserviceaccount.com",
+        "image": "us-central1-docker.pkg.dev/vistavo-prod/vistavo/files@sha256:89ab489c18aa3b102e9b04de7b74b438e78b31b2183042da2dcb22a11aca209b",
+        "env": {
+          "names": [
+            "VISTAVO_AI_ENABLED",
+            "VISTAVO_FILES_MODE",
+            "VISTAVO_PROJECT_ID"
+          ],
+          "fromSecret": [],
+          "flags": {
+            "VISTAVO_PROJECT_ID": "vistavo-prod",
+            "VISTAVO_FILES_MODE": "maintenance",
+            "VISTAVO_AI_ENABLED": "1"
+          }
+        },
+        "latestReadyRevision": "vistavo-files-maintenance-00008-cqh",
+        "conditionState": "CONDITION_SUCCEEDED",
+        "iam": {
+          "readable": true,
+          "bindings": [
+            {
+              "role": "roles/run.invoker",
+              "members": [
+                "serviceAccount:vistavo-files-scheduler@vistavo-prod.iam.gserviceaccount.com"
+              ]
+            }
+          ]
+        },
+        "publicInvoker": false
+      },
+      {
+        "name": "vistavo-files-api",
+        "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+        "invokerIamCheck": "enabled",
+        "minInstances": null,
+        "maxInstances": 2,
+        "timeout": "300s",
+        "serviceAccount": "vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+        "image": "us-central1-docker.pkg.dev/vistavo-prod/vistavo/files@sha256:89ab489c18aa3b102e9b04de7b74b438e78b31b2183042da2dcb22a11aca209b",
+        "env": {
+          "names": [
+            "VISTAVO_AI_ENABLED",
+            "VISTAVO_FILES_MODE",
+            "VISTAVO_PROJECT_ID"
+          ],
+          "fromSecret": [],
+          "flags": {
+            "VISTAVO_PROJECT_ID": "vistavo-prod",
+            "VISTAVO_FILES_MODE": "api",
+            "VISTAVO_AI_ENABLED": "1"
+          }
+        },
+        "latestReadyRevision": "vistavo-files-api-00009-mr2",
+        "conditionState": "CONDITION_SUCCEEDED",
+        "iam": {
+          "readable": true,
+          "bindings": []
+        },
+        "publicInvoker": false
+      }
+    ]
+  },
+  "cloud_run_jobs": {
+    "readable": true,
+    "count": 3,
+    "jobs": [
+      {
+        "name": "vistavo-ai-process",
+        "image": "us-central1-docker.pkg.dev/vistavo-prod/vistavo/files@sha256:89ab489c18aa3b102e9b04de7b74b438e78b31b2183042da2dcb22a11aca209b",
+        "serviceAccount": "vistavo-runtime@vistavo-prod.iam.gserviceaccount.com",
+        "maxRetries": 0,
+        "timeout": "1800s",
+        "taskCount": 1,
+        "env": {
+          "names": [
+            "VISTAVO_AI_ENABLED",
+            "VISTAVO_FILES_MODE",
+            "VISTAVO_GEMINI_KEY",
+            "VISTAVO_PROJECT_ID"
+          ],
+          "fromSecret": [
+            "VISTAVO_GEMINI_KEY"
+          ],
+          "flags": {
+            "VISTAVO_PROJECT_ID": "vistavo-prod",
+            "VISTAVO_FILES_MODE": "ai",
+            "VISTAVO_AI_ENABLED": "1"
+          }
+        },
+        "latestExecution": "vistavo-ai-process-2d2nd",
+        "conditionState": "CONDITION_SUCCEEDED",
+        "generation": "7"
+      },
+      {
+        "name": "vistavo-files-cleanup",
+        "image": "us-central1-docker.pkg.dev/vistavo-prod/vistavo/files@sha256:89ab489c18aa3b102e9b04de7b74b438e78b31b2183042da2dcb22a11aca209b",
+        "serviceAccount": "vistavo-files-cleaner@vistavo-prod.iam.gserviceaccount.com",
+        "maxRetries": 0,
+        "timeout": "600s",
+        "taskCount": 1,
+        "env": {
+          "names": [
+            "VISTAVO_FILES_MODE",
+            "VISTAVO_PROJECT_ID"
+          ],
+          "fromSecret": [],
+          "flags": {
+            "VISTAVO_PROJECT_ID": "vistavo-prod",
+            "VISTAVO_FILES_MODE": "cleanup"
+          }
+        },
+        "latestExecution": "vistavo-files-cleanup-dnrxq",
+        "conditionState": "CONDITION_SUCCEEDED",
+        "generation": "8"
+      },
+      {
+        "name": "vistavo-files-validate",
+        "image": "us-central1-docker.pkg.dev/vistavo-prod/vistavo/files@sha256:89ab489c18aa3b102e9b04de7b74b438e78b31b2183042da2dcb22a11aca209b",
+        "serviceAccount": "vistavo-files-validator@vistavo-prod.iam.gserviceaccount.com",
+        "maxRetries": 0,
+        "timeout": "600s",
+        "taskCount": 1,
+        "env": {
+          "names": [
+            "VISTAVO_FILES_MODE",
+            "VISTAVO_PROJECT_ID"
+          ],
+          "fromSecret": [],
+          "flags": {
+            "VISTAVO_PROJECT_ID": "vistavo-prod",
+            "VISTAVO_FILES_MODE": "validate"
+          }
+        },
+        "latestExecution": "vistavo-files-validate-lhbpd",
+        "conditionState": "CONDITION_SUCCEEDED",
+        "generation": "8"
+      }
+    ]
+  },
+  "service_accounts": {
+    "readable": true,
+    "count": 11,
+    "disabled": 0,
+    "accounts": [
+      {
+        "email": "vistavo-files-cleaner@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "vistavo-account-api@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "vistavo-files-validator@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "vistavo-files-maintenance@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "107404655346-compute@developer.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "vistavo-runtime@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "vistavo-bootstrap@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "firebase-adminsdk-fbsvc@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "vistavo-builder@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "vistavo-files-api@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      },
+      {
+        "email": "vistavo-files-scheduler@vistavo-prod.iam.gserviceaccount.com",
+        "disabled": false
+      }
+    ]
+  },
+  "firestore": {
+    "readable": true,
+    "databases": [
+      {
+        "name": "vistavo-live",
+        "fieldOverrides": {
+          "readable": true,
+          "count": 1,
+          "list": [
+            {
+              "field": "__default__/fields/*",
+              "indexes": [
+                "COLLECTION:*:ASCENDING",
+                "COLLECTION:*:DESCENDING",
+                "COLLECTION:*:CONTAINS"
+              ]
+            }
+          ]
+        },
+        "type": "FIRESTORE_NATIVE",
+        "locationId": "us-central1",
+        "concurrencyMode": "PESSIMISTIC",
+        "indexes": {
+          "readable": true,
+          "count": 2,
+          "list": [
+            {
+              "collectionGroup": "projects",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "ownerAccountId:ASCENDING",
+                "deleted:ASCENDING",
+                "createdAtMs:DESCENDING",
+                "__name__:DESCENDING"
+              ]
+            },
+            {
+              "collectionGroup": "ledgerEntries",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "ownerAccountId:ASCENDING",
+                "createdAtMs:DESCENDING",
+                "__name__:DESCENDING"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "(default)",
+        "fieldOverrides": {
+          "readable": true,
+          "count": 3,
+          "list": [
+            {
+              "field": "__default__/fields/*",
+              "indexes": [
+                "COLLECTION:*:ASCENDING",
+                "COLLECTION:*:DESCENDING",
+                "COLLECTION:*:CONTAINS"
+              ]
+            },
+            {
+              "field": "jobs/fields/snapshot",
+              "indexes": []
+            },
+            {
+              "field": "projects/fields/draft",
+              "indexes": []
+            }
+          ]
+        },
+        "type": "FIRESTORE_NATIVE",
+        "locationId": "us-central1",
+        "concurrencyMode": "PESSIMISTIC",
+        "indexes": {
+          "readable": true,
+          "count": 8,
+          "list": [
+            {
+              "collectionGroup": "fileOutbox",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "state:ASCENDING",
+                "nextAttemptAt:ASCENDING",
+                "__name__:ASCENDING"
+              ]
+            },
+            {
+              "collectionGroup": "uploads",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "purgeState:ASCENDING",
+                "expiresAtMs:ASCENDING",
+                "__name__:ASCENDING"
+              ]
+            },
+            {
+              "collectionGroup": "outbox",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "state:ASCENDING",
+                "nextAttemptAt:ASCENDING",
+                "__name__:ASCENDING"
+              ]
+            },
+            {
+              "collectionGroup": "artifacts",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "state:ASCENDING",
+                "nextAttemptAt:ASCENDING",
+                "__name__:ASCENDING"
+              ]
+            },
+            {
+              "collectionGroup": "artifacts",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "inputId:ASCENDING",
+                "accountId:ASCENDING",
+                "__name__:ASCENDING"
+              ]
+            },
+            {
+              "collectionGroup": "jobs",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "accountId:ASCENDING",
+                "inputId:ASCENDING",
+                "__name__:ASCENDING"
+              ]
+            },
+            {
+              "collectionGroup": "outbox",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "aiProfile:ASCENDING",
+                "state:ASCENDING",
+                "nextAttemptAt:ASCENDING",
+                "__name__:ASCENDING"
+              ]
+            },
+            {
+              "collectionGroup": "jobs",
+              "queryScope": "COLLECTION",
+              "state": "READY",
+              "fields": [
+                "state:ASCENDING",
+                "leaseUntil:ASCENDING",
+                "__name__:ASCENDING"
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "requests": 14,
+  "methods": [
+    "GET"
+  ]
+}

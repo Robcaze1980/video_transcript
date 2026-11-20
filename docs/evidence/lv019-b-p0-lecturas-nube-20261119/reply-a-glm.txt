@@ -1,0 +1,8 @@
+**Hallazgos**
+- Ruta (bloquea): `includes('/projects/vistavo-prod')` acepta prefijos; `/v1/projects/vistavo-prod-otro/...` pasa y consulta otro proyecto. Corregir exigiendo `/projects/vistavo-prod` exacto o seguido de `/`.
+- Redirecciones (bloquea): `fetch` sigue 30x por defecto; una ruta permitida que redirija a otro host o ruta evade ambas validaciones (y en same-origin reenvía `Authorization`). Usar `redirect:'error'` o validar cada salto.
+- Correos (bloquea): `bindings()` solo redacta `user:`/`group:`; miembros `deleted:user:...?uid=…` salen sin redactar en el output.
+- Credenciales (no bloquea): `cloud-platform.read-only` permite leer cualquier servicio del proyecto, no solo los seis hosts; la única barrera es el código. Mitigar con roles mínimos en la service account.
+- Correcto: método GET fijo, sin cuerpo; el token no se imprime ni se guarda en `journal`.
+
+RESULTADO: FALLA

@@ -1,0 +1,12 @@
+Revisión de las 6 conclusiones corregidas:
+
+- (1) Apoyo parcial. `lastAttemptTime` avanzando de 04:10Z a 04:15Z respalda intentos, no ejecución exitosa; el propio texto lo aclara. Sobreaﬁrma leve al decir «se está ejecutando cada 5 minutos» (dos muestras, no resultados). No bloquea, pero conviene decir «registra intentos cada 5 min».
+- (2) Sostenida por la configuración listada. El matiz sobre invocación manual es correcto. No bloquea.
+- (3) Sostenida: ningún índice es `billingHoldOutbox` y `state`/`nextAttemptAt` no están excluidos, así que la consulta igualdad+rango+orden requeriría compuesto. Condicional bien planteado. No bloquea.
+- (4) Sostenida por las dos exclusiones declaradas. No bloquea.
+- (5) Correctamente hedged. Nuevo dato no reconciliado: 11 cuentas frente al 429 «al alcanzar 10» del 13 nov; hay conflicto sin explicar, aunque la conclusión no lo fuerza. No bloquea.
+- (6) Correctamente condicional: no verificado el contenido de la imagen desplegada; la condición del repositorio queda bien acotada. No bloquea.
+
+No detecto sobreaﬁrmaciones nuevas materiales; solo el vocabulario de (1). Ninguna conclusión bloquea por sí sola.
+
+RESULTADO: PASS
