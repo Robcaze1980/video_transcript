@@ -1,0 +1,10 @@
+No encuentro bugs reales en el código mostrado.
+
+- Clasificación: distingue `state` inválido/ausente, estados no seleccionables y `nextAttemptAt` ausente, nulo, no numérico, fraccional, negativo o fuera de rango seguro.
+- Paginación: cursor por `__name__` es estable, con proyección mínima; corta en página incompleta y evita lecturas por ID.
+- Bucles: el ciclo termina con colección vacía o última página incompleta.
+- Validación: reloj y tamaño de página se validan antes de la primera lectura; un error en `get()` propaga el fallo sin devolver inventario parcial.
+- Fuga de datos: devuelve recuentos y nombres de estado, sin IDs, cuentas ni valores de campo.
+- Cambios concurrentes quedan cubiertos por la advertencia documentada.
+
+RESULTADO: PASS

@@ -1,6 +1,6 @@
 # LV-019.B · Migración de fechas de intenciones
 
-**Estado: propuesta no implementada ni aceptada.** Este documento describe un incremento local, apagado y pendiente de revisión T3. No habilita el selector nuevo, el drenador, una ruta pública, procesamiento, cobros ni una migración en Google Cloud. No se han hecho cambios en saldos o datos en la nube para elaborar esta propuesta.
+**Estado: propuesta no implementada ni aceptada.** *(Actualización del 19 nov: existe un inventario de solo lectura, `server/commercial/billingScheduleInventory.ts`, que cuenta cuántas filas seleccionables de `billingIntents`, `billingOutbox` y `billingHoldOutbox` están vencidas, futuras, sin `nextAttemptAt` o con valor inválido, y el máximo de futuras por estado; probado en emulador, sin ejecutar contra datos reales. No repara nada ni sustituye este diseño: sirve para saber si hace falta migrar.)* Este documento describe un incremento local, apagado y pendiente de revisión T3. No habilita el selector nuevo, el drenador, una ruta pública, procesamiento, cobros ni una migración en Google Cloud. No se han hecho cambios en saldos o datos en la nube para elaborar esta propuesta.
 
 ## Problema y alcance
 

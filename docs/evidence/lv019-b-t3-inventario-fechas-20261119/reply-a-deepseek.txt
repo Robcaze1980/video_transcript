@@ -1,0 +1,13 @@
+**Hallazgos**
+
+- Paginación correcta: `orderBy('__name__')` + `startAfter(snapshot)` avanza el cursor y `docs.length<pageSize` corta; no hay bucle infinito ni página saltada salvo mutación concurrente (ya documentada).
+- Clasificación fiel al contrato: `noState` (ausente/vacío/no string), `otherState` (no seleccionable), y `validDate` cubre null, texto, fracción, negativo y fuera de rango seguro; `due` es `<=nowMs`, coherente con el selector de fecha.
+- Validación previa: reloj y `pageSize` se comprueban antes de leer y el `throw` impide inventario parcial.
+- Sin fuga de datos: la proyección `select('state','nextAttemptAt')`, `orderBy('__name__')` y la salida solo devuelven recuentos; nunca se lee por id ni se escribe.
+- `SCHEDULED_SOURCES` coincide con los selectores indicados y `maxFuturePerState` se calcula sobre `future` de cada estado seleccionable.
+
+**Observaciones menores (no bloquean)**
+- `orderBy('__name__')` funciona en Admin SDK pero lo portátil/documentado es `FieldPath.documentId()`; si una versión lo rechazara, toda lectura fallaría (conviene fijarlo).
+- `Object.freeze` solo congela el array; `selectable` queda mutable en runtime.
+
+RESULTADO: PASS
