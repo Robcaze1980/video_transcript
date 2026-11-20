@@ -1,0 +1,16 @@
+Thread mcp:3ac478a2-79e3-46aa-a6eb-c52426c8fabd
+**Huecos**
+- Autor: `sha256('operator-v1:'+uid)` sin clave de servidor es una preimagen débil; añade un secreto (HMAC) para que el seudónimo no sea verificable por quien conozca UIDs.
+- `auth_time` obligatorio pero falta definir la comparación exacta con el reloj del servidor (margen de desfase, token recién emitido con `auth_time` antiguo) y qué código devuelve ese rechazo.
+- Límites de frecuencia: no se especifica la clave de limitación (¿operador, token, IP?). Reutilizar el servicio sin definir la clave permite eludirlo rotando tokens o lo bloquea legítimamente tras NAT.
+- Enumeración: GET lista/detalle también debe exigir operador en lista, `auth_time` y devolver 404 uniforme; falta definir si cambios de estado/tamaño o códigos de acción desconocida revelan la alerta.
+- Registro: faltan denegaciones (401/403/404), motivo y `evidenceRef` fuera del log por posible PII; `note` nunca debe ir a bitácora.
+- Replay 200 debe devolver el mismo recurso y mismo autor; sin `Content-Type`/`Accept` exigidos ni rechazo explícito de credenciales en consulta.
+
+**Prueba adicional exigida**
+Autor derivado no calculable ni colisionable sin el secreto de servidor; límite de frecuencia aplicado por operador y verificado con tokens distintos del mismo operador.
+
+**Criterio de cierre observable**
+Toda credencial no autorizada, revocada o con reautenticación fuera de ventana devuelve un único código uniforme y deja cero filas nuevas en auditoría, mientras un reintento idéntico autorizado reproduce exactamente autor, acción y alerta ya registrados.
+
+RESULTADO: PASS

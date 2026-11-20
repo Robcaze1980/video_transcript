@@ -71,8 +71,10 @@ export function buildPendingReport(input:readonly PendingRow[],nowMs:number):Pen
 }
 
 /**
- * Exhaustive read. Default mode: one indexed query per source (`state in` the listed non-terminal states), paged by
- * document id. KNOWN LIMIT: a document whose `state` is missing, not a string or not listed cannot be matched by that
+ * Exhaustive read. Default mode: one EQUALITY query per source and listed non-terminal state, paged by document id.
+ * Equality + `orderBy('__name__')` is served by Firestore's automatic single-field index, so no composite index has to be
+ * deployed (an `in` filter combined with that ordering is not documented as covered, so it is deliberately not used).
+ * A row that changes state while the sweep is reading may be seen twice (deduplicated) or missed for this sweep only. KNOWN LIMIT: a document whose `state` is missing, not a string or not listed cannot be matched by that
  * query. `audit:true` closes that gap at the cost of reading every document of the audited collections: anything that
  * is neither a listed non-terminal state nor a known terminal one becomes a malformed row. Run it rarely.
  */
@@ -83,19 +85,23 @@ export async function readPendingReport(root:DocumentReference,nowMs:number,opti
   for(const source of PENDING_SOURCES){
     const audit=options.audit===true&&source.terminalStates!==null;
     const terminal=new Set(source.terminalStates??[]),listed=new Set(source.states);
-    let last:DocumentSnapshot|null=null;
-    for(;;){
-      let query=audit?root.collection(source.collection).orderBy('__name__'):root.collection(source.collection).where('state','in',[...source.states]).orderBy('__name__');
-      if(last)query=query.startAfter(last);
-      const page=await query.limit(pageSize).get();
-      for(const doc of page.docs){
-        const data=doc.data() as Record<string,unknown>|undefined,state=data?.state;
-        if(audit&&typeof state==='string'&&terminal.has(state)&&!listed.has(state))continue;
-        const row=normalizePending(source.kind,doc.id,data);
-        rows.push(audit&&!(typeof state==='string'&&listed.has(state))?{...row,malformed:true}:row);
+    // Audit mode scans the whole collection once; the default mode runs one equality query per listed state.
+    for(const only of audit?[null]:source.states){
+      let last:DocumentSnapshot|null=null;
+      for(;;){
+        const base=root.collection(source.collection);
+        let query=only===null?base.orderBy('__name__'):base.where('state','==',only).orderBy('__name__');
+        if(last)query=query.startAfter(last);
+        const page=await query.limit(pageSize).get();
+        for(const doc of page.docs){
+          const data=doc.data() as Record<string,unknown>|undefined,state=data?.state;
+          if(audit&&typeof state==='string'&&terminal.has(state)&&!listed.has(state))continue;
+          const row=normalizePending(source.kind,doc.id,data);
+          rows.push(audit&&!(typeof state==='string'&&listed.has(state))?{...row,malformed:true}:row);
+        }
+        if(page.docs.length<pageSize)break;
+        last=page.docs[page.docs.length-1];
       }
-      if(page.docs.length<pageSize)break;
-      last=page.docs[page.docs.length-1];
     }
   }
   return buildPendingReport(rows,nowMs);

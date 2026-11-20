@@ -10,7 +10,7 @@ function stubRoot(collections:Record<string,Doc[]>,log:string[]=[],duplicateBoun
     collection(name:string){
       const docs=collections[name]??[];
       const build=(states:string[]|null,after:string|null,limit:number|null)=>({
-        where(field:string,op:string,value:string[]){log.push(`where:${name}:${field}:${op}:${value.join('|')}`);return build(value,after,limit);},
+        where(field:string,op:string,value:string|string[]){const list=Array.isArray(value)?value:[value];log.push(`where:${name}:${field}:${op}:${list.join('|')}`);return build(list,after,limit);},
         orderBy(field:string){log.push(`orderBy:${name}:${field}`);return build(states,after,limit);},
         startAfter(snapshot:{id:string}){log.push(`startAfter:${name}`);return build(states,snapshot.id,limit);},
         limit(n:number){log.push(`limit:${name}:${n}`);return build(states,after,n);},
@@ -93,6 +93,8 @@ describe('readPendingReport',()=>{
     const log:string[]=[];
     await readPendingReport(stubRoot({billingOutbox:[{id:'j1',data:{state:'settled',createdAtMs:1}},{id:'j2',data:{state:'retry_wait',createdAtMs:2}}]},log) as never,NOW,{pageSize:10});
     expect(log.every(l=>/^(where|orderBy|startAfter|limit|get):/.test(l))).toBe(true);
+    // Only equality queries on `state` (served by the automatic single-field index, no composite index): never `in`.
+    expect(log.filter(l=>l.startsWith('where:')).every(l=>l.split(':')[2]==='state'&&l.split(':')[3]==='==')).toBe(true);
     const states=log.filter(l=>l.startsWith('where:')).flatMap(l=>l.split(':')[4].split('|'));
     for(const terminal of ['settled','applied','closed','job_created','insufficient','succeeded','failed','cancelled','running'])expect(states).not.toContain(terminal);
     expect(states).toEqual(expect.arrayContaining(['reserve_pending','release_pending','needs_review','retry_wait','pending','unknown']));
@@ -119,7 +121,7 @@ describe('readPendingReport',()=>{
       jobs:[{id:'j1',data:{state:'running',createdAtMs:1}},{id:'j2',data:{state:'unknown',createdAtMs:2}}]},log) as never,NOW,{audit:true});
     expect(report.rows.map(r=>r.id).sort()).toEqual(['j2','r1','r2']);
     expect(report.rows.find(r=>r.id==='r2')?.attention).toBe('malformed');
-    expect(log.some(l=>l.startsWith('where:jobs:state:in:unknown'))).toBe(true);
+    expect(log.some(l=>l.startsWith('where:jobs:state:==:unknown'))).toBe(true);
   });
   it('rejects an invalid page size instead of guessing',async()=>{
     await expect(readPendingReport(stubRoot({}) as never,NOW,{pageSize:0})).rejects.toThrow();

@@ -1,0 +1,17 @@
+Thread mcp:d56edb52-1fa0-4b67-94f4-c61114b270c2
+**Huecos**
+- Se exige límite de frecuencia pero `429` no está en los códigos de respuesta; falta tabla condición→código exacta (revocado, no verificado, fuera de lista, deshabilitado) para evitar filtrar estado.
+- Replay idéntico = 200 no cubre mismo autor con cuerpo distinto en la misma alerta+acción (debe ser 409) ni envíos concurrentes idénticos del mismo autor.
+- `evidenceRef` y `note` carecen de contrato de formato, tamaño y caracteres: riesgo de inyección en registros y almacenamiento.
+- No se cubre token sin claim `auth_time` (debe fallar cerrado con 404) ni se especifica si los GET también fallan cerrados sin ventana configurada.
+
+**Pruebas adicionales**
+- Mismo autor, cuerpo distinto en misma disposición → 409; concurrentes idénticos → un 201 y un 200.
+- `evidenceRef`/`note` con caracteres de control, longitud excesiva o campos desconocidos → 422 sin escribir auditoría.
+- `alertKey` con saltos de línea o metacaracteres → rechazado sin romper el registro de acceso.
+- Token válido pero sin `auth_time` → 404; cada rama negativa deja cero mutaciones, verificadas por diff de auditoría y filas.
+
+**Criterio de cierre**
+Suite automatizada que valide la tabla completa condición→código, cero mutaciones en toda rama negativa, exactamente una disposición por alerta+acción bajo concurrencia y registros sin token, cuerpo ni datos de cuenta.
+
+RESULTADO: FALLA
