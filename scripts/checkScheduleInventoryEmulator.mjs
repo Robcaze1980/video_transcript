@@ -17,8 +17,8 @@ const collections=['billingIntents','billingOutbox','billingHoldOutbox'];
 const plan=[
   ['billingIntents','reserve_pending',NOW-5000,100],['billingIntents','reserve_pending',NOW+60000,60],['billingIntents','reserve_pending',undefined,15],['billingIntents','reserve_pending',null,10],
   ['billingIntents','reserve_pending','soon',5],['billingIntents','release_pending',NOW+60000,8],['billingIntents','closed',1,3],['billingIntents',undefined,undefined,2],['billingIntents','needs_review',undefined,2],
-  ['billingOutbox','pending',NOW-1,7],['billingOutbox','retry_wait',NOW+60000,3],['billingOutbox','retry_wait',undefined,2],['billingOutbox','settled',undefined,4],
-  ['billingHoldOutbox','pending',NOW+60000,4],['billingHoldOutbox','pending',NOW-1,1],['billingHoldOutbox','applied',undefined,2],
+  ['billingOutbox','pending',NOW-1,7],['billingOutbox','retry_wait',NOW+60000,3],['billingOutbox','retry_wait',undefined,2],['billingOutbox','retry_wait','x',1],['billingOutbox','settled',undefined,4],
+  ['billingHoldOutbox','pending',NOW+60000,4],['billingHoldOutbox','pending',NOW-1,1],['billingHoldOutbox','pending',null,2],['billingHoldOutbox','applied',undefined,2],
 ];
 const snapshotHash=async()=>{
   const entries=[];for(const c of collections)for(const doc of (await root.collection(c).get()).docs)entries.push([c,doc.id,JSON.stringify(doc.data())]);
@@ -35,21 +35,25 @@ try{
   for(let i=0;i<batch.length;i+=100){const b=db.batch();for(const [ref,data] of batch.slice(i,i+100))b.set(ref,data);await b.commit();}
   const before=await snapshotHash();
   const expected=(collection,state,pick)=>plan.filter(p=>p[0]===collection&&p[1]===state).reduce((sum,p)=>sum+(pick(p)?p[3]:0),0);
-  const due=p=>typeof p[2]==='number'&&p[2]<=NOW,future=p=>typeof p[2]==='number'&&p[2]>NOW,missing=p=>p[2]===undefined,invalid=p=>p[2]===null||typeof p[2]==='string';
+  const due=p=>typeof p[2]==='number'&&p[2]<=NOW,future=p=>typeof p[2]==='number'&&p[2]>NOW,missing=p=>p[2]===undefined,nonNumeric=p=>p[2]===null||typeof p[2]==='string';
   for(const pageSize of [undefined,7,1000]){
     const inv=await readScheduleInventory(root,NOW,pageSize===undefined?{}:{pageSize});
     const intents=inv.collections.find(c=>c.collection==='billingIntents');
     assert.equal(intents.scanned,205,'every intent is scanned across pages');assert.equal(intents.noState,2);assert.equal(intents.otherStates,5);
-    assert.deepEqual(intents.selectable.reserve_pending,{due:expected('billingIntents','reserve_pending',due),future:expected('billingIntents','reserve_pending',future),missing:expected('billingIntents','reserve_pending',missing),invalid:expected('billingIntents','reserve_pending',invalid)});
-    assert.deepEqual(intents.selectable.release_pending,{due:0,future:8,missing:0,invalid:0});
+    assert.deepEqual(intents.selectable.reserve_pending,{due:expected('billingIntents','reserve_pending',due),future:expected('billingIntents','reserve_pending',future),missing:expected('billingIntents','reserve_pending',missing),invalid:0,nonNumeric:expected('billingIntents','reserve_pending',nonNumeric)});
+    assert.deepEqual(intents.selectable.release_pending,{due:0,future:8,missing:0,invalid:0,nonNumeric:0});
     const outbox=inv.collections.find(c=>c.collection==='billingOutbox');
-    assert.equal(outbox.scanned,16);assert.deepEqual(outbox.selectable.pending,{due:7,future:0,missing:0,invalid:0});assert.deepEqual(outbox.selectable.retry_wait,{due:0,future:3,missing:2,invalid:0});
+    assert.equal(outbox.scanned,17);assert.deepEqual(outbox.selectable.pending,{due:7,future:0,missing:0,invalid:0,nonNumeric:0});assert.deepEqual(outbox.selectable.retry_wait,{due:0,future:3,missing:2,invalid:0,nonNumeric:1});
     const hold=inv.collections.find(c=>c.collection==='billingHoldOutbox');
-    assert.equal(hold.scanned,7);assert.deepEqual(hold.selectable.pending,{due:1,future:4,missing:0,invalid:0});
-    assert.equal(inv.maxFuturePerState,60);
+    assert.equal(hold.scanned,9);assert.deepEqual(hold.selectable.pending,{due:1,future:4,missing:0,invalid:0,nonNumeric:2});
+    assert.equal(inv.maxFuturePerState,60);assert.equal(inv.neverSelectedAtLeast,5,'2 undated + 1 string retry_wait row and 2 null hold rows');
     const text=JSON.stringify(inv);assert.ok(!/3333|private-|"d0|soon/.test(text),'no id, account or value in the result');
     results.reserve_pending=intents.selectable.reserve_pending;
   }
+  // The 'never selected' bound for the hold outbox relies on the range filter of the real selector (pendingExternalHolds): the exact same
+  // query must return only the numeric, due row and never an undated row or a null one.
+  const selectable=await root.collection('billingHoldOutbox').where('state','==','pending').where('nextAttemptAt','<=',NOW).orderBy('nextAttemptAt').get();
+  assert.equal(selectable.size,1,'only the numeric due hold row is selectable; the 2 null-dated rows are never returned by the range filter');
   assert.equal(await snapshotHash(),before,'the inventory changed nothing');
   results.scannedIntents=205;
 }finally{

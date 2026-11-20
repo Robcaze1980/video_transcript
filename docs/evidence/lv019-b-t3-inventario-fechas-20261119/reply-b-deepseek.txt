@@ -1,0 +1,16 @@
+**Verificación de `neverSelectedAtLeast`**
+
+Contrastado con los selectores reales, la afirmación es correcta:
+
+- **Intents** (`needsNumericDate: []`): el filtro `!Number.isSafeInteger(nextAttemptAt) || <= now` selecciona filas con fecha ausente o no numérica. Correcto que no aporten a nunca-seleccionados.
+- **billingOutbox / pending**: no hay condición de fecha en la consulta; se selecciona siempre. `needsNumericDate` no lo lista. Correcto.
+- **billingOutbox / retry_wait** y **billingHoldOutbox / pending**: el filtro/`where` exige `typeof === 'number'` (o `<= now`), así que ausente/no numérica nunca pasa. Ambos en `needsNumericDate`. Correcto.
+- **NaN, fracciones, negativos**: `validDate` los manda a `invalid`, no a `missing`/`nonNumeric`, así que no engrosan la cota. Correcto.
+
+Hallazgos (ninguno bloquea):
+- `firestoreBackend.ts` intents: NaN entra por `!isSafeInteger` y sí se selecciona; no se cuenta. Coherente.
+- `firestoreBackend.ts` hold outbox: si un `nextAttemptAt` nulo se almacenara, Firestore lo ordena antes que números y podría colarse en `<= now`; es un matiz de plataforma, no del recuento. No bloquea.
+
+La cota se mantiene como inferior válida.
+
+RESULTADO: PASS

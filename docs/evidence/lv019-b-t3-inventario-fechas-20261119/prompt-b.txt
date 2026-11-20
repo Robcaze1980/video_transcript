@@ -1,0 +1,40 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Ronda 2 de revision (la ronda 1 dio PASS a ambos). Se añadio al inventario de SOLO LECTURA del campo `nextAttemptAt` una afirmacion sobre los selectores reales: `neverSelectedAtLeast` = cota INFERIOR de filas que los selectores actuales NUNCA recogen (fecha ausente o no numerica en un estado cuyo selector exige fecha numerica). Comprueba SI LA AFIRMACION ES CORRECTA contra los selectores de abajo (codigo real), en especial: que intents con fecha ausente o invalida SI se seleccionan; que `pending` del outbox se selecciona sin mirar la fecha; que `retry_wait` y `pending` del hold outbox NO se seleccionan sin fecha numerica; y que NaN, fracciones y negativos NO se cuentan como nunca-seleccionados (se cuentan aparte como `invalid`). Por hallazgo: lugar, escenario concreto y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+Selectores reales (firestoreBackend.ts):
+```typescript
+// intents
+const [reserves,releases]=await Promise.all([collection.where('state','==','reserve_pending').limit(100).get(),collection.where('state','==','release_pending').limit(100).get()]);
+return [...reserves.docs,...releases.docs].filter(d=>!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<=Date.now()).slice(0,limit)
+// settlement outbox
+const [pending,retry]=await Promise.all([collection.where('state','==','pending').limit(100).get(),collection.where('state','==','retry_wait').limit(100).get()]);
+const rows=[...pending.docs,...retry.docs.filter(d=>typeof d.get('nextAttemptAt')==='number'&&d.get('nextAttemptAt')<=Date.now())].slice(0,limit);
+// hold outbox
+await this.root.collection('billingHoldOutbox').where('state','==','pending').where('nextAttemptAt','<=',Date.now()).orderBy('nextAttemptAt').limit(limit).get();
+```
+
+Codigo nuevo:
+```typescript
+export const SCHEDULED_SOURCES:readonly ScheduledSource[]=Object.freeze([
+  {collection:'billingIntents',selectable:['reserve_pending','release_pending'],needsNumericDate:[]},
+  {collection:'billingOutbox',selectable:['pending','retry_wait'],needsNumericDate:['retry_wait']},
+  {collection:'billingHoldOutbox',selectable:['pending'],needsNumericDate:['pending']},
+].map(source=>Object.freeze({collection:source.collection,selectable:Object.freeze([...source.selectable]),needsNumericDate:Object.freeze([...source.needsNumericDate])})));
+
+const validDate=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
+
+/** Pure: where one document falls. */
+export function classifySchedule(data:Record<string,unknown>|undefined,nowMs:number,selectable:readonly string[]):RowSchedule{
+  const state=data?.state;
+  if(typeof state!=='string'||!state)return 'noState';
+  if(!selectable.includes(state))return 'otherState';
+  const value=data?.nextAttemptAt;
+  if(value===undefined)return {state,kind:'missing'};
+  if(typeof value!=='number')return {state,kind:'nonNumeric'};
+  if(!validDate(value))return {state,kind:'invalid'};
+  return {state,kind:value<=nowMs?'due':'future'};
+}
+
+  const neverSelectedAtLeast=SCHEDULED_SOURCES.reduce((sum,source)=>sum+source.needsNumericDate.reduce((n,state)=>{const row=collections.find(c=>c.collection===source.collection)!.selectable[state];return n+row.missing+row.nonNumeric;},0),0);
+```

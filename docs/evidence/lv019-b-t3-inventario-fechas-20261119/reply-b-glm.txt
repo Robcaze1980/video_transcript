@@ -1,0 +1,10 @@
+La afirmación es correcta.
+
+- Intents: `reserve_pending` y `release_pending` se seleccionan con `!Number.isSafeInteger(...)||...`, incluyendo fecha ausente, no numérica e inválida. Como `needsNumericDate` está vacío, no se cuentan como nunca-seleccionados.
+- Settlement outbox: `pending` entra sin mirar `nextAttemptAt`; `retry_wait` requiere `typeof value === 'number'` y `<= now`, así que `missing` y `nonNumeric` nunca se seleccionan.
+- Hold outbox: la consulta `where('nextAttemptAt','<=',Date.now())` excluye documento sin campo y con valor no numérico, también NaN; por tanto sus `missing`/`nonNumeric` tampoco se seleccionan.
+- El cálculo cuenta solo `missing + nonNumeric` en estados con fecha exigida. No cuenta `invalid`, de modo que NaN, fracciones y negativos quedan aparte. Aunque fracciones o negativos sí podrían ser seleccionados en `retry_wait` y hold, omitirlos mantiene la cota inferior válida.
+
+No se observa escenario que invaliden `neverSelectedAtLeast` como límite inferior.
+
+RESULTADO: PASS

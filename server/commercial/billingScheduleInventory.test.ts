@@ -17,13 +17,15 @@ describe('classifySchedule',()=>{
     ['future',{state:'release_pending',nextAttemptAt:NOW+1},{state:'release_pending',kind:'future'}],
     ['missing',{state:'reserve_pending'},{state:'reserve_pending',kind:'missing'}],
     ['undefined is missing',{state:'reserve_pending',nextAttemptAt:undefined},{state:'reserve_pending',kind:'missing'}],
-    ['null is present but invalid',{state:'reserve_pending',nextAttemptAt:null},{state:'reserve_pending',kind:'invalid'}],
-    ['string',{state:'reserve_pending',nextAttemptAt:'1'},{state:'reserve_pending',kind:'invalid'}],
+    ['null is present but not a number',{state:'reserve_pending',nextAttemptAt:null},{state:'reserve_pending',kind:'nonNumeric'}],
+    ['string',{state:'reserve_pending',nextAttemptAt:'1'},{state:'reserve_pending',kind:'nonNumeric'}],
     ['fraction',{state:'reserve_pending',nextAttemptAt:1.5},{state:'reserve_pending',kind:'invalid'}],
     ['negative',{state:'reserve_pending',nextAttemptAt:-1},{state:'reserve_pending',kind:'invalid'}],
-    ['NaN',{state:'reserve_pending',nextAttemptAt:Number.NaN},{state:'reserve_pending',kind:'invalid'}],
+    ['NaN is a number, but not a usable date',{state:'reserve_pending',nextAttemptAt:Number.NaN},{state:'reserve_pending',kind:'invalid'}],
+    ['Infinity is numeric but invalid',{state:'reserve_pending',nextAttemptAt:Number.POSITIVE_INFINITY},{state:'reserve_pending',kind:'invalid'}],
     ['beyond the safe range',{state:'reserve_pending',nextAttemptAt:2**60},{state:'reserve_pending',kind:'invalid'}],
-    ['object',{state:'reserve_pending',nextAttemptAt:{}},{state:'reserve_pending',kind:'invalid'}],
+    ['object',{state:'reserve_pending',nextAttemptAt:{}},{state:'reserve_pending',kind:'nonNumeric'}],
+    ['boolean',{state:'reserve_pending',nextAttemptAt:true},{state:'reserve_pending',kind:'nonNumeric'}],
   ] as const)('%s',(_n,data,expected)=>{
     expect(classifySchedule(data as never,NOW,intents)).toEqual(expected);
   });
@@ -45,18 +47,29 @@ describe('readScheduleInventory',()=>{
     const s=seed(),inv=await readScheduleInventory(s.root as never,NOW);
     const i=find(inv,'billingIntents');
     expect(i.scanned).toBe(9);expect(i.noState).toBe(1);expect(i.otherStates).toBe(2);
-    expect(i.selectable.reserve_pending).toEqual({due:1,future:1,missing:1,invalid:1});
-    expect(i.selectable.release_pending).toEqual({due:0,future:1,missing:0,invalid:1});
+    expect(i.selectable.reserve_pending).toEqual({due:1,future:1,missing:1,invalid:0,nonNumeric:1});
+    expect(i.selectable.release_pending).toEqual({due:0,future:1,missing:0,invalid:0,nonNumeric:1});
     const o=find(inv,'billingOutbox');expect(o.scanned).toBe(4);expect(o.otherStates).toBe(1);
-    expect(o.selectable.pending).toEqual({due:1,future:0,missing:0,invalid:0});expect(o.selectable.retry_wait).toEqual({due:0,future:1,missing:1,invalid:0});
-    const h=find(inv,'billingHoldOutbox');expect(h.scanned).toBe(3);expect(h.selectable.pending).toEqual({due:0,future:2,missing:0,invalid:0});
+    expect(o.selectable.pending).toEqual({due:1,future:0,missing:0,invalid:0,nonNumeric:0});expect(o.selectable.retry_wait).toEqual({due:0,future:1,missing:1,invalid:0,nonNumeric:0});
+    const h=find(inv,'billingHoldOutbox');expect(h.scanned).toBe(3);expect(h.selectable.pending).toEqual({due:0,future:2,missing:0,invalid:0,nonNumeric:0});
     expect(inv.maxFuturePerState).toBe(2);expect(inv.generatedAtMs).toBe(NOW);
+    expect(inv.neverSelectedAtLeast).toBe(1); // only the retry_wait row without a date: intents and outbox `pending` are selected without one
+  });
+  it('counts as never selected only the rows without a numeric date in states whose selector needs one',async()=>{
+    const s=stub({
+      billingIntents:{a:{state:'reserve_pending'},b:{state:'release_pending',nextAttemptAt:null}},                                  // treated as due by the selector: not stranded
+      billingOutbox:{p:{state:'pending'},q:{state:'pending',nextAttemptAt:'x'},r:{state:'retry_wait'},t:{state:'retry_wait',nextAttemptAt:'x'},u:{state:'retry_wait',nextAttemptAt:-5},v:{state:'retry_wait',nextAttemptAt:Number.NaN}},
+      billingHoldOutbox:{h:{state:'pending'},i:{state:'pending',nextAttemptAt:null},j:{state:'pending',nextAttemptAt:1.5},k:{state:'applied'}},
+    });
+    const inv=await readScheduleInventory(s.root as never,NOW);
+    // retry_wait: r (missing) + t (string); u (negative) and v (NaN) are numeric. hold pending: h (missing) + i (null); j is numeric.
+    expect(inv.neverSelectedAtLeast).toBe(4);
   });
   it('lists every scheduled source and every selectable state, with zeros, even for an empty collection',async()=>{
     const s=stub({}),inv=await readScheduleInventory(s.root as never,NOW);
     expect(inv.collections.map(c=>c.collection)).toEqual(SCHEDULED_SOURCES.map(x=>x.collection));
     for(const source of SCHEDULED_SOURCES){const c=find(inv,source.collection);expect(c.scanned).toBe(0);expect(Object.keys(c.selectable)).toEqual([...source.selectable]);}
-    expect(inv.maxFuturePerState).toBe(0);
+    expect(inv.maxFuturePerState).toBe(0);expect(inv.neverSelectedAtLeast).toBe(0);
   });
   it('is identical for any page size and scans every page (including an exact multiple)',async()=>{
     const reference=await readScheduleInventory(seed().root as never,NOW);
@@ -87,13 +100,13 @@ describe('readScheduleInventory',()=>{
   });
   it('the scheduled sources cannot be changed at runtime, state lists included',()=>{
     expect(Object.isFrozen(SCHEDULED_SOURCES)).toBe(true);
-    for(const source of SCHEDULED_SOURCES){expect(Object.isFrozen(source)).toBe(true);expect(Object.isFrozen(source.selectable)).toBe(true);}
+    for(const source of SCHEDULED_SOURCES){expect(Object.isFrozen(source)).toBe(true);expect(Object.isFrozen(source.selectable)).toBe(true);expect(Object.isFrozen(source.needsNumericDate)).toBe(true);}
   });
   it('the scheduled sources match the selectors in the backend (intents, outbox, hold outbox)',()=>{
     expect(SCHEDULED_SOURCES).toEqual([
-      {collection:'billingIntents',selectable:['reserve_pending','release_pending']},
-      {collection:'billingOutbox',selectable:['pending','retry_wait']},
-      {collection:'billingHoldOutbox',selectable:['pending']},
+      {collection:'billingIntents',selectable:['reserve_pending','release_pending'],needsNumericDate:[]},
+      {collection:'billingOutbox',selectable:['pending','retry_wait'],needsNumericDate:['retry_wait']},
+      {collection:'billingHoldOutbox',selectable:['pending'],needsNumericDate:['pending']},
     ]);
   });
 });
