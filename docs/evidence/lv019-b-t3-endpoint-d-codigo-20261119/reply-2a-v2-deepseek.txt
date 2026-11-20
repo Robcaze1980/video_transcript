@@ -1,0 +1,14 @@
+Thread mcp:cf423b64-09ae-470e-b974-f8dfcfc32490
+**Hallazgos**
+
+1. `route` se declara `null` y no se asigna en ningún punto del fragmento; el guard `route===null` dispara `notFound()` en toda petición. Escenario: `GET /<BASE>/alerts` con token válido de operador → 404 siempre. **Bloquea** (salvo que la asignación esté en las líneas omitidas).
+
+2. `nowMs` se evalúa antes del guard de `enabled`. Si se obtiene de `config.now()` y el endpoint está desactivado justamente porque `config.now` no es función, la llamada lanza `TypeError` y el `catch` responde 500 en vez de 404. Escenario: config sin reloj → 500. **Bloquea** el requisito "desactivado = 404".
+
+3. Esquema `Bearer` sensible a mayúsculas: un cliente que envíe `bearer <token>` (RFC 6750 admite minúsculas) recibe 401. No bloquea, pero rompe interoperabilidad.
+
+4. El 400 de query se evalúa después de auth y reauth: token inválido + `?after=zz` → 401, no 400. No es bug.
+
+Si la asignación de `route` vive en las líneas omitidas, solo queda el nº2 y el veredicto sería INCONCLUYENTE.
+
+RESULTADO: FALLA

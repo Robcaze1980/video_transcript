@@ -1,0 +1,10 @@
+Thread mcp:6f438a44-7ad8-4187-a5c2-08ec483499b5
+En el fragmento:
+
+- `readBody(req)` queda fuera del `try`: si el parser rechaza cuerpo malformado/excesivo, o devuelve `null` ante JSON `null`, el `catch` global responde 500. Debe mapearse antes a 400/413 y validar objeto antes de leer `body.evidenceRef`. No bloquea datos.
+- En `detail`, los campos de auditoría se publican sin verificar tipos mínimos ni que `d.action` coincida con la acción solicitada; una fila corrupta puede producir contrato inválido. No bloquea.
+- En `list`, una fila corrupta como “fila extra” puede marcar `truncated:true` aunque no queden alertas válidas después; la siguiente página vacía corrige el ciclo. No bloquea.
+
+La paginación, cursor acotado, separación de conflictos y ausencia de evidencia/nota en 409 se ven correctos.
+
+RESULTADO: PASS

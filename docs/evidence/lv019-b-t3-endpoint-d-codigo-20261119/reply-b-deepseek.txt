@@ -1,0 +1,9 @@
+Thread mcp:5a04ae4c-b450-4bba-b395-1362e928ed7d
+Hallazgos reales:
+- Escritura como rama por defecto: no hay allowlist de `route` antes de `route as AuditAction`; el cast no valida en runtime. Si `route` llega como `delete` u otro valor no interceptado, se llama a `recordDisposition` y puede crear un audit con acción arbitraria o responder 400/500 en vez del 404 contractual. Bloquea contrato/integridad; requiere operador.
+- `readBody`: solo valida nombres de claves. `evidenceRef` y `note` se castean sin `typeof` ni límite. `{"evidenceRef":123}` o `{"note":{}}` pasan; si la librería no revalida, se persiste JSON no textual y `detail` lo devuelve. No falsifica autor/reloj ni rompe auth; no bloquea, pero invalida el cuerpo estricto.
+- `list`: `.limit(ALERT_PAGE_SIZE)` y `truncated = docs.length >= ALERT_PAGE_SIZE`, sin cursor. Con exactamente una página marca truncado en falso; con más, la siguiente página es inalcanzable. Bloquea completitud, no seguridad.
+- `AuditFault` no mapeado cae en 409: un fallo transitorio (`unavailable`) se presenta como conflicto `existing:null`; el cliente puede no reintentar y perderse la decisión. Bloquea si la librería emite otros códigos.
+- Menor: `Content-Type` es sensible a mayúsculas; `Application/JSON` recibe 415.
+No vi fuga de token/cuerpo/evidencia/nota/UID/correo en `config.log`, ni movimiento de saldo.
+RESULTADO: FALLA

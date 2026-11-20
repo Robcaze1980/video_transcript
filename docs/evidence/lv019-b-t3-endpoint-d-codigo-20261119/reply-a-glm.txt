@@ -1,0 +1,12 @@
+Thread mcp:fbe208fb-4f43-4245-ac89-ad7ed4d61e22
+**Hallazgos**
+
+- `enabled` (primera línea del factory): omite validar `config.verifier` (y `config.now`). Con `verifier` ausente, el endpoint se activa: sin token responde 401 en vez del 404 obligatorio de “desactivado”, y con token lanza `TypeError` en `verifyIdToken`. Escenario: despliegue con configuración incompleta. Bloquea: rompe el fallo cerrado “todo 404 salvo configuración completa”.
+
+- `entry.action`/`entry.alertKey` se llenan antes de autenticar; un no operador con token válido deja en el registro de acceso qué alerta intentó sondar. El comentario exige “identidad primero, nada del estado de la ruta al no operador”, pero el log persiste esa enumeración. No bloquea funcionalmente, pero es filtración en el registro.
+
+- Reauth: `authTime>nowSec` sin tolerancia a desfase de reloj; un operador recién reautenticado puede recibir 401 si el reloj del servidor va detrás del emisor. Falla cerrada, no bloquea.
+
+- El fragmento está truncado: no se ve la invocación real del `limiter`, la verificación de existencia de la alerta ni el `catch` final; no puedo confirmar el 404 indistinguible ni el límite de tasa.
+
+RESULTADO: FALLA

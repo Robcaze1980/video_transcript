@@ -1,0 +1,9 @@
+Thread mcp:35da1991-323b-4073-9075-0f1d1f67d208
+**Hallazgos (Parte B)**
+
+1. **Catch de escritura incompleto.** Solo se mapean `invalid`, `not_found` y `corrupt`; cualquier otro `AuditFault` cae al bloque de conflicto. Escenario: fallo transitorio envuelto (p. ej. `unavailable`) → responde 409 con `existing` o `existing:null`, ocultando el error real y rompiendo la semántica de reintentos. Falta el guard `error.code==='conflict'` y relanzar el resto. Bloquea.
+2. **`list` sin cursor.** En el código mostrado no hay `startAfter`/token: con más alertas abiertas que `ALERT_PAGE_SIZE`, la página 2 es inalcanzable (los documentos corruptos consumen espacio de página). Además, `truncated` es falso positivo con exactamente N documentos. Bloquea el listado completo.
+3. **`key!` sin validar formato.** Si el parser de ruta puede entregar clave vacía o con `/` (p. ej. `%2F` decodificado), `doc(key!)` lanza error de argumento → 500 genérico en vez de `notFound()`, rompiendo la indistinguibilidad 404 de alerta inexistente. Bloquea salvo que el routing ya valide el formato.
+4. **413/415 sin esperar drain.** `req.resume()` seguido de respuesta inmediata: con cuerpo aún en vuelo, Node puede cerrar el socket y el cliente recibe `ECONNRESET` en lugar del error. No bloquea seguridad; degrada el manejo de errores.
+
+RESULTADO: FALLA

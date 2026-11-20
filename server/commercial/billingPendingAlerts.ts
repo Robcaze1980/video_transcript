@@ -10,6 +10,8 @@ import type {DocumentReference,DocumentSnapshot,Firestore} from 'firebase-admin/
 import {PENDING_SOURCES,buildPendingReport,normalizePending,type PendingKind,type PendingReport,type ReportRow} from './billingPendingReport';
 
 export const ALERT_COLLECTION='billingPendingAlerts';
+/** Page size used when walking open alerts (a paging bound, not a policy). */
+export const ALERT_PAGE_SIZE=200;
 export type AlertKind=PendingKind|'sweep';
 export type AlertReason='needs_review'|'malformed'|'unknown_age'|'age'|'sweep_failed'|'sweep_review';
 export const SWEEP_REASONS=['sweep_failed','sweep_review'] as const;
@@ -112,7 +114,7 @@ export async function clearResolvedAlerts(db:Firestore,root:DocumentReference,re
   for(;;){
     let query=root.collection(ALERT_COLLECTION).where('status','==','open').orderBy('__name__');
     if(last)query=query.startAfter(last);
-    const page=await query.limit(200).get();
+    const page=await query.limit(ALERT_PAGE_SIZE).get();
     for(const doc of page.docs){
       const alert=doc.data() as Record<string,unknown>,kind=alert.kind as AlertKind,rowId=alert.rowId,state=alert.state,reason=alert.reason;
       if(typeof rowId!=='string'||typeof state!=='string'||typeof reason!=='string'||doc.id!==alertKey(kind,rowId,state,reason as AlertReason)||!validAlertShape(alert,doc.id)){out.corrupt++;continue;}
@@ -151,7 +153,7 @@ export async function clearResolvedAlerts(db:Firestore,root:DocumentReference,re
       });
       out[result]++;
     }
-    if(page.docs.length<200)break;
+    if(page.docs.length<ALERT_PAGE_SIZE)break;
     last=page.docs[page.docs.length-1];
   }
   }catch(error){

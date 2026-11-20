@@ -1,0 +1,14 @@
+Thread mcp:a33c1a15-8782-4b74-8917-7732ee197724
+Fragmento truncado; no evalúo lo ausente.
+
+1. `enabled`: no exige `config.verifier` ni valida `now`. Con operadores, secreto y limitador pero sin verificador, no queda desactivado; el TypeError de `config.verifier.verifyIdToken` lo captura el catch interno y devuelve 401, no 404. Un sondeo distingue configuración incompleta de desactivada. Bloquea el contrato de 404; no hay bypass de acceso, pero sí filtra estado.
+
+2. Reautenticación (`nowSec`): si `config.now()` devuelve `NaN`, `undefined` o un `Date`, `nowSec` es NaN; `authTime>NaN` y `NaN-authTime>window` son false. Un token válido con `auth_time` antiguo pasa la ventana y permite escribir. Bloquea: bypass de reautenticación. Validar `Number.isFinite(nowMs)`.
+
+3. Identidad (`bearer`/`verifyIdToken`/`email_verified`): sin token, token inválido/revocado o correo no verificado devuelve 401 antes de la lista; una ruta desactivada devuelve 404. Eso revela si el endpoint está habilitado. Bloquea la indistinguibilidad si «no operador» incluye no autenticado; si solo significa token válido fuera de lista, no bloquea, pero el oráculo 401/404 persiste.
+
+4. El limitador solo se valida, no se invoca antes de `verifyIdToken`; un atacante sin token puede forzar verificaciones. No bloquea divulgación, pero incumple el limitador si no se aplica después.
+
+No visible: cuerpo/autor/reloj, 404 de alerta inexistente (debe usar el mismo `notFound()`) y log final.
+
+RESULTADO: FALLA

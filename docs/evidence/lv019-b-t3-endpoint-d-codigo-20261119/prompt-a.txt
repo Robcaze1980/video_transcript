@@ -1,0 +1,44 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa este codigo nuevo (TypeScript, node http): endpoint de operador para registrar decisiones humanas sobre alertas de saldo. Contrato: DESACTIVADO por defecto (todo 404 salvo configuracion completa: operadores, secreto >=32 chars, limitador, verificador; escrituras ademas ventana de reautenticacion sin valor por defecto); identidad = token Firebase con revocacion comprobada + correo verificado + UID en lista; un no operador, una ruta desactivada y una alerta inexistente deben ser indistinguibles (404); el autor lo deriva el servidor con HMAC, el cuerpo no puede traer autor ni reloj; nunca mueve saldo ni edita filas; el registro de acceso nunca contiene token, cuerpo, evidencia, nota, UID ni correo. Busca bugs REALES (autenticacion, orden de comprobaciones, filtracion de estado, fallo cerrado, enumeracion, manejo de errores); por hallazgo: lugar, escenario concreto y si bloquea. Sin numeros arbitrarios.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```typescript
+export function operatorPseudonym(secret:string,uid:string):string{
+  return 'op-'+createHmac('sha256',secret).update('operator-v1:'+uid).digest('hex').slice(0,16);
+}
+class Stop extends Error{constructor(readonly status:number,readonly body:Record<string,unknown>){super(String(status));}}
+export function billingOperatorHttp(config:OperatorHttpConfig){
+  const enabled=config.operators.size>0&&typeof config.secret==='string'&&config.secret.length>=32&&typeof config.limiter==='function';
+  const windowOk=Number.isSafeInteger(config.reauthWindowSec)&&(config.reauthWindowSec as number)>=1;
+  return async(req:IncomingMessage,res:ServerResponse):Promise<boolean>=>{
+    const url=new URL(req.url??'/','http://localhost');
+    if(url.pathname!==BASE&&!url.pathname.startsWith(BASE+'/'))return false;
+    const entry:{event:string;action:string|null;alertKey:string|null;actor:string|null;code:number}={event:'operator-billing-alert',action:null,alertKey:null,actor:null,code:0};
+    const send=(status:number,body:unknown)=>{
+      entry.code=status;
+      res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store',Vary:'Authorization','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
+      res.end(JSON.stringify(body));
+    };
+    try{
+      const parts=url.pathname.slice(BASE.length).split('/').filter(Boolean);
+      let route:'list'|'detail'|AuditAction|null=null,key:string|null=null;
+      if(parts.length===0&&req.method==='GET')route='list';
+      else if(parts.length===1&&hex64.test(parts[0])&&req.method==='GET'){route='detail';key=parts[0];}
+      else if(parts.length===2&&hex64.test(parts[0])&&(parts[1]==='acknowledge'||parts[1]==='resolve')&&req.method==='POST'){route=parts[1];key=parts[0];}
+      entry.action=route;entry.alertKey=key;
+      const write=route==='acknowledge'||route==='resolve';
+      if(!enabled||route===null||req.headers.origin!==undefined||(write&&!windowOk))throw notFound();
+
+      // Identity first; nothing about the route's state is revealed to someone who is not a verified operator.
+      const bearer=/^Bearer ([A-Za-z0-9_.-]{1,7000})$/.exec(req.headers.authorization??'')?.[1];
+      if(!bearer)throw unauthorized();
+      let token;try{token=await config.verifier.verifyIdToken(bearer,true);}catch{throw unauthorized();}
+      if(!token||token.email_verified!==true||typeof token.uid!=='string'||!token.uid)throw unauthorized();
+      if(!config.operators.has(token.uid))throw notFound();
+      const actor=operatorPseudonym(config.secret,token.uid);entry.actor=actor;
+      if(write){
+        const nowSec=Math.floor(config.now()/1000),authTime=token.auth_time;
+        if(typeof authTime!=='number'||!Number.isSafeInteger(authTime)||authTime>nowSec||nowSec-authTime>(config.reauthWindowSec as number))throw new Stop(401,{code:'reauth_required'});
+      }
+      if([...url.searchParams.keys()].length)throw new Stop(400,{code:'invalid'});
+```

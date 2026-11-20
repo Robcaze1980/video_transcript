@@ -1,0 +1,9 @@
+Thread mcp:0411fa4e-fc62-402d-9019-b3cae74c13dd
+Hallazgos sobre el fragmento:
+
+1. **Lista (bloqueante).** `page` nunca se asigna: se construye `query` pero no hay `await query.get()` ni `.limit(ALERT_PAGE_SIZE+1)`. `page.docs` lanza ReferenceError → 500 en toda la ruta de lista, y el "una fila extra" que sostiene `truncated` no existe. Sin `limit`, además, solo se leería la colección completa.
+2. **Escrituras.** No hay validación del `Content-Type` de entrada; la corrección declarada no aparece. No bloquea (Origin+Bearer cubren CSRF), pero la afirmación es inexacta.
+3. **Cursor.** Si `hex64` admite mayúsculas, un `after` en mayúsculas pasa validación y `doc(after)` no coincide con ningún `__name__`: devuelve la primera página otra vez (bucle) en lugar de 400.
+4. **Menor.** Un `config.now()` que lance da 500, no 404 (la regla dice reloj inválido = 404); y en escritura el 401 de reautenticación precede al 400 por query inválida.
+
+RESULTADO: FALLA

@@ -1,0 +1,13 @@
+Thread mcp:2b81a1fd-5cce-4fb6-8771-f45b4d9e3708
+Sin ejecutar nada; revisión de las rutas mostradas.
+
+- `list`: el extra row y `next`=docs[last] con `startAfter` exclusivo dan paginación exacta, sin duplicados ni saltos; los corruptos suman `corrupt` pero igual avanzan el cursor. Correcto.
+- `detail`: lee ambas auditorías por (key,action); solo estado/motivo esperados.
+- Escritura: orden limiter→body→recordDisposition; mapeo correcto (solo `conflict`→409, resto 500); el conflicto relee el audit y expone solo pseudónimos. Correcto.
+
+Observaciones reales, ninguna bloquea:
+1. `readBody` fuera del try interno: si un error no-`Stop` (JSON inválido, cuerpo grande) escapa, el cliente ve 500 en vez de 400/413. Verificar que `readBody` lance `Stop`.
+2. Un alerta corrupto queda inalcanzable: `list` solo lo cuenta (sin id) y `detail` responde 422.
+3. `send` dentro del try: si escribir la respuesta falla, el catch externo reintenta enviar (EPIPE/headers ya enviados).
+
+RESULTADO: PASS

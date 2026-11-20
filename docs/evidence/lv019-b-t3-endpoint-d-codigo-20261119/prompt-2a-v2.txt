@@ -1,0 +1,49 @@
+Responde SOLO con texto, sin herramientas. Maximo 180 palabras.
+Segunda revision (TypeScript, node http): endpoint de operador para decisiones humanas sobre alertas de saldo, DESACTIVADO salvo configuracion completa. Ronda 1 dio FALLA por: enabled no exigia verificador/reloj/log; un reloj NaN dejaba pasar la comprobacion de reautenticacion; la lista no tenia cursor y truncated era falso positivo con pagina exacta; cualquier AuditFault no mapeado se presentaba como 409; Content-Type sensible a mayusculas. Corregido: enabled exige todo; reloj invalido = 404; frescura en forma positiva (NaN/futuro/fraccionario/viejo rechazados); lista con cursor ?after=<64 hex> y una fila extra para truncated exacto; solo conflict -> 409, lo demas 500; tipo de contenido sin distinguir mayusculas. No adoptado a proposito: tolerancia de desfase de reloj (seria un numero arbitrario; falla cerrada); limitador antes de verificar (la politica es por operador verificado; el limite general del servicio es previo); que 401 vs 404 revele si el endpoint esta encendido (no se considera sensible). El enrutado valida la clave con regex hex64 antes de cualquier uso. Busca bugs REALES restantes; por hallazgo: lugar, escenario concreto y si bloquea. Sin numeros arbitrarios.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+(Esta es la reenvio de la parte A con el fragmento COMPLETO: el envio anterior omitio por error dos lineas y el servidor T3 se detuvo durante una de las respuestas.)
+```typescript
+export function billingOperatorHttp(config:OperatorHttpConfig){
+  const enabled=config.operators.size>0&&typeof config.secret==='string'&&config.secret.length>=32&&typeof config.limiter==='function'&&
+    typeof config.verifier?.verifyIdToken==='function'&&typeof config.now==='function'&&typeof config.log==='function';
+  const windowOk=Number.isSafeInteger(config.reauthWindowSec)&&(config.reauthWindowSec as number)>=1;
+  return async(req:IncomingMessage,res:ServerResponse):Promise<boolean>=>{
+    const url=new URL(req.url??'/','http://localhost');
+    if(url.pathname!==BASE&&!url.pathname.startsWith(BASE+'/'))return false;
+    const entry:{event:string;action:string|null;alertKey:string|null;actor:string|null;code:number}={event:'operator-billing-alert',action:null,alertKey:null,actor:null,code:0};
+    const send=(status:number,body:unknown)=>{
+      entry.code=status;
+      res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store',Vary:'Authorization','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
+      res.end(JSON.stringify(body));
+    };
+    try{
+      const parts=url.pathname.slice(BASE.length).split('/').filter(Boolean);
+      let route:'list'|'detail'|AuditAction|null=null,key:string|null=null;
+      if(parts.length===0&&req.method==='GET')route='list';
+      else if(parts.length===1&&hex64.test(parts[0])&&req.method==='GET'){route='detail';key=parts[0];}
+      else if(parts.length===2&&hex64.test(parts[0])&&(parts[1]==='acknowledge'||parts[1]==='resolve')&&req.method==='POST'){route=parts[1];key=parts[0];}
+      entry.action=route;entry.alertKey=key;
+      const write=route==='acknowledge'||route==='resolve';
+      // An invalid clock is a misconfiguration: fail closed like a disabled route (a NaN clock must never pass a freshness check).
+      let nowMs=Number.NaN;
+      if(enabled){try{nowMs=config.now();}catch{/* a throwing clock is an invalid clock */}}
+      if(!enabled||route===null||req.headers.origin!==undefined||(write&&!windowOk)||!Number.isSafeInteger(nowMs)||nowMs<0)throw notFound();
+
+      // Identity first; the RESPONSE never tells a non-operator anything about alerts (the access log, server-side only, still
+      // records the attempt for monitoring). Knowing that the endpoint is switched on is not treated as sensitive.
+      const bearer=/^Bearer ([A-Za-z0-9_.-]{1,7000})$/.exec(req.headers.authorization??'')?.[1];
+      if(!bearer)throw unauthorized();
+      let token;try{token=await config.verifier.verifyIdToken(bearer,true);}catch{throw unauthorized();}
+      if(!token||token.email_verified!==true||typeof token.uid!=='string'||!token.uid)throw unauthorized();
+      if(!config.operators.has(token.uid))throw notFound();
+      const actor=operatorPseudonym(config.secret,token.uid);entry.actor=actor;
+      if(write){
+        const nowSec=Math.floor(nowMs/1000),authTime=token.auth_time;
+        // Positive form: anything that is not provably fresh (missing, NaN, future, stale) is rejected.
+        if(!(typeof authTime==='number'&&Number.isSafeInteger(authTime)&&authTime<=nowSec&&nowSec-authTime<=(config.reauthWindowSec as number)))throw new Stop(401,{code:'reauth_required'});
+      }
+      // Only the list route accepts a query string, and only a validated paging cursor.
+      const queryKeys=[...url.searchParams.keys()],after=url.searchParams.get('after');
+      if(queryKeys.length&&!(route==='list'&&queryKeys.length===1&&queryKeys[0]==='after'&&after!==null&&hex64.test(after)&&url.searchParams.getAll('after').length===1))throw new Stop(400,{code:'invalid'});
+
+```
