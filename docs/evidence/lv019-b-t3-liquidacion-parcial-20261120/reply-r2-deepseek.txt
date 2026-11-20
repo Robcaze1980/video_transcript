@@ -1,0 +1,12 @@
+**Hallazgos V2**
+
+1. ALTA — Canonización de K=N: declararlo inválido y exigir forma canónica (captura completa sin K), con `captured+released=N` y `released>=1`, cierra la doble representación del mismo estado. Corrección: probar que un replay con K=N se trata como no-op/mapeo, no como conflict.
+2. ALTA — Edad mínima de `unknown_expired`: 15 min configurables son plausibles pero **menores** que el plazo de Video; el riesgo es liberar una entrega aún posible (subcobro). Corrección: derivar la constante del mismo reloj/plazo de Video, no hardcodear; contar por cuenta y alertar.
+3. MEDIA — Versionado: Cuenta-primero con fallo cerrado (400 a `capturedSeconds`) es correcto; `settlementProtocol 3` + campo nuevo obligatorio cierra el skew. Falta: que el Cuenta antiguo rechace también la resolución de `release`, no solo K; probar drenado con filas mixtas.
+4. MEDIA — Ledger/ids: los dos asientos `video_capture(K)` / `video_release_remainder(N-K)` con suma=N son consistentes, y el invariante delta consumed/available es correcto. Falta garantizar unicidad de `(reservationId, type, K)` y que el conflict repetido → `needs_review` con liberación marcada dentro del plazo, sin retención perpetua de saldo ni cupo.
+5. BAJA — `admission` almacenada sin suministrada = conflict es correcto, pero `admitted:false` debe ser idempotente para no ensuciar conciliación.
+
+Resueltos: cobro proporcional (4,5), K único al final, replay no-op, admisión única/inmutable, sellado como único escritor.
+Pendientes: constante de edad y su alineación con Video, unicidad de asientos, límite acotado de reintentos, rechazo de resolución en legado.
+
+RESULTADO: PASS

@@ -1,0 +1,15 @@
+**Revisión V2**
+
+1. ALTA — ledger/ids: RESUELTO. Dos asientos con tipos distintos (`video_capture(K)`, `video_release_remainder(N-K)`), invariante de suma contra delta de `consumed`/`available` y unicidad por reserva cierran la ambigüedad de identificación y conciliación.
+2. ALTA — canonización de K=N: RESUELTO. `K=N` inválido, `releasedSeconds>=1` y tope `N-1` eliminan la forma ambigua: captura completa es simplemente la ausencia del par parcial; queda una única forma canónica y consistente con K calculado en Video.
+3. MEDIA — edad mínima de `unknown_expired`: RESUELTO en esencia (constante configurable, propuesta 15 min menor que el plazo de Video, conteo por cuenta para alerta). Observación menor: no se define explícitamente qué responde Cuenta cuando la edad aún no se cumple (¿conflict, error propio, retry?). Si se trata como conflict, la regla 7 de Video lo conduce a `needs_review`; conviene especificarlo para evitar ciclos ambiguos.
+4. MEDIA — versionado: RESUELTO. Cuenta primero, Cuenta antiguo rechaza `capturedSeconds` con 400 (fail-closed), filas legacy drenan con protocolo 1, nuevas con protocolo 3, campos desconocidos inválidos y prueba de drenado mixto.
+
+Nuevas observaciones menores:
+5. BAJA — `admitted:false` depende de que Video persista la discrepancia; añadir prueba de que esa marca sobrevive a un replay.
+6. BAJA — idempotencia del sellado ante reintento del worker debería quedar cubierta por “replay no escribe”; añadir prueba explícita.
+7. BAJA — subcobro de un fragmento en vuelo está acotado y documentado como coste asumido; no es defecto.
+
+Los hallazgos ALTA previos quedan resueltos; no detecto un ALTA nuevo. Las precisiones restantes no bloquean el diseño.
+
+RESULTADO: PASS

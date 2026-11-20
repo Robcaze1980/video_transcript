@@ -1,0 +1,19 @@
+Responde SOLO con texto, sin herramientas. Maximo 320 palabras. Revisa un DISENO del lado Video de un contrato financiero (no codigo escrito). Hallazgos numerados con severidad ALTA/MEDIA/BAJA y correccion. Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+CONTEXTO. Video y Cuenta son bases Firestore independientes. Cuenta guarda el saldo en segundos por reserva (N segundos, max 600). Hoy Cuenta solo captura o libera la reserva ENTERA y NO permite liberar si hubo admision de una llamada de proveedor (la admision precede siempre al envio). En Video, `settle(tx,c,state)` marca el trabajo terminal y crea la fila `billingOutbox` con accion: `capture` si state==='succeeded', y `release` en cualquier otro caso (failed|cancelled), SIN mirar si hubo admision:
+```
+tx.create(billingOutbox/jobId,{...tupla, action:capture?'capture':'release', attemptId solo en capture, state:'pending', attempts:0})
+tx.create(movements terminal, {credits:price, kind:'external_'+(capture?'capture':'release')})
+```
+`completeNoSpeech` (video sin habla detectado DESPUES de que el proveedor respondio y su respuesta quedo recibida) llama a `settle(...,'failed')`: la fila pide `release`, Cuenta responde conflict por la admision previa, y el drenador (`recordExternalBillingFailure`) reintenta sin tope con espera hasta 15 min; saldo y cupo active (max 3) quedan retenidos. Un trabajo `unknown` solo sale por `reconcile`, sin llamador en produccion. El drenador liquida cada fila: validExternalBillingOutbox (releer 14 documentos) -> POST a Cuenta -> markExternalBillingSettled (compara de nuevo los 14 documentos); si algo cambia, cuarentena. Un doble ACK con historial intacto ya se reconcilia.
+Decisiones del dueno: si fallamos no se cobra (sin cobro parcial); si el cliente cancela tras enviar al proveedor se cobra solo lo ENTREGADO y verificado, proporcional, y se libera el resto.
+
+DISENO LADO VIDEO PROPUESTO:
+4.1 Accion por estado: exito -> capture; fallo/cancelacion SIN ninguna llamada de proveedor registrada -> release; fallo/cancelacion CON llamadas registradas -> release con resolucion {kind no_speech|not_delivered|unknown_expired, evidenceSha256 = hash de la evidencia durable} o, si el cliente cancelo tras recibir fragmentos, captura parcial K; completeNoSpeech -> release kind no_speech con el hash de las pruebas ya vinculadas a las llamadas recibidas.
+4.2 K = segundos fuente cubiertos por fragmentos entregados Y verificados al cancelar, redondeados hacia arriba al segundo; los fragmentos en vuelo o sin confirmar no cuentan. K>=N -> captura completa; K=0 -> liberacion.
+4.3 La tupla de la fila (matchesOutboxSnapshot, validOutboxSnapshot, validExternalBillingOutbox) se extiende con capturedSeconds, resolutionKind, evidenceSha256 y attemptId en liberacion posadmision. El movimiento terminal local registra los segundos realmente cobrados. La relectura de 14 documentos no cambia.
+4.4 Un conflict de Cuenta ya no se reintenta sin tope: tras un numero acotado de intentos la fila pasa a needs_review con alerta.
+4.5 `reconcile` obtiene un llamador de produccion con plazo maximo, estado visible y alerta (diseno aparte).
+Limite: Cuenta no puede verificar que el proveedor no entrego; la afirmacion es de Video.
+
+PREGUNTAS: (a) la eleccion de accion de 4.1 puede cobrar de mas o liberar con una llamada aun en vuelo (carrera entre fallo/cancelacion y respuesta tardia)? (b) el calculo de K de 4.2 es manipulable o ambiguo (fragmentos entregados pero no verificados)? (c) 4.3: que se rompe al ampliar la tupla de la fila (version de protocolo, filas antiguas pendientes)? (d) 4.4 es seguro: que pasa con la reserva retenida mientras tanto? (e) que prueba o invariante falta?

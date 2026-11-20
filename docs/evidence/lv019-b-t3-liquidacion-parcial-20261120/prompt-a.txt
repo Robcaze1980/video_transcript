@@ -1,0 +1,28 @@
+Responde SOLO con texto, sin herramientas. Maximo 320 palabras. Revisa un DISENO de contrato financiero (no codigo escrito). Hallazgos numerados con severidad ALTA/MEDIA/BAJA y correccion. Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+CONTEXTO. Dos bases Firestore independientes (Video y Cuenta), sin transaccion conjunta. Cuenta es la autoridad del saldo en SEGUNDOS: por reserva guarda estado reserved|captured|released, y por cuenta available/reserved/consumed/active con invariante credited=available+reserved+consumed. Cada llamada a un proveedor de IA exige antes una ADMISION durable en Cuenta (providerCalls + fence + reservation.providerAdmission); la admision precede siempre al envio. HOY `settleVideo(identityKey,reservationId,action,expectedSeconds,providerAdmission?)` en una transaccion:
+```
+if(seconds!==expectedSeconds)throw conflict;               // N exacto, max 600
+previous=storedAdmission(reservation); capturedWith=reservation.captureAdmission
+if(state===action+'d'){ // replay
+  if(action==='capture'){ if(previous){ if(!supplied||!sameAdmission(previous,supplied)||!sameAdmission(capturedWith,supplied))throw conflict }
+                          else if(supplied||capturedWith!==undefined)throw conflict }
+  else if(previous||capturedWith!==undefined)invariant();   // released con admision = corrupcion
+  return {settled:false,...} }
+if(state!=='reserved')throw conflict; if(protocol!==2)throw conflict; if(blocked)throw conflict;
+if(action==='capture'&&(!previous||!supplied||!sameAdmission(previous,supplied)))throw conflict;
+if(action==='release'&&previous)throw conflict;            // "release after admission closed for manual reconciliation"
+next={reserved:-N, available:+(release?N:0), consumed:+(capture?N:0), active:-1}
+update reservation {state:action+'d', captureAdmission?}; create ledger entry id=[account,reservation,action]
+```
+Consecuencia hoy: un trabajo que falla DESPUES de la primera llamada (p.ej. video sin habla detectado tras responder el proveedor) no puede liberarse: la reserva y un cupo active (max 3) quedan retenidos y Video reintenta sin tope.
+El dueno decidio: (1) si fallamos no se cobra, sin cobro parcial; (2) si el cliente cancela tras enviar al proveedor, se cobra solo lo ENTREGADO, proporcional al precio, y se libera el resto.
+
+DISENO PROPUESTO (solo reservas protocolo 2; legado sigue cerrado):
+3.1 `capture` admite `capturedSeconds` K opcional, 1<=K<N. Misma precondicion que la captura actual. Atomico: consumed+=K, available+=N-K, reserved-=N, active-=1; reserva captured con capturedSeconds=K y releasedSeconds=N-K; DOS asientos de libro (capture K, release N-K, ids distintos por accion). Sin K, o K=N, es la captura completa de hoy. K=0 no existe (es liberacion).
+3.2 `release` admite ademas la admision del primer intento (jobId,attemptId) y una resolucion {kind in no_speech|not_delivered|unknown_expired, evidenceSha256}. Si Cuenta NO tiene admision almacenada: liberacion simple de hoy (la suministrada se ignora; sin admision no pudo haber llamada). Si SI la tiene: exige que la suministrada coincida y resolucion valida; reserva released con releaseAdmission y resolution.
+3.3 Replay con misma tupla -> settled:false; tupla distinta (K, resolucion, admision) -> conflict; reserva ya terminal por otra via -> conflict. Se actualizan los dos invariantes ("released con admision") para aceptar released CON releaseAdmission igual a la almacenada y seguir tratando released con admision SIN releaseAdmission como corrupcion.
+3.4 Sin cambios: invariante de saldo, una sola resolucion terminal por reserva, el bloqueo de cuenta impide toda liquidacion, legado cerrado.
+3.5 LIMITE: Cuenta no puede comprobar que el proveedor no entrego; resolucion y K son afirmaciones de Video, guardadas con su hash. Una liberacion tras admision equivocada regala trabajo (coste acotado) y nunca cobra de mas.
+
+PREGUNTAS: (a) hay un hueco de saldo, doble liquidacion o carrera en 3.1-3.3 (p.ej. captura parcial vs liberacion concurrentes, replay con K distinto, ledger de dos asientos con ids por accion)? (b) la regla de 3.2 "sin admision almacenada, ignorar la suministrada" es segura? (c) es aceptable que la afirmacion de Video no sea verificable por Cuenta, o falta alguna defensa minima (p.ej. exigir que la admision suministrada identifique el intento)? (d) que invariante o prueba falta?

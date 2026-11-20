@@ -1,0 +1,11 @@
+1. (a) ALTA — Carrera sin cerca. `settle` decide la acción antes de sellar la admisión y, en liberación posadmisión, no lleva `attemptId`, así que una respuesta tardía del proveedor no es atribuible: se libera habiendo entrega (subcobro) o se captura K sobre fragmentos que luego se invalidan (sobrecobro). Corrección: `settle` debe ser escritor único que sella la admisión (attemptId/fence monotónico); toda respuesta posterior al sello va a `reconcile`, nunca a una fila nueva.
+
+2. (b) MEDIA — K ambiguo y no verificable por Cuenta. "Segundos fuente cubiertos" sin regla de redondeo por fragmento invita a inflar; sumar y luego `ceil` una vez, no `ceil` por fragmento. Fragmentos solapados duplican. Corrección: K ≤ N, fragmentos disjuntos, y K derivado del mismo registro inmutable que lee `validExternalBillingOutbox`, con `evidenceSha256` firmado por Video y declarado explícitamente como afirmación unilateral.
+
+3. (c) ALTA — Rompe la tupla y el contrato. Extenderla altera el snapshot de los 14 documentos: filas viejas pendientes no comparan y caen en cuarentena; además `attemptId` en liberación contradice el invariante previo "solo en capture" y el contrato de Cuenta. Corrección: campo `protocolVersion`; el drenador interpreta v1 (liberación total) y v2 (parcial); migración y compatibilidad retro antes de escribir v2.
+
+4. (d) MEDIA — `needs_review` con reserva retenida es DoS. Saldo y cupo active (máx 3) quedan bloqueados indefinidamente, agotando el cupo. Corrección: TTL máximo de retención; al vencer, liberar o capturar según política, con alerta y estado visible.
+
+5. (e) ALTA — Falta invariante de liquidación exactamente-una-vez: por trabajo, un único movimiento terminal, capture/release mutuamente excluyentes, Σ segundos cobrados ≤ N, sin liberar tras capturar, clave de idempotencia en el POST a Cuenta y vivacidad (toda fila alcanza estado terminal en plazo acotado).
+
+RESULTADO: FALLA

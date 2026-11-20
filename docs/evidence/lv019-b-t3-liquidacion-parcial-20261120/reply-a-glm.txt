@@ -1,0 +1,17 @@
+No hay hueco de saldo ni doble liquidación en la aritmética: 3.1 preserva credited=available+reserved+consumed (consumed+=K, available+=N−K, reserved−=N suma 0), los dos asientos suman N, y la transacción serializa captura vs liberación (un ganador; el perdedor recibe conflict). Hallazgos:
+
+1. MEDIA — Admisiones por intento: cada reintento al proveedor exige admision propia; si `reservation.providerAdmission` es singular y se sobrescribe, la liberación por "primer intento" no encuentra su admision y produce conflicts o falsas corrupciones. Corrección: declarar la admision inmutable por reserva (primer intento) o almacenarla por attemptId y exigir que la tupla de liquidación identifique el attemptId almacenado.
+
+2. MEDIA — 3.2 "sin admision almacenada, ignorar la suministrada": seguro para el saldo (liberar nunca sobrecobra), pero solo si las admisiones se retienen hasta liquidación terminal; cualquier TTL/GC rompe la prueba "sin admision = sin llamada". Corrección: prohibir purga de admisiones antes del settle; y no ignorar en silencio: persistir la suministrada como no verificada en el ledger para auditoría.
+
+3. MEDIA — `unknown_expired` sin cota temporal es una liberación genérica reclamable por Video. Corrección: exigir edad mínima de la reserva/admision (o tope de intentos) y monitorear el ratio de liberaciones con afirmación por cuenta.
+
+4. BAJA — Canonizar K=N como captura completa (sin capturedSeconds/releasedSeconds, un asiento) o definir igualdad de tupla que trate ambas formas como equivalentes; si no, replay "K=N" vs "sin K" da conflict espurio.
+
+5. BAJA — La captura parcial es terminal: si tras settle(K) se entrega más, el resto N−K es irrecuperable. Documentar que Video liquida solo con entrega final.
+
+6. (c) La afirmación no verificable es aceptable con las defensas ya previstas (admision que identifique intento, coincidencia con la almacenada, enum cerrado + evidenceSha256, coste acotado por reserva) más la cota temporal del punto 3.
+
+7. (d) Faltan invariantes/pruebas: capturedSeconds+releasedSeconds=N; reconciliación ledger por reserva = delta consumed (dos asientos); replay es no-op sin escritura; captura(K) vs liberación concurrentes → un solo estado terminal; stored-admission presente + supplied ausente → conflict explícito; legado rechaza K/resolución.
+
+RESULTADO: PASS

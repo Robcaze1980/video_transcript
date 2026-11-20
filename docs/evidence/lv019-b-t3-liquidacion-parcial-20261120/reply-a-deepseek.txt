@@ -1,0 +1,15 @@
+**Hallazgos**
+
+1. **ALTA** — `reservation.providerAdmission` es una sola ranura, pero el diseño admite varios intentos (3.2 cita "la admisión del primer intento"). Con reintentos tras fallo, lo almacenado será otro intento y la liberación fallará por mismatch: se reproduce el atasco actual. Corrección: admisiones como conjunto por `jobId/attemptId/fence`; captura y liberación declaran cuál.
+
+2. **ALTA** — Faltan invariantes de K: `1<=K<N`, `capturedSeconds+releasedSeconds=N`, `releasedSeconds>=1`; y K=N debe NO emitir asiento `release` (hoy se declara "igual a la captura completa"). Además el id `[account,reservation,'release']` en captura parcial se confunde con una liberación real. Corrección: acción `capture_partial_release` y salto del segundo asiento cuando K=N.
+
+3. **MEDIA** — (b) "sin admisión almacenada, ignorar la suministrada" presupone persistencia previa. Si la admisión quedó solo en `providerCalls`, o falló la escritura y se envió igual, Cuenta reembolsa completo tras una llamada real. Corrección: leer ambas fuentes, registrar la suministrada aunque no case, marcar discrepancia, exigir `fence` monotónico.
+
+4. **MEDIA** — La admisión no está ligada a `reservationId`: podría liquidar otra reserva. Corrección: incluir y comparar `reservationId+fence` en el objeto de admisión.
+
+5. **MEDIA** — (d) Faltan pruebas/invariantes: `active>=0` y `active == nº reservas no terminales`; suma del libro == delta de saldo; captura parcial vs liberación concurrentes; replay mismo K no-op / K distinto conflict; release tras captura parcial conflict; K=N sin segundo asiento.
+
+6. **BAJA** — (c) El límite es aceptable, pero exige defensa mínima: `evidenceSha256` no vacío y único, y `unknown_expired` marcado para reconciliación con tope por cuenta, para que no sea reembolso libre repetible.
+
+RESULTADO: FALLA

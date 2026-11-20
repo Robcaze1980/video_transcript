@@ -1,6 +1,6 @@
 # HANDOFF · Vistavo · 20 nov 2026 (PST)
 
-**Próximo paso de sesión (20 nov):** ejecutar el [plan integral](docs/specs/LV-019-B-plan-integral-20261120.md) por dependencias: B1 (recuperación tras caída entre Video y Cuenta) y el contrato de interfaz de B; C0a/C0b de voz en paralelo; A0 (lectura previa de nube, solo lectura) y A1/A3 cuando haya el UID y el permiso de la entrada de prueba. **Puerta G0 (decisión del dueño, 20 nov): no se despliega nada hasta que la voz esté lista**; la voz es el camino crítico (C0a hecha: [hechos del proveedor](docs/specs/LV-019-B-voz-c0a-hechos-proveedor-20261120.md); precio US$0.10/min; no se cobra si fallamos).
+**Próximo paso de sesión (20 nov):** ejecutar el [plan integral](docs/specs/LV-019-B-plan-integral-20261120.md) por dependencias: **C2a** (diseño aceptado por T3: [liquidación parcial y liberación tras admisión](docs/specs/LV-019-B-liquidacion-parcial-y-liberacion-posadmision.md); pruebas rojas de Cuenta → implementar Cuenta → Video con `AccountStore` real → regresión; el [mapa de caídas](docs/reviews/LV-019-B-mapa-caidas-video-cuenta-20261120.md) lista el resto de B1/B2); C0a/C0b de voz en paralelo; A0 (lectura previa de nube, solo lectura) y A1/A3 cuando haya el UID y el permiso de la entrada de prueba. **Puerta G0 (decisión del dueño, 20 nov): no se despliega nada hasta que la voz esté lista**; la voz es el camino crítico (C0a hecha: [hechos del proveedor](docs/specs/LV-019-B-voz-c0a-hechos-proveedor-20261120.md); precio US$0.10/min; no se cobra si fallamos).
 
 ## Punto de partida
 

@@ -1,0 +1,70 @@
+# LV-019.B · Liquidación parcial y liberación tras admisión (paso C2a)
+
+**Estado (20 nov 2026): DISEÑO ACEPTADO CON LÍMITES POR T3; sin código todavía.** Ronda 1: GLM PASS sobre Cuenta y tres FALLA (DeepSeek sobre Cuenta, ambos sobre Video), todos adjudicados; ronda 2 sobre esta versión: GLM PASS y DeepSeek PASS ([recibo](../evidence/lv019-b-t3-liquidacion-parcial-20261120/RECIBO.md)). El PASS valida el diseño, no una implementación. Cambio de contrato financiero entre Video y Cuenta. Lo exigen dos decisiones del dueño (voz y texto): «no se cobra si fallamos» y «si el cliente cancela después de enviar al proveedor, se cobra lo entregado, proporcional al precio» ([plan integral](LV-019-B-plan-integral-20261120.md), §0). Corrige además un hueco que ya existía en el texto. Nada se despliega (puerta G0).
+
+## 1. Evidencia (mapa de caídas del 20 nov)
+
+Un agente de solo lectura recorrió cinco flujos (reserva, admisión por llamada, liquidación, bloqueo, liberación) y listó cada ventana entre dos escrituras durables. Codex verificó en el código los hallazgos que sostienen este paso:
+
+- `AccountStore.settleVideo` solo captura o libera la reserva **entera** y exige `seconds` igual a lo reservado (`server/account/backend.ts:309–326`); **rechaza liberar si hay una admisión de proveedor previa** (`:347`, comentario `:308`: «release after admission remains closed for manual reconciliation»). Una reserva liberada con admisión es un fallo de invariante (`:286`, `:338`).
+- Video marca **todo** trabajo `failed` o `cancelled` con facturación externa como acción `release` (`firestoreBackend.ts` `settle`, línea `action:capture?'capture':'release'`), sin mirar si hubo admisión.
+- `completeNoSpeech` (video sin habla **después** de que el proveedor respondió) llama a ese `settle` con `failed` (`firestoreBackend.ts:1688–1711`). Con admisión previa, Cuenta rechaza la liberación con `conflict`; el drenador registra el fallo y reintenta sin tope (`recordExternalBillingFailure`, espera de hasta 15 min). **Saldo y cupo `active` (máximo 3 por cuenta) quedan retenidos.** Ninguna prueba ejecuta este camino contra `AccountStore` (el worker simulado usa una liberación que sí sale).
+- Un trabajo `unknown` solo sale por `reconcile`, que solo llama un script de prueba; nada lo ejecuta en producción.
+- No hay caducidad de reservas ni planificador que ejecute los drenajes.
+
+## 2. Qué hay que poder hacer
+
+| Situación | Acción de saldo requerida | Hoy |
+|---|---|---|
+| Éxito completo | Capturar los N segundos | Sí |
+| Fallo antes de cualquier admisión | Liberar N | Sí |
+| **Fallo o «sin habla» después de admitir, sin entrega** | Liberar N con prueba de no entrega | **No** (conflicto) |
+| **Cancelación del cliente tras enviar al proveedor** | Capturar K de N (lo entregado) y liberar N−K | **No** |
+| `UNKNOWN` resuelto como no entregado | Liberar N con prueba | **No** |
+| `UNKNOWN` resuelto como entregado | Capturar N | Sí, si alguien lo ejecuta |
+
+## 3. Contrato propuesto de Cuenta (solo reservas con `admissionProtocol: 2`)
+
+**3.1 Captura parcial.** `capture` admite un campo opcional `capturedSeconds` K con 1 ≤ K < N. Misma precondición que la captura actual (reserva `reserved`, admisión previa igual a la suministrada, cuenta sin bloqueo). Efecto atómico: `consumed += K`, `available += N−K`, `reserved −= N`, `active −= 1`; la reserva queda `captured` con `capturedSeconds: K` y `releasedSeconds: N−K`; el libro recibe dos asientos (`capture` de K y `release` de N−K, identificadores distintos por acción). Sin `capturedSeconds` es la captura completa de hoy; **`capturedSeconds` explícito igual a N es `invalid`** (una sola forma canónica, sin conflicto espurio entre «sin K» y «K = N»). K = 0 no existe: es una liberación. Invariante: `capturedSeconds + releasedSeconds = N` y `releasedSeconds ≥ 1`. Los dos asientos del libro llevan tipos distintos, `video_capture` (K) y `video_release_remainder` (N−K), para no confundir el resto con una liberación real; como cada reserva tiene una sola resolución terminal, no hay colisión de identificadores. Repetir con el mismo K es un no-op sin escritura; con otro K, o sin K, es `conflict`; liberar o capturar después de una captura parcial es `conflict`.
+
+**3.2 Liberación tras admisión.** `release` admite, además de `seconds`, la admisión del primer intento (`jobId`, `attemptId`) y una **resolución** `{kind, evidenceSha256}` con `kind` en un conjunto cerrado (`no_speech`, `not_delivered`, `unknown_expired`) y `evidenceSha256` el hash de la evidencia durable de Video. Regla: si Cuenta **no** tiene admisión almacenada, es la liberación simple de hoy (la admisión suministrada se ignora; sin admisión no pudo haber llamada, porque la admisión precede al envío). Si **sí** la tiene, exige que la suministrada coincida y que haya resolución válida; la reserva queda `released` con `releaseAdmission` y `resolution`. Efecto de saldo como una liberación normal. Aclaraciones tras la revisión T3: (a) la admisión es **única e inmutable por reserva**: `sameAdmission` compara `jobId` y `attemptId` y cualquier otro intento recibe `conflict` (`backend.ts:285`), así que «primer intento» es el único intento; (b) la admisión se busca dentro del propio documento de la reserva, por lo que no puede liquidar otra; (c) si no hay admisión almacenada pero existe la barrera `first` o una llamada, es invariante rota (`:332`, ya existente), y la admisión nunca se purga antes del estado terminal; (d) la respuesta incluye `admitted` (lo que Cuenta tenía registrado) para que Video registre cualquier discrepancia con su propia cuenta; (e) para `unknown_expired` Cuenta exige una **edad mínima** de la admisión (constante configurable; propuesta inicial 15 minutos, siempre menor que el plazo de Video) y cuenta estas liberaciones por cuenta para la alerta; `evidenceSha256` es un hash hexadecimal de 64 caracteres. Si la edad mínima aún no se cumple, Cuenta responde `409` con un error propio `too_early` y no cambia nada; Video reprograma la fila para `admittedAtMs` + edad mínima **sin contar ese caso en el tope de conflictos**. La edad mínima es un piso fijo en un módulo de contrato compartido por ambos servicios y el plazo máximo de Video debe ser mayor o igual (una prueba lo comprueba), de modo que no se hardcodee dos veces.
+
+**3.3 Idempotencia y conflicto.** Un reintento con la misma tupla devuelve `settled:false` con el mismo estado. Una tupla distinta (otro K, otra resolución, otra admisión) es `conflict`. Una reserva ya terminal por otra vía es `conflict`. Se actualizan los invariantes de `:286` y `:338` para aceptar `released` **con** `releaseAdmission` igual a la admisión almacenada y seguir tratando `released` con admisión **sin** `releaseAdmission` como corrupción.
+
+**3.4 Invariantes que no cambian.** `credited = available + reserved + consumed`; una sola resolución terminal por reserva; el bloqueo de cuenta sigue impidiendo toda liquidación (límite conocido: una reserva de una cuenta bloqueada sigue retenida hasta un protocolo auditado de desbloqueo, no incluido aquí); las reservas legadas (protocolo distinto de 2) siguen cerradas.
+
+**3.5 Autoridad y límite.** **Cuenta no puede comprobar que el proveedor no entregó:** la resolución y K son afirmaciones de Video, guardadas con su hash para auditoría. Una liberación tras admisión equivocada regala una voz o una traducción (coste del proveedor acotado, ≈US$0,0135/min de voz) y nunca cobra de más. Por eso Video solo la emite con la evidencia de la sección 4 y nunca por reloj o 404.
+
+**3.6 Versionado y despliegue.** Cuenta se despliega primero. Sus rutas validan una lista exacta de campos (`json(req, campos)` en `http.ts`), de modo que un Cuenta antiguo respondería `400 invalid` a `capturedSeconds` en vez de capturar la reserva entera, y también a `jobId`, `attemptId`, `resolutionKind` y `evidenceSha256` en `release` (hoy solo admite `identityKey` y `seconds`): falla cerrado, con prueba para cada campo. Las filas pendientes anteriores se interpretan como protocolo de liquidación 1 (captura total o liberación sin admisión); las nuevas llevan `settlementProtocol: 3` y la presencia de un campo nuevo sin él es inválida. Hace falta una prueba de drenado con filas de ambos protocolos.
+
+## 4. Lado Video
+
+**4.1 Qué acción produce cada estado del trabajo** (en `settle` y sus llamadores): éxito → `capture`; fallo o cancelación sin ninguna llamada de proveedor registrada → `release`; **cualquier fallo o cancelación con llamadas registradas** → `release` con resolución, o captura parcial si el cliente canceló después de haber recibido fragmentos; `completeNoSpeech` → `release` con `kind: no_speech` y el hash de las pruebas ya vinculadas a las llamadas recibidas.
+
+**Hoy** una cancelación con el trabajo ya en `invoking` lo deja en `unknown` sin cobrar y con la reserva retenida, y `cancelInTransaction` devuelve `false` para los trabajos de voz (`narrationRequiresReview`). El comportamiento nuevo (C2) es: sellar el trabajo para que el worker no inicie fragmentos nuevos, calcular K y liquidar.
+
+**4.2 Cálculo de K (cancelación).** K = `ceil(Σ milisegundos de cobertura de los fragmentos entregados y verificados / 1000)`, **una sola vez al final** (no por fragmento), con tope N−1; si el resultado alcanza N, captura completa; si no hay fragmentos, liberación. «Entregado y verificado» es la definición por fragmento de C2 (respuesta con audio, WAV válido, duración y hash del texto coherentes). Los fragmentos son una partición disjunta de la revisión congelada (la define el canon de voz en C2), así que no hay solapes. Los fragmentos en vuelo o sin confirmar no cuentan y nunca se cobran. **El sellado es el único escritor de la liquidación:** una respuesta que llega después no la modifica (solo se registra para conciliación); como hay una sola llamada en vuelo por trabajo, el subcobro posible está acotado a un fragmento y es un coste asumido por Vistavo.
+
+**4.3 Fila `billingOutbox`.** Se extiende la tupla (`matchesOutboxSnapshot`, `validOutboxSnapshot`, `validExternalBillingOutbox`) con `capturedSeconds`, `resolutionKind`, `evidenceSha256` y, en liberación tras admisión, `attemptId`. El movimiento terminal local registra los segundos realmente cobrados. La relectura de 14 documentos antes y después del POST no cambia. `evidenceSha256` se calcula a partir de datos escritos **en la misma transacción** que crea la fila (no de datos externos), y `attemptId` en una liberación solo existe con `settlementProtocol: 3` (hoy solo viaja en capturas).
+
+**4.4 Reintentos.** Un `conflict` de Cuenta ya no se reintenta sin tope: tras un número acotado de intentos (a fijar con medición) la fila pasa a `needs_review` con alerta; nunca se descarta en silencio. Esa fila **no retiene saldo y cupo para siempre**: entra en el plazo máximo y la liberación con marcador definidos en el plan (C3, §3).
+
+**4.5 `unknown`.** Se añade un llamador de producción para `reconcile` con las reglas del plan (plazo máximo, estado visible, alerta al operador, marcador para artefactos tardíos); su diseño va en C3.
+
+## 5. Pruebas exigidas (primero rojas)
+
+**Cuenta (emulador):** captura parcial feliz con aritmética exacta y dos asientos; K = 0, K ≥ N, K negativo o no entero rechazados; capturar parcial sin admisión o con admisión distinta; reintento idéntico y con K distinto; liberación tras admisión con y sin resolución, con resolución de otro `kind`, otra admisión o hash mal formado; liberación sin admisión almacenada con admisión suministrada; reserva legada; cuenta bloqueada; reserva ya capturada o liberada; doble resolución concurrente; invariante de saldo tras cada caso; reservas antiguas siguen comportándose igual.
+
+**Video (emulador, con `AccountStore` real y no simulado):** `completeNoSpeech` termina con la reserva liberada en Cuenta y el saldo y el cupo recuperados; fallo tras admisión libera; cancelación tras N fragmentos captura K y libera el resto; fragmento en vuelo no se cobra; ACK perdido antes y después de aplicarse; doble ACK con el historial intacto sigue conciliándose; un `conflict` repetido termina en `needs_review` con alerta.
+
+**Invariantes añadidos por T3:** `capturedSeconds + releasedSeconds = N` y `releasedSeconds ≥ 1`; el libro de una reserva suma exactamente el cambio de `consumed` y `available`; `active` nunca es negativo y coincide con las reservas no terminales; un replay no escribe; captura parcial y liberación concurrentes dejan un solo estado terminal; admisión almacenada con admisión suministrada ausente es `conflict`; el legado rechaza K y resolución; por trabajo hay un único movimiento terminal y Σ segundos cobrados ≤ N; toda fila de salida llega a estado terminal o a `needs_review` en un número acotado de intentos; el hash de evidencia de `completeNoSpeech` es reproducible a partir de lo guardado; una respuesta tardía tras el sellado no cambia la liquidación; la marca `admitted:false` sobrevive a un replay; el sellado es idempotente ante el reintento del worker; `capturedSeconds` igual a N se rechaza (Video nunca lo emite: con K ≥ N envía captura completa sin el campo); `too_early` no cuenta en el tope de conflictos; el plazo de Video es mayor o igual que el piso de Cuenta.
+
+**Regresión:** batería financiera completa (222 aprobadas y 5 pausadas de voz, 0 fallidas) más las nuevas; las 5 pausadas se reabren en C2/C3, no aquí.
+
+## 6. Fuera de alcance
+
+Verificar la entrega (la da Video); desbloquear una cuenta con bloqueo; cerrar la reserva sin trabajo (A-3, puerta de la reserva externa); ejecutar los drenajes con un planificador (se despliega después de la voz, G0); cambiar precios; voz. Una reserva `reserved` bajo bloqueo sigue sin salida automática y es el siguiente hueco a diseñar.
+
+## 7. Orden
+
+1) Pruebas rojas de Cuenta → implementar Cuenta (backend, HTTP, cliente) → emulador y T3. 2) Pruebas rojas de Video con `AccountStore` real → implementar la fila de salida, la selección de acción y `completeNoSpeech`. 3) Regresión completa, T3 y mutaciones, como en el cierre del doble ACK.

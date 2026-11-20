@@ -1,0 +1,15 @@
+1. **ALTA — Carrera en 4.1 (a):** `settle` decide según el snapshot de llamadas en su transacción; una respuesta tardía tras el commit (o una admisión visible después de la lectura) no entra en la fila. Resultado: release por "sin llamada" que Account rechaza (conflict residual), o fragmento entregado después del cancel que no suma a K (subcobro). No hay sobrecobro directo, pero sí estados incorrectos. Corrección: permitir `settle` solo cuando ninguna llamada esté en vuelo (barrera "todas terminales", verificada en la misma transacción) y definir un apéndice idempotente pos-settle para el delta de respuestas tardías, o documentar el subcobro como tolerancia acotada.
+
+2. **ALTA — Ambigüedad en K 4.2 (b):** "entregado y verificado" no define quién verifica ni con qué regla; el redondeo es ambiguo (¿por fragmento o del total?). Un fragmento de 0.4 s podría cobrarse como 1, y fragmentos solapados doble-contar. Corrección: verificación determinista (respuesta del proveedor más checksum de cobertura calculada en la misma transacción), redondeo por fragmento antes de sumar, deduplicación de solapes y acote K ≤ N.
+
+3. **ALTA — 4.3 rompe filas antiguas (c):** las filas pendientes previas al despliegue carecen de los campos nuevos y el validador de 14 documentos puede cuarentenirlas. Peor: un Account en versión vieja puede interpretar captura parcial como captura total (sobrecobro). Corrección: campo de versión de protocolo en la fila, desplegar Account primero, regla explícita de semántica legacy para filas vigentes y prueba de drenado mixto.
+
+4. **MEDIA — 4.4 retiene recursos (d):** `needs_review` deja N segundos y el cupo activo retenidos sin límite. Corrección: TTL con resolución automática hacia un estado de suspense o escalamiento, más alerta operativa.
+
+5. **MEDIA — Invariante faltante (e):** `capturedSeconds` + segundos liberados debe ser exactamente N una sola vez; doble ACK con segundos parciales debe reconciliar; `evidenceSha256` debe derivarse de datos escritos en la misma transacción.
+
+6. **BAJA — completeNoSpeech:** decisión correcta; falta prueba de que la evidencia vinculada a las llamadas recibidas sea durable y el hash reproducible.
+
+Faltan pruebas: carrera settle/respuesta tardía, mezcla de versiones, contabilidad de K (solape, K=0, K=N) y filas legacy.
+
+RESULTADO: FALLA
