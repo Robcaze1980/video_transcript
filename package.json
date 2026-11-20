@@ -8,6 +8,7 @@
     "dev:vite": "vite",
     "build": "vite build && vite build --config vite.pilot.config.ts",
     "build:candidate": "vite build --config vite.pilot.config.ts --mode candidate",
+    "check:candidate-switch": "node scripts/checkCandidateBuildSwitch.mjs",
     "start": "tsx server/index.ts --production",
     "preview": "tsx server/index.ts --production",
     "pilot:local": "tsx server/commercial/pilotLocal.ts",
