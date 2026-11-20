@@ -1,0 +1,17 @@
+**Revisión del PLAN DE VOZ**
+
+1. **ALTA — C1 arranca en paralelo con C0, contradiciendo "hechos antes de codificar".** Si C0 revela términos de retención o coste real distintos, la reserva y su UI deben rediseñarse. Corrección: C1 empieza tras C0-factura/retención (C0-calidad puede seguir paralela); C5 solo tras C0 completo.
+
+2. **ALTA — Falta política de reintento sin idempotencia del proveedor (pregunta c).** Con `callKey` no reconocido, un reintento puede duplicar la llamada. Mínimo antes de cobrar: una sola llamada en vuelo; tras UNKNOWN, retener reserva y conciliar con evidencia del proveedor (registros de uso); sin reintento automático; reintento manual solo con prueba de no inicio o aceptando coste acotado. Añadir a C2/C3 y a la regresión financiera.
+
+3. **ALTA — Falta garantía "no cobrar voz no entregada o con texto distinto" (pregunta e).** Corrección: cobro liberado solo tras verificar artefacto entregado (checksum/validez del audio) y que `voiceTextSha256` usado coincide con la revisión y el recibo vinculados; si falla, liberar reserva con prueba de no entrega. Incluir negativos en C2/C4.
+
+4. **MEDIA — C6 llega tarde.** La privacidad/retención debe definirse en C0 y condicionar qué escribe C1 (dónde viven texto/audio y por cuánto tiempo). Dividir: C6a decisiones en C0, C6b enforcement/interruptor antes de activación.
+
+5. **MEDIA — Riesgo C1/B1 (pregunta b).** Mitigable sin esperar: congelar primero el contrato de la vía B (transacción Video↔Cuenta y UNKNOWN) como interfaz escrita y probarla simulada; si B cambia solo la implementación, C1 no se rehace. No empezar C1 sin ese contrato firmado.
+
+6. **MEDIA — Orden C1→C2→C3 correcto, pero falta conciliación con envejecimiento:** reservas UNKNOWN sin resolver deben expirar con alerta, no quedar huérfanas. Añadir a C3.
+
+7. **BAJA — Decisiones del dueño a pedir ya (d):** precio final/margen de voz, política de reembolso por fallo, periodo de retención, idiomas/parejas de lanzamiento, y tope de gasto para la prueba online con saldo real.
+
+**RESULTADO: FALLA**

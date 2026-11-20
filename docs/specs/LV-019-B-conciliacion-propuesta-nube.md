@@ -1,5 +1,7 @@
 # LV-019.B · Conciliación de saldo · Propuesta para llevar el barrido y el endpoint de operador a la nube (BORRADOR PARA DECISIÓN DEL DUEÑO)
 
+**Actualización 20 nov 2026:** el dueño respondió y el orden vigente de trabajo está en el [plan integral](LV-019-B-plan-integral-20261120.md); este documento queda como contexto de las opciones y los costos. Las preguntas de la sección 5 se contestaron allí (§1 y §6). La lectura de lo que sigue conserva su texto del 19 nov.
+
 **Estado:** propuesta del 19 nov 2026, **solo documento**: sin cambios de nube, sin código nuevo, sin mover saldo. Nada de lo que sigue autoriza ejecutar algo: cada cambio de nube necesita tu aprobación expresa y por separado. La voz sigue cerrada. Continúa el [diseño de fase 2](LV-019-B-conciliacion-fase2-barrido-diseno.md) (pieza A y preguntas abiertas) y el [diseño del endpoint de operador](LV-019-B-conciliacion-endpoint-d-diseno.md).
 
 ## 1. Dónde estamos (evidencia)
@@ -59,12 +61,12 @@ Mi recomendación técnica, **que no era una secuencia preaprobada**: empezar po
 - **Lo que esta propuesta no cubre:** frontend de operador, Firebase real en el verificador, pruebas con varias instancias.
 
 ## 5. Lo que necesito de ti
-1. **P0 (lecturas en `vistavo-prod`, sin cambios): respondida y hecha el 19 nov** («Sí, autorizo P0»; [lectura](../reviews/LV-019-B-cloud-readback-2026-11-19.md)). **1C solo de lectura (reporte e inventario, solo recuentos, sin escribir): respondida y hecha el 19 nov** («Sí, autorizo 1C»; [lectura 1C](../reviews/LV-019-B-lectura-1c-2026-11-19.md): las colas de saldo del vídeo están vacías). Sigue sin autorizarse escribir alertas o registros en el proyecto real.
+1. **P0 (lecturas en `vistavo-prod`, sin cambios): respondida y hecha el 19 nov** («Sí, autorizo P0»; [lectura](../reviews/LV-019-B-cloud-readback-2026-11-19.md)). **1C solo de lectura (reporte e inventario, solo recuentos, sin escribir): respondida y hecha el 19 nov** («Sí, autorizo 1C»; [lectura 1C](../reviews/LV-019-B-lectura-1c-2026-11-19.md): las colas de saldo del vídeo están vacías). **Actualización 20 nov:** el dueño autorizó escribir alertas y auditoría en el proyecto real (solo `billingPendingAlerts` y `billingPendingAudit`); ver el [plan integral](LV-019-B-plan-integral-20261120.md).
 2. Cadencia del barrido («a mano al principio» es válido) y, tras medir, el umbral de edad de alerta.
 3. Canal de alerta y destinatario (por ejemplo, tu correo).
 4. Operador(es): tu UID real; por defecto solo tú.
 5. Política de retención de alertas y de registros de auditoría (o «sin borrar por ahora»).
-6. Aprobar por separado cada cambio de nube cuando llegue (1A/1B, Monitoring, servicio del operador). Salvo la 1 (P0), las preguntas anteriores no están respondidas.
+6. Aprobar por separado cada cambio de nube cuando llegue (1A/1B, Monitoring, servicio del operador). Las preguntas 2–6 se respondieron el 20 nov: ver el [plan integral](LV-019-B-plan-integral-20261120.md) (§1 y §6); sigue faltando el correo del destinatario, el UID y la confirmación del alcance del deploy.
 
 ## 6. Qué no haré sin tu OK
 Cambiar nada en `vistavo-prod`, desplegar, habilitar o reanudar un planificador, aplicar índices, montar el endpoint fuera del servidor local, tocar `cloudFilesRuntime.ts` o `cloudApi.ts`, subir a GitHub o mover saldo.

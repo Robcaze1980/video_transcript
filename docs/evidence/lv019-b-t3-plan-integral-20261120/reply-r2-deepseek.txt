@@ -1,0 +1,19 @@
+Revisión V2 (plan, sin código). Los hallazgos ALTA de la ronda anterior eran, por lo que la V2 declara corregir: desplegar el barrido sin índice verificado, alertas sin prueba previa, y reversión no comprobada.
+
+**Resueltos**
+- ALTA: índice + verificación con la consulta exacta (READY, sin pedir otro índice) — A1 correcto.
+- ALTA: alerta por registros, política, canal y frescura probadas E2E ANTES de A2 — A3 cierra el orden de riesgo.
+- ALTA: despliegue etiquetado sin tráfico, barrido apagado→encendido, reversión comprobada y retiro de registros de prueba — A4 suficiente.
+- ALTA: aislamiento del sub-manejador (try/catch que no propaga, presupuesto propio, latido, idempotencia) y frontera de importaciones — A2 bien acotado.
+- Queda declarado que bases vacías NO validan conciliación; el rechazo de esperar C0 para C1 es correcto.
+
+**Pendientes**
+1. MEDIA — Operador: se diagnostica INTERNAL_ONLY y se propone ingreso `all` + IAM + token + UID, pero es diseño sin prueba E2E ni de revocación; `all` no equivale a «sin invocadores públicos». Corrección: prueba real desde la PC del dueño y revocación antes de cerrar; no publicar URL.
+2. MEDIA — `billingHoldOutbox` se crea con billing excluido: nunca se ejercita y la alerta de frescura/«sin datos» puede dispararse en falso con cola vacía. Corrección: supresión explícita «billing off ⇒ sin alerta» y decisión de borrado del índice.
+3. MEDIA — C1 no cierra hasta que B1 pase, y video/saldo están excluidos: la voz puede quedar bloqueada sin fecha. Corrección: definir B1 mínimo en emulador o cerrar C1 contra un doble.
+4. BAJA — A4 con 0 filas prueba solo cableado; falta dato no vacío para conciliar.
+5. BAJA — Cloudflare/Access: aceptable no usarlo, pero anotar que IAM+token no equivale a «sin exposición».
+
+Falta: prueba de revocación del operador, supresión de alerta con billing apagado, y dependencia B1.
+
+RESULTADO: PASS

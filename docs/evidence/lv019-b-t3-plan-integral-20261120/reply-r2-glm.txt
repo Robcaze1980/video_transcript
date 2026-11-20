@@ -1,0 +1,20 @@
+**Previos resueltos:**
+1. ALTA — Índice billingHoldOutbox: V2 exige consulta exacta, READY y ausencia de otro índice. Resuelto en plan.
+2. ALTA — Aislamiento del barrido: sub-manejador propio, sin propagar errores, presupuesto temporal, idempotencia, latido y frontera de importaciones. Resuelto.
+3. ALTA — Validación antes de desplegar: alerta E2E marcada antes de A2; despliegue sin tráfico, humo, barrido con 0 filas, registro de prueba y reversión comprobada. Resuelto.
+4. ALTA — Acceso del operador: corrige correctamente INTERNAL_ONLY con servicio mínimo `all`, sin invocadores públicos, IAM concedido por el dueño, token verificado y UID; Cloudflare queda aplazado con justificación. Resuelto.
+5. ALTA — Alcance de despliegue: “deploy” acotado a mantenimiento y servicio operador; exclusiones explícitas hasta confirmación escrita. Resuelto.
+6. ALTA — Extensión del barrido: cualquier escritura adicional exige regresión financiera y reversión probada. Resuelto.
+
+**Previos no resueltos:**
+7. ALTA — Conciliación real: declarar que las bases vacías de producción no validan la conciliación es correcto, pero no la valida. Queda abierta hasta tener datos o prueba controlada en producción. No bloqueante sin clientes.
+8. MEDIA — Coste real de voz: US$0.10/min sigue siendo estimación; C0a/C5a lo miden, pero no está resuelto ni debe asumirse aceptado.
+9. MEDIA — Políticas de voz: retención, reembolso/no cobro, pares, voces y tope de prueba siguen pendientes de decisión del dueño.
+
+**Riesgos bajos:**
+10. BAJA — Mantener auditoría de cambios IAM/UID y rotación o revisión del token.
+11. BAJA — Documentar el modelo de alerta si el log de prueba “sin datos” introduce latencia.
+
+La V2 corrige los hallazgos operativos ALTA y deja explícitos los riesgos de producción y decisiones comerciales.
+
+RESULTADO: PASS

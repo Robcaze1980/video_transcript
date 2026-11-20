@@ -1,0 +1,15 @@
+1) **ALTA — (c)** Colgar el barrido de la pasada de 5 min comparte timeout, cuotas y dueño del servicio: si el mantenimiento falla, se pausa o excede su presupuesto, el barrido muere en silencio. Corrección: ruta con presupuesto de tiempo propio e idempotente, más alerta de frescura/heartbeat («no corrió») además del resultado; Scheduler/job propio si es barato.
+
+2) **ALTA — (a)** A4 «desplegar apagado, encender» cambia la imagen completa, no solo la ruta: afecta archivos/IA ya en producción y salta la candidata 3001. Corrección: probar la imagen íntegra en 3001, promover, y verificar el índice en READY antes de encender. Un barrido con 0 filas no prueba nada; el caso vacío oculta bugs.
+
+3) **ALTA — (d)** La métrica por registros no es la fuente de verdad; lo son las dos colecciones durables. Verificar antes: que la log-based metric exista y capture el campo correcto, política con agrupación y umbral sobre esa métrica, canal de correo confirmado (opt-in, spam), alerta de «sin datos» y una prueba real extremo a extremo.
+
+4) **MEDIA/ALTA — (e)** El argumento contra Cloudflare es parcial: Cloudflare Tunnel/Access (Zero Trust) puede publicar sin exponer origen, con Access y Service Auth. La cuestión no es «público vs no público» sino dónde vive la autorización. Corrección: token Firebase + UID allowlist en la app como control final; Cloudflare Access como capa adicional válida, no como sustituto ni como descarte.
+
+5) **MEDIA — (f)** Faltan: reversión explícita (rollback de imagen y de ruta, apagar flag, borrar colecciones de prueba) y control de crecimiento de las dos colecciones nuevas (retención/TTL). Confirmar que el «solo lectura» no dispare escrituras implícitas.
+
+6) **MEDIA — (5)** Verificar que `(state, nextAttemptAt)` no exija un segundo índice o dirección adicional; y que «bases vacías» no valide la conciliación: A0 debe declararlo como límite, no como éxito.
+
+7) **BAJA — (b)** Interpretar «deploy» estrecho es correcto, pero el dueño no técnico debe confirmarlo por escrito, enumerando lo excluido.
+
+RESULTADO: FALLA

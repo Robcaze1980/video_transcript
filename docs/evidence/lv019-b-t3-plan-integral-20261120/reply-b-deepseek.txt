@@ -1,0 +1,12 @@
+**Hallazgos**
+1. ALTA — Dependencia mal ubicada: C1 arranca antes de B1 (recuperación tras caída entre transacción Video y Cuenta). La reserva Cuenta sin esa vía produce reservas huérfanas no conciliables. Corrección: declarar B1 prerequisito duro de C1, no solo de C3; hasta entonces C1 solo en emulador con bandera apagada.
+2. ALTA — C5 antes de C1/C2: la UI se diseña contra un contrato financiero no conectado y contra precio no confirmado (C0). Corrección: C5 limitado a prototipo de cotización de solo lectura, sin exponer saldo reservado ni confirmar precio; el precio/admisión se enlazan tras C1.
+3. ALTA — (c) Sin idempotencia del proveedor: política mínima obligatoria = jamás reintentar automáticamente tras enviar; `callKey+requestSha256` como clave local de deduplicación; todo envío sin ACK queda UNKNOWN con reserva retenida; liberar solo con prueba de no inicio; prohibido inferir liberación por 404/timeout; reintento solo tras reconciliación explícita.
+4. ALTA — (e) Falta prueba de entrega: el plan revalida el cuerpo antes de cada fragmento pero no verifica el audio entregado. Corrección: exigir receipt de salida + comparar `voiceTextSha256` contra el texto revisado congelado antes de marcar fragmento como facturable; sin confirmación, no cobrar.
+5. MEDIA — Falta TTL/expiración de reservas UNKNOWN y política de fragmento fallido (¿se cobra parcial?). Definir antes de C2.
+6. MEDIA — (d) Decisiones del dueño a pedir ya: precio final de voz (si US$0.10/min es techo o piso tras C0), política de no-cobro/reembolso por fragmento no entregado, retención del audio, y autorización de gasto para medir coste real en C0.
+7. BAJA — C4 debería ser continua desde C1, no un bloque posterior; y falta umbral explícito de calidad/rechazo por par y voz.
+
+(a) Orden casi correcto salvo B1 (H1) y entrega (H4). (b) Sí hay riesgo de rehacer en C5; mitigado con prototipo aislado. (e) Además falta bloqueo de publicación de voz sin prueba en teléfono.
+
+RESULTADO: FALLA
