@@ -18,7 +18,7 @@ export function stub(initial:Record<string,Record<string,Record<string,unknown>>
       ids=ids.filter(id=>filters.every(([f,op,v])=>{const d=store.get(`${c}/${id}`)!;return op==='=='?d[f]===v:Array.isArray(v)&&v.includes(d[f]);}));
       if(after!==null)ids=ids.filter(id=>id>after!);if(limit!==null)ids=ids.slice(0,limit);
       reads.push(`query:${c}`);selects.push(fields);
-      return {docs:ids.map(id=>({id,ref:docRef(c,id),data:()=>project(store.get(`${c}/${id}`)!,fields)}))};
+      return {docs:ids.map(id=>({id,ref:docRef(c,id),data:()=>project(store.get(`${c}/${id}`)!,fields),get:(f:string)=>store.get(`${c}/${id}`)?.[f]}))};
     }
   });
   const root={path:'operator-local/stub-root',collection:(c:string)=>({doc:(id:string)=>docRef(c,id),...query(c,[],null,null)})};

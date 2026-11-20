@@ -78,7 +78,7 @@ async function fixture(scope){
  return c;
 }
 
-test('current intent selection can hide due work and releases',{timeout:180000},async()=>{
+test('fixed intent selection finds due work and releases',{timeout:180000},async()=>{
  const c=await fixture('selection'),intents=c.root.collection('billingIntents'),accounts=c.root.collection('accounts');
  const futureIds=Array.from({length:100},(_,i)=>'reserve_'+String(i).padStart(3,'0'));
  const future=Date.now()+24*60*60*1000,due=0,batch=c.db.batch();
@@ -92,16 +92,16 @@ test('current intent selection can hide due work and releases',{timeout:180000},
  const all=await intents.get(),firstHundred=await intents.where('state','==','reserve_pending').limit(100).get();
  assert.equal(all.size,102);assert.equal(firstHundred.size,100);assert.deepEqual(firstHundred.docs.map(doc=>doc.id),futureIds);
  assert.equal((await dueReserve.get()).get('nextAttemptAt'),due);assert.equal((await dueRelease.get()).get('nextAttemptAt'),due);
+ // LV-019.B fix of the 2026-11-18 incident: the selector pages by document id past not-due rows and alternates releases and reserves (releases first).
  checkDisk('before phase one');const phase1=await c.backend.pendingExternalBillingIntents(100);
- assert.deepEqual(phase1.map(row=>row.id),['release_z_due']);assert.equal(phase1.some(row=>row.id==='reserve_z_due'),false);
+ assert.deepEqual(phase1.map(row=>row.id),['release_z_due','reserve_z_due']);
  const readyBatch=c.db.batch();for(const id of futureIds.slice(0,25))readyBatch.update(intents.doc(id),{nextAttemptAt:due});
  checkDisk('before ready controls');await readyBatch.commit();checkDisk('after ready controls');
  const phase2=await c.backend.pendingExternalBillingIntents(25),phase2Single=await c.backend.pendingExternalBillingIntents(1),phase2Wide=await c.backend.pendingExternalBillingIntents(100);
- assert.deepEqual(phase2.map(row=>row.id),futureIds.slice(0,25));assert.deepEqual(phase2Single.map(row=>row.id),[futureIds[0]]);
- assert.equal(phase2.some(row=>row.id==='release_z_due'),false);assert.equal(phase2Wide.some(row=>row.id==='release_z_due'),true);
- assert.equal(phase2Wide.some(row=>row.id==='reserve_z_due'),false);
+ assert.deepEqual(phase2.map(row=>row.id),['release_z_due',...futureIds.slice(0,24)]);assert.deepEqual(phase2Single.map(row=>row.id),['release_z_due']);
+ assert.deepEqual(phase2Wide.map(row=>row.id),['release_z_due',...futureIds.slice(0,25),'reserve_z_due']);
  for(const [id,balance] of Object.entries(beforeBalances))assert.deepEqual((await accounts.doc(id).get()).data(),balance);
  assert.equal((await c.root.collection('movements').get()).size,0);assert.equal((await c.root.collection('jobs').get()).size,0);assert.equal(c.providerCalls,0);checkDisk('before evidence');
- console.log('# INTENT_SELECTION_DIAGNOSTIC '+JSON.stringify({event:'current_selector',futureReserves:100,totalIntents:102,dueReserveExists:true,dueReleaseExists:true,phase1DueReserveSelected:false,phase1ReleaseSelected:true,phase2DueReserveSelected:false,phase2ReleaseAt25:false,phase2ReleaseAt1:false,phase2ReleaseAt100:true,phase2ReadyReserves:phase2.length,balancesUnchanged:true,movements:0,jobs:0,providerCalls:c.providerCalls,minFreeBytes:String(minObserved)}));
+ console.log('# INTENT_SELECTION_DIAGNOSTIC '+JSON.stringify({event:'fixed_selector',futureReserves:100,totalIntents:102,dueReserveExists:true,dueReleaseExists:true,phase1DueReserveSelected:true,phase1ReleaseSelected:true,phase1ReleaseFirst:true,phase2ReleaseFirstAt25:true,phase2ReleaseAt1:true,phase2ReserveRowsAt25:phase2.length-1,phase2RowsAt100:phase2Wide.length,balancesUnchanged:true,movements:0,jobs:0,providerCalls:c.providerCalls,minFreeBytes:String(minObserved)}));
 });
 

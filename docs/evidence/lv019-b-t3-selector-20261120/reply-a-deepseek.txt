@@ -1,0 +1,8 @@
+Hallazgos
+
+1. `dueRows` — coste no acotado (no bloquea corrección; sí a escala). Las lecturas ya no dependen de `limit`: con estado grande y pocas vencidas (p. ej. 500k no vencidas y la vencida con id alto) cada llamada recorre el estado completo, ~5000 consultas por tipo y por poll. Las filas fallidas reciben fecha futura pero siguen en el estado, así que el coste crece monótonamente. Falta tope de páginas.
+2. Desperdicio ~2x: ambas partes materializan `limit` filas y `interleave` usa ~`limit/2` de cada una; con `pending` > limit sólo se drena la mitad por llamada. No bloquea.
+3. Cambio de orden: de fecha a id de documento. Los consumidores revalidan en transacción, así que sólo afecta si algo dependía del orden por fecha. No bloquea.
+4. Cursor, paginación e `interleave` correctos: `startAfter(last)` con id creciente garantiza avance estricto (sin bucle infinito); `page.docs.length<100` termina; `interleave` respeta `limit` y evita inanición. Sin filas ocultas: las no vencidas ya no tapan a las vencidas, y las reglas por estado se conservan.
+
+RESULTADO: PASS

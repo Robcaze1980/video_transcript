@@ -261,6 +261,15 @@ function outboxVersion(doc:DocumentSnapshot){
   const time=doc.updateTime;if(!time||!Number.isSafeInteger(time.seconds)||time.seconds<0||!Number.isSafeInteger(time.nanoseconds)||time.nanoseconds<0||time.nanoseconds>=1_000_000_000)return null;
   return `${time.seconds}:${String(time.nanoseconds).padStart(9,'0')}`;
 }
+/** At most `limit` items taken alternately from `first` and `second` (starting with `first`); when one runs out the other fills the rest. */
+function interleave<T>(first:readonly T[],second:readonly T[],limit:number):T[]{
+  const out:T[]=[];
+  for(let i=0;out.length<limit&&(i<first.length||i<second.length);i++){
+    if(i<first.length)out.push(first[i]);
+    if(i<second.length&&out.length<limit)out.push(second[i]);
+  }
+  return out;
+}
 function hasIntentLease(row:Record<string,unknown>){return ['leaseToken','leaseOwner','leaseUntil'].some(field=>Object.hasOwn(row,field));}
 function validUnleasedBillingMetadata(row:Record<string,unknown>){
   const validCounter=(value:unknown)=>value===undefined||Number.isSafeInteger(value)&&Number(value)>=0&&Number(value)<Number.MAX_SAFE_INTEGER;
@@ -968,10 +977,28 @@ export class FirestoreBackend {
     identifier(accountId);text(requestKey);validExternalBilling(billing);if(!witness||witness.accountId!==accountId||witness.intentId!==hash([accountId,requestKey])||!matchesExternalBilling(witness,billing))return false;
     const result=await this.resolveConfirmedIntentObservation(witness,{action:'seal',source:'seal_ack',reservationId:observed.reservationId,seconds:observed.seconds,state:observed.state as 'sealed'},false,snapshot);return result.state==='closed'||result.state==='already_closed';
   }
+  /**
+   * Due intents, at most `limit`. A date that is not a safe integer counts as due. Each kind is read in document-id order, scanning PAST rows that are
+   * not due yet (the 2026-11-18 incident: `limit(100)` applied before the date filter let 100 not-yet-due rows hide a due one), and the two kinds are
+   * served alternately, releases first, so neither can starve the other.
+   */
   async pendingExternalBillingIntents(limit=25){
-    if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');const collection=this.root.collection('billingIntents');
-    const [reserves,releases]=await Promise.all([collection.where('state','==','reserve_pending').limit(100).get(),collection.where('state','==','release_pending').limit(100).get()]);
-    return [...reserves.docs,...releases.docs].filter(d=>!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<=Date.now()).slice(0,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
+    if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
+    const now=Date.now(),due=(d:DocumentSnapshot)=>!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<=now;
+    const [reserves,releases]=await Promise.all([this.dueRows('billingIntents','reserve_pending',limit,due),this.dueRows('billingIntents','release_pending',limit,due)]);
+    return interleave(releases,reserves,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
+  }
+  /** Rows of one `state` that satisfy `due`, in document-id order, scanning pages (equality + id order: automatic index) until `limit` are found or the state is exhausted. */
+  private async dueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean){
+    const out:DocumentSnapshot[]=[];let last:DocumentSnapshot|undefined;
+    for(;;){
+      let query=this.root.collection(collection).where('state','==',state).orderBy(FieldPath.documentId()).limit(100);
+      if(last)query=query.startAfter(last);
+      const page=await query.get();
+      for(const d of page.docs)if(due(d)){out.push(d);if(out.length>=limit)return out;}
+      if(page.docs.length<100)return out;
+      last=page.docs[page.docs.length-1];
+    }
   }
   /** These events are new-format only; existing incidents require a separate audited backfill. */
   async pendingExternalHolds(limit=25){
@@ -1324,10 +1351,15 @@ export class FirestoreBackend {
     if(c.job.externalBilling)tx.create(this.ref('billingOutbox',c.jobRef.id),{accountId:c.job.accountId,jobId:c.jobRef.id,...copyExternalBilling(c.job.externalBilling),action:capture?'capture':'release',...(capturedAttempt?{attemptId:capturedAttempt}:{}),state:'pending',createdAtMs:Date.now(),attempts:0,nextAttemptAt:Date.now()});
   }
 
+  /**
+   * Settlement rows, at most `limit`: `pending` rows whatever their date, and `retry_wait` rows only with a numeric date that is due (one without it is never
+   * selected). Each kind is read in document-id order past rows that are not due, and the two are served alternately, pending first.
+   */
   async pendingExternalBilling(limit=25){
     if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
-    const collection=this.root.collection('billingOutbox'),[pending,retry]=await Promise.all([collection.where('state','==','pending').limit(100).get(),collection.where('state','==','retry_wait').limit(100).get()]);
-    const rows=[...pending.docs,...retry.docs.filter(d=>typeof d.get('nextAttemptAt')==='number'&&d.get('nextAttemptAt')<=Date.now())].slice(0,limit);return rows.map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
+    const now=Date.now();
+    const [pending,retry]=await Promise.all([this.dueRows('billingOutbox','pending',limit,()=>true),this.dueRows('billingOutbox','retry_wait',limit,d=>typeof d.get('nextAttemptAt')==='number'&&d.get('nextAttemptAt')<=now)]);
+    return interleave(pending,retry,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
   }
   async recordExternalBillingFailure(jobId:string,code:string,expected?:ExternalBillingOutboxFailureEvidence){
     identifier(jobId);if(!expected)return false;validOutboxSnapshot(expected.outbox);

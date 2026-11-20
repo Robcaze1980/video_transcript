@@ -1,0 +1,50 @@
+Responde SOLO con texto, sin herramientas. Maximo 220 palabras.
+Revisa este cambio (TypeScript, Firestore) en los selectores de la cola de saldo. INCIDENTE: `limit(100)` se aplicaba ANTES del filtro de fecha, asi que 100 filas aun no vencidas con id menor ocultaban una vencida; ademas las reservas se listaban antes que las liberaciones y una liberacion podia quedar fuera. CORRECCION: cada tipo se lee por orden de id de documento, recorriendo paginas de 100 (consulta de igualdad + `FieldPath.documentId()`, indice automatico) hasta reunir `limit` filas vencidas o agotar el estado; luego se alternan los dos tipos (liberaciones primero en intenciones; `pending` primero en la salida). Reglas sin cambio: en intenciones una fecha que no es entero seguro cuenta como vencida; en la salida `pending` se elige sin mirar la fecha y `retry_wait` solo con fecha numerica vencida. Los consumidores revalidan cada fila en transaccion; las filas resueltas salen de esos estados, y las que fallan reciben una fecha futura. Busca fallos REALES (filas ocultas, inanicion, bucles infinitos, cursor incorrecto, cambios de comportamiento no intencionados, coste desbordado); por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```typescript
+/** At most `limit` items taken alternately from `first` and `second` (starting with `first`); when one runs out the other fills the rest. */
+function interleave<T>(first:readonly T[],second:readonly T[],limit:number):T[]{
+  const out:T[]=[];
+  for(let i=0;out.length<limit&&(i<first.length||i<second.length);i++){
+    if(i<first.length)out.push(first[i]);
+    if(i<second.length&&out.length<limit)out.push(second[i]);
+  }
+  return out;
+}
+
+  /**
+   * Due intents, at most `limit`. A date that is not a safe integer counts as due. Each kind is read in document-id order, scanning PAST rows that are
+   * not due yet (the 2026-11-18 incident: `limit(100)` applied before the date filter let 100 not-yet-due rows hide a due one), and the two kinds are
+   * served alternately, releases first, so neither can starve the other.
+   */
+  async pendingExternalBillingIntents(limit=25){
+    if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
+    const now=Date.now(),due=(d:DocumentSnapshot)=>!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<=now;
+    const [reserves,releases]=await Promise.all([this.dueRows('billingIntents','reserve_pending',limit,due),this.dueRows('billingIntents','release_pending',limit,due)]);
+    return interleave(releases,reserves,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
+  }
+  /** Rows of one `state` that satisfy `due`, in document-id order, scanning pages (equality + id order: automatic index) until `limit` are found or the state is exhausted. */
+  private async dueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean){
+    const out:DocumentSnapshot[]=[];let last:DocumentSnapshot|undefined;
+    for(;;){
+      let query=this.root.collection(collection).where('state','==',state).orderBy(FieldPath.documentId()).limit(100);
+      if(last)query=query.startAfter(last);
+      const page=await query.get();
+      for(const d of page.docs)if(due(d)){out.push(d);if(out.length>=limit)return out;}
+      if(page.docs.length<100)return out;
+      last=page.docs[page.docs.length-1];
+    }
+  }
+
+  /**
+   * Settlement rows, at most `limit`: `pending` rows whatever their date, and `retry_wait` rows only with a numeric date that is due (one without it is never
+   * selected). Each kind is read in document-id order past rows that are not due, and the two are served alternately, pending first.
+   */
+  async pendingExternalBilling(limit=25){
+    if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
+    const now=Date.now();
+    const [pending,retry]=await Promise.all([this.dueRows('billingOutbox','pending',limit,()=>true),this.dueRows('billingOutbox','retry_wait',limit,d=>typeof d.get('nextAttemptAt')==='number'&&d.get('nextAttemptAt')<=now)]);
+    return interleave(pending,retry,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
+  }
+```

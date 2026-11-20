@@ -141,16 +141,16 @@ function summary(stdout, stderr) {
   try{
     const lines=stdout.split(/\r?\n/).filter(line=>line.startsWith('# INTENT_SELECTION_DIAGNOSTIC '));if(lines.length!==1)throw Error();
     const e=JSON.parse(lines[0].slice('# INTENT_SELECTION_DIAGNOSTIC '.length));
-    greenEvidence=e.event==='current_selector'&&e.futureReserves===100&&e.totalIntents===102&&e.dueReserveExists===true&&e.dueReleaseExists===true&&
-      e.phase1DueReserveSelected===false&&e.phase1ReleaseSelected===true&&e.phase2DueReserveSelected===false&&e.phase2ReleaseAt25===false&&e.phase2ReleaseAt1===false&&e.phase2ReleaseAt100===true&&
-      e.phase2ReadyReserves===25&&e.balancesUnchanged===true&&e.movements===0&&e.jobs===0&&e.providerCalls===0&&/^\d+$/.test(e.minFreeBytes)&&BigInt(e.minFreeBytes)>=1024n*1024n*1024n;
+    greenEvidence=e.event==='fixed_selector'&&e.futureReserves===100&&e.totalIntents===102&&e.dueReserveExists===true&&e.dueReleaseExists===true&&
+      e.phase1DueReserveSelected===true&&e.phase1ReleaseSelected===true&&e.phase1ReleaseFirst===true&&e.phase2ReleaseFirstAt25===true&&e.phase2ReleaseAt1===true&&
+      e.phase2ReserveRowsAt25===24&&e.phase2RowsAt100===27&&e.balancesUnchanged===true&&e.movements===0&&e.jobs===0&&e.providerCalls===0&&/^\d+$/.test(e.minFreeBytes)&&BigInt(e.minFreeBytes)>=1024n*1024n*1024n;
   }catch{/* Missing diagnostic evidence is inconclusive. */}
   return {
     guardActive: stderr.includes('VISTAVO_REVIEW_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS'),
     guardDeniedDuringRun: stderr.includes('VISTAVO_REVIEW_NETWORK_DENIED'),
     syntheticTsxIpcRequests: [...stderr.matchAll(/^VISTAVO_REVIEW_TSX_IPC_SYNTHETIC\s*$/gm)].length,
     tests: /^# tests 1\s*$/m.test(stdout),expectedCounts:/^# pass 1\s*$/m.test(stdout)&&/^# fail 0\s*$/m.test(stdout),
-    allNamed:/^ok 1 - current intent selection can hide due work and releases\s*$/m.test(stdout),greenEvidence,
+    allNamed:/^ok 1 - fixed intent selection finds due work and releases\s*$/m.test(stdout),greenEvidence,
     noCancelled:/^# cancelled 0\s*$/m.test(stdout),noSkipped:/^# skipped 0\s*$/m.test(stdout),noTodo:/^# todo 0\s*$/m.test(stdout),
     cleanups:cleanups.length===1&&cleanups[0]===1&&combined.includes('Synthetic intent selection cleanup total: 1/1'),
   };
@@ -284,12 +284,12 @@ if (args.length === 1 && args[0] === '--prepare') {
   const checksPass = checks.guardActive && !checks.guardDeniedDuringRun && checks.syntheticTsxIpcRequests === 2 && checks.tests && checks.expectedCounts && checks.allNamed && checks.greenEvidence && checks.noCancelled && checks.noSkipped && checks.noTodo && checks.cleanups && roots.valid && rootLogReadable && processMetadataWritten;
   const confirmed = result.exitCode === 0 && result.signal === null && !result.error && !timedOut && !interrupted && logsReadable &&
     !mismatchAfter.length && !pathChanges.length && manifestAfterSha === manifestSha256 && nodeUnchanged && checksPass;
-  const report = { version: 1, expectation:'diagnose current selector with 100 future reserves, one due reserve and one due release', confirmed, result, timedOut, interrupted, logsReadable, childPid,processMetadataWritten,
+  const report = { version: 1, expectation:'verify the fixed selector with 100 future reserves, one due reserve and one due release (releases first, due rows found past not-due ones)', confirmed, result, timedOut, interrupted, logsReadable, childPid,processMetadataWritten,
     rootLogReadable,roots,manualAuditRequired:!confirmed,manifestSha256, manifestAfterSha, nodeUnchanged,
     mismatchAfter, pathChanges, checks, before: before.files, after: after?.files ?? null,
     limitation: 'The preload is not an OS firewall; esbuild, native addons, native children and unsupported APIs are not covered. Static bundle inputs and listed loader files are hashed, but dynamic/runtime-only dependencies are not guaranteed complete and pre/post hashes do not create an immutable snapshot. Killing the direct child on Windows does not prove descendants exited. On interruption or timeout, inspect the recorded process and synthetic root journal before manual cleanup; a deletion already sent may still complete. The runner does not delete roots.' };
   writeFileSync(path.join(run, 'result.json'), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
-  process.stdout.write(`Synthetic current-selector diagnostic: ${confirmed ? 'OBSERVED' : 'INCONCLUSIVE'}; evidence: ${run}\n`);
+  process.stdout.write(`Synthetic fixed-selector check: ${confirmed ? 'CONFIRMED' : 'INCONCLUSIVE'}; evidence: ${run}\n`);
   if (!confirmed) process.exitCode = 1;
 } else {
   fail('Use --prepare or --run <task-manifest>; the fixture was not started');

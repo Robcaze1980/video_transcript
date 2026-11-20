@@ -1,0 +1,11 @@
+**Revisión**
+
+Revisé paginación, cursores, alternancia y reglas de vencimiento.
+
+- `dueRows`: la paginación es correcta. `startAfter(last)` con `orderBy(FieldPath.documentId())` y página de 100 avanza sin repetir ni saltar filas; el bucle termina al agotar el estado (`page.docs.length<100`) o al reunir `limit`. Sin bucle infinito ni cursor incorrecto.
+- Escaneo: las filas no vencidas se recorren, no se descartan por `limit`, así que la vencida oculta ya no se pierde. El predicado `due` se evalúa por fila; fechas no enteras seguras cuentan como vencidas en intenciones, y `pending` se elige sin mirar fecha, como estaba especificado.
+- `interleave`: respeta `limit`, alterna desde `first`, y completa con el resto cuando un lado se agota. Si `pending` tiene `limit` filas, `retry_wait` aún recibe su mitad alternada; sin inanición.
+- Coste: cuando todo el estado está no vencido (típicamente `retry_wait`), cada invocación recorre el estado completo en páginas de 100. Es inherente al orden por id con índice automático y los consumidores revalidan en transacción, así que no bloquea, pero con estados grandes y sondeo frecuente conviene considerar filtro de rango `nextAttemptAt<=now` con índice compuesto para `retry_wait` (las filas sin fecha nunca se seleccionan).
+- No detecto ocultamiento, inanición, bucles infinitos, cursor erróneo ni cambios de comportamiento no intencionados.
+
+RESULTADO: PASS
