@@ -1,0 +1,23 @@
+Responde SOLO con texto, sin herramientas. Maximo 220 palabras.
+CONTEXTO (TypeScript, Firestore). Dos drenadores pueden leer la misma fila `pending` de la cola de liquidacion, validar el mismo historial (instantanea de 14 documentos, `settlementSnapshot`, tomada ANTES del POST) y pedir a Cuenta la misma liquidacion; Cuenta es idempotente y ambos reciben el mismo ACK. El primero deja la fila en `settled`; el segundo ya no puede escribirla y cae en `quarantineExternalBillingOutbox(phase:'after_ack')`, que antes creaba una incidencia y bloqueaba al dueño. CAMBIO: el bloque `if(after?.settlementSnapshot...)` (dentro de la MISMA transaccion que lee `current`, primera linea del extracto) devuelve `already_settled` SIN escribir nada solo si: hay instantanea; la fila existe, esta `settled`, su tupla coincide y es el mismo documento (mismo createTime que antes del POST); y al releer los 14 documentos en esa transaccion, los 13 distintos de `outbox` conservan exactamente su version (existencia, createTime, updateTime). Cualquier otro caso sigue el camino de incidencia. El ACK remoto ya se valido antes (misma reserva, segundos y estado). CONSECUENCIA ADICIONAL: si `markExternalBillingSettled` SI hizo commit pero lanza error despues (respuesta perdida), el catch del drenador llama a ese metodo y ahora tampoco queda incidencia con el ACK (antes si, y bloqueaba al dueño); el registro durable pasa a ser la fila `settled` con historial intacto; el drenador sigue contando ese intento como `failed`. Pregunta: ¿es seguro perder la incidencia en ese caso, o se pierde evidencia que importa (el ACK, el intento, commit propio vs ajeno)? Por hallazgo: escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```typescript
+    ack=await this.accountBilling.settle(expected.identityKey,expected.reservationId,expected.action,expected.seconds,expected.action==='capture'?{jobId:expected.jobId,attemptId:expected.attemptId!}:undefined);
+    if(await this.backend.markExternalBillingSettled(expected,settlementSnapshot)){settled++;continue;}
+    const q=await this.backend.quarantineExternalBillingOutbox(row.id,{phase:'after_ack',snapshotVersion:row.snapshotVersion,expected,ack,settlementSnapshot});
+    if(q.state!=='already_settled')failed++;
+   }catch(error){
+    failed++;
+    if(ack&&expected&&typeof row.id==='string')await this.backend.quarantineExternalBillingOutbox(row.id,{phase:'after_ack',snapshotVersion:row.snapshotVersion,expected,ack,settlementSnapshot}).catch(()=>undefined);
+
+      const [current,existing,holdDoc,...jobDocs]=await tx.getAll(outbox,incident,holdRef,...(job?[job]:[])),jobDoc=jobDocs[0];
+      const currentVersion=current.exists?outboxVersion(current):null;
+      // LV-019.B double ACK (docs/specs/LV-019-B-doble-ack-liquidacion.md): another drainer already settled this exact row (same document: its createTime is the one
+      // read before the POST, only its updateTime moved), and the 13 other documents this POST validated still have their pre-POST versions, so the ACK confirms
+      // that same settlement. Nothing is written; any other case is reviewed below.
+      if(after?.settlementSnapshot&&current.exists&&current.get('state')==='settled'&&matchesOutboxSnapshot(current.data(),after.expected)){
+        const reread=await this.captureExternalBillingSettlement(tx,after.expected,after.settlementSnapshot.intentId),before=after.settlementSnapshot.versions.outbox,row=reread?.versions.outbox;
+        if(reread&&before.exists&&row?.exists&&before.createTime===row.createTime&&settlementDocumentNames.every(name=>name==='outbox'||JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot!.versions[name])))return {state:'already_settled',ownerBlocked:false};
+      }
+```

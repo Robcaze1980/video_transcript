@@ -1,0 +1,9 @@
+Hallazgo 1 — Commit propio + respuesta perdida: no bloquea. La fila `settled` con `createTime` previo, la instantánea de 14 documentos y el ACK remoto idempotente confirman la misma liquidación. Se pierde el ACK como registro durable y la atribución de quién hizo el POST/commit, pero no se pierde la evidencia operativa necesaria: el historial queda intacto y Cuenta tiene su registro. Aceptable salvo requisito explícito de auditoría por drenador.
+
+Hallazgo 2 — Commit ajeno + respuesta perdida en el segundo drenador: no bloquea. Sus condiciones estrictas impiden confundirlo con una fila repoblada o historial alterado; cualquier divergencia de versiones cae a incidencia. Ambiguo aquí es solo saber si el commit fue propio o ajeno, lo cual no cambia el resultado funcional.
+
+Riesgo menor: el drenador cuenta el intento como `failed` pese a que la liquidación quedó `settled`, distorsionando métricas; no bloquea al dueño ni provoca doble POST.
+
+Evidencia que sí se pierde: el payload del ACK y el intento específico del drenador en la base local. Evidencia que se conserva: fila `settled`, historial validado y estado remoto en Cuenta. No hay camino a doble cobro ni bloqueo indebido.
+
+RESULTADO: PASS

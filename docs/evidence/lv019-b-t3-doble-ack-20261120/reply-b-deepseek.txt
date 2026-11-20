@@ -1,0 +1,13 @@
+**PARTE A — hallazgos**
+
+1. `already_settled` (rama benigna): `outbox` está excluido de la comparación de versiones y nunca se cotejan su `createTime`/`updateTime`. Una fila `settled` borrada y recreada —o reescrita por reparo/otra vía— con la misma tupla pasa como benigna. Bloquea: sí.
+
+2. `captureExternalBillingSettlement` exige `job.revision` y `externalBilling` iguales a `expected`, y exige los 13 sin cambio. Si la ruta legítima de ACK escribe `terminal`, `simulatedReserve`, guards, `origin` o `jobMarker`/`account`, la rama nunca dispara y el duplicado benigno vuelve a quarantine: la premisa (el settle sólo toca `outbox`) no está verificada. Bloquea: sí.
+
+3. Versión = (existencia, `createTime`, `updateTime`): sólo detecta el último write, sólo de esos 14 ids. Cambios en otros `movements`/ledger/subcolecciones/otra cuenta quedan invisibles → declara benigno un historial alterado. Bloquea: sí.
+
+4. La tupla (`jobId`,`accountId`,`action`,`attemptId`) no liga la vía ni el ACK que liquidó: no compara `settlementId`/reserva/`settledBy` ni el ACK guardado en la fila. Una fila `settled` por otra vía con tupla igual → benigna. Bloquea: sí.
+
+5. Regresión de protección: antes el duplicado generaba incidencia y avisaba al dueño; ahora se silencia para todo caso cubierto por un heurístico de 13 documentos que también admite divergencias semánticas. Bloquea: no por sí solo, pero amplifica 1–4.
+
+RESULTADO: FALLA

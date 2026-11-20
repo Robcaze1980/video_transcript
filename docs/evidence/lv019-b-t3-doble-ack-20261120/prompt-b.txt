@@ -1,0 +1,36 @@
+Responde SOLO con texto, sin herramientas. Maximo 220 palabras.
+CONTEXTO (TypeScript, Firestore). Dos drenadores pueden leer la misma fila `pending` de la cola de liquidacion, validar el mismo historial (instantanea de 14 documentos, `settlementSnapshot`, tomada ANTES del POST) y pedir a Cuenta la misma liquidacion; Cuenta es idempotente y ambos reciben el mismo ACK. El primero deja la fila en `settled`; el segundo ya no puede (`markExternalBillingSettled` exige `pending`/`retry_wait`) y cae en `quarantineExternalBillingOutbox(phase:'after_ack')`, que hasta ahora creaba una incidencia y bloqueaba al dueño. CAMBIO: nuevo bloque que devuelve `already_settled` SIN escribir nada si: hay instantanea; la fila existe, esta `settled` y su tupla coincide; y al releer los 14 documentos en la misma transaccion, los 13 distintos de `outbox` conservan exactamente su version (existencia, createTime, updateTime) de antes del POST. Cualquier otro caso sigue el camino de incidencia. El ACK remoto ya se valido antes (misma reserva, segundos y estado). Busca fallos REALES: casos en que el bloque declare benigno un duplicado que NO lo es (historial alterado, fila settled por otra via, reemplazo de documentos), o que deje de proteger algo que antes protegia; por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+PARTE B. Funciones que el bloque usa (captura de versiones, comparacion de tupla, version de documento, lista de nombres):
+```typescript
+const settlementDocumentNames=['account','outbox','job','terminal','artifact','classification','simulatedReserve','identity','request','intent','guard','intentGuard','origin','jobMarker'] as const;
+
+  async captureExternalBillingSettlement(tx:Transaction,expected:ExternalBillingOutboxSnapshot,intentId:string):Promise<ExternalBillingSettlementReadSnapshot|null>{
+    validOutboxSnapshot(expected);if(typeof intentId!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(intentId))return null;
+    const refs=[this.ref('accounts',expected.accountId),this.ref('billingOutbox',expected.jobId),this.ref('jobs',expected.jobId),this.ref('movements','terminal:'+expected.jobId),
+      this.ref('artifacts',expected.jobId),this.ref('jobAccounting',expected.jobId),this.ref('movements','reserve:'+expected.jobId),this.ref('identities',expected.identityKey),
+      this.ref('requests',intentId),this.ref('billingIntents',intentId),this.ref('billingGuards',expected.accountId),this.ref('billingIntentAdmissionGuards',intentId),
+      this.ref('billingIntentWitnesses',intentId),this.ref('billingIntentJobMarkers',intentId)];
+    const docs=await tx.getAll(...refs),job=docs[2].data() as Job|undefined;
+    if(!job||job.accountId!==expected.accountId||typeof job.requestKey!=='string'||hash([expected.accountId,job.requestKey])!==intentId||
+      typeof job.inputId!=='string'||typeof job.operation!=='string'||!Number.isSafeInteger(job.revision)||!job.externalBilling||!matchesExternalBilling(job.externalBilling,expected))return null;
+    let witness:ExternalBillingIntentWitness;try{witness=intentWitness(expected.accountId,job.inputId,job.requestKey,job.operation,job.revision!,expected);}catch(error){if(error instanceof LedgerFault)return null;throw error;}
+    if(!validStoredIntentWitness(docs[12],witness)||!sameIntentWitness(docs[13].data(),witness)||docs[13].get('historyProtocol')!==1||docs[13].get('jobId')!==expected.jobId)return null;
+    const versions={} as Record<SettlementDocumentName,TerminalRecoveryDocumentVersion>;
+    for(let index=0;index<settlementDocumentNames.length;index++){const version=terminalDocumentVersion(docs[index]);if(!version)return null;versions[settlementDocumentNames[index]]=version;}
+    return copyExternalBillingSettlementReadSnapshot({expected,intentId,versions});
+  }
+
+function matchesOutboxSnapshot(value:unknown,expected:ExternalBillingOutboxSnapshot){
+  if(!value||typeof value!=='object')return false;const row=value as Partial<ExternalBillingOutboxSnapshot>;
+  return row.jobId===expected.jobId&&row.accountId===expected.accountId&&row.action===expected.action&&row.attemptId===expected.attemptId&&matchesExternalBilling(row,expected);
+}
+
+function terminalDocumentVersion(doc:DocumentSnapshot):TerminalRecoveryDocumentVersion|null{
+  if(!doc.exists)return {exists:false};
+  const encode=(value:DocumentSnapshot['createTime'])=>value&&Number.isSafeInteger(value.seconds)&&value.seconds>=0&&Number.isSafeInteger(value.nanoseconds)&&value.nanoseconds>=0&&value.nanoseconds<1_000_000_000?`${value.seconds}:${String(value.nanoseconds).padStart(9,'0')}`:null;
+  const createTime=encode(doc.createTime),updateTime=encode(doc.updateTime);
+  return createTime&&updateTime?{exists:true,createTime,updateTime}:null;
+}
+```

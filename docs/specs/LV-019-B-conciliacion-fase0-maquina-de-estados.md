@@ -78,7 +78,7 @@
 
 ## 5. Casos tipo a cubrir (entrada para las fases 1–4)
 1. ACK de liberación perdido **antes** y **después** de aplicarse en Cuenta.
-2. Doble ACK con historias distintas: hoy deja una incidencia conservadora y puede bloquear al dueño.
+2. Doble ACK con historias distintas: hoy deja una incidencia conservadora y puede bloquear al dueño. *(20 nov: el doble ACK con el historial **intacto** ya se reconoce como la misma liquidación y no bloquea; ver [doble ACK](LV-019-B-doble-ack-liquidacion.md). Este caso, con historias distintas, no cambia.)*
 3. El estado de Cuenta cambia durante la consulta (J1/J2 sintético): J2 no debe admitirse con la cuenta en revisión.
 4. Caída del proceso entre cualquier par de transacciones (Video y Cuenta no comparten transacción).
 5. Dos conciliadores con lease vencido y reloj distinto.

@@ -122,4 +122,57 @@ test('snapshot values are copied before asynchronous transaction work',{timeout:
  snapshot.expected.reservationId=randomUUID();snapshot.versions.identity={exists:false};
  // Internal-only call; this test makes no assertion that Account processed a real capture.
  assert.equal(await pending,true);assert.equal((await ref(c,'billingOutbox',id).get()).get('state'),'settled');
+});// LV-019.B doble ACK (docs/specs/LV-019-B-doble-ack-liquidacion.md): a second ACK for a row another drainer already settled is recognized only when
+// the pre-POST history is intact; any other case keeps the conservative incident.
+const ackFor=expected=>({reservationId:expected.reservationId,seconds:expected.seconds,state:expected.action==='capture'?'captured':'released'});
+const versionOf=async(c,id)=>{const s=await ref(c,'billingOutbox',id).get();return s.updateTime.seconds+':'+String(s.updateTime.nanoseconds).padStart(9,'0');};
+async function settledThenSecondAck(c,id,mutate,snapshotOverride){
+ const {expected,snapshot}=await expectedAndSnapshot(c,id),version=await versionOf(c,id),job=await c.backend.job(c.account,id),intentId=sha(JSON.stringify([c.account,job.requestKey]));
+ assert.equal(await c.backend.markExternalBillingSettled(expected,snapshot),true);
+ const settledVersion=await versionOf(c,id);if(mutate)await mutate({c,expected,intentId,job});
+ const result=await c.backend.quarantineExternalBillingOutbox(id,{phase:'after_ack',snapshotVersion:version,expected,ack:ackFor(expected),settlementSnapshot:snapshotOverride===undefined?snapshot:snapshotOverride});
+ const incidents=await c.root.collection('billingOutboxReviewIncidents').get(),guard=await ref(c,'billingGuards',c.account).get(),intent=await ref(c,'billingIntents',intentId).get();
+ return {result,incidents,guard,intent,outbox:await ref(c,'billingOutbox',id).get(),settledVersion,intentId,expected,snapshot};
+}
+test('a second ACK for a row already settled with intact history is the same settlement: no incident and the owner is not blocked',{timeout:30000},async()=>{
+ const {c,id}=await settlementFixture(),r=await settledThenSecondAck(c,id);
+ assert.deepEqual(r.result,{state:'already_settled',ownerBlocked:false});
+ assert.equal(r.incidents.size,0);assert.notEqual(r.guard.get('blocked'),true);assert.equal(r.intent.get('state'),'job_created');
+ assert.equal(r.outbox.get('state'),'settled');assert.equal(await versionOf(c,id),r.settledVersion);
+ assert.equal((await c.root.collection('billingHoldOutbox').get()).size,0);
+});
+const mutations={
+ account:async({c})=>ref(c,'accounts',c.account).update({aiPilot:false}),
+ // An unrelated field keeps the job witness valid, so only the version comparison can notice it; a new revision also invalidates the witness.
+ job:async({c,expected})=>ref(c,'jobs',expected.jobId).update({reviewNote:'changed'}),
+ jobRevision:async({c,expected})=>ref(c,'jobs',expected.jobId).update({revision:2}),
+ terminal:async({c,expected})=>ref(c,'movements','terminal:'+expected.jobId).update({credits:3}),
+ artifact:async({c,expected})=>ref(c,'artifacts',expected.jobId).update({revision:2}),
+ classification:async({c,expected})=>ref(c,'jobAccounting',expected.jobId).update({mode:'simulation'}),
+ simulatedReserve:async({c,expected})=>ref(c,'movements','reserve:'+expected.jobId).create({accountId:c.account,kind:'reserve',reference:expected.jobId,credits:2}),
+ identity:async({c,expected})=>{const identity=ref(c,'identities',expected.identityKey);await identity.update({accountId:c.foreign});await identity.update({accountId:c.account});},
+ request:async({c,intentId})=>ref(c,'requests',intentId).update({accountId:c.foreign}),
+ intent:async({c,intentId})=>ref(c,'billingIntents',intentId).update({reviewNote:'changed'}),
+ guard:async({c})=>ref(c,'billingGuards',c.account).set({accountId:c.account,blocked:false},{merge:true}),
+ intentGuard:async({c,intentId})=>ref(c,'billingIntentAdmissionGuards',intentId).set({touched:true},{merge:true}),
+ origin:async({c,intentId})=>ref(c,'billingIntentWitnesses',intentId).update({baseline:'changed'}),
+ jobMarker:async({c,intentId})=>ref(c,'billingIntentJobMarkers',intentId).update({jobId:randomUUID()}),
+ // Same content, new document: the witness stays valid, so only the version comparison can notice it.
+ originReplaced:async({c,intentId})=>{const doc=ref(c,'billingIntentWitnesses',intentId),data=(await doc.get()).data();await doc.delete();await doc.create(data);},
+ jobMarkerReplaced:async({c,intentId})=>{const doc=ref(c,'billingIntentJobMarkers',intentId),data=(await doc.get()).data();await doc.delete();await doc.create(data);},
+ // T3 (DeepSeek): the settled row itself must be the same document that was read before the POST, not a recreated one with the same tuple.
+ outboxRecreated:async({c,expected})=>{const doc=ref(c,'billingOutbox',expected.jobId),data=(await doc.get()).data();await doc.delete();await doc.create(data);},
+};
+for(const [field,mutate] of Object.entries(mutations))test(`a second ACK after ${field} changed since the POST keeps the incident`,{timeout:30000},async()=>{
+ const {c,id}=await settlementFixture(),r=await settledThenSecondAck(c,id,mutate);
+ assert.equal(r.result.state,'needs_review');assert.equal(r.incidents.size,1);assert.equal(r.incidents.docs[0].get('remoteAck.state'),'captured');assert.equal(r.outbox.get('state'),'settled');
+});
+test('a second ACK for a settled row with a different tuple, no snapshot, or a row not yet settled keeps the incident',{timeout:30000},async()=>{
+ const one=await settlementFixture(),different=await settledThenSecondAck(one.c,one.id,async({c,expected})=>ref(c,'billingOutbox',expected.jobId).update({attemptId:randomUUID()}));
+ assert.equal(different.result.state,'needs_review');assert.equal(different.incidents.size,1);
+ const two=await settlementFixture(),missing=await settledThenSecondAck(two.c,two.id,undefined,null);
+ assert.equal(missing.result.state,'needs_review');assert.equal(missing.incidents.size,1);
+ const three=await settlementFixture(),{expected,snapshot}=await expectedAndSnapshot(three.c,three.id),version=await versionOf(three.c,three.id);
+ const pending=await three.c.backend.quarantineExternalBillingOutbox(three.id,{phase:'after_ack',snapshotVersion:version,expected,ack:ackFor(expected),settlementSnapshot:snapshot});
+ assert.equal(pending.state,'needs_review');assert.equal((await ref(three.c,'billingOutbox',three.id).get()).get('state'),'needs_review');
 });

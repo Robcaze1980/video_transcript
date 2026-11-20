@@ -1,0 +1,11 @@
+**Hallazgos**
+- Doble ACK real (otro drenador): fila `settled`, mismo `createTime`, los 13 docs intactos → `already_settled` sin escritura. Correcto; no bloquea.
+- Commit propio con respuesta perdida (ruta `catch`): el estado es idéntico al caso anterior, así que cae en el mismo retorno. No bloquea, pero la incidencia era el único registro que separaba commit propio de ajeno: esa atribución se pierde y no es reconstruible. FALLA (evidencia), no bloquea.
+- ACK: idempotente y re-derivable desde la fila liquidada; no se pierde evidencia crítica.
+- Intento: sobrevive solo en el contador `failed` en memoria; si el drenador muere tras el `catch`, se pierde. No bloquea.
+- Respuestas perdidas repetidas (fallo de transporte) dejan de ser visibles al no haber incidencia → sin señal sistémica. No bloquea.
+- Caso ajeno/otro intento: si la tupla o alguno de los 13 docs difieren, cae a incidencia. Correcto.
+
+**Corrección sugerida**: en el `catch`, escribir una marca durable y no bloqueante (campo o métrica `ownCommitLostResponse`) que distinga el caso propio, sin reabrir el bloqueo al dueño.
+
+RESULTADO: FALLA

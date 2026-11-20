@@ -1,0 +1,9 @@
+No encuentro un caso en el que el bloque declare benigno un duplicado no benigno.
+
+- `terminalDocumentVersion` captura existencia, `createTime` y `updateTime`; en Firestore cualquier escritura, borrado o recreación cambia al menos uno de esos campos, así que el chequeo de los 13 documentos detecta historial alterado o documentos reemplazados.
+- Excluir `outbox` es correcto: es la única pieza que debe pasar a `settled`; su identidad y contenido quedan cubiertos por la tupla y el ACK ya validado.
+- `matchesOutboxSnapshot` no valida estado por sí sola, pero el bloque exige `settled` aparte, por lo que no deja ese hueco abierto.
+- Si la fila fuera `settled` por otra vía con la misma tupla y los 13 documentos intactos, el bloque la trataría como ya liquidada; no veo que eso sea no benigno porque el ACK remoto de la propia corrida ya validó la liquidación.
+- Sensibilidad, no fallo: si algún código legítimo toca uno de los 13 tras el ACK, el bloque caerá a incidencia; eso es falso negativo, no pérdida de protección.
+
+RESULTADO: PASS

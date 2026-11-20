@@ -1,0 +1,7 @@
+No identifico falso benigno en el bloque mostrado. La decisión de `already_settled` exige: fila existente, estado `settled`, tupla que coincide con `after.expected`, mismo documento vía `createTime` de la instantánea previa al POST, y relectura de los 13 documentos distintos de `outbox` con versión idéntica (existencia, `createTime`, `updateTime`). Cualquier desajuste cae en el camino de incidencia, igual que antes.
+
+No veo pérdida de protección: el caso benigno es exactamente el doble ACK sobre la misma fila validada, sin cambios previos en el resto del historial. Si otro proceso mutara un documento, reintenta otra liquidación, borrara y recreara la fila, o cambiara el intento, el bloque no declararía `already_settled` y seguiría la protección previa.
+
+Único supuesto: que `captureExternalBillingSettlement` sea lectura pura y devuelva versiones de los mismos documentos con `intentId` correcto. No hay evidencia en el extracto de que pueda escribir o devolver otra fila.
+
+RESULTADO: PASS

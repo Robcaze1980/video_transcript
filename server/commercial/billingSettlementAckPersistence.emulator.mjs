@@ -108,6 +108,8 @@ for(const mode of ['before_commit','after_commit','both_writes_fail'])test(`conf
  console.log(JSON.stringify({event:'synthetic-settlement-ack-write-failure',mode,captures,state:outbox.get('state'),incidents:incidents.size,hasAck,result}));
  assert.equal(captures,1);assert.equal(result.settled,0);assert.equal(result.failed,1);
  if(mode==='before_commit'){assert.equal(outbox.get('state'),'needs_review');assert.equal(hasAck,true);}
- if(mode==='after_commit'){assert.equal(outbox.get('state'),'settled');assert.equal(hasAck,true);}
+ // LV-019.B doble ACK: the write did commit, the row is settled with the same tuple and the pre-POST history is intact, so the settled row is the record
+ // (docs/specs/LV-019-B-doble-ack-liquidacion.md): no incident and the owner is not blocked. The drainer still reports the thrown error as failed.
+ if(mode==='after_commit'){assert.equal(outbox.get('state'),'settled');assert.equal(hasAck,false);assert.equal(incidents.size,0);assert.notEqual((await ref(c,'billingGuards',c.account).get()).get('blocked'),true);}
  if(mode==='both_writes_fail'){assert.equal(outbox.get('state'),'pending');assert.equal(hasAck,false);}
 });

@@ -1,0 +1,15 @@
+Reviso los puntos donde el nuevo bloque podría declarar benigno algo que no lo es.
+
+**Hallazgos:**
+
+1. **JSON.stringify de versiones** (lugar: comparación de `reread.versions` vs `after.settlementSnapshot.versions`). Si las versiones se serializan con orden de claves distinto o con `Timestamp` rehidratado de forma distinta (nanosegundos vs segundos), la comparación falla en falso positivo benigno: caso benigno cae a incidencia. Es un fallo de protección (bloquea innocentemente), no de seguridad. **Bloquea** el nuevo camino, no el antes protegido. **No bloquea** release.
+
+2. **Fila `settled` por otra vía con misma tupla** (`matchesOutboxSnapshot` + estado `settled`). El código en `markExternalBillingSettled` exige `'pending'/'retry_wait'`, pero otra vía podría haber escrito `settled` directamente (import, migración, flujo interno) con la misma tupla sin haber liquidado los 14 docs. El nuevo bloque confía en la tupla+estado y en el reread de versiones. Si el reread confirma versiones idénticas, el POST original validó ese mismo estado; es difícil que sea malicioso. Riesgo bajo, no bloqueante.
+
+3. **Reemplazo de documentos en el reread**: el bloque exige que los 13 documentos no-outbox conserven versión. Si un documento fue borrado y recreado con el mismo `createTime` improbable, la comparación de versiones fallaría (diferencia en `updateTime`), así que cae a incidencia. Bien.
+
+4. **`current.exists` sin `data()` nulo**: si la fila `settled` existe pero `matchesOutboxSnapshot` compara claves que ya fueron mutadas (p. ej. `attemptId` ausente en `settled`), falla y cae a incidencia. Correcto, no falso benigno.
+
+5. **Lo que deja de proteger**: antes, cualquier segundo drenador con ACK pero sin poder escribir quedaba en `quarantine` → incidencia visible. Ahora, si el reread coincide, no se escribe nada ni se registra. Si el reread es *inconclusivo* (colección aún inconsistente pero versiones coinciden por casualidad), se pierde la señal de auditoría. Es un caso muy estrecho, pero existe.
+
+RESULTADO: FALLA

@@ -1,0 +1,9 @@
+**Hallazgo 1 — pierde `jobAccounting` y estado.** Lugar: bloque nuevo (rama `after_ack`). El camino real `markExternalBillingSettled` exigía `job` existente, `jobAccounting(...)==='account_seconds'` y estado `pending`/`retry_wait`. La rama benigna solo mira `state==='settled'` + tupla, sin revalidar el job. Escenario: fila `settled` con tupla correcta pero job ausente/reclasificado o accounting distinto → se declara benigno y no se abre incidencia. Bloquea: sí (suprime el incidente que antes se creaba).
+
+**Hallazgo 2 — `outbox` excluido de la comparación.** El `every(name=>name==='outbox'||...)` omite la propia fila; la única evidencia de "misma liquidación" es el `current` (posiblemente leído fuera de `tx`). No se compara ningún marcador/`intentId` en la fila. Escenario: fila liquidada por otra vía con tupla idéntica (admin u otro intent) → benigno falso. Bloquea: sí/no.
+
+**Hallazgo 3 — TOCTOU.** Si `current` no se lee en la misma transacción que el `reread`, la fila puede cambiar entre ambos y el reread no la revisa. Bloquea: sí.
+
+**Hallazgo 4 — `JSON.stringify(undefined)===JSON.stringify(undefined)`.** Si `settlementDocumentNames` incluye un nombre que el capture no puebla en ambos lados (o la instantánea pre-POST lo omitió), el documento pasa como "sin cambios"; el reemplazo solo se detecta si createTime/updateTime están realmente presentes.
+
+RESULTADO: FALLA

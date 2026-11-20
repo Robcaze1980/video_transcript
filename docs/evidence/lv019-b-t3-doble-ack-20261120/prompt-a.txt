@@ -1,0 +1,32 @@
+Responde SOLO con texto, sin herramientas. Maximo 220 palabras.
+CONTEXTO (TypeScript, Firestore). Dos drenadores pueden leer la misma fila `pending` de la cola de liquidacion, validar el mismo historial (instantanea de 14 documentos, `settlementSnapshot`, tomada ANTES del POST) y pedir a Cuenta la misma liquidacion; Cuenta es idempotente y ambos reciben el mismo ACK. El primero deja la fila en `settled`; el segundo ya no puede (`markExternalBillingSettled` exige `pending`/`retry_wait`) y cae en `quarantineExternalBillingOutbox(phase:'after_ack')`, que hasta ahora creaba una incidencia y bloqueaba al dueño. CAMBIO: nuevo bloque que devuelve `already_settled` SIN escribir nada si: hay instantanea; la fila existe, esta `settled` y su tupla coincide; y al releer los 14 documentos en la misma transaccion, los 13 distintos de `outbox` conservan exactamente su version (existencia, createTime, updateTime) de antes del POST. Cualquier otro caso sigue el camino de incidencia. El ACK remoto ya se valido antes (misma reserva, segundos y estado). Busca fallos REALES: casos en que el bloque declare benigno un duplicado que NO lo es (historial alterado, fila settled por otra via, reemplazo de documentos), o que deje de proteger algo que antes protegia; por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+PARTE A. Bloque nuevo, la escritura que hace `settled`, y la llamada del drenador:
+```typescript
+      // LV-019.B double ACK (docs/specs/LV-019-B-doble-ack-liquidacion.md): another drainer already settled this exact row, and the 13 other documents
+      // this POST validated still have their pre-POST versions, so the ACK confirms that same settlement. Nothing is written; any other case is reviewed below.
+      if(after?.settlementSnapshot&&current.exists&&current.get('state')==='settled'&&matchesOutboxSnapshot(current.data(),after.expected)){
+        const reread=await this.captureExternalBillingSettlement(tx,after.expected,after.settlementSnapshot.intentId);
+        if(reread&&settlementDocumentNames.every(name=>name==='outbox'||JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot!.versions[name])))return {state:'already_settled',ownerBlocked:false};
+      }
+
+  async markExternalBillingSettled(expectedInput:ExternalBillingOutboxSnapshot,snapshotInput:ExternalBillingSettlementReadSnapshot){
+    const {jobId,accountId,provider,identityKey,reservationId,seconds,action,attemptId}=expectedInput;
+    const expected={jobId,accountId,provider,identityKey,reservationId,seconds,action,...(action==='capture'?{attemptId}:{})};
+    validOutboxSnapshot(expected);const snapshot=copyExternalBillingSettlementReadSnapshot(snapshotInput);if(!snapshot||!matchesOutboxSnapshot(snapshot.expected,expected))return false;
+    return this.db.runTransaction(async tx=>{
+      const current=await this.captureExternalBillingSettlement(tx,expected,snapshot.intentId);
+      if(!current||JSON.stringify(current)!==JSON.stringify(snapshot))return false;
+      const ref=this.ref('billingOutbox',expected.jobId),[row,job]=await tx.getAll(ref,this.ref('jobs',expected.jobId));
+      const classified=job.data() as Job|undefined;
+      if(!row.exists||!matchesOutboxSnapshot(row.data(),expected)||!classified||await this.jobAccounting(tx,expected.jobId,classified)!=='account_seconds'||!['pending','retry_wait'].includes(row.get('state')))return false;
+      tx.update(ref,{state:'settled',settledAtMs:Date.now(),lastErrorCode:null});return true;
+    });
+  }
+
+    ack=await this.accountBilling.settle(expected.identityKey,expected.reservationId,expected.action,expected.seconds,expected.action==='capture'?{jobId:expected.jobId,attemptId:expected.attemptId!}:undefined);
+    if(await this.backend.markExternalBillingSettled(expected,settlementSnapshot)){settled++;continue;}
+    const q=await this.backend.quarantineExternalBillingOutbox(row.id,{phase:'after_ack',snapshotVersion:row.snapshotVersion,expected,ack,settlementSnapshot});
+    if(q.state!=='already_settled')failed++;
+```

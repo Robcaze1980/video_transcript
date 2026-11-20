@@ -1450,6 +1450,13 @@ export class FirestoreBackend {
     return this.db.runTransaction(async tx=>{
       const [current,existing,holdDoc,...jobDocs]=await tx.getAll(outbox,incident,holdRef,...(job?[job]:[])),jobDoc=jobDocs[0];
       const currentVersion=current.exists?outboxVersion(current):null;
+      // LV-019.B double ACK (docs/specs/LV-019-B-doble-ack-liquidacion.md): another drainer already settled this exact row (same document: its createTime is the one
+      // read before the POST, only its updateTime moved), and the 13 other documents this POST validated still have their pre-POST versions, so the ACK confirms
+      // that same settlement. Nothing is written; any other case is reviewed below.
+      if(after?.settlementSnapshot&&current.exists&&current.get('state')==='settled'&&matchesOutboxSnapshot(current.data(),after.expected)){
+        const reread=await this.captureExternalBillingSettlement(tx,after.expected,after.settlementSnapshot.intentId),before=after.settlementSnapshot.versions.outbox,row=reread?.versions.outbox;
+        if(reread&&before.exists&&row?.exists&&before.createTime===row.createTime&&settlementDocumentNames.every(name=>name==='outbox'||JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot!.versions[name])))return {state:'already_settled',ownerBlocked:false};
+      }
       if(phase==='before_ack'&&(!current.exists||!currentVersion||currentVersion!==version))return {state:'changed',ownerBlocked:false};
       // A settled row with the same tuple alone does not prove its history was unchanged.
       if(phase==='before_ack'&&current.get('state')==='settled')return {state:'changed',ownerBlocked:false};

@@ -1,0 +1,9 @@
+**Hallazgos**
+
+1. `matchesOutboxSnapshot(current.data(), after.expected)` y `captureExternalBillingSettlement(tx, after.expected, …)`. La prueba se ancla al `expected` del incidente previo, nunca al `expected` del llamador con el que se obtuvo el ACK. Si la fila fue reescrita y liquidada con otra tupla (nueva reserva/`attemptId`) y el incidente leído es de ese intento, se devuelve `already_settled` sin contrastar el `expected` propio. No bloquea el cobro remoto (Cuenta es idempotente y el ACK ya se validó), pero declara benigno un duplicado de otra reserva y oculta la divergencia de la fila. Debe exigirse también `matchesOutboxSnapshot(current.data(), expected)` con el `expected` del POST.
+
+2. `before.createTime===row.createTime` y `JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot.versions[name])`. `after` proviene del documento de incidencia (serializado en Firestore) y `reread` de una lectura viva. Si las versiones contienen `Timestamp` u objetos cuyo orden de claves cambia al persistir, la igualdad nunca se cumple: el caso legítimo cae al camino de incidencia y el dueño sigue bloqueado. Bloquea; es una regresión del objetivo. Con números o strings no aplica.
+
+3. El retorno temprano no toca `incident`. Si ya existía una incidencia `after_ack` abierta de un duplicado anterior, nadie la resuelve y el dueño queda bloqueado aunque la fila esté `settled`. Bloquea.
+
+RESULTADO: FALLA

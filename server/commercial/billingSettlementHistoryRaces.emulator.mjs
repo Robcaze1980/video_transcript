@@ -128,7 +128,9 @@ test('a timeout after send is not reported as a confirmed Account ACK',{timeout:
  const result=await ai.drainExternalBilling(),outbox=await ref(c,'billingOutbox',id).get(),incidents=await c.root.collection('billingOutboxReviewIncidents').get();
  assert.equal(result.settled,0);assert.equal(result.failed,1);assert.equal(calls.filter(x=>x.endsWith('/capture')).length,1);assert.notEqual(outbox.get('state'),'settled');assert.equal(incidents.docs.some(d=>d.get('remoteAck')),false);
 });
-test('two concurrent synthetic ACKs do not silently assert identical local history',{timeout:30000},async()=>{
+// LV-019.B doble ACK: with the pre-POST history intact the duplicate is the same settlement (docs/specs/LV-019-B-doble-ack-liquidacion.md);
+// the snapshot-binding fixture covers every case where it must still be an incident.
+test('two concurrent synthetic ACKs settle once and the duplicate is recognized without an incident or a block',{timeout:30000},async()=>{
  const c=await fixture();let calls=0,enter,release;const entered=new Promise(r=>enter=r),resume=new Promise(r=>release=r);
  const billing=new AccountBillingClient(undefined,{request:async request=>{const path=new URL(request.url).pathname;
   if(path.endsWith('/capture')){calls++;if(calls===2)enter();await resume;return {data:{state:'captured',reservationId:path.split('/').at(-2),seconds:2}};}
@@ -137,5 +139,7 @@ test('two concurrent synthetic ACKs do not silently assert identical local histo
  const first=ai.drainExternalBilling(),second=ai.drainExternalBilling();await entered;release();const outcomes=await Promise.all([first,second]);
  const outbox=await ref(c,'billingOutbox',id).get(),incidents=await c.root.collection('billingOutboxReviewIncidents').get();
  console.log(JSON.stringify({event:'synthetic-settlement-two-acks',calls,outcomes,state:outbox.get('state'),incidents:incidents.size}));
- assert.equal(calls,2);assert.equal(outcomes.reduce((n,x)=>n+x.settled,0),1);assert.equal(outbox.get('state'),'settled');assert.equal(incidents.docs.some(d=>d.get('remoteAck.state')==='captured'),true);
+ const guard=await ref(c,'billingGuards',c.account).get(),job=await c.backend.job(c.account,id),intent=await ref(c,'billingIntents',sha(JSON.stringify([c.account,job.requestKey]))).get();
+ assert.equal(calls,2);assert.equal(outcomes.reduce((n,x)=>n+x.settled,0),1);assert.equal(outcomes.reduce((n,x)=>n+x.failed,0),0);assert.equal(outbox.get('state'),'settled');
+ assert.equal(incidents.size,0);assert.notEqual(guard.get('blocked'),true);assert.equal(intent.get('state'),'job_created');
 });
