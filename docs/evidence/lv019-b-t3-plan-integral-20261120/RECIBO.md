@@ -47,3 +47,24 @@ Vía: T3 local (`~/.t3/bin/t3.cmd`, instancia `linguistvision-openrouter`), prom
 ## Clasificación
 
 Ronda 1: FALLA en 3 de 4 respuestas, con hallazgos reales que cambiaron el plan. Ronda 2 sobre la versión corregida: PASS de ambos. **El PASS valida el orden y las reglas del plan; no es evidencia de que algo funcione en la nube, que la alerta llegue, que el operador sea alcanzable ni que la voz esté lista.**
+
+## Ronda 3 (decisiones del dueño del 20 nov por la tarde; [prompt](prompt-r3.txt))
+
+Delta revisado: puerta G0 (no desplegar nada hasta que la voz esté lista), política «no se cobra si fallamos», coste de voz (US$0,0135/min hasta fin de 2026 y US$0,027/min desde 2027), almacenamiento y retención del audio. Los datos personales del dueño no se enviaron.
+
+| GLM Flash | DeepSeek |
+| --- | --- |
+| [PASS](reply-r3-glm.txt): costes y almacenamiento coherentes; G0 no es circular si G6 es puerta de apertura al público; avisa de `UNKNOWN` sin plazo, cancelación del cliente y «entrega verificada» sin definir | [FALLA](reply-r3-deepseek.txt): «lista» sin criterio de salida (ALTA) y `UNKNOWN` que retiene saldo sin fin (ALTA); números coherentes |
+
+### Adjudicación de la ronda 3
+
+| Hallazgo | Decisión |
+| --- | --- |
+| «Lista» sin criterio; G6 no circular (DeepSeek 1, GLM 1); A1/A3 tocan la nube (DeepSeek 2); G0 retrasa la conciliación (GLM 2) | **Adoptado** como §0.1: acta de «lista» en cinco puntos, primer despliegue restringido donde se evalúa G6, lista cerrada de acciones previas a G0 con su reversión y aviso al dueño. |
+| `UNKNOWN` retenido sin fin (GLM 3, DeepSeek 3) | **Adoptado con matiz.** Plazo máximo a fijar con datos, estado visible, límite por cuenta, una llamada en vuelo, alerta con ventana de gracia y, al vencer, liberación con marcador para que un artefacto tardío no se descargue ni se cobre. **No** se adopta una liberación inmediata sin evidencia como regla general, y nunca se captura sin entrega verificada. |
+| Cancelación del cliente (GLM 4, DeepSeek 4) | **Parcial:** antes de enviar se libera todo; después de enviar queda abierta como decisión del dueño. |
+| «Entrega verificada» sin definir (GLM 5) | **Adoptado** en C2 (respuesta con audio, WAV válido, duración, hash del texto, objeto con generación y recibo, acceso del propietario). |
+| Retención con regla automática (GLM 7) | **Adoptado con matiz:** se aplica con la purga por lotes con marcadores del pipeline de IA, no con ciclo de vida de bucket, que permitiría resucitar escrituras tardías. |
+| Coste 2027 (GLM 8), impuestos y comisiones (DeepSeek 5), tokens de entrada (GLM 6) | Anotados en la nota C0a; los tokens de entrada sí se facturan (US$0,50/1M) y ya están contados como una centésima de centavo por minuto. |
+
+Clasificación: GLM PASS; DeepSeek FALLA con hallazgos reales ya incorporados. No se pidió una ronda 4: las correcciones son las que los revisores propusieron y se vuelven a revisar al implementar C2 y C3.

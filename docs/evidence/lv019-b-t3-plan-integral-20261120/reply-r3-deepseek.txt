@@ -1,0 +1,13 @@
+1. ALTA — G0 evita la circularidad si “lista” = G1-G5 en local y G6 se prueba en el primer despliegue restringido; pero “lista” no está definida ni tiene criterio de salida. Corrección: acta con criterios G1-G5/G6, aprobación explícita, primer despliegue sin tráfico público, rollback/kill switch y lista cerrada de acciones pre-G0.
+
+2. MEDIA — A1 (índice Firestore) y A3 (canal de correo) no son “deploy”, pero sí tocan la nube. Autorizarlos por escrito con ventana, responsable y reversa; A3 sin datos reales.
+
+3. ALTA — UNKNOWN solo retiene y “caducidad a alerta” no libera: el saldo puede quedar bloqueado indefinidamente. Corrección: TTL máxima, estado visible, single-flight, límite de reservas UNKNOWN por cuenta, liberación automática sin entrega verificada y liberación/reembolso si el cliente cancela o cierra cuenta; definir evidencia y SLA.
+
+4. MEDIA — Falta qué pasa si el cliente cancela tras enviar y el proveedor entrega. No cobrar ni liberar sin evidencia; documentar y evitar reintentos.
+
+5. BAJA — Números coherentes: 25 tok/s=1.500/min; US$9/M=US$0.0135/min; US$18/M=US$0.027/min; WAV=2,88 MB/min; 10 min=28,8 MB; 24 h≈US$0.00002; 12 meses≈US$0.0065. Faltan input de texto, peticiones/egress, mínimo de almacenamiento, impuestos y comisiones.
+
+6. BAJA — Confirmar: retención 30 días y borrado a petición; que el proveedor no borra registros de abuso; G6 con teléfonos reales; margen con tarifa 2027; rollback.
+
+RESULTADO: FALLA

@@ -66,7 +66,7 @@ Mi recomendación técnica, **que no era una secuencia preaprobada**: empezar po
 3. Canal de alerta y destinatario (por ejemplo, tu correo).
 4. Operador(es): tu UID real; por defecto solo tú.
 5. Política de retención de alertas y de registros de auditoría (o «sin borrar por ahora»).
-6. Aprobar por separado cada cambio de nube cuando llegue (1A/1B, Monitoring, servicio del operador). Las preguntas 2–6 se respondieron el 20 nov: ver el [plan integral](LV-019-B-plan-integral-20261120.md) (§1 y §6); sigue faltando el correo del destinatario, el UID y la confirmación del alcance del deploy.
+6. Aprobar por separado cada cambio de nube cuando llegue (1A/1B, Monitoring, servicio del operador). Las preguntas 2–6 se respondieron el 20 nov: ver el [plan integral](LV-019-B-plan-integral-20261120.md) (§1 y §6); el correo de alertas ya se recibió; sigue faltando el UID del operador, y el dueño decidió no desplegar nada hasta que la voz esté lista.
 
 ## 6. Qué no haré sin tu OK
 Cambiar nada en `vistavo-prod`, desplegar, habilitar o reanudar un planificador, aplicar índices, montar el endpoint fuera del servidor local, tocar `cloudFilesRuntime.ts` o `cloudApi.ts`, subir a GitHub o mover saldo.

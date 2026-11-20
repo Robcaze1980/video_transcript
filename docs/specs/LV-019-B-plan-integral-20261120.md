@@ -1,6 +1,27 @@
 # LV-019.B · Plan integral en paralelo (autorizaciones del dueño, 20 nov 2026)
 
-**Estado: PLAN v2 ACEPTADO CON LÍMITES (20 nov 2026).** T3 ronda 1: 4 respuestas (1 PASS, 3 FALLA, todos los hallazgos adjudicados); ronda 2 sobre esta versión: PASS de GLM y PASS de DeepSeek con tres pendientes MEDIA incorporadas ([recibo](../evidence/lv019-b-t3-plan-integral-20261120/RECIBO.md)). No es evidencia de que nada funcione en la nube; es el orden de trabajo. Documento de plan; no cambia código, nube ni saldo. Concreta las «preguntas abiertas» de la [propuesta de nube](LV-019-B-conciliacion-propuesta-nube.md) y, por instrucción del dueño, levanta la regla propia «no empezar ni diseñar la voz hasta cerrar conciliación y privacidad». La **activación** de la voz a clientes sigue sujeta a las puertas de la sección 5.
+**Estado: PLAN v2 ACEPTADO CON LÍMITES (20 nov 2026).** T3 ronda 1: 4 respuestas (1 PASS, 3 FALLA, todos los hallazgos adjudicados); ronda 2 sobre esta versión: PASS de GLM y PASS de DeepSeek con tres pendientes MEDIA incorporadas; ronda 3 sobre las decisiones posteriores del dueño (G0, política de cobro, costes): GLM PASS y DeepSeek FALLA, con sus hallazgos incorporados (§0.1, C2, C3) ([recibo](../evidence/lv019-b-t3-plan-integral-20261120/RECIBO.md)). No es evidencia de que nada funcione en la nube; es el orden de trabajo. Documento de plan; no cambia código, nube ni saldo. Concreta las «preguntas abiertas» de la [propuesta de nube](LV-019-B-conciliacion-propuesta-nube.md) y, por instrucción del dueño, levanta la regla propia «no empezar ni diseñar la voz hasta cerrar conciliación y privacidad». La **activación** de la voz a clientes sigue sujeta a las puertas de la sección 5.
+
+## 0. Decisiones del dueño del 20 nov, después del plan v2
+
+| Tema | Respuesta del dueño | Efecto en el plan |
+|---|---|---|
+| Correo de alertas | Lo entregó en el chat | **No se escribe en el repositorio ni en prompts**; solo irá a la configuración de Monitoring al crear el canal (A3). |
+| Operadores | «solo yo opero» | Un solo operador, el dueño. Sigue faltando su UID. |
+| Precio de la voz | US$0.10 por minuto | Confirmado. El coste del proveedor es ≈13,5 % de ese precio hasta fin de 2026 y ≈27 % desde el 1 ene 2027 ([C0a](LV-019-B-voz-c0a-hechos-proveedor-20261120.md)). |
+| Política de cobro | «no se cobra si fallamos» | **Sin cobro parcial**: un trabajo de voz fallido se libera; una reserva `UNKNOWN` solo retiene saldo, no lo cobra, hasta conciliar (C2/C3). |
+| Retención del audio | No conoce las opciones | Opciones y costes en C0a; **decisión pendiente** (recomendación técnica: 30 días, con borrado inmediato a petición). |
+| Pares de voz | «analizamos si se puede los mismos pares de transcript» | Análisis en C0a: la voz depende solo del idioma destino y los diez idiomas figuran en el proveedor; falta escuchar y aprobar cada uno (LV-004). |
+| Gasto de medir el coste real | Autorizado | Vigente, pero **no se hicieron llamadas nuevas**: no hay clave de Gemini en esta PC; se usan las mediciones reales del 14 nov y la tarifa publicada. |
+| Despliegue | «no hacer deploy hasta que voz esté listo también» | **G0: no se despliega nada** (ni mantenimiento ni operador) hasta que la voz esté lista; la primera salida a la nube es conjunta. Mi lectura de «lista»: la voz cumple G1–G5 en local y se prueba por primera vez en la nube con cuentas de verificación, sin abrir al público. A4 y A5 quedan diferidos; A0–A3 no son despliegue. |
+
+### 0.1 Qué significa «lista» para el primer despliegue (T3 ronda 3)
+
+1. **Voz lista en local:** regresión financiera completa en verde con la voz reabierta (las 5 pruebas pausadas adaptadas y verdes), B1 y B2 cerrados, C1–C3 y C6b implementados, política de cobro probada (sin cobro parcial, `UNKNOWN` con plazo máximo), retención y privacidad decididas, interruptor de emergencia probado y revisiones T3 y Gemini hechas.
+2. **Aprobación por escrito** del dueño para el primer despliegue.
+3. **Primer despliegue restringido:** sin tráfico público, solo cuentas de verificación, interruptor y reversión comprobados antes de encender. **Aquí se evalúa G6** (con y sin saldo, teléfonos reales); sin G6 no se abre al público.
+4. **Antes de G0** solo se permiten, avisando antes al dueño y cada uno con su reversión: A0 (solo lectura), A1 (índice; reversión: borrarlo) y A3 (canal y política de alertas; reversión: borrarlos; la entrada de registro de prueba solo con su permiso). La lista está cerrada.
+5. G0 retrasa la conciliación en la nube mientras la voz no esté lista; es una decisión consciente del dueño y el riesgo es bajo (producción vacía, sin clientes).
 
 ## 1. Qué autorizó el dueño (sus palabras) y cómo lo entiendo
 
@@ -9,12 +30,12 @@ Una autorización permite hacer algo; no obliga a hacerlo antes de que sea segur
 | # | El dueño dijo | Alcance que entiendo | Falta para ejecutar |
 |---|---|---|---|
 | 1 | «autorizado el disparador» | Un disparador periódico en la nube para el barrido de pendientes: ruta nueva colgada de la pasada de mantenimiento que ya corre cada 5 minutos (opción 1A), **más una alerta de frescura** (si el barrido deja de correr, avisa). **No** el modo `billing`, que mueve saldo. | Código del barrido aislado y probado; cadencia (propongo heredar los 5 minutos); T3 del cambio. |
-| 2 | «canal es email» | Alerta por correo: métrica por registros + política de Cloud Monitoring con canal de correo (opción 2B), más alerta «sin datos». | **Correo del destinatario** (solo a la configuración de Monitoring; nunca al repositorio ni a prompts); confirmar en la documentación oficial; prueba de entrega real. |
-| 3 | «solo yo y el email del destinatario de la alerta» | Operadores = el dueño. **Ambiguo:** no queda claro si el destinatario es otra persona que también opera; lo trato como **un solo operador** hasta que aclare. | **UID real de Firebase** (o permiso para buscarlo en Auth por su correo). Solo bloquea A5. |
+| 2 | «canal es email» | Alerta por correo: métrica por registros + política de Cloud Monitoring con canal de correo (opción 2B), más alerta «sin datos». | Correo **recibido el 20 nov** (solo irá a la configuración de Monitoring; nunca al repositorio ni a prompts); confirmar en la documentación oficial; prueba de entrega real. |
+| 3 | «solo yo y el email del destinatario de la alerta» | Operadores = solo el dueño (**confirmado el 20 nov**: «solo yo opero»). | **UID real de Firebase** (o permiso para buscarlo en Auth por su correo). Solo bloquea A5. |
 | 4 | «¿un lugar seguro? ¿Cloudflare?» | Pregunta; respuesta en la sección 4. | Confirmación de la recomendación. |
 | 5 | «crear índice real» | Crear **solo** `billingHoldOutbox (state, nextAttemptAt)` en `vistavo-prod`, base `(default)`, con `deploy/google-cloud/billing-hold.indexes.json`. Lo usa la consulta de bloqueos del modo `billing` (`firestoreBackend.ts`, `where state==pending, nextAttemptAt<=ahora, orderBy nextAttemptAt`); crearlo no programa ese modo. | Permiso real de la identidad; verificación con la consulta exacta y estado `READY`; comprobar que no exige otro índice. |
 | 6 | «autorizo los registros de producción» | Escribir en `vistavo-prod` **únicamente** alertas y auditoría en `billingPendingAlerts` y `billingPendingAudit`. Nunca filas de cola, saldos ni cuentas. | Ejecutor con guardas distintas de las del emulador; diferencias antes/después de **todas** las colecciones; «sin borrar por ahora» más cota de volumen. |
-| 7 | «deploy» | Desplegar **solo** lo necesario para 1–6: imagen del servicio de mantenimiento con la ruta del barrido y, si procede, un servicio de operador. **Excluido hasta que el dueño lo confirme por escrito:** video a clientes, Hosting `/api/video/**`, modo `billing`, voz, compras, y subir a GitHub (no lo nombró). | Confirmación escrita de ese alcance; aplicador con ensayo en seco, revisión nueva sin tráfico y reversión. |
+| 7 | «deploy» (después: «no hacer deploy hasta que voz esté listo también», §0) | Desplegar **solo** lo necesario para 1–6: imagen del servicio de mantenimiento con la ruta del barrido y, si procede, un servicio de operador. **Excluido hasta que el dueño lo confirme por escrito:** video a clientes, Hosting `/api/video/**`, modo `billing`, voz, compras, y subir a GitHub (no lo nombró). | Pospuesto por el dueño hasta que la voz esté lista (G0); el alcance se reconfirma entonces; aplicador con ensayo en seco, revisión nueva sin tráfico y reversión. |
 
 ## 2. Reglas de ejecución (valen para todo paso de nube)
 
@@ -49,17 +70,17 @@ Piezas verificadas en local y desconectadas: canon v1 (99 pruebas), codec de mar
 
 | Paso | Qué | Depende de |
 |---|---|---|
-| C0a | Hechos y decisiones que condicionan el diseño: términos del proveedor sobre uso, retención y borrado; catálogo de voces; **coste real por minuto medido** frente al precio de US$0.10/min; privacidad y retención definidas (C6a). Decisiones del dueño abajo. | — (solo lectura/documentos; medir coste requiere autorizar gasto) |
+| C0a | **Hechos recogidos el 20 nov ([nota C0a](LV-019-B-voz-c0a-hechos-proveedor-20261120.md)); falta confirmar que la clave de producción es de un proyecto con facturación, leer la adenda de datos y decidir la retención.** Hechos y decisiones que condicionan el diseño: términos del proveedor sobre uso, retención y borrado; catálogo de voces; **coste real por minuto medido** frente al precio de US$0.10/min; privacidad y retención definidas (C6a). Decisiones del dueño abajo. | — (solo lectura/documentos; medir coste requiere autorizar gasto) |
 | C0b | Criterio de calidad por par y voz (LV-004). Paralelo. | — |
 | C1 | Reserva de voz (UID → marca → intención → reserva Cuenta simulada en la misma transacción). La reserva es en segundos fuente: no depende del precio ni de la retención. Solo emulador, con la interfaz apagada; **no se da por cerrada ni se integra hasta que B1 pase**. | contrato de B |
-| C2 | Admisión y llamada por fragmento. **Política mínima sin idempotencia del proveedor:** una sola llamada en vuelo; jamás reintento automático tras enviar; `callKey + requestSha256` como deduplicación local; envío sin ACK = `UNKNOWN` con reserva retenida; liberar solo con prueba de no inicio; reintento manual solo tras conciliación explícita. **No cobrar voz no entregada ni con otro texto:** la captura solo ocurre tras verificar el artefacto (WAV válido, duración) y que `voiceTextSha256` coincide con la revisión y el recibo vinculados (el mismo patrón de verificación que ya usa el pipeline de IA). Definir antes la política de fragmento fallido (¿se cobra parcial?). | C1, C0a |
-| C3 | Recuperación y conciliación de voz: ACK perdido y envejecimiento (una reserva `UNKNOWN` sin resolver caduca a **alerta**, no queda huérfana). | B1, B2, C2 |
+| C2 | Admisión y llamada por fragmento. **Política mínima sin idempotencia del proveedor:** una sola llamada en vuelo; jamás reintento automático tras enviar; `callKey + requestSha256` como deduplicación local; envío sin ACK = `UNKNOWN` con reserva retenida; liberar solo con prueba de no inicio; reintento manual solo tras conciliación explícita. **No cobrar voz no entregada ni con otro texto:** la captura solo ocurre tras verificar el artefacto (WAV válido, duración) y que `voiceTextSha256` coincide con la revisión y el recibo vinculados (el mismo patrón de verificación que ya usa el pipeline de IA). **Política del dueño (20 nov): no se cobra si fallamos**; no hay cobro parcial (un trabajo de voz fallido se libera; una reserva `UNKNOWN` solo retiene saldo hasta conciliar). **Entrega verificada** (condición para capturar): respuesta del proveedor con audio, WAV válido (24 kHz, mono, 16 bits), duración coherente con el texto, `voiceTextSha256` igual al de la revisión y el recibo, objeto guardado con generación y recibo, y accesible por su propietario. **Cancelación del cliente:** antes de enviar al proveedor se libera todo; después de enviar queda abierta (decisión del dueño) y no se reintenta. | C1, C0a |
+| C3 | Recuperación y conciliación de voz: ACK perdido y envejecimiento (una reserva `UNKNOWN` no queda retenida sin fin: **plazo máximo** a fijar con datos, estado visible al cliente como «en revisión», límite de `UNKNOWN` simultáneos por cuenta, una sola llamada en vuelo por trabajo; al vencer, alerta al operador con ventana de gracia y, si nadie la resuelve, **liberación con marcador (tombstone) para que un artefacto tardío no se pueda descargar ni cobrar**; nunca se captura sin entrega verificada). | B1, B2, C2 |
 | C4 | Regresión **continua desde C1**; las 5 pruebas pausadas (140–143, 182) se reabren adaptadas en C2/C3. | C1 |
 | C5a | Prototipo de cotización de solo lectura en navegador sintético; no confirma precio ni muestra saldo reservado. | — |
 | C5b | Interfaz conectada (elegir voz, precio adicional confirmado, saldo, revisión que se narrará); teléfonos reales después. | C0a, C1, C2 |
 | C6b | Cumplimiento: interruptor de emergencia probado, habilitación por cuenta apagada por defecto (hoy exige `aiPilot` y `simulationOnly`), auditoría. **No publicar la voz sin prueba en teléfono.** | C0a |
 
-**Decisiones del dueño para la voz (no técnicas):** (1) precio final y margen: ¿US$0.10/min es techo o piso una vez medido el coste?; (2) política de no cobro o reembolso por voz no entregada o parcial; (3) cuánto tiempo se guarda el audio; (4) pares de idiomas y voces del lanzamiento; (5) autorizar el gasto de medir el coste real del proveedor y fijar un tope para la prueba online con saldo real.
+**Decisiones del dueño para la voz (no técnicas), estado tras el 20 nov:** (1) precio: **US$0.10/min, decidido**; (2) no cobro por fallo nuestro: **decidido, sin cobro parcial**; (3) cuánto tiempo se guarda el audio: **pendiente**, opciones y costes en la nota C0a; (4) pares y voces del lanzamiento: **análisis hecho** (mismos pares por idioma destino), falta elegir el primero y escuchar; (5) gasto de medir el coste real: **autorizado, sin tope fijado**; falta fijar un tope para la prueba online con saldo real. También abierto: si el cliente cancela a mitad de un trabajo de voz.
 
 ### Vía D · Experiencia móvil y calidad de idiomas
 
@@ -77,16 +98,16 @@ Depende de A0, de B cerrada y de la regresión integrada. Aquí «deploy» alcan
 
 ## 5. Puertas antes de que algo toque a clientes
 
-G1 regresión financiera completa en verde con la integración final; G2 recuperación tras caída (B1) y legado (B2) cerrados; G3 readback de IAM/VPC/cuotas sin sorpresas de costo o permisos; G4 voz: privacidad y retención definidas, interruptor probado, habilitación por cuenta y apagada por defecto; G5 revisión T3 de la integración y revisión `google/gemini-4-hydrogen:batch` de migración/backend; G6 prueba online con y sin saldo, con teléfonos reales y, para voz, prueba en teléfono antes de publicar; G7 cualquier extensión del barrido que escriba más allá de sus dos colecciones. Ninguna puerta se cumple solo con simuladores.
+G0 **ningún despliegue de nada hasta que la voz esté lista** (decisión del dueño, 20 nov); G1 regresión financiera completa en verde con la integración final; G2 recuperación tras caída (B1) y legado (B2) cerrados; G3 readback de IAM/VPC/cuotas sin sorpresas de costo o permisos; G4 voz: privacidad y retención definidas, interruptor probado, habilitación por cuenta y apagada por defecto; G5 revisión T3 de la integración y revisión `google/gemini-4-hydrogen:batch` de migración/backend; G6 prueba online con y sin saldo, con teléfonos reales y, para voz, prueba en teléfono antes de publicar (se evalúa en el primer despliegue restringido, §0.1); G7 cualquier extensión del barrido que escriba más allá de sus dos colecciones. Ninguna puerta se cumple solo con simuladores.
 
 ## 6. Lo que necesito del dueño
 
-1. Correo del destinatario de las alertas.
-2. UID real del operador (o permiso para buscarlo) y si el destinatario es otra persona que también opera.
-3. Confirmar **por escrito** el alcance de «deploy» (sección 1, fila 7) y que no incluye video a clientes ni GitHub.
-4. Confirmar la recomendación de operador (sección 4) o pedir Cloudflare.
-5. Autorizar una **entrada de registro de prueba** en Cloud Logging para probar la alerta (A3).
-6. Las cinco decisiones de voz de la vía C.
+1. UID real del operador (o permiso para buscarlo). El correo de alertas y «solo yo opero» ya están recibidos.
+2. Confirmar que «lista» (para el primer despliegue conjunto) significa lo que dice la §0, y que subir a GitHub sigue sin autorizar.
+3. Confirmar la recomendación de operador (sección 4) o pedir Cloudflare.
+4. Autorizar una **entrada de registro de prueba** en Cloud Logging para probar la alerta (A3), que puede hacerse antes del despliegue.
+5. Decidir cuánto tiempo se guarda el audio (opciones en la nota C0a), qué idioma y variante abre la voz, y fijar un tope para la prueba online con saldo real.
+6. Confirmar en AI Studio que la clave de producción de Gemini pertenece a un proyecto con facturación (servicio de pago): de eso depende que el contenido no se use para mejorar productos de Google.
 7. Retención de alertas: propongo «sin borrar por ahora», con cota de volumen medida.
 
 ## 7. Riesgos principales

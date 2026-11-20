@@ -1,0 +1,19 @@
+1. MEDIA — G0/"lista": no es circular si G6 queda definido como puerta de apertura al público, no de despliegue. Corrección: documentar que el primer despliegue restringido (cuentas de verificación) es donde se evalúa G6, y que A1/A3 son cambios previos autorizados, no despliegue.
+
+2. BAJA — G0 retrasa conciliación e integridad del saldo si la voz se demora; con producción vacía y sin clientes el riesgo es mínimo, pero debe quedar como decisión consciente del dueño.
+
+3. MEDIA — UNKNOWN: "caducidad a alerta" no define estado terminal; si la alerta no resuelve el resultado, el saldo queda retenido indefinidamente. Corrección: duración máxima de retención y qué ocurre al vencer (liberar con nota o decisión manual del operador).
+
+4. BAJA — Cancelación del cliente a mitad de trabajo no está cubierta: también debe liberar la reserva entera (coherente con "sin cobro parcial").
+
+5. MEDIA — "Entrega verificada" (criterio de captura) sin definir. Corrección: evidencia mínima antes de capturar (estado del proveedor + archivo generado + duración).
+
+6. BAJA — Costes coherentes: 1500 tok/min → $0.0135/min ($9/1M) y $0.027/min ($18/1M); 13.5% y 27% de $0.10. Matiz: confirmar que no se facturan tokens de entrada/contexto aparte; si lo hace, el coste sube.
+
+7. BAJA — Almacenamiento coherente: 2.88 MB/min; 10 min ≈ $0.00054/mes → ~$0.00002 (24 h) / ~$0.0065 (12 m). Corrección: los 30 días como regla de ciclo de vida automática, no borrado manual.
+
+8. BAJA — El coste de voz se duplica el 1-ene-2027 (13.5%→27%); confirmar si $0.10/min se mantiene, se revisa o se comunica con vigencia.
+
+Falta por confirmar: puntos 3, 4, 5, 6 y 8. El delta es coherente y no introduce huecos bloqueantes.
+
+RESULTADO: PASS
