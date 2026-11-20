@@ -18,7 +18,7 @@ export function stub(initial:Record<string,Record<string,Record<string,unknown>>
       return {docs:ids.map(id=>({id,ref:docRef(c,id),data:()=>structuredClone(store.get(`${c}/${id}`)!)}))};
     }
   });
-  const root={collection:(c:string)=>({doc:(id:string)=>docRef(c,id),...query(c,[],null,null)})};
+  const root={path:'operator-local/stub-root',collection:(c:string)=>({doc:(id:string)=>docRef(c,id),...query(c,[],null,null)})};
   const db={async runTransaction<T>(fn:(tx:unknown)=>Promise<T>){
     const staged:Array<()=>void>=[];
     const tx={async get(ref:{path:string;id:string}){const d=store.get(ref.path);return {id:ref.id,exists:!!d,data:()=>d?structuredClone(d):undefined,get:(f:string)=>d?.[f]};},

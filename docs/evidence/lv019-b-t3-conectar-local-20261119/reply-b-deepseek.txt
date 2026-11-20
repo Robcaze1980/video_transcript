@@ -1,0 +1,10 @@
+**Hallazgos**
+- `createOperatorLocalServer`: no valida entorno ni que `root` esté bajo `operator-local/`. Al estar exportada, un llamador puede construir y arrancar el servidor con `process.env` real o un `root` arbitrario, esquivando el contrato. Bloquea el contrato si se usa esa API; el arranque normal no se ve afectado.
+- `close`: `server.close()` sin `closeAllConnections()`. Una conexión keep-alive deja la promesa pendiente hasta `requestTimeout` y `db.terminate()`/`deleteApp` no llegan a ejecutarse. Fuga de recursos. Bloquea.
+- Catch del `listen` sin `try/finally`: si `db.terminate()` lanza, `deleteApp(app)` nunca corre. Bloquea el cierre limpio.
+- `made.server.once('error',fail)` no se retira tras escuchar: listener retenido y errores posteriores resueltos en silencio. No bloquea.
+- `VISTAVO_OPERATOR_PORT=0` pasa la validación: el Host exigido pasa a ser el efímero real, no el configurado. Menor.
+- `log` escribe a stdout; nada garantiza que las entradas no incluyan root/proyecto reales. Fuga potencial, no verificada.
+- Correcto: validación antes de crear Firebase, 403 por peer/Host, 404 genérico, mensajes que nombran variable y no valor, escucha solo en `127.0.0.1`.
+
+RESULTADO: FALLA.

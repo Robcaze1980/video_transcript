@@ -1,0 +1,6 @@
+- Hallazgo real: `db = new Firestore(...)` queda después de `initializeApp`, pero antes de que exista `release`. Si el constructor de `Firestore` lanza, el `catch` posterior nunca aplica y la app queda inicializada sin liberarse. Incumple “todo fallo de arranque libera app y base”. Bloquea: sí.
+- Errores tragados: `Promise.allSettled` descarta fallos de `db.terminate()` o `deleteApp(app)`; el callback de `server.close` también ignora su error. El error original se propaga, pero los fallos de liberación/cierre no son observables. Bloquea: no, salvo que el contrato exija reportarlos.
+- Orden del escuchador: correcto; `once('error')` se registra antes de `listen` y se retira en el callback de “listening”.
+- Liberación en fallos posteriores: correcta en el caso mostrado; `catch` llama `release()` y re-lanza el error original. `allSettled` evita que un fallo impida la otra liberación.
+
+RESULTADO: FALLA

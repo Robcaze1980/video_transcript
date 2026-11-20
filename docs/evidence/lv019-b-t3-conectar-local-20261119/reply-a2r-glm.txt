@@ -1,0 +1,13 @@
+He revisado el código contra el contrato de fallo cerrado.
+
+**Hallazgos**
+- Lista de UIDs: entradas vacías (`'a,,b'`, coma final) y malformadas invalidan todo el conjunto (`UID` rechaza `''`); solo se registran nombres en `missing`. No bloquea.
+- Limitador: la aritmética de ventana es correcta (`cutoff=now-windowMs`, entradas estrictamente mayores sobreviven); la llamada rechazada se retorna antes de `push`, así que no extiende el bloque. `maxKeys` se verifica después de la purga, de modo que una clave recién expirada libera el cupo, como se prometió. No bloquea.
+- Memoria: por clave el arreglo queda acotado a `max` (los excedentes no se registran) y las claves por `maxKeys`; la purga corre en cada llamada. No hay crecimiento sin límite.
+- Números: `COUNT` garantiza enteros seguros; `rateWindow*1000` (máx ~9 dígitos) sigue dentro del rango seguro. Variables ausentes o vacías van a `missing` y apagan el endpoint o solo las escrituras (`writesEnabled`), sin defaults. No bloquea.
+- Sin filtración: `missing` contiene solo nombres; `secret:''` nunca se usa porque `enabled` queda falso.
+- Defensa en runtime (`verifier?.verifyIdToken`, `now`, `log`) cierra, no abre.
+
+No encontré fallo abierto ni bug real en esta ronda.
+
+RESULTADO: PASS

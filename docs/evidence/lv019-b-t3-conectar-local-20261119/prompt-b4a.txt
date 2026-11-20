@@ -1,0 +1,55 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa este codigo nuevo (TypeScript, Node): validacion y servidor SOLO LOCAL que monta un endpoint de operador. Contrato: solo se construye en entorno aislado (emuladores de Firestore y Auth en 127.0.0.1 con puerto 1..65535, proyecto demo-*, sin archivo de credenciales ni marca de servicio alojado, raiz de Firestore dentro de la coleccion operator-local; el puerto propio 0..65535, donde 0 = efimero a proposito); `createOperatorLocalServer` no puede esquivar esas comprobaciones; escucha solo en 127.0.0.1; 403 si el peer no es loopback o Host no es exactamente 127.0.0.1:<puerto>; 404 fuera de la ruta de operador; los mensajes nombran variables, nunca valores. `billingOperatorHttp(config)` y `operatorConfigFromEnv` se revisan aparte (el handler resuelve false si la ruta no es del operador y true si ya respondio). Busca bugs REALES (validacion esquivable, orden de comprobaciones, fuga de valores, manejo de errores); por hallazgo: lugar, escenario concreto y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+Ronda 3. Cambios: el entorno se lee una vez (copia congelada); el host de los emuladores exige puerto canonico 1..65535 (sin ceros a la izquierda); un servidor que quede enlazado a una direccion distinta de 127.0.0.1 se cierra solo. Limite conocido y documentado: `db` se recibe de confianza (una instancia de Firestore no se puede inspeccionar); un test recorre server/ y falla si cualquier otro archivo importa este modulo.
+
+```typescript
+const DEMO=/^demo-[a-z0-9-]+$/,ROOT=/^operator-local\/[a-z0-9][a-z0-9-]{2,59}$/,PORT=/^(0|[1-9]\d{0,4})$/;
+const loopbackHost=(value:string|undefined):boolean=>{const m=/^127\.0\.0\.1:([1-9]\d{0,4})$/.exec(value??'');return m!==null&&Number(m[1])<=65535;};
+const refuse=(name:string):never=>{throw Error('Explicit isolated local operator environment required: '+name);};
+
+/** Throws unless the environment is the isolated local one. The message names the failing variable, never a value. */
+export function validateOperatorLocalEnvironment(env:Record<string,string|undefined>):void{
+  if(env.VISTAVO_OPERATOR_LOCAL!=='1')refuse('VISTAVO_OPERATOR_LOCAL');
+  if(!loopbackHost(env.FIRESTORE_EMULATOR_HOST))refuse('FIRESTORE_EMULATOR_HOST');
+  if(!loopbackHost(env.FIREBASE_AUTH_EMULATOR_HOST))refuse('FIREBASE_AUTH_EMULATOR_HOST');
+  if(!DEMO.test(env.GCLOUD_PROJECT??''))refuse('GCLOUD_PROJECT');
+  if(env.GOOGLE_APPLICATION_CREDENTIALS)refuse('GOOGLE_APPLICATION_CREDENTIALS');
+  if(env.K_SERVICE)refuse('K_SERVICE');
+  if(!ROOT.test(env.VISTAVO_OPERATOR_ROOT??''))refuse('VISTAVO_OPERATOR_ROOT');
+  const port=env.VISTAVO_OPERATOR_PORT??'';if(!PORT.test(port)||Number(port)>65535)refuse('VISTAVO_OPERATOR_PORT');
+}
+
+export interface OperatorLocalOptions{
+  env:Record<string,string|undefined>;db:Firestore;root:DocumentReference;verifier:OperatorHttpConfig['verifier'];now:()=>number;log:(entry:Record<string,unknown>)=>void;
+}
+/**
+ * Builds (does not start) the loopback server. It enforces the isolation contract itself: the environment (read once, as a
+ * snapshot) must be the isolated one and the Firestore reference actually passed must be the validated root. Known limit: `db` is
+ * trusted. A Firestore instance cannot be inspected for where it points, so the caller must build it from the validated emulator
+ * environment, as `startBillingOperatorLocal` does. The test that walks `server/` keeps any other module from importing this file.
+ */
+export function createOperatorLocalServer(o:OperatorLocalOptions):{server:Server;enabled:boolean;writesEnabled:boolean;missing:string[]}{
+  const env:Record<string,string|undefined>=Object.freeze({...o.env});
+  validateOperatorLocalEnvironment(env);
+  if(o.root.path!==env.VISTAVO_OPERATOR_ROOT)refuse('VISTAVO_OPERATOR_ROOT');
+  const {config,enabled,writesEnabled,missing}=operatorConfigFromEnv(env,{db:o.db,root:o.root,verifier:o.verifier,now:o.now,log:o.log});
+  const handler=billingOperatorHttp(config);
+  const reply=(res:ServerResponse,status:number,error:string)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}).end(JSON.stringify({error}));};
+  const server=createServer((req:IncomingMessage,res:ServerResponse)=>{
+    void(async()=>{
+      const address=server.address(),peer=req.socket.remoteAddress;
+      if(!address||typeof address==='string'||address.address!=='127.0.0.1'||!['127.0.0.1','::ffff:127.0.0.1'].includes(peer??'')||req.headers.host!=='127.0.0.1:'+address.port){req.resume();reply(res,403,'request_rejected');return;}
+      if(!await handler(req,res)){req.resume();reply(res,404,'not_found');}
+    })().catch(()=>{
+      try{o.log({event:'operator-local-error',code:'unhandled'});}catch{/* logging must never change the response */}
+      if(res.headersSent)res.destroy();else{req.resume();reply(res,500,'error');}
+    });
+  });
+  server.requestTimeout=30000;server.headersTimeout=10000;
+  // Defense in depth: a server that ends up bound anywhere but 127.0.0.1 closes itself (its requests would be 403 anyway).
+  server.on('listening',()=>{const a=server.address();if(a===null||typeof a==='string'||a.address!=='127.0.0.1')server.close();});
+  return {server,enabled,writesEnabled,missing};
+}
+```

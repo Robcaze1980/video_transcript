@@ -1,0 +1,52 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa este codigo nuevo (TypeScript, Node): configuracion del endpoint de operador de alertas de saldo, leida del entorno. Contrato: FALLA CERRADO y sin valores por defecto: una variable ausente o mal formada deja el endpoint apagado (o solo sus escrituras, para la ventana de reautenticacion); `missing` nombra variables, nunca valores; una entrada mal formada en la lista de UIDs invalida toda la lista; limitador en memoria por clave, ventana deslizante, una llamada rechazada no se registra, un reloj invalido o que lanza rechaza. El tipo OperatorHttpConfig (db, root, operators:Set, secret, reauthWindowSec?, limiter?, now, log, verifier) viene de otro modulo ya revisado. Busca bugs REALES (fallo abierto, filtracion de valores, aritmetica de la ventana, validacion de numeros, memoria sin limite); por hallazgo: lugar, escenario concreto y si bloquea. Sin numeros arbitrarios.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```typescript
+import type {DocumentReference,Firestore} from 'firebase-admin/firestore';
+import type {OperatorHttpConfig} from './billingOperatorHttp';
+
+export interface OperatorEnvDeps{
+  db:Firestore;root:DocumentReference;verifier:OperatorHttpConfig['verifier'];now:()=>number;log:(entry:Record<string,unknown>)=>void;
+}
+export interface OperatorEnvResult{
+  /** Ready to hand to `billingOperatorHttp`; when `enabled` is false the endpoint answers 404 on every route. */config:OperatorHttpConfig;
+  enabled:boolean;writesEnabled:boolean;/** Variable names that are absent or malformed; never values. */missing:string[];
+}
+const UID=/^[A-Za-z0-9_.:@-]{1,128}$/,COUNT=/^[1-9]\d{0,8}$/;
+
+/** In-memory sliding-window limiter, per key. Per process only: a service with several instances needs a shared one. */
+export function createRateLimiter(o:{max:number;windowMs:number;now:()=>number}){
+  if(!Number.isSafeInteger(o.max)||o.max<1||!Number.isSafeInteger(o.windowMs)||o.windowMs<1)throw Error('Invalid rate limit');
+  const calls=new Map<string,number[]>();
+  const limiter=(key:string):boolean=>{
+    let now:number;try{now=o.now();}catch{return false;}
+    if(!Number.isSafeInteger(now)||now<0)return false;
+    const cutoff=now-o.windowMs;
+    for(const [k,times] of calls){const live=times.filter(t=>t>cutoff);if(live.length)calls.set(k,live);else calls.delete(k);}
+    const own=calls.get(key)??[];
+    if(own.length>=o.max)return false; // a refused call is not recorded, so it cannot extend the block
+    own.push(now);calls.set(key,own);return true;
+  };
+  return Object.assign(limiter,{size:()=>calls.size});
+}
+
+export function operatorConfigFromEnv(env:Record<string,string|undefined>,deps:OperatorEnvDeps):OperatorEnvResult{
+  const missing:string[]=[];
+  const rawUids=env.VISTAVO_OPERATOR_UIDS;let operators=new Set<string>();
+  if(typeof rawUids==='string'){
+    const parts=rawUids.split(',').map(p=>p.trim()).filter(Boolean);
+    // One malformed entry invalidates the whole list: a typo must never silently shrink or reshape who may act.
+    if(parts.length&&parts.every(p=>UID.test(p)))operators=new Set(parts);
+  }
+  if(operators.size===0)missing.push('VISTAVO_OPERATOR_UIDS');
+  const secret=env.VISTAVO_OPERATOR_SECRET,secretOk=typeof secret==='string'&&secret.length>=32;
+  if(!secretOk)missing.push('VISTAVO_OPERATOR_SECRET');
+  const count=(name:string):number|undefined=>{const v=env[name];if(typeof v==='string'&&COUNT.test(v))return Number(v);missing.push(name);return undefined;};
+  const reauth=count('VISTAVO_OPERATOR_REAUTH_SEC'),rateMax=count('VISTAVO_OPERATOR_RATE_MAX'),rateWindow=count('VISTAVO_OPERATOR_RATE_WINDOW_SEC');
+  const limiter=rateMax!==undefined&&rateWindow!==undefined?createRateLimiter({max:rateMax,windowMs:rateWindow*1000,now:deps.now}):undefined;
+  const config:OperatorHttpConfig={db:deps.db,root:deps.root,operators,secret:secretOk?secret:'',reauthWindowSec:reauth,limiter,now:deps.now,log:deps.log,verifier:deps.verifier};
+  const enabled=operators.size>0&&secretOk&&limiter!==undefined&&typeof deps.verifier?.verifyIdToken==='function'&&typeof deps.now==='function'&&typeof deps.log==='function';
+  return {config,enabled,writesEnabled:enabled&&reauth!==undefined,missing};
+}
+```

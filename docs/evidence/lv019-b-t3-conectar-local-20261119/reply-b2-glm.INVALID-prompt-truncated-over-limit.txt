@@ -1,0 +1,7 @@
+**Hallazgo 1 — bloquea.** Lugar: constante `PORT` (`^(0|[1-9]\d{0,4})$`). Escenario: acepta `0` y valores hasta `99999`; la regla de esta ronda exige 1..65535. Con `VISTAVO_OPERATOR_PORT=0` (si esta regex valida el puerto propio) el servidor arranca en un puerto efímero; con `99999` la validación no lo rechaza y solo falla luego en `listen`. La validación prometida no se cumple.
+
+**Hallazgo 2 — bloquea si no hay doble cobertura.** Lugar: orden en `startBillingOperatorLocal`. La validación de la raíz (`ROOT`) reside en `createOperatorLocalServer`, que se ejecuta después de `initializeApp` y `new Firestore`; el contrato exige validar antes de crear cualquier objeto Firebase. Si `validateOperatorLocalEnvironment` no cubre ya `VISTAVO_OPERATOR_ROOT`, se incumple el orden: `release()` limpia, pero tarde. Si esa función ya la valida, es solo defensa redundante y no bloquea.
+
+**No verificable aquí:** la lógica 403/404, la comprobación de Host, el 500 con forma fija y el retiro del escuchador de error no aparecen en este fragmento; no puedo confirmarlos desde el código mostrado. El resto (host `127.0.0.1` fijo, `release` con `allSettled`, cierre en `close()`) es correcto.
+
+RESULTADO: FALLA

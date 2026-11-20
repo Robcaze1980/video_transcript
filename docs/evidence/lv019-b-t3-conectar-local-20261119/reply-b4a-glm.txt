@@ -1,0 +1,12 @@
+No encuentro un bug real en el código mostrado.
+
+- La copia congelada del entorno se hace antes de validar y de configurar; el spread copia solo propiedades propias, por lo que la cadena de prototipos no permite suplantar variables.
+- Los puertos de emuladores quedan canónicos `1..65535`; `VISTAVO_OPERATOR_PORT` acepta `0` explícito y rangos válidos sin ceros a la izquierda.
+- La validación ocurre antes de construir la configuración o el handler, y el `root` debe coincidir exactamente con la ruta validada.
+- El handler verifica `server.address()`, peer loopback y `Host` exacto con el puerto real antes de invocar `billingOperatorHttp`; `404` solo si el handler no reconoce la ruta.
+- El catch diferencia respuesta enviada, destruye el socket y no filtra el error original; el log también está protegido.
+- El cierre automático en bind incorrecto es defensa adicional, y aunque exista una carrera, la comprobación por petición sigue devolviendo `403`.
+
+Limitaciones conocidas quedan documentadas: `db` confiado y el test estático de importaciones no son validación en tiempo de ejecución, pero no violan el contrato mostrado.
+
+RESULTADO: PASS

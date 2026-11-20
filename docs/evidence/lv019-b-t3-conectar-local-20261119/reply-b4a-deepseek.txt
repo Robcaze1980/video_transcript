@@ -1,0 +1,8 @@
+**Hallazgos**
+- `createOperatorLocalServer`, `createServer` sin listener `'error'`: si `listen` falla (p. ej. EADDRINUSE) el evento `error` no tiene manejador y Node lanza una excepción no capturada; el módulo devuelve `enabled/writesEnabled` sin garantizar el enlace. No bloquea (el llamador puede suscribirse), pero debería documentarse.
+- Bloque `.catch`: si `reply(...)` o `res.destroy()` lanza (socket ya cerrado por ECONNRESET), queda un rechazo sin manejar y se intenta un 500 sobre un socket muerto. No bloquea.
+- `server.on('listening')`: enlazar con `'localhost'` que resuelva a `::1` cierra el servidor en silencio y aun así se devuelve `enabled/writesEnabled` true; el llamador puede creer que escucha. No bloquea, pero engaña.
+- Root: se compara solo `o.root.path` con la variable; un `DocumentReference` real con path `operator-local/x` la satisface, así que no refuerza el límite `db` confiable. Documentado, no bloquea.
+- Correcto: puertos canónicos (emulador 1..65535, operador 0..65535), orden 403 antes de 404, mensajes solo con nombres de variable, sin fuga de valores.
+
+RESULTADO: PASS

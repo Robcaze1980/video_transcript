@@ -1,0 +1,37 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa esta funcion (TypeScript, Node 24) que arranca el servidor local. `validateOperatorLocalEnvironment(process.env)` ya valida TODO (emuladores, proyecto, raiz, puerto) y se ejecuta primero, antes de crear ningun objeto Firebase; `createOperatorLocalServer` repite esa validacion y exige que la referencia de raiz sea la validada. Contrato: todo fallo de arranque libera app y base aunque una de las liberaciones falle; el escuchador de error de arranque se retira al abrir el puerto; `close()` cierra el servidor y libera recursos; el error original no se pierde; server.close cierra las conexiones ociosas (Node 24). Busca bugs REALES (fugas de recursos, errores tragados, orden, doble liberacion); por hallazgo: lugar, escenario concreto y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+Ronda 3. Cambios: `db` se crea dentro del try; `release` envuelve cada liberacion en su propia funcion async (deleteApp puede lanzar de forma sincrona) y devuelve los fallos; `close` es idempotente, corta todas las conexiones y rechaza con AggregateError si falla una liberacion.
+
+```typescript
+/** Starts the real thing against the emulators named in `process.env`. Validation happens before any Firebase object exists. */
+export async function startBillingOperatorLocal(){
+  validateOperatorLocalEnvironment(process.env);
+  const env=process.env,projectId=env.GCLOUD_PROJECT as string;
+  const app=initializeApp({projectId},'operator-local-'+randomUUID());
+  let db:Firestore|undefined;
+  // Every failure from here on releases both resources, even if the Firestore constructor or one of the releases fails.
+  // It resolves to the release failures (none = clean) so a failed start keeps its original error and a close can report them.
+  // Each release runs inside its own async function: `deleteApp` can throw synchronously, which must not escape `allSettled`.
+  const release=async():Promise<unknown[]>=>(await Promise.allSettled([(async()=>{await db?.terminate();})(),(async()=>{await deleteApp(app);})()])).flatMap(r=>r.status==='rejected'?[r.reason]:[]);
+  try{
+    db=new Firestore({projectId});
+    const made=createOperatorLocalServer({env,db,root:db.doc(env.VISTAVO_OPERATOR_ROOT as string),verifier:getAuth(app),now:()=>Date.now(),log:e=>console.log(JSON.stringify(e))});
+    await new Promise<void>((ok,fail)=>{
+      const onError=(error:Error)=>fail(error);
+      made.server.once('error',onError);
+      // Once listening, the start-up error listener is removed so a later server error is not swallowed.
+      made.server.listen(Number(env.VISTAVO_OPERATOR_PORT),'127.0.0.1',()=>{made.server.off('error',onError);ok();});
+    });
+    // Idempotent: a second call returns the first. In-flight and idle connections are cut so a stuck client cannot stop the release;
+    // release failures are reported, not swallowed.
+    let closing:Promise<void>|undefined;
+    const close=():Promise<void>=>closing??=(async()=>{
+      const stopped=new Promise<void>(r=>made.server.close(()=>r()));made.server.closeAllConnections();await stopped;
+      const failed=await release();if(failed.length)throw new AggregateError(failed,'Release failed');
+    })();
+    return {...made,port:(made.server.address() as AddressInfo).port,close};
+  }catch(error){await release();throw error;}
+}
+```

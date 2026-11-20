@@ -1,0 +1,12 @@
+Revisión del módulo de configuración del endpoint de operador:
+
+- Cierre por defecto: `enabled` es una conjunción estricta (`operators>0` ∧ `secretOk` ∧ `limiter` ∧ `verifier` ∧ `now` ∧ `log`). La ausencia/mala forma de cualquier variable no‑reauth apaga el endpoint; la de reauth solo desactiva escrituras (`writesEnabled`). No hay fallo abierto.
+- Fuga de valores: `missing` solo contiene nombres; el secreto inválido se sustituye por `''`. No se filtran valores.
+- Lista de UIDs: `every` hace que una entrada no vacía mal formada invalide toda la lista (p. ej. `alice;bob` desactiva). Solo se descartan entradas vacías (coma final), que no alteran quién puede actuar.
+- Números: `COUNT` (1..999999999) más `Number.isSafeInteger`; `windowMs=seg*1000` no desborda y `createRateLimiter` valida sus opciones.
+- Ventana: `t>cutoff` es ventana deslizante correcta; la llamada rechazada retorna antes de registrar; reloj no entero, negativo o que lanza rechaza.
+- Memoria: el Map depura en cada llamada las claves sin marcas vivas → acotado a claves activas × `max`; sin tope solo si la clave no estuviera restringida a `operators` (no bloquea aquí).
+
+Sin defectos que bloqueen.
+
+RESULTADO: PASS

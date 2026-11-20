@@ -1,0 +1,9 @@
+**Revisión estática**
+
+1. `close()` (cuerpo del IIFE): si `made.server.close()` lanza de forma sincrónica —p. ej. el caller cerró antes `made.server` directamente, posible porque el retorno expone `server` vía `...made`, produciendo `ERR_SERVER_NOT_RUNNING`— la promesa rechaza antes de llegar a `release()`: `app` y `db` nunca se liberan y no hay `AggregateError`. Viola el contrato «close() libera recursos». **BLOQUEA** (envolver el apagado en try/finally o llamar release en finally).
+
+2. `catch(error){ await release(); throw error; }`: el arreglo de fallos que devuelve `release()` se descarta. Si el arranque falla y además `deleteApp` o `terminate` rechazan, ese error se traga y el recurso queda huérfano sin señal. El error original se conserva, pero los fallos de liberación no. **NO BLOQUEA** (adjuntar fallos a `error` o registrarlos).
+
+Correcto: validación antes de crear objetos Firebase; `deleteApp` sincrónico ya protegido dentro de su async; listener de arranque retirado al escuchar; `close` idempotente por memo; orden `close()`→`closeAllConnections()` cubre activas y ociosas en Node 24; sin doble liberación entre catch y close.
+
+RESULTADO: FALLA

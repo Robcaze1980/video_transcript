@@ -1,0 +1,4 @@
+- `createOperatorLocalServer`: la validación se aplica al objeto `env` recibido y solo al path de `root`; no exige `o.root.firestore === o.db` ni que `db` sea el emulador descrito por ese env. Escenario: `env` sintético con valores permitidos y `db`/`root` de producción con path `operator-local/foo`; todos los checks pasan y el servidor queda montado contra una base no aislada. No bloquea.
+- El servidor retornado no impone la escucha; si el caller llama `listen(port)` sin host, el socket queda expuesto aunque las peticiones reciban 403 por `address.address`. Bloquea las respuestas, no la exposición.
+
+RESULTADO: FALLA

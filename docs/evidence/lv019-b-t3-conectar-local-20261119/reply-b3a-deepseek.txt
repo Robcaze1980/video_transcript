@@ -1,0 +1,11 @@
+**Revisión (`createOperatorLocalServer`)**
+
+- **Bloquea — aislamiento esquivable por `o.db`:** solo se validan variables de entorno y `o.root.path`. Nunca se comprueba que la instancia `Firestore` recibida apunte al emulador (`projectId` demo-*, host loopback). Un caller pasa `db` de producción y un `root` cuyo `path` coincida con `VISTAVO_OPERATOR_ROOT` → las escrituras van a prod. El contrato «no puede esquivar las comprobaciones» se incumple.
+- **Menor — TOCTOU:** `o.env` es un `Record` mutable; validación y uso (`operatorConfigFromEnv(o.env,…)`) están separados. Mutar el objeto (o pasar `process.env` vivo) tras validar cambia la config.
+- **Menor — `loopbackHost`:** `\d{1,5}` acepta puertos no canónicos (`127.0.0.1:00080`, `:080`); `Number` los normaliza, permitiendo hosts ambiguos.
+- **Menor — 403 engañoso:** si `server.address()` es `null` (aún no escuchando) o no es 127.0.0.1, responde 403 en vez de 500; enmascara un error de configuración del servidor como rechazo de peer.
+- Sin fuga de valores: `refuse` y los logs nombran solo variables; el `catch` no expone `err`. `resume()` y `headersSent` están bien tratados.
+
+Aparte: `billingOperatorHttp`/`operatorConfigFromEnv` no visibles; no evaluables aquí.
+
+RESULTADO: FALLA

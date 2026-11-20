@@ -1,0 +1,15 @@
+Revisión del fragmento (incompleto, no compila tal cual):
+
+1. **Falta `new`**: debe ser `new Promise<void>(r => ...)`. Tal como está, `Promise<void>(...)` lanza `TypeError`.
+
+2. **Doble `release()`**: si `close()` o `release()` fallan dentro del `try`, el `catch` vuelve a llamar `release()`. Resultado: doble liberación, fugas o excepciones enmascaradas. Usa un `finally` con guarda (`if (!released)`) o un booleano/`once`.
+
+3. **Error de cierre silenciado**: en Node moderno, el callback de `server.close(cb)` recibe un `error` (p. ej. `ERR_SERVER_NOT_RUNNING` si ya estaba cerrado). Aquí siempre resuelves con `r()` y lo ignoras. Propaga o registra ese error.
+
+4. **Puede colgarse indefinidamente**: `server.close()` espera a que terminen las conexiones activas; con keep-alive o clientes lentos nunca resuelve. Añade `closeIdleConnections()`/`closeAllConnections()` y un timeout con `Promise.race`.
+
+5. **Sin idempotencia**: cerrar un servidor ya cerrado no es inocuo; comprueba `server.listening` antes.
+
+6. **`release()` en el `catch` puede ocultar el error original** si ella misma lanza. Encadena o usa `try/finally`.
+
+Sugerencia: `try { await closeServer(server); } finally { await release(); }`, con `closeServer` que maneje error, timeout y conexiones.

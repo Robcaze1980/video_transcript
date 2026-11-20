@@ -1,0 +1,9 @@
+**Hallazgos**
+
+- `operatorConfigFromEnv`, validación de UIDs: el `filter(Boolean)` descarta entradas vacías. Con `"uid1,,uid2"` la lista malformada se acepta con ambos UIDs en lugar de invalidar toda la lista. Viola el fail-closed del contrato. **Bloquea.**
+- `createRateLimiter`: la limpieza elimina llaves expiradas, pero no limita la cantidad de llaves activas. Un atacante que use muchas claves distintas puede hacer crecer `calls` sin tope durante la ventana y causar presión de memoria. **Bloquea** si la clave puede tener alta cardinalidad; con claves internas de cardinalidad acotada sería aceptable, pero el módulo no impone esa suposición.
+- No encontré fuga de valores: `missing` contiene solo nombres y la log no recibe el secreto ni los UIDs.
+- La ventana deslizante, el rechazo sin registrar la llamada y el manejo de reloj que lanza o devuelve valor inválido son correctos.
+- La aritmética `rateWindow * 1000` no pierde precisión con el rango actual de `COUNT`.
+
+RESULTADO: FALLA

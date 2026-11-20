@@ -1,0 +1,15 @@
+**Hallazgos reales:**
+
+1. **Fuga de recursos en error de arranque:** si `operatorConfigFromEnv` lanza dentro de `createOperatorLocalServer`, la excepción ocurre *después* de `initializeApp`/`new Firestore` y antes del `try` del listen: la app y la db quedan huérfanas. Igual en el catch del listen: si `db.terminate()` rechaza, `deleteApp` nunca corre (falta `finally`). No bloquea el flujo feliz, pero rompe la limpieza.
+
+2. **Validación de configuración después de crear Firebase:** `validateOperatorLocalEnvironment` sí va primero, pero la segunda capa (`operatorConfigFromEnv`) corre con objetos Firebase ya creados; si también es "validación", contradice el contrato. No esquiva el aislamiento del entorno base.
+
+3. **Errores silenciados:** `.catch(()=>{...})` responde 500 sin registrar la causa; operación ciega. No bloquea.
+
+4. **`close()` sin `closeAllConnections()`:** en Node <19, conexiones keep-alive retrasan el cierre (acotado por timeouts). No bloquea.
+
+5. **Sobre-restricción menor:** `LOOPBACK` exige 2–5 dígitos, rechazando puertos 1–9 válidos; y `PORT`/`LOOPBACK` aceptan `0` (listen efímero). No escapa de loopback: el bind es explícito a `127.0.0.1` y el Host se compara contra el puerto real.
+
+**Correcto:** orden de comprobaciones, peer/Host exactos, 404, mensajes sin valores, validación previa a Firebase. Sin fuga de valores en `refuse`.
+
+RESULTADO: PASS

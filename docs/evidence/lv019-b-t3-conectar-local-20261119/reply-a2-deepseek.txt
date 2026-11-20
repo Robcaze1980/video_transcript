@@ -1,0 +1,12 @@
+**Hallazgos**
+
+1. `UID` (`/^[A-Za-z0-9_.:@-]{1,128}$/`) acepta `.`, `..` y cadenas de solo puntos. Escenario: si el endpoint usa el UID como segmento de ruta de documento Firestore, `..` apunta fuera del nivel previsto. No bloquea si el UID solo se compara con `token.uid`.
+2. `createRateLimiter({maxKeys:operators.size||1})`. Escenario: si el endpoint usa como clave algo distinto del UID (IP, clave global), un tercero llena la tabla con claves basura y deja fuera a operadores legítimos. Es fail-closed (deniega), pero de disponibilidad; depende de la clave que elija el endpoint, no de este código. No bloquea aquí.
+3. `VISTAVO_OPERATOR_SECRET` valida solo longitud ≥32: acepta 32 espacios o un secreto trivial. No abre el endpoint, pero debilita la autenticación.
+4. `enabled` puede ser false con `missing` vacío (si `verifier`/`now`/`log` no son funciones). Correcto: `missing` nombra variables de entorno, nunca valores.
+
+Verificado: lista vacía/coma final invalida todo; `missing` nunca expone valores; rechazo no se registra; reloj inválido o que lanza rechaza; evicción acota memoria a `maxKeys`×`max`; aritmética `now-windowMs` correcta; `rateWindow*1000` sin desbordar.
+
+Ninguno es fallo abierto ni bloqueante.
+
+RESULTADO: PASS

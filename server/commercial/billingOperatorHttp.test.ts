@@ -1,6 +1,6 @@
 // LV-019.B piece D: operator endpoint (design: docs/specs/LV-019-B-conciliacion-endpoint-d-diseno.md).
-// Real in-process HTTP server + in-memory Firestore stub. The handler is NOT wired into any runtime; it is disabled
-// unless every piece of configuration is present. Every negative branch must leave zero audit records and zero writes.
+// Real in-process HTTP server + in-memory Firestore stub. The handler is mounted only by the local-only server
+// (billingOperatorLocal.ts); it is disabled unless every piece of configuration is present. Every negative branch must leave zero audit records and zero writes.
 import {createServer,type Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {afterEach,describe,expect,it} from 'vitest';

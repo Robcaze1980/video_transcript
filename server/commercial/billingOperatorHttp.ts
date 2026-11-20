@@ -2,10 +2,11 @@
  * LV-019.B piece D: operator endpoint for acknowledging/resolving pending-billing alerts.
  * Design and the full condition -> code table: docs/specs/LV-019-B-conciliacion-endpoint-d-diseno.md
  *
- * NOT WIRED into any server, runtime or deployment: nothing imports this module outside its tests. It is also disabled
- * by itself (every route answers 404) unless ALL of the following are configured: a non-empty operator list, a server
- * secret, a rate limiter and a token verifier; writes additionally need the reauthentication window. There are no default
- * values for any of them. It never moves balance, never edits a billing row and never reads or writes account data.
+ * Mounted ONLY by `billingOperatorLocal.ts`, a loopback/emulator-only server; no cloud entry imports it (a test enforces
+ * that). It is also disabled by itself (every route answers 404) unless ALL of the following are configured: a non-empty
+ * operator list, a server secret, a rate limiter, a token verifier, a clock and a log; writes additionally need the
+ * reauthentication window. `billingOperatorConfig.ts` reads them from the environment with no defaults. It never moves
+ * balance, never edits a billing row and never reads or writes account data.
  * - Identity: Firebase ID token verified with revocation check, e-mail verified, UID on the operator list.
  * - Author: derived here with a keyed hash (`operatorPseudonym`); the request cannot supply it, nor the clock.
  * - Not an operator, disabled route and missing alert are indistinguishable (same 404).

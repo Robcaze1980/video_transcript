@@ -1,0 +1,24 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa esta funcion (TypeScript, Node 24) que arranca el servidor local. `validateOperatorLocalEnvironment(process.env)` ya valida TODO (emuladores, proyecto, raiz, puerto) y se ejecuta primero, antes de crear ningun objeto Firebase; `createOperatorLocalServer` repite esa validacion y exige que la referencia de raiz sea la validada. Contrato: todo fallo de arranque libera app y base aunque una de las liberaciones falle; el escuchador de error de arranque se retira al abrir el puerto; `close()` cierra el servidor y libera recursos; el error original no se pierde; server.close cierra las conexiones ociosas (Node 24). Busca bugs REALES (fugas de recursos, errores tragados, orden, doble liberacion); por hallazgo: lugar, escenario concreto y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```typescript
+/** Starts the real thing against the emulators named in `process.env`. Validation happens before any Firebase object exists. */
+export async function startBillingOperatorLocal(){
+  validateOperatorLocalEnvironment(process.env);
+  const env=process.env,projectId=env.GCLOUD_PROJECT as string;
+  const app=initializeApp({projectId},'operator-local-'+randomUUID()),db=new Firestore({projectId});
+  // Every failure from here on releases both resources, even if one of the two releases itself fails.
+  const release=async()=>{await Promise.allSettled([db.terminate(),deleteApp(app)]);};
+  try{
+    const made=createOperatorLocalServer({env,db,root:db.doc(env.VISTAVO_OPERATOR_ROOT as string),verifier:getAuth(app),now:()=>Date.now(),log:e=>console.log(JSON.stringify(e))});
+    await new Promise<void>((ok,fail)=>{
+      const onError=(error:Error)=>fail(error);
+      made.server.once('error',onError);
+      // Once listening, the start-up error listener is removed so a later server error is not swallowed.
+      made.server.listen(Number(env.VISTAVO_OPERATOR_PORT),'127.0.0.1',()=>{made.server.off('error',onError);ok();});
+    });
+    return {...made,port:(made.server.address() as AddressInfo).port,close:async()=>{await new Promise<void>(r=>made.server.close(()=>r()));await release();}};
+  }catch(error){await release();throw error;}
+}
+```

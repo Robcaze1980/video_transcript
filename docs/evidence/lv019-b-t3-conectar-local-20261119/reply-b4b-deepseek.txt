@@ -1,0 +1,9 @@
+Ronda 3: las correcciones se sostienen. `release` aísla cada liberación (`deleteApp` síncrono queda contenido como rechazo), `close` es idempotente vía `??=` y el error original sobrevive (`throw error` tras `await release()`). Orden correcto: cerrar servidor → `closeAllConnections()` (documentado tras `close()`) → liberar app/base; el listener de arranque sí se retira en el callback de `listen`.
+
+Hallazgo 1 (real, no bloquea) — lugar: `catch` de `startBillingOperatorLocal`. Escenario: `new Firestore` lanza (o EADDRINUSE) y además `deleteApp` rechaza; `await release()` descarta el array de fallos, así que queda una app registrada y ese fallo es invisible: el llamador solo recibe el error de arranque, sin `cause` ni AggregateError. Es un error tragado, aunque el comentario lo declare intencional.
+
+Hallazgo 2 (menor, `close`) — se ignora el argumento de error de `server.close(cb)` (ERR_SERVER_NOT_RUNNING) y `stopped` resuelve igual; en este flujo es inalcanzable porque el servidor ya escuchaba.
+
+Sin fugas nuevas ni doble liberación: el camino de fallo no cierra `made.server`, pero `listen` nunca abrió handle.
+
+RESULTADO: PASS

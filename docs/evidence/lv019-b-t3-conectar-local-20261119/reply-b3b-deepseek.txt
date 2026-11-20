@@ -1,0 +1,11 @@
+1. `close()` no es idempotente (`return {...made, close:...}`). Escenario: dos llamadas a `close()` (shutdown + `finally`) reejecutan `db.terminate()` y `deleteApp(app)` sobre objetos ya liberados; rechazan y `allSettled` lo silencia. Doble liberación, no bloquea.
+
+2. `close()` → `new Promise(r=>made.server.close(()=>r()))`. Escenario: queda una conexión activa (SSE/WebSocket); Node 24 solo cierra las ociosas, el callback no llega, `close()` nunca resuelve y `release()` jamás corre → fuga real de Firestore/app y proceso colgado. Bloquea.
+
+3. `release()` descarta los resultados de `allSettled`. Escenario: `db.terminate()` falla de verdad (escritura pendiente); nadie se entera y `close()` resuelve como si todo se hubiera liberado. Error tragado; aceptable en arranque por contrato, no en cierre.
+
+4. Si `Number(env.VISTAVO_OPERATOR_PORT)` da `NaN`, `listen` lanza síncrono dentro del executor: la promesa rechaza pero `onError` queda registrado sin retirar. Menor.
+
+El camino de arranque (validación previa, orden, error original preservado) es correcto.
+
+RESULTADO: FALLA
