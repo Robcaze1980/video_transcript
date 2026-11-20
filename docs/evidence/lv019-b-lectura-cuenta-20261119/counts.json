@@ -1,0 +1,102 @@
+{
+  "target": "real",
+  "scope": "account",
+  "project": "vistavo-prod",
+  "database": "vistavo-live",
+  "root": "vistavo/production-v1",
+  "mode": "READ-ONLY, counts only, no writes",
+  "maxDocs": 200000,
+  "reads": {
+    "accounts": {
+      "queries": 1,
+      "documents": 0,
+      "countAggregations": 1
+    },
+    "videoReservations": {
+      "queries": 1,
+      "documents": 0,
+      "countAggregations": 4
+    },
+    "videoReservationTombstones": {
+      "queries": 0,
+      "documents": 0,
+      "countAggregations": 2
+    },
+    "videoBillingGuards": {
+      "queries": 0,
+      "documents": 0,
+      "countAggregations": 2
+    },
+    "videoBillingIncidents": {
+      "queries": 0,
+      "documents": 0,
+      "countAggregations": 2
+    },
+    "ledgerEntries": {
+      "queries": 0,
+      "documents": 0,
+      "countAggregations": 4
+    }
+  },
+  "counts": {
+    "generatedAtMs": 1795154388003,
+    "sizes": {
+      "accounts": 0,
+      "videoReservations": 0,
+      "videoReservationTombstones": 0,
+      "videoBillingGuards": 0,
+      "videoBillingIncidents": 0,
+      "ledgerEntries": 0
+    },
+    "reservations": {
+      "total": 0,
+      "byState": {
+        "reserved": 0,
+        "captured": 0,
+        "released": 0,
+        "other": 0
+      }
+    },
+    "ledger": {
+      "total": 0,
+      "byKind": {
+        "video_reserve": 0,
+        "video_capture": 0,
+        "video_release": 0,
+        "other": 0
+      }
+    },
+    "tombstonesSealed": 0,
+    "guardsBlocked": 0,
+    "incidentsActive": 0,
+    "ledgerMinusReservations": {
+      "reserve": 0,
+      "capture": 0,
+      "release": 0
+    },
+    "accounts": {
+      "scanned": 0,
+      "invalid": 0,
+      "balanceBreaks": 0,
+      "withReservedBalance": 0,
+      "totals": {
+        "credited": 0,
+        "available": 0,
+        "reserved": 0,
+        "consumed": 0,
+        "active": 0
+      },
+      "reservedMismatch": 0,
+      "activeMismatch": 0
+    },
+    "openReservations": {
+      "count": 0,
+      "secondsTotal": 0,
+      "oldestAgeMs": null,
+      "withProviderAdmission": 0,
+      "legacyProtocol": 0,
+      "orphan": 0,
+      "invalid": 0
+    }
+  }
+}

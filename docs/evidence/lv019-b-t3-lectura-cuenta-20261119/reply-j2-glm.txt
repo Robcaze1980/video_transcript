@@ -1,0 +1,9 @@
+**Hallazgos**
+
+- **`account`/raíz en `real`: correcto.** `databaseId` y `root` salen solo de `SCOPES`; `--root` es rechazado para `real`. No hay vía para apuntar a otra base o raíz.
+- **Marcador: correcto.** Comparación estricta (`===`) de cada campo; documento ausente o campo faltante → rechazo. La lectura del marcador no se cuenta en `journal`/`reads` ni contra `maxDocs` (1 lectura fija, sin salida; no bloquea).
+- **Salida: consola filtrada ✓, archivo no.** `writeFileSync` escribe el objeto `counts` completo, mientras la consola usa `summary` con campos concretos. Si algún `summarize` devolviera estructura no agregada (p. ej., identificadores anidados), el archivo la incluiría. El snippet no lo impide; depende del facade no mostrado.
+- **Emulador sin `--root`:** `rootPath` queda `undefined`; `db.doc(undefined)` lanza error genérico en vez de rechazo claro. Falla cerrado, no bloquea seguridad.
+- **`account` en emulador:** acepta cualquier `--root` sin comprobar marcador (por diseño para pruebas; sin acceso a datos reales, no bloquea).
+
+**RESULTADO: PASS**

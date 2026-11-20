@@ -1,0 +1,13 @@
+Hallazgos
+
+1. `project`: escribe sobre un literal `{}`. Con campo/alias `__proto__` la asignación es no-op (se pierde un valor sí listado) y `constructor`/`prototype` son frágiles. Escenario: documento de Cuenta con campo `__proto__` expuesto. No es fuga; usar `Object.create(null)`.
+
+2. `project` devuelve congelado. Si el motor añade `id` después (`Object.assign(project(...),{id})`), falla en silencio: faltaría `id`. Y una clave `expose`/alias de `presence` llamada `id` puede suplantar el id real (identidad de otro registro) según el orden de mezcla. Escenario: doc con campo `id`. Bloquea condicionalmente: verificar el orden.
+
+3. `select` estrecha el documento del servidor: `presence` y campos no pedidos quedan en `false`/omitidos → dato incorrecto, sin fuga.
+
+4. `where`: un `null` o valor no escalar en la lista es inalcanzable aunque la política lo permita.
+
+5. Correcto: `has` es own-property, copia+congelado profundo, colección/campos solo de política → sin otra colección, sin política mutable, sin fuga de campos.
+
+RESULTADO: PASS

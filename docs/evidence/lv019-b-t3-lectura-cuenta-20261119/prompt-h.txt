@@ -1,0 +1,53 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa estos fragmentos (TypeScript) del MOTOR de una fachada de SOLO LECTURA sobre la raiz de Firestore, ahora guiado por una POLITICA por coleccion {select, expose, dropIfNotScalar, presence, where}. Se usara contra la base REAL de Cuenta con credenciales con permiso de escritura. Garantias: `collection(nombre)` solo de la politica; where solo igualdad con campos y valores listados; select solo campos listados; los documentos exponen solo `id` y una copia congelada de los campos `expose` (lo no escalar pasa a '[object]', o se omite si esta en `dropIfNotScalar`) mas booleanos de presencia; la politica se copia y congela. El resto del motor (tope de documentos, serializacion, cursores) se reviso aparte. Busca fallos REALES (campo fuera de la politica, otra coleccion, politica mutable, prototipo, valores filtrados); por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+```typescript
+const isScalar=(value:unknown):value is Scalar|null=>value===null||typeof value==='string'||typeof value==='number'||typeof value==='boolean';
+const has=(object:object,key:string)=>Object.prototype.hasOwnProperty.call(object,key);
+
+/** Frozen copy of the exposed fields only. */
+function project(policy:CollectionPolicy,data:Record<string,unknown>|undefined):Readonly<Record<string,unknown>>|undefined{
+  if(data===undefined||data===null||typeof data!=='object')return undefined;
+  const out:Record<string,unknown>={};
+  for(const key of policy.expose){
+    if(!has(data,key))continue;
+    const value=data[key];
+    if(isScalar(value))out[key]=value;
+    else if(!policy.dropIfNotScalar?.includes(key))out[key]='[object]'; // present, but not a usable scalar
+  }
+  for(const [source,name] of Object.entries(policy.presence??{}))out[name]=has(data,source)&&data[source]!==null&&data[source]!==undefined;
+  return Object.freeze(out);
+}
+// ...
+export function createReadOnlyRoot(root:DocumentReference,policyInput:ReadPolicy,options:ReadOnlyOptions={}):ReadOnlyRoot{
+  if(options.maxDocs!==undefined&&(!Number.isSafeInteger(options.maxDocs)||options.maxDocs<1))throw new RangeError('invalid maxDocs');
+  // The policy is copied and frozen: whoever built it cannot widen it afterwards.
+  const policy:ReadPolicy=Object.freeze({collections:Object.freeze(Object.fromEntries(Object.entries(policyInput.collections).map(([name,c])=>[name,Object.freeze({
+    select:Object.freeze([...c.select]),expose:Object.freeze([...c.expose]),dropIfNotScalar:Object.freeze([...(c.dropIfNotScalar??[])]),
+    presence:Object.freeze({...(c.presence??{})}),where:Object.freeze(Object.fromEntries(Object.entries(c.where).map(([f,v])=>[f,Object.freeze([...v])]))),
+  })])))});
+// ...
+    where(field:string,op:'==',value:Scalar){
+      if(op!=='==')throw new TypeError('where: equality only');
+      if(typeof field!=='string'||!has(cp.where,field))throw new TypeError('where: invalid field');
+      if(!isScalar(value)||value===null||!cp.where[field].includes(value))throw new TypeError('where: invalid value');
+      return wrap(collection,cp,query.where(field,'==',value),filters+1,lim);
+    },
+    orderBy(...args:unknown[]){
+      if(args.length!==1||args[0]!=='__name__')throw new TypeError('orderBy: only the document id, ascending');
+      return wrap(collection,cp,query.orderBy('__name__'),filters,lim);
+    },
+    select(...fields:unknown[]){
+      if(fields.length<1||fields.length>cp.select.length||new Set(fields).size!==fields.length||!fields.every(f=>typeof f==='string'&&cp.select.includes(f)))throw new TypeError('select: field not allowed');
+      return wrap(collection,cp,query.select(...fields),filters,lim);
+    },
+// ...
+  return Object.freeze({
+    collection(name:string){
+      if(typeof name!=='string'||!has(policy.collections,name))throw new TypeError('collection not readable');
+      return wrap(name,policy.collections[name],root.collection(name) as unknown as RawQuery,0,undefined);
+    },
+  });
+}
+```

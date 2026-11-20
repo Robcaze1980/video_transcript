@@ -1,0 +1,7 @@
+- Emulador, rama `else`: los ámbitos fijos no se aplican. `--target emulator --scope account --root otro/x` usa base por defecto y raíz arbitraria, sin comprobar marcador. Sí, bloqueante.
+- Validación del marcador: comprueba solo que los campos listados coincidan; un documento “incorrecto” con esos mismos campos y campos extra pasa. Sí, bloqueante como barrera.
+- `--max-docs`: los eventos `count` no suman documentos a `documents`, por lo que un recuento agregado puede superar el límite sin detenerse. No bloqueante de seguridad, pero incumple el límite.
+- Salida JSON: escribe el objeto completo `counts`, no solo el resumen por ámbito. Si los resúmenes internos contienen algún detalle no agregado, puede filtrarse; el código no lo garantiza.
+- El objetivo `real` sí fija base, raíz, proyección y rechaza `--root`; el marcador obligatorio evita seguir si falta o difiere.
+
+RESULTADO: FALLA

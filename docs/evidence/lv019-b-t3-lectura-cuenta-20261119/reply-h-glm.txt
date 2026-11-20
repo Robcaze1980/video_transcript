@@ -1,0 +1,11 @@
+No veo un fallo real de seguridad en los fragmentos visibles:
+
+- **Campo fuera de política:** `where` y `select` validan contra `cp.where` / `cp.select` antes de delegar; `project` solo emite `expose` y `presence`.
+- **Otra colección:** `collection()` exige que el nombre sea propiedad propia de `policy.collections` y solo accede a `root.collection(name)` después.
+- **Política mutable:** la copia congela colecciones, arreglos, mapas y listas antes de exponerlas.
+- **Prototipo:** `has()` usa `hasOwnProperty.call`; el clonado usa `entries`/`fromEntries`, evitando herencia. Casos extremos como `__proto__` o colisiones con `id` solo son problema si la política los declara; necesitan validación previa, pero no representan escape del motor.
+- **Valores filtrados:** `isScalar` excluye objetos/arreglos, `where` rechaza `null` y exige pertenencia a la lista de la política. `NaN`/`Infinity` podrían pasar si están en la política; es asunto de configuración, no bypass.
+
+Dependiendo de `wrap`, faltaría confirmar que no expone referencias crudas, pero en lo mostrado no hay hallazgo bloqueante.
+
+RESULTADO: PASS

@@ -1,0 +1,9 @@
+**Hallazgos**
+
+- **Atribución de proyecto — `if((await googleAuth.getRequestHeaders(...)).get('x-goog-user-project')!==REAL_PROJECT)` (target real).** Escenario: se muta `client.quotaProjectId` pero se consulta el encabezado en `googleAuth`; si `getRequestHeaders` no refleja esa mutación, la guarda lanza un REFUSED falso (bloquea la corrida real) o, si el cliente de Firestore no hereda el kuota, las peticiones se facturan a otro proyecto. **Bloquea** (la comprobación no es fiable como prueba).
+- **Marcador: `Object.entries(scope.marker).every(...)=>marker?.[key]===value`.** Solo valida los campos esperados; acepta campos extra y no verifica el tipo/`undefined`. No bloquea, pero es una comprobación de espacio de nombres más débil de lo que sugiere.
+- **Emulator sin `--root`.** `db.doc(undefined)` lanza; cae al catch como `read failed (TypeError)`. No bloquea (target emulator).
+- **`account` fijo:** base `vistavo-live` y raíz `vistavo/production-v1` son literales y `--root` se rechaza en real, así que no puede desviarse. Ok.
+- **Salida:** `failureCode` sanea y `reads` usa IDs de colección (no datos). Sin fuga relevante; `flag:'wx'` evita sobrescribir el credencial.
+
+RESULTADO: FALLA

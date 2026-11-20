@@ -52,7 +52,7 @@ try{
   for(const [collection,count,make] of plan)for(let i=0;i<count;i++)writes.push([root.collection(collection).doc('d'+String(n++).padStart(5,'0')),make(i)]);
   for(let i=0;i<writes.length;i+=100){const b=db.batch();for(const [ref,data] of writes.slice(i,i+100))b.set(ref,data);await b.commit();}
   const before=await snapshotHash(),outFile=join(dir,'counts.json');
-  const r=run(['--target','emulator','--root',rootPath,'--out',outFile]);
+  const r=run(['--target','emulator','--scope','billing','--root',rootPath,'--out',outFile]);
   assert.equal(r.status,0,'the runner exits cleanly: '+r.stderr.slice(0,200));
   const result=JSON.parse(readFileSync(outFile,'utf8')),c=result.counts;
   assert.deepEqual(c.sizes,{billingIntents:205,billingIntentTerminalRecovery:3,billingHoldOutbox:14,billingOutbox:23,jobs:8});
@@ -71,23 +71,24 @@ try{
   assert.equal(await snapshotHash(),before,'no document anywhere in the root changed');
   assert.deepEqual((await root.listCollections()).map(x=>x.id).sort(),[...collections].sort(),'no new collection was created');
   // The runner refuses what it must.
-  assert.equal(run(['--target','emulator','--root','accounts/x','--out',join(dir,'x.json'),'--max-docs','0']).status,2,'invalid cap');
-  assert.equal(run(['--target','emulator','--out',join(dir,'x.json')]).status,2,'missing root');
-  assert.equal(run(['--target','emulator','--root',rootPath,'--out','counts.txt']).status,2,'output must be .json');
+  assert.equal(run(['--target','emulator','--scope','billing','--root','accounts/x','--out',join(dir,'x.json'),'--max-docs','0']).status,2,'invalid cap');
+  assert.equal(run(['--target','emulator','--scope','billing','--out',join(dir,'x.json')]).status,2,'missing root');
+  assert.equal(run(['--target','emulator','--scope','billing','--root',rootPath,'--out','counts.txt']).status,2,'output must be .json');
   assert.equal(run(['--target','somewhere','--out',join(dir,'x.json')]).status,2,'unknown target');
-  assert.equal(spawnSync(process.execPath,['--import','tsx','scripts/oneCReadOnlyCounts.mjs','--target','real','--out',join(dir,'y.json')],{encoding:'utf8',env:process.env}).status,2,'the real target refuses while an emulator is configured');
+  assert.equal(spawnSync(process.execPath,['--import','tsx','scripts/oneCReadOnlyCounts.mjs','--target','real','--scope','billing','--out',join(dir,'y.json')],{encoding:'utf8',env:process.env}).status,2,'the real target refuses while an emulator is configured');
+  assert.equal(spawnSync(process.execPath,['--import','tsx','scripts/oneCReadOnlyCounts.mjs','--target','emulator','--root',rootPath,'--out',join(dir,'noscope.json')],{encoding:'utf8',env:process.env}).status,2,'--scope is required, there is no default');
   // The output never replaces an existing file, and --root is refused for the real target.
-  assert.equal(run(['--target','emulator','--root',rootPath,'--out',outFile]).status,2,'an existing output file is not overwritten');
+  assert.equal(run(['--target','emulator','--scope','billing','--root',rootPath,'--out',outFile]).status,2,'an existing output file is not overwritten');
   assert.equal(JSON.parse(readFileSync(outFile,'utf8')).counts.report.total,230,'the existing output was left intact');
   // The real target decides its refusals before opening any connection (no emulator variables here, so these runs never reach a network).
   const clean={...process.env};for(const key of ['FIRESTORE_EMULATOR_HOST','FIREBASE_AUTH_EMULATOR_HOST','STORAGE_EMULATOR_HOST','GOOGLE_APPLICATION_CREDENTIALS','LOCALAPPDATA','GCLOUD_PROJECT'])delete clean[key];
-  const realRun=env=>spawnSync(process.execPath,['--import','tsx','scripts/oneCReadOnlyCounts.mjs','--target','real','--out',join(dir,'z.json')],{encoding:'utf8',env});
-  assert.equal(spawnSync(process.execPath,['--import','tsx','scripts/oneCReadOnlyCounts.mjs','--target','real','--root','vistavo/other','--out',join(dir,'r.json')],{encoding:'utf8',env:clean}).status,2,'the real target refuses --root');
+  const realRun=env=>spawnSync(process.execPath,['--import','tsx','scripts/oneCReadOnlyCounts.mjs','--target','real','--scope','billing','--out',join(dir,'z.json')],{encoding:'utf8',env});
+  assert.equal(spawnSync(process.execPath,['--import','tsx','scripts/oneCReadOnlyCounts.mjs','--target','real','--scope','billing','--root','vistavo/other','--out',join(dir,'r.json')],{encoding:'utf8',env:clean}).status,2,'the real target refuses --root');
   assert.equal(realRun(clean).status,2,'the real target needs LOCALAPPDATA');
   assert.equal(realRun({...clean,LOCALAPPDATA:dir}).status,2,'the real target needs the isolated credential file');
   assert.equal(realRun({...clean,LOCALAPPDATA:dir,GOOGLE_APPLICATION_CREDENTIALS:'x'}).status,2,'the real target refuses a credential variable');
   // A tiny cap aborts the scan instead of reading on.
-  const capped=run(['--target','emulator','--root',rootPath,'--out',join(dir,'capped.json'),'--max-docs','50']);
+  const capped=run(['--target','emulator','--scope','billing','--root',rootPath,'--out',join(dir,'capped.json'),'--max-docs','50']);
   assert.equal(capped.status,1);assert.match(capped.stdout,/maximum documents exceeded/);
   results.pending=c.report.total;results.neverSelectedAtLeast=c.inventory.neverSelectedAtLeast;
 }finally{

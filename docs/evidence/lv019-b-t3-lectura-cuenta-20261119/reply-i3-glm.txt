@@ -1,0 +1,15 @@
+**Evaluación (primera parte):**
+
+1. **Política/exposición:** `videoReservations` expone `ownerAccountId` (diseño aceptado); la salida del resumen devuelve solo recuentos/totales, y `balances` guarda `doc.id` únicamente en memoria. No hay fuga visible de ids, claves ni valores por fila. No bloquea.
+
+2. **Paginación:** cursor `orderBy('__name__')` + `startAfter(último doc)` + `limit(200)`, corte correcto cuando `length<200`. Determinista y sin duplicados. OK.
+
+3. **Invariantes:** `c!==a+r+u` coincide con `credited = available + reserved + consumed`. OK.
+
+4. **Aritmética:** los acumuladores `accounts.totals.*+=c` no verifican exactitud en cada suma; si el total supera `MAX_SAFE_INTEGER`, `+=` redondea en silencio. El rechazo de "enteros exactos" no aparece en esta parte: si el chequeo posterior no cubre estos totales, bloquea; tal como está, queda sin comprobar.
+
+5. **`sizes[].count()`:** si `count()` no aplica el `where` de la política, los cruces con recuentos por estado/kind se desalinean; no verificable aquí, asumo que el root lo aplica.
+
+6. **Menor:** `r>0` con `active===0` no se marca como inconsistencia aquí; debería cubrirlo el cruce con reservas.
+
+RESULTADO: PASS

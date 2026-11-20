@@ -1,0 +1,13 @@
+**Hallazgos (segunda parte + resumen)**
+
+1. `open.secondsTotal` y `perOwner` suman solo reservas válidas, pero `open.count++` cuenta también las inválidas y `byState.reserved` viene del contador de la primera pasada. Escenario: una reserva `reserved` con `seconds` corrupto produce `openReservations` internamente incoherente (`count` > reservas sumadas) sin ningún campo que lo delate. No bloquea, pero rompe la trazabilidad del total.
+
+2. `other:Math.max(0,total-reserved-captured-released)` y el análogo del ledger enmascaran desajustes: si los contadores de la pasada 1 y el `count()` se leen en instantes distintos (concurrencia real), la diferencia negativa se convierte en `0` en lugar de señalar inconsistencia. Escenario: captura entre ambas lecturas. No bloquea la lectura, pero puede ocultar un descuadre.
+
+3. No se comprueba la invariante `credited = available + reserved + consumed` ni `open.count === byState.reserved`; solo `reserved`/`active` por cuenta contra las reservas abiertas. Escenario: consumo o crédito mal aplicado pasa inadvertido. No bloquea.
+
+4. Salida: solo recuentos y agregados; `accounts`, `sizes` y `openReservations` no exponen ids ni admisiones por fila. Sin escrituras. Correcto, condicionado a que el objeto `accounts` de la primera parte no adjunte claves por cuenta.
+
+5. Paginación `startAfter` + `orderBy('__name__')`: correcta; requiere índice compuesto con el filtro `state`, fallo operativo (error de consulta), no de lógica.
+
+RESULTADO: PASS

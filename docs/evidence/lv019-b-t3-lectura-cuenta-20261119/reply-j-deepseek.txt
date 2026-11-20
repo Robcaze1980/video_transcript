@@ -1,0 +1,9 @@
+**Hallazgos**
+
+1. **Salida (bloquea):** el archivo escribe `counts` completo, pero la consola imprime un subconjunto curado. Si `summarizeAccounts`/`summarizeQueues` devuelven identificadores (cuentas, incidentes, documentos de ejemplo), se persisten sin redactar en disco, posiblemente dentro del repo. Incumple «no filtra datos».
+2. **`failureCode` (bloquea):** no está definido en el fragmento y no es un `import`. El `catch` lanza ReferenceError: nunca se emite `{ok:false}`, no corre `process.exitCode=1` y sale un stack trace.
+3. **`account` (no bloquea):** base y raíz quedan fijadas por `SCOPES` y no existe flag de base, correcto. Pero con `--target emulator --root <arbitrario>` la rama emulador **no comprueba el marcador** y produce un informe con forma de `account` sobre otra raíz.
+4. **Marcador (no bloquea):** `.every` sólo exige que los campos esperados coincidan; acepta documentos con campos extra y no distingue `account` de `billing` si coincidieran. Documento inexistente sí falla (`.data()` undefined).
+5. **Correcto:** `flag:'wx'` evita reemplazar la credencial; `--root` rechazado en `real`; cabecera `x-goog-user-project` verificada; `Object.hasOwn` bloquea claves heredadas.
+
+RESULTADO: FALLA

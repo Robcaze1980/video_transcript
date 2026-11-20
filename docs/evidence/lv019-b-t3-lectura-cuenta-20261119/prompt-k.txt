@@ -1,0 +1,43 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa la SEGUNDA PARTE (reservas abiertas, cruce con saldos y resultado; `balances` es un Map id->{reserved,active} construido en la primera parte, `natural` comprueba entero seguro >= 0, `nowMs`, `sizes`, `reserved`, `captured`, `released`, `lReserve`, `lCapture`, `lRelease`, `tombstonesSealed`, `guardsBlocked`, `incidentsActive`, `accounts` ya existen) de la POLITICA de solo lectura de la base de Cuenta y del RESUMEN de conciliacion que la usa (TypeScript). El resumen debe devolver SOLO recuentos y totales: nunca ids de cuenta ni de reserva, claves de identidad, UID, admisiones de proveedor ni valores por fila; no escribe. Busca: campos o colecciones sensibles alcanzables, errores en las comprobaciones de invariantes frente a los hechos, mala paginacion, aritmetica incorrecta, fugas en la salida; por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+Hechos del codigo de Cuenta: reservar: available-=s, reserved+=s, active+=1, reserva `reserved`, entrada `video_reserve`; capturar: reserved-=s, consumed+=s, active-=1, reserva `captured`, entrada `video_capture`; liberar: reserved-=s, available+=s, active-=1, reserva `released`, entrada `video_release`. Invariantes: credited = available + reserved + consumed; `reserved` = suma de segundos de las reservas abiertas de la cuenta; `active` = numero de reservas abiertas. admissionProtocol distinto de 2 = heredada. El id del documento de la cuenta es su accountId; `ownerAccountId` de la reserva lo referencia.
+
+```typescript
+  // Every open reservation (the only non-terminal state), once; per owner, the seconds and the number that the account should show.
+  const open={count:0,secondsTotal:0,oldestAgeMs:null as number|null,withProviderAdmission:0,legacyProtocol:0,orphan:0,invalid:0};
+  const perOwner=new Map<string,{seconds:number;count:number}>();
+  for(let last:Awaited<ReturnType<ReturnType<ReadOnlyRoot['collection']>['get']>>['docs'][number]|undefined;;){
+    let query=root.collection('videoReservations').where('state','==','reserved').orderBy('__name__');
+    if(last)query=query.startAfter(last);
+    const page=await query.limit(200).get();
+    for(const doc of page.docs){
+      open.count++;const d=(doc.data()??{}) as Record<string,unknown>;
+      if(d.hasProviderAdmission===true)open.withProviderAdmission++;
+      if(d.admissionProtocol!==2)open.legacyProtocol++;
+      if(natural(d.createdAtMs)){const age=Math.max(0,nowMs-d.createdAtMs);if(open.oldestAgeMs===null||age>open.oldestAgeMs)open.oldestAgeMs=age;}
+      if(typeof d.ownerAccountId!=='string'||!d.ownerAccountId||!natural(d.seconds)||d.seconds<1){open.invalid++;continue;}
+      open.secondsTotal+=d.seconds;
+      if(!balances.has(d.ownerAccountId))open.orphan++;
+      const own=perOwner.get(d.ownerAccountId)??{seconds:0,count:0};own.seconds+=d.seconds;own.count++;perOwner.set(d.ownerAccountId,own);
+    }
+    if(page.docs.length<200)break;
+    last=page.docs[page.docs.length-1];
+  }
+  for(const [id,balance] of balances){
+    const own=perOwner.get(id)??{seconds:0,count:0};
+    if(balance.reserved!==own.seconds)accounts.reservedMismatch++;
+    if(balance.active!==own.count)accounts.activeMismatch++;
+  }
+  const total=sizes.videoReservations,ledgerTotal=sizes.ledgerEntries;
+  return {
+    generatedAtMs:nowMs,sizes,
+    reservations:{total,byState:{reserved,captured,released,other:Math.max(0,total-reserved-captured-released)}},
+    ledger:{total:ledgerTotal,byKind:{video_reserve:lReserve,video_capture:lCapture,video_release:lRelease,other:Math.max(0,ledgerTotal-lReserve-lCapture-lRelease)}},
+    tombstonesSealed,guardsBlocked,incidentsActive,
+    ledgerMinusReservations:{reserve:lReserve-total,capture:lCapture-captured,release:lRelease-released},
+    accounts,openReservations:open,
+  };
+}
+```

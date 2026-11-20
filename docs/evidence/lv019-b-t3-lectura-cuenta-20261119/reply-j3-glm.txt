@@ -1,0 +1,13 @@
+**Hallazgos**
+
+1. **`db.doc(rootPath)` sin `--root` en `emulator`** — si se pasa `--target emulator` sin `--root`, `rootPath` queda `undefined` y la llamada falla dentro del `try` (no en el bloque de rechazos). Escenario: uso típico del modo emulador sin esa bandera. No bloquea el modo real, pero es una validación faltante respecto de `--root` para `real`. **Bloquea la corrida del emulador** (salida `ok:false` genérica en vez de rechazo claro).
+
+2. **`documents>maxDocs` ignora `countAggregations`** — los errores `count` no suman documentos (`e.docs` indefinido); una agregación `count` sobre una colección enorme no cuenta hacia el tope. Si la fachada no impone `maxDocs` también para counts, el límite se evita parcialmente. Escenario: colección con muchas entidades y `count` agregado. **No bloquea** si la fachada ya lo cubre; de lo contrario, el guardián es insuficiente.
+
+3. **Doble escritura de estado si `writeFileSync` falla tras leer todo** — nada grave: cae al `catch` con código fijo, sin filtrar datos. No bloquea.
+
+4. El chequeo del header `x-goog-user-project` valida solo la cabecera generada, no cada request REST real; aceptable como defensa, no bloquea.
+
+`account` no puede desviar base ni raíz: `databaseId` y `root` están fijos y `--root` se rechaza en `real`. El marcador compara con `===` por campo y rechaza documentos faltantes o con valores distintos. La salida contiene solo agregados (`reads`, `counts`, resumen), sin rutas de documentos ni valores crudos. `failureCode` acota texto a códigos conocidos o errores HTTP cortos.
+
+RESULTADO: FALLA

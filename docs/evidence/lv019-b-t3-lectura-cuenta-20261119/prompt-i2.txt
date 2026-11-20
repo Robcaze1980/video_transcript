@@ -1,0 +1,56 @@
+Responde SOLO con texto, sin herramientas. Maximo 200 palabras.
+Revisa la PRIMERA PARTE (politica, recuentos y recorrido de cuentas) de la POLITICA de solo lectura de la base de Cuenta y del RESUMEN de conciliacion que la usa (TypeScript). El resumen debe devolver SOLO recuentos y totales: nunca ids de cuenta ni de reserva, claves de identidad, UID, admisiones de proveedor ni valores por fila; no escribe. El `ownerAccountId` y el id del documento se usan SOLO en memoria para cruzar reservas con saldos; el resumen no los devuelve (pruebas y un chequeo con emulador lo comprueban); `admissionProtocol` es un entero (1 o 2). Rondas anteriores marcaron como bloqueo que la politica exponga esos campos al LECTOR; es por diseño, evalua si la SALIDA es segura. `other` ahora es el resto con signo y las sumas se rechazan si dejan de ser enteros exactos. Busca: campos o colecciones sensibles alcanzables, errores en las comprobaciones de invariantes frente a los hechos, mala paginacion, aritmetica incorrecta, fugas en la salida; por hallazgo: lugar, escenario y si bloquea.
+Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+Hechos del codigo de Cuenta: reservar: available-=s, reserved+=s, active+=1, reserva `reserved`, entrada `video_reserve`; capturar: reserved-=s, consumed+=s, active-=1, reserva `captured`, entrada `video_capture`; liberar: reserved-=s, available+=s, active-=1, reserva `released`, entrada `video_release`. Invariantes: credited = available + reserved + consumed; `reserved` = suma de segundos de las reservas abiertas de la cuenta; `active` = numero de reservas abiertas. admissionProtocol distinto de 2 = heredada. El id del documento de la cuenta es su accountId; `ownerAccountId` de la reserva lo referencia.
+
+```typescript
+export type {ReadOnlyDoc,ReadOnlyOptions,ReadOnlyQuery,ReadOnlyRoot} from './readOnlyFirestoreRoot';
+const policies:Record<string,CollectionPolicy>={
+  accounts:{select:['credited','available','reserved','consumed','active'],expose:['credited','available','reserved','consumed','active'],where:{}},
+  videoReservations:{select:['ownerAccountId','seconds','state','createdAtMs','admissionProtocol','providerAdmission'],expose:['ownerAccountId','seconds','state','createdAtMs','admissionProtocol'],dropIfNotScalar:['state'],presence:{providerAdmission:'hasProviderAdmission'},where:{state:['reserved','captured','released']}},
+  videoReservationTombstones:{select:['state'],expose:['state'],dropIfNotScalar:['state'],where:{state:['sealed']}},
+  videoBillingGuards:{select:['blocked','incidentCount'],expose:['blocked','incidentCount'],where:{blocked:[true]}},
+  videoBillingIncidents:{select:['state'],expose:['state'],dropIfNotScalar:['state'],where:{state:['active']}},
+  ledgerEntries:{select:['kind','seconds'],expose:['kind','seconds'],dropIfNotScalar:['kind'],where:{kind:['video_reserve','video_capture','video_release']}},
+};
+export const ACCOUNT_READABLE_COLLECTIONS:readonly string[]=Object.freeze(Object.keys(policies));
+export function accountReadOnlyRoot(root:DocumentReference,options:ReadOnlyOptions={}):ReadOnlyRoot{return createReadOnlyRoot(root,{collections:policies},options);}
+
+// ...
+const COLLECTIONS=['accounts','videoReservations','videoReservationTombstones','videoBillingGuards','videoBillingIncidents','ledgerEntries'] as const;
+const natural=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
+
+export async function summarizeAccounts(root:ReadOnlyRoot,nowMs:number):Promise<AccountCounts>{
+  if(!Number.isSafeInteger(nowMs)||nowMs<0)throw new RangeError('invalid clock');
+  const sizes:Record<string,number>={};
+  for(const name of COLLECTIONS)sizes[name]=await root.collection(name).count();
+  const reservationCount=async(state:string)=>root.collection('videoReservations').where('state','==',state).count();
+  const reserved=await reservationCount('reserved'),captured=await reservationCount('captured'),released=await reservationCount('released');
+  const kindCount=async(kind:string)=>root.collection('ledgerEntries').where('kind','==',kind).count();
+  const lReserve=await kindCount('video_reserve'),lCapture=await kindCount('video_capture'),lRelease=await kindCount('video_release');
+  const tombstonesSealed=await root.collection('videoReservationTombstones').where('state','==','sealed').count();
+  const guardsBlocked=await root.collection('videoBillingGuards').where('blocked','==',true).count();
+  const incidentsActive=await root.collection('videoBillingIncidents').where('state','==','active').count();
+
+  // Every account, once, by document id (the id is only used to join; it is never returned).
+  const balances=new Map<string,{reserved:number;active:number}>();
+  const accounts={scanned:0,invalid:0,balanceBreaks:0,withReservedBalance:0,totals:{credited:0,available:0,reserved:0,consumed:0,active:0},reservedMismatch:0,activeMismatch:0};
+  for(let last:Awaited<ReturnType<ReturnType<ReadOnlyRoot['collection']>['get']>>['docs'][number]|undefined;;){
+    let query=root.collection('accounts').select('credited','available','reserved','consumed','active').orderBy('__name__');
+    if(last)query=query.startAfter(last);
+    const page=await query.limit(200).get();
+    for(const doc of page.docs){
+      accounts.scanned++;const d=doc.data()??{};
+      const {credited,available,reserved:held,consumed,active}=d as Record<string,unknown>;
+      if(![credited,available,held,consumed,active].every(natural)){accounts.invalid++;continue;}
+      const [c,a,r,u,n]=[credited,available,held,consumed,active] as number[];
+      accounts.totals.credited+=c;accounts.totals.available+=a;accounts.totals.reserved+=r;accounts.totals.consumed+=u;accounts.totals.active+=n;
+      if(c!==a+r+u)accounts.balanceBreaks++;
+      if(r>0)accounts.withReservedBalance++;
+      balances.set(doc.id,{reserved:r,active:n});
+    }
+    if(page.docs.length<200)break;
+    last=page.docs[page.docs.length-1];
+  }
+```

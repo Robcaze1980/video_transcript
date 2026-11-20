@@ -1,0 +1,11 @@
+Revisión de la segunda parte:
+
+- Paginación: `startAfter(last)` con `orderBy('__name__')` es estable y termina correctamente; el caso múltiplo exacto de 200 solo hace una consulta vacía extra. Sin problema.
+- Invariantes: `perOwner` agrega solo reservas válidas por `ownerAccountId`; el contraste contra `balance.reserved`/`balance.active` cubre todas las cuentas. Una reserva inválida con dueño válido no entra en `perOwner`, así que provocará el `mismatch` correspondiente: es el comportamiento correcto (la invariante de hecho está rota), no un error del resumen.
+- Aritmética: `secondsTotal`, `byState.other` y `byKind.other` usan `Math.max(0, …)` y restas consistentes; `ledgerMinusReservations` coincide con los hechos (una entrada por reserva/estado).
+- Fugas: la salida solo contiene recuentos y totales (`counts`, `secondsTotal`, `oldestAgeMs` agregado, tamaños). No hay ids de cuenta/reserva, claves, UID ni valores por fila. `withProviderAdmission` y `legacyProtocol` son recuentos, no admisiones.
+- Menor, no bloqueante: `oldestAgeMs` se calcula incluso para reservas luego marcadas `invalid` (filtra solo por `createdAtMs`), lo que puede inflar levemente la edad máxima reportada si hay documentos corruptos.
+
+No bloquea el cierre.
+
+RESULTADO: PASS

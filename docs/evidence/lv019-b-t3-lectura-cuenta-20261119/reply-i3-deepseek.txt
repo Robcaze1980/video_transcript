@@ -1,0 +1,10 @@
+**Revisión Parte 1 — política, recuentos, barrido de cuentas**
+
+- Salida: `summarizeAccounts` solo devuelve números (recuentos y `totals`); no ids, UID, `admissionProtocol` ni filas. El id del documento solo alimenta `balances`. Seguro.
+- Política: `videoReservations.expose` incluye `ownerAccountId`, accesible al lector por diseño; no se alcanza desde la salida del resumen. No bloquea (observación).
+- Recuentos: los `where` por estado/kind coinciden con las allowlists; `guardsBlocked`/`incidentsActive` correctos frente a los hechos.
+- Paginación: `orderBy('__name__')` + `startAfter(doc)` + corte `<200` es estable y progresa (sin bucle infinito).
+- Invariantes: `c!==a+r+u` correcto; `withReservedBalance` cuenta saldo almacenado, no reservas abiertas (matiz).
+- Aritmética: `+=` sobre `totals` sin guarda visible de entero exacto en este fragmento; y `reservedMismatch`/`activeMismatch` quedan en 0 sin incrementarse aquí. Verificar en la parte 2; si no se calculan, la verificación de invariantes sería ficticia (posible bloqueo).
+
+RESULTADO: PASS

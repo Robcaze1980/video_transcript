@@ -1,0 +1,9 @@
+**Hallazgos**
+- `else` (target emulator): ignora `SCOPES` por completo; usa `--root` arbitrario sin comprobar marcador ni namespace, y sin `databaseId`. Si `GCLOUD_PROJECT` no está definido, `new Firestore({projectId:undefined})` cae al proyecto ambiente y puede leer datos reales sin pasar el gate del marcador. **Bloquea** el criterio «el marcador se comprueba bien».
+- Parseo de args: `scopeName` arranca en `'billing'`, así que omitir `--scope` NO se rechaza aunque el mensaje diga «is required»; se ejecuta sobre billing sin avisar. **Bloquea** el contrato de ámbito (no así la separación real: en `real`, base y raíz de `account` están fijas y el marcador distinto ya impide cruzar).
+- Tope `maxDocs`: solo suma `e.docs` de `queries`; las `countAggregations` no se contabilizan, así que el límite no acota lecturas de agregación ilimitada. Depende de la fachada; **no bloquea** por sí solo.
+- `--out`: acepta cualquier ruta terminada en `.json` (`..\..\x.json`), sin restringir directorio; `existsSync`+`wx` evitan sobrescribir, **no bloquea**.
+- Marcador: solo exige igualdad de campos esperados, no rechaza extras; aceptable, **no bloquea**.
+- Salida en éxito: solo números y nombres de colección; `failureCode` emite códigos, no datos. Sin fuga apreciable.
+
+RESULTADO: FALLA

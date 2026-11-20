@@ -1,0 +1,11 @@
+**Hallazgos (política y resumen de cuentas)**
+
+- `policies.videoReservations.expose` incluye `ownerAccountId`, que es el `accountId` (id de cuenta / clave de identidad, y único enlace al documento). Cualquier lector de la política obtiene identificadores, justo lo prohibido. Escenario: lectura directa de reservas → fuga de ids. **Bloquea.**
+- La misma política expone `admissionProtocol` en crudo (dato de admisión de proveedor). Debería redactarse a presencia/booleano (p. ej. `hasLegacyProtocol`), como ya se hace con `providerAdmission` vía `presence`. Escenario: lectura de reservas → admisión de proveedor expuesta. **Bloquea.**
+- Totales parciales silenciosos: las cuentas con campos no escalares/negativos se descartan (`invalid++` y `continue`) pero `totals` se presenta como global. Riesgo de interpretar totales incompletos. No bloquea (existe `invalid`), pero conviene marcarlo.
+- Sumas acumuladas sin comprobación de `Number.isSafeInteger` tras cada `+=`. No bloquea.
+- La comprobación de `reserved`/`active` frente a reservas abiertas no es verificable aquí (código cortado); su corrección queda pendiente de revisión.
+
+Paginación por `__name__` con `limit(200)` y corte en `<200`: correcta. `balances` es interno y no se retorna: correcto.
+
+RESULTADO: FALLA

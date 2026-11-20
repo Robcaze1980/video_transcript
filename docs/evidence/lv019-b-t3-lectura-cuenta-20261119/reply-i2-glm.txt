@@ -1,0 +1,8 @@
+Hallazgos:
+- `videoReservations.expose` incluye `ownerAccountId` y `createdAtMs`; si `expose` es superficie de salida, hay fuga de identidad/valor por fila. Bloquea si se devuelve; si es solo lectura interna, no.
+- `summarizeAccounts`: falta comprobar `accounts.scanned === sizes.accounts`; una paginación incompleta podría ocultarse. Bloquea si se exige cobertura total.
+- `summarizeAccounts`: acumula totales sin verificar `Number.isSafeInteger`; con valores grandes puede falsear la aritmética. Bloquea si es posible overflow.
+- `summarizeAccounts`: `orderBy('__name__')` puede no ser soportado por el SDK de Firestore; usar `FieldPath.documentId()`. Bloquea si el SDK lo rechaza.
+- Invariantes: `active` solo debe compararse con reservas `state='reserved'`; `captured`/`released` ya están cerradas. No es visible aún en el fragmento.
+
+RESULTADO: INCONCLUYENTE
