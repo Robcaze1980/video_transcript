@@ -1,0 +1,12 @@
+Documento creado: `docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md` (solo lectura del código, sin otros cambios).
+
+Responde las 7 preguntas del paso 1.4 con hechos `archivo:línea` verificados (C-3/E-3 y el discriminador de versiones; reintentos acotados con `EXTERNAL_BILLING_ATTEMPT_LIMIT=8` y `min(15 min, 1 s·2^min(n,10))`; desbloqueo auditado sobre `recordDisposition` + herramienta A5; D-4 solo Video e idempotente con `alertKey`; A-5/E-4 «nunca capturar, liberar con prueba»; candado 1.6 y `active>=3`), con 15 pruebas primero rojas, una por ventana, y sus negativos.
+
+**Los 5 riesgos mayores**
+- **Mapa sin verificar en su mayor parte:** solo cinco puntos los reconfirmó Codex; A-5/E-4 y la divergencia de contadores `active` salen de filas no reconfirmadas (cabecera del mapa).
+- **El desbloqueo es capacidad nueva y sensible:** hoy no existe ninguna escritura de desbloqueo en código no-test (`firestoreBackend.ts` solo escribe `blocked:true`; `backend.ts` no tiene método); añadirla devuelve saldo y cupo.
+- **La alerta D-4 existe pero nadie la levanta:** sin el ejecutor/barrido (1.6/3.4) la fila `needs_review` sigue invisible en la práctica.
+- **El desbloqueo de Cuenta choca con reservas abiertas:** el orden (liquidar antes de borrar el guard) es decisión del dueño o el saldo vuelve a quedar atrapado.
+- **Divergencia `active` Video↔Cuenta:** un desbloqueo mal secuenciado libera cupo de un lado y no del otro; mitigable con `accountReconciliationCounts.ts` pero la conciliación fina podría pedir su propio paso.
+
+Marqué como decisiones del dueño (sin bloquear): poner en marcha el desbloqueo/A5, el canal de alerta, el orden operativo y los valores de configuración. No hay código, red, ni commit; no inventé datos fuera de lo leído.

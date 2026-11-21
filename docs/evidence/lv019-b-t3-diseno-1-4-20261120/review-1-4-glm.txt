@@ -1,0 +1,21 @@
+**Hallazgos**
+
+1. **ALTA (C-3, duplicación):** Estado inicial: fila `pending`, ACK ya recibido, escritura de `settled` fallida. Evento: la regla §3.1 reintenta acotado manteniendo `pending|retry_wait`; el drenador reejecuta el ciclo completo sobre esa fila. Resultado errado: la llamada externa (captura/liberación) puede reenviarse a Cuenta tras un ACK, duplicando el movimiento. Corrección: tras ACK, el reintento debe salir solo por `markExternalBillingSettled` (estado intermedio tipo `ack_received` que impida reenviar), nunca por el envío externo; y esa marca debe persistirse antes de cualquier reintento.
+
+2. **ALTA (C-3, pérdida del ACK):** El ACK vive en memoria del proceso; si el proceso cae antes del reintento, se pierde la prueba de que Cuenta respondió y el reenvío se vuelve indistinguible de un primer intento. Corrección: registrar el recibo del ACK (o al menos el estado `ack_received`) transaccionalmente antes de reprogramar.
+
+3. **ALTA (desbloqueo, divergencia reabierta):** §3.3 borra el guard de Cuenta aunque en Video queden filas `needs_review` de historias divergentes (solo avanza las «del incidente» que relectura coincide). Estado: guard Cuenta limpio + fila divergente viva. Evento: drenaje o liberación posterior de otra fila. Resultado: saldo se mueve sobre una divergencia no resuelta. Corrección: condicionar el desbloqueo de Cuenta a cero filas `needs_review` no resueltas para la cuenta, con procedimiento operatorio para cerrarlas.
+
+4. **MEDIA (D-4, dependencia inexistente):** La alerta depende de `runPendingSweep`/ejecutor (1.6/3.4), aún sin invocador; el criterio 1.4 no puede aceptarse sin él. Corrección: declarar la dependencia dura de 1.6 o entregar un mínimo de barrido en 1.4.
+
+5. **MEDIA (D-4, guard sin incidente):** El reporte lista `billingOutbox`, `billingIntents`, `billingHoldOutbox`, `terminal_recovery`, pero no `billingGuards`; la «alerta de guard bloqueado sin incidente visible» no es derivable del reporte actual. Corrección: incorporar `billingGuards` al reporte o emitir la alerta desde la incidencia.
+
+6. **MEDIA (E-3, máquina de reintentos indefinida):** §3.2 remite el reintento directo al régimen §3.1, pero esa vía corre por `resolveConfirmedIntentObservation`, no por `recordExternalBillingFailure`; no se especifica dónde se cuentan intentos ni la espera. Corrección: fijar el campo y la política de reintentos de esa ruta.
+
+7. **MEDIA (idempotencia del desbloqueo en Video):** El guard descrito no tiene campo de versión explícito (`blocked`, `lastIncidentId`, `updatedAtMs`); la valla «versión del guard» requiere definirlo o usar lectura-transacción condicional. Sin eso, un bloqueo concurrente puede pisarse.
+
+8. **BAJA (doble alerta):** La misma incidencia puede generar dos alertas (fila `needs_review` y guard bloqueado); falta deduplicación por incidente.
+
+Código no releído por límite de presupuesto del entorno; los hallazgos se apoyan en el propio documento y sus citas.
+
+RESULTADO: FALLA

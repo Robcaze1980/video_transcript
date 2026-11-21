@@ -1,0 +1,24 @@
+No puedo seguir: **todas** las ejecuciones de shell (incluido `echo probe`) están siendo rechazadas por el revisor automático de aprobaciones, no por seguridad, sino por un error de infraestructura: `402 Payment Required` de OpenRouter ("requested up to 65536 tokens, but can only afford …"). No hay ningún comando ejecutado en ese estado y no puedo sortear la aprobación. Necesito que revises créditos/el revisor y me des luz verde para continuar.
+
+**Archivos escritos (sin commit)**
+- `server/commercial/firestoreUnknownResolver.test.ts` (vitest, 12 pruebas).
+- `server/commercial/firestoreUnknownResolver.emulator.mjs` (20 pruebas; `AccountStore` real con reloj inyectado, `db.terminate()` en `afterEach`, sin red/credenciales).
+- `server/commercial/billingDrainLease.test.ts` y `.emulator.mjs`: solo lo necesario para el cursor `unknown`.
+
+**Qué falla hoy y por qué (última corrida completa verificada)**
+- Emulador: **6 verdes** `(caracterizacion)` — cancelar antes de enviar libera; cancelar después sella `unknown` sin cobrar y con reserva retenida; cerrojo por entrada; límite por cuenta; una sola alerta `unknown_age` y el barrido no escribe fuera de `billingPendingAlerts/Audit`; `finish/stage/heartbeat` sobre `unknown` rechazados sin tocar nada.
+- Emulador: **14 rojas `(rojo)`** con `c.backend.resolveExpiredUnknown is not a function` (el motivo correcto), cubriendo §5.2–§5.8.
+- Vitest: **12/12 rojas** (`classify is not a function`, `resolveExpiredUnknown is not a function`, constantes ausentes).
+- `billingDrainLease.test.ts`: 42 pasan, **1 falla** solo en `DRAIN_CURSOR_KINDS` (3→4). `.emulator.mjs`: 9 pasan, **1 falla** con `invalid cursor kind`. `tsc --noEmit` limpio.
+
+**Discrepancias con el código real (importantes para la siguiente ronda)**
+1. **Límite por cuenta**: el diseño dice `active >= 3 → conflict`, pero por la vía externa quien rechaza es **Account** (`reserveVideo` → `quota`/429) antes de llegar al `reserve` de Video (`conflict`). Mi prueba de caracterización acepta ambos; conviene fijar `quota` como el código real.
+2. **No existe validación pura exportada** en `firestoreBackend.ts`. Propongo exportar `classifyUnknownQuarantine(row,{jobId,admitted,now,windowMs?,skewMs?})` y `unknownExpiredEvidence(jobId,attempt|null,quarantinedAtMs)` además de las constantes y del método; el vitest las asume con esos nombres (sin emulador).
+3. **Ventana de prueba**: `resolveExpiredUnknown` necesitará `windowMs?` opcional (solo pruebas) para §5.7; nadie más lo usaría.
+4. **`stageArtifactReceipt` sobre `unknown`**: no devuelve `false` sino que rechaza (invariante al validar el manifiesto); la prueba lo fija con `rejects` y por eso "no cambia nada" se cumple estructuralmente.
+
+**Pendiente/inseguro (ser honesto)**
+- Además del `402`, hay un ajuste que **no llegó a aplicarse**: la prueba `r11` debe usar `limit:1` (resolver solo uno); hoy sigue con `limit:10` y `resolved,3`. Como falla antes en `resolveExpiredUnknown`, su dictamen actual es correcto, pero sus aserciones posteriores serían inconsistentes al implementar.
+- La última edición (`future` con `resolverNow+SKEW+60s`) se aplicó **después** de la última corrida completa, así que el `.mjs` no está reverificado desde entonces.
+
+Cuando desbloquees el revisor, haré: (a) `limit:1` en `r11`, (b) una corrida completa final del emulador y del vitest para reconfirmar 6 verdes/14 rojas y 12 rojas, y (c) te devolveré el resumen definitivo. ¿Autorizas reintentar ahora?

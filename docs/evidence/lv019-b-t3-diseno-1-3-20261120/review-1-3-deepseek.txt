@@ -1,0 +1,17 @@
+He leído el borrador contra el código (`firestoreBackend.ts`, `firestoreAi.ts`, `reserveAttemptEvidence.ts`, `account/backend.ts`) y las pruebas citadas.
+
+**Hallazgos**
+
+1. ALTA — La regla de versiones exactas es inalcanzable. Secuencia: `enqueue` prepara el intento pre-POST con `intent.updateTime=X`; el POST falla; el drenaje ve `reserved` y llama `recordExternalBillingIntentFailure`, que hace `tx.update(intent,{attempts,nextAttemptAt,lastErrorCode})` (`firestoreBackend.ts:1480-1482`) → `updateTime=Y`. La convergencia compara X vs Y → nunca coincide → `needs_review` perpetuo; A-3 nunca crea ni libera y el 7/13→13/13 no se logra. Corrección por documento: exacta solo `identity,input,project,origin,intentGuard,request,jobMarker` y las cuatro filas terminales; en `intent` valor semántico (`state`,`jobId`,`inputId/operation/revision/seconds`) ignorando `attempts/nextAttemptAt/lastErrorCode`; en `account` semántico (`credited=available+reserved+consumed`, `reserved>=seconds`), no versión; `guard` por no-bloqueo/ausencia.
+
+2. ALTA — El intento inmutable + `status:reserved` no prueba que el POST llegó. `reservationId` es determinista (`firestoreAi.ts:93`) y `reserveVideo` (`account/backend.ts:242-270`) no guarda `attemptId`; cualquier writer con la misma tupla satisface `(reservationId,seconds)`. No hay nonce de servidor. Corrección: que Cuenta almacene/devuelva el `attemptId` en la reserva, o exigir el ACK durable (`recordReserveAckInTransaction`), no el status.
+
+3. ALTA — «Cuenta acepta una liberación simple» no prueba ausencia de admisión: con `previous===null` libera sin admisión (`:381-387`), y `admitVideoCall` dice «A missing version does not prove that an older worker never contacted the provider». Liberar mueve saldo real y contradice la política vigente. Corrección: no liberar A-3 automáticamente sin cerca y prueba de no-admisión.
+
+4. ALTA — Carrera crear/liberar. `releaseAfter` hace cerca→observación→`settle` en pasos separados; si la creación no re-lee `intent.state` y `account` en su propia transacción, puede escribir `job_created` tras la cerca y luego `settle` devuelve saldo: trabajo sin reserva, o trabajo **y** liberación. Corrección: validar estado y cuenta en la transacción que crea el job.
+
+5. MEDIA — Los seis casos que fallan (`textAccountReserveIdentity.emulator.mjs:154-299`) son de la ruta del solicitante, no del drenaje; el diseño los separa bien en §5, pero el cierre «13/13» es la puerta de la ruta HTTP y no prueba A-3, y depende del llamador pre-POST hoy inexistente (§4.1).
+
+6. MEDIA — Pruebas que pasarían con el mecanismo roto: «alterar cualquier versión ⇒ no crear» se cumple trivialmente si nada crea nunca. Faltan: A-3 real con `intent` ya reprogramado, reserva de otro writer con la misma tupla, carrera drenaje↔drenaje y drenaje↔cancelación, y liberación con llamada de proveedor sin admisión almacenada.
+
+RESULTADO: FALLA

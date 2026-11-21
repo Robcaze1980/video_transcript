@@ -1,0 +1,12 @@
+Documento creado (solo lectura de código; único archivo escrito).
+
+**Documento:** `docs/specs/LV-019-B-reserva-sin-trabajo-a3-diseno.md`
+
+**Los 5 riesgos mayores**
+- **Liberar saldo sin prueba.** A-3 puede resolverse creando el trabajo o liberando; la tentación de liberar ante una revocación local (retirar/reasignar UID) ya fue rechazada por T3. Si se cede, se devuelve saldo de una reserva que pudo tener trabajo o llamada en vuelo. Mitigación: la liberación exige que Cuenta acepte una liberación simple y su propio `settle` devuelve `conflict` si hay admisión almacenada.
+- **Crear el trabajo desde un `status:reserved`.** Hoy `reserveAs` cierra esa rama a propósito (`firestoreBackend.ts:1214-1216`). Abrirla sin exigir el **intento inmutable** pre-POST convertiría una simple observación de estado en autorización para admitir trabajo; el diseño lo condiciona a `billingReserveAttempts` con versiones coincidentes.
+- **Cupo atrapado y contadores divergentes.** En A-3 Cuenta ya subió `active` y Video no; tres A-3 sin converger agotan el cupo (`active>=3`, `backend.ts:263`) y bloquean reservas nuevas mientras Video muestra `active:0`. Sin convergencia, el cliente queda sin poder reservar.
+- **El módulo de evidencia sigue desconectado.** `reserveAttemptEvidence.ts` no lo importa ningún código no-test; conectarlo mal (perfil v1 ↔ catálogo vivo, UUID minúsculas, lectura por el drenaje, reglas/retención) deja el ACK sin persistir y el ensayo en 7/13.
+- **Bloqueo (A-5) deja la intención sin salida.** Con `billingGuards.blocked`, ni crear ni liberar: la intención queda retenida indefinidamente. El diseño la manda a `needs_review` con alerta, pero la salida automática de una reserva bajo bloqueo es del paso 1.4, no de éste.
+
+Los 5 riesgos que dependen del dueño quedan marcados `DUEÑO` en §8 (liberar o no una A-3, umbral de edad, canal/responsable de la alerta, perfil del catálogo, retención de las colecciones), sin bloquear el trabajo.

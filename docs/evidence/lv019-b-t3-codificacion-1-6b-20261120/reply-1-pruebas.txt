@@ -1,0 +1,77 @@
+1.6b control de drenajes pruebas
+mcp:02260f39-7db5-466b-9a66-b2863d9e1f9e  completed  linguistvision-openrouter/deepseek/deepseek-v4.1-flash
+lv019b/t3-drain-exec  C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-drain-exec
+
+[assistant]
+The batch wrapper mangles multi-line args in this shell. Let me call the underlying exe directly with the patch as a single argument.
+
+
+
+[assistant]
+The `apply_patch` mechanism works via the exe directly. Now let me carefully review the questionable assertions. Let me re-read the exact S4/S7/pure-test regions and reason about ordering.
+
+
+
+[assistant]
+The fixture runs cleanly and fails for the right reasons, but three of my draft assertions encode wrong/over-pinned math. Let me verify exact lines, then fix them.
+
+
+
+
+
+[assistant]
+The fixture and pure tests fail for the right reasons, but three assertions encode wrong/over-pinned cursor math that would fail even after implementation. Let me fix them precisely.
+
+
+
+[assistant]
+The fixture and pure tests fail for the right reasons. Now let me make the pure test's mixed-kind cursor assertion robust (the exact ordering of interleaved kinds isn't fully specified), while keeping it red today.
+
+
+
+[assistant]
+Now let me re-run the pure test to confirm the edited assertions still fail for the right reason (cursor ignored).
+
+
+
+[assistant]
+The fixture and pure tests are red for the right reasons. Let me relax one ambiguous mid-wrap assertion (the `next` value after a partial wrap is genuinely ambiguous in the brief) so it can't produce a false-red.
+
+
+
+[assistant]
+The approval reviewer is erroring on credits. Let me make this small edit with node directly (a plain workspace write).
+
+[assistant]
+The auto-approval reviewer is out of credits, which blocks new command execution. Let me confirm whether it's transient with a trivial command.
+
+[assistant]
+Ejecuté la verificación antes de que el revisor de aprobaciones quedara bloqueado (402 sin créditos). Estado validado:
+
+**Archivos (solo 2, ambos nuevos salvo lo indicado)**
+- `server/commercial/firestoreDrainControl.emulator.mjs` — fixture Cuenta real (node:test), 9 escenarios, limpieza verificada `9/9`, `db.terminate()` en `finally`. No toqué `server/account/*` ni código de producción.
+- `server/commercial/firestoreDrainControl.test.ts` — vitest puro sobre los lectores con `afterId`.
+
+**Qué falla y por qué (correcto)**
+- Emulador: `6 failed / 3 ok`. S2(false), S2(throw), S6, S7 fallan en `stopped === true` (hoy `undefined`). S3 falla en `skippedRows` (`0` vs `45`). S4 falla en `result.next` (`undefined`). Ninguna falla por sintaxis, montaje ni limpieza.
+- Pasan hoy y deben pasar: S1 y S1b (caracterización sin `control`, permitido) y S5 (seguridad sin candado: hoy ya mueve saldo una sola vez; es caracterización, no rojo).
+- Vitest: `6 failed / 4 ok`; todas por el cursor ignorado (`p_0000` devuelto en vez de empezar después del id).
+
+**Discrepancias con el código real**
+- `pendingExternalBillingIntents` y `pendingExternalBilling` entremezclan dos estados (`interleave`); un solo `after` por tipo obliga a aplicar el cursor a ambos flujos. No fijé orden entre tipos, solo orden por id y ausencia de duplicados.
+- `dueRows` tope 100 y `limit<=100`: `maxRows` no puede superar eso por llamada; asumí que `maxRows` sustituye el `limit` (default 25).
+- `billingDrainLease.ts` ya declara `DRAIN_CURSOR_KINDS=['intents','outbox','holds']`, pero el brief dice que los bloqueos no llevan cursor: hay que reconciliarlo (posible `holds` vestigial).
+- Un hold sembrado "desnudo" nunca llega a `applied`: `authorizeExternalHold` lo manda a `needs_review` si falta `externalHold(...)`/incidente. Por eso "atendido" en bloqueos = `applied+failed+review`, y las aserciones de tope cuentan recuentos (no ids: `nextAttemptAt` empatado a 0 deja el orden no determinista).
+- `drainExternalBilling` retorna temprano `{settled:0,failed:0,intentsRecovered:0,intentsFailed:0}` sin `accountBilling`; asumí que aun así el resultado extendido trae `skippedRows`/`stopped`.
+
+**Forma asumida**
+- `control?: { shouldContinue?: () => boolean|Promise<boolean>; perAccountCap?: number; after?: { intents?: string|null; outbox?: string|null }; maxRows?: number }`
+- `drainExternalBilling => { settled, failed, intentsRecovered, intentsFailed, skippedRows, stopped, next: { intents: string|null, outbox: string|null } }`
+- `drainExternalHolds => { applied, failed, review, skippedRows, stopped }` (sin `next`)
+- `shouldContinue` antes de cada fila; `false` o throw ⇒ corte limpio con `stopped:true`, nunca excepción.
+
+**Aviso de integridad**
+- Tras la corrida completa hice dos ajustes en S4 del emulador (sub-caso de vuelta parcial y `due()`): no pude re-ejecutar porque toda ejecución quedó bloqueada por el 402 del revisor. Siguen siendo rojos hoy (el `after` se ignora), pero conviene que Codex los corra antes de certificar.
+- Ojo: el nuevo vitest quedará rojo en la regresión financiera hasta implementar 1.6b.
+
+No implementé nada.

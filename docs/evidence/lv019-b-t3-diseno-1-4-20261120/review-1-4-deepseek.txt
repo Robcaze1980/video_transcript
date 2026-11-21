@@ -1,0 +1,19 @@
+He leído el diseño y contrastado los puntos citados contra el código. Corto por presupuesto.
+
+1. **ALTA — `blocked:false` en Cuenta no desbloquea: revienta.** Secuencia: operador escribe `videoBillingGuards/<acc>{blocked:false}` → `billingHold` exige `blocked===true` (`server/account/backend.ts:46`) → `invariant()` en `reserveVideo` (`:262`), `admit` (`:311`) y `settleVideo` (`:381`): la cuenta queda inutilizable y la auditoría registra éxito. El §1.1 invierte qué predicado tolera `false` (Video lo tolera, `firestoreBackend.ts:477-481`; Cuenta no). Corrección: en Cuenta solo borrar el documento, o introducir estado explícito cambiando los tres lectores, y corregir el texto y la prueba 11.
+
+2. **ALTA — el tope castiga `unavailable`.** Secuencia: caída de 30 s de Firestore, 13 versiones intactas, fila no `settled` → §3.1 suma `attempts` en cada pasada → a los 8 la fila queda `needs_review` con alerta y sin recuperación automática, mientras hoy `:1453-1455` exime `unavailable`. Corrección: excluir `unavailable` del tope o usar ventana temporal.
+
+3. **ALTA — un ACK divergente se traga en silencio.** Secuencia: outbox `capture`, reserva ya liberada; `settleVideo` entra por replay (`:375`) y devuelve `released`; el ACK no coincide, `quarantine…` valida y lanza `invalid` (`firestoreBackend.ts:1524`); el `catch` lo absorbe (`firestoreAi.ts:266`) → fila `pending` para siempre, sin incidente y sin alerta (`reasonFor('pending')` = null). Corrección: persistir el ACK divergente como incidente; nunca silenciar.
+
+4. **ALTA — el orden Video→Cuenta reabre la divergencia.** Secuencia: Video commitea guard falso + intent `release_pending`; Cuenta sigue bloqueada → el drenaje ve `blocked` (`firestoreAi.ts:249`) sin avanzar, y en esa ventana el guard de Video ya no frena el encolado. Si el paso de Cuenta falla, nada re-bloquea Video y no hay compensación. Corrección: Cuenta primero con confirmación, o compensación explícita.
+
+5. **MEDIA — «una sola transacción» es imposible reutilizando `recordDisposition`**, que declara no editar filas de facturación (`billingPendingAudit.ts:4-7`). Corrección: operación nueva atómica o dos fases con estado intermedio.
+
+6. **MEDIA — D-4 «guard sin incidente» no es derivable:** `PENDING_SOURCES` (`billingPendingReport.ts:17-23`) no lee guards; §3.4:130 afirma cobertura que no existe salvo invariante hold-por-guard, no establecido. Corrección: fuente derivada o invariante probado.
+
+7. **MEDIA — pruebas verdes con mecanismo roto:** la 1 no verifica que el ACK quede durable; la 11 solo comprueba Video; faltan ACK divergente, segundo incidente concurrente entre lectura y escritura, y desbloqueo con reservas abiertas.
+
+8. **MEDIA — decisiones del dueño sin marcar:** el tope convierte fallos en revisión manual indefinida (SLA); sin umbral de edad, `needs_review` sin bloque no pagina a nadie; el campo de época en Video implica migración (1.5).
+
+RESULTADO: FALLA
