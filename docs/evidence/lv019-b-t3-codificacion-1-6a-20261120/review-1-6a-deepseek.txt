@@ -1,0 +1,13 @@
+1. **ALTA — `renewDrainLease` no tiene suelo ni monotonía**: escribe `expiresAtMs:now+ttlMs` sin comparar con la expiración vigente. Un reloj retrocedido o dos renovaciones fuera de orden acortan el arriendo (puede quedar por debajo del margen de 15 s y detener la pasada). Si `now < lease.acquiredAtMs`, escribe `renewedAtMs < acquiredAtMs`, que `readLease` rechaza: devuelve `true` y el titular pierde su propio arriendo. Corrección: `expiresAtMs = Math.max(lease.expiresAtMs, now) + ttlMs` y rehusar/no escribir si `now < acquiredAtMs`.
+
+2. **ALTA — arriendo imposible de tomar**: `readLease` acepta cualquier `expiresAtMs` no negativo, así que un documento con ventana ≫ `MAX_DRAIN_LEASE_TTL_MS` (escritura errónea o reloj desviado) es «bien formado» y `isHeld` lo mantiene vivo; `acquire` devuelve `held` para siempre. Contradice el contrato «documento corrupto es tomable». Corrección: ventana fuera de `[0, MAX_TTL]` ⇒ tratar como corrupta/tomable.
+
+3. **MEDIA — el token se reinicia en silencio**: `storedToken` devuelve 0 cuando el token no es entero seguro, luego contador o arriendo con `token:2**60` hace emitir `token:1`, por debajo de uno ya entregado; contradice el comentario de `nextToken` y «nunca ≤ su numérico» (el test solo cubre `MAX_SAFE_INTEGER`, no `MAX_SAFE_INTEGER+1`). Además `counter===MAX_SAFE_INTEGER` lanza `EXHAUSTED` para siempre: bloqueo permanente sin ruta de recuperación ni alerta. Corrección: tratar token inválido como corrupto con token alto, y definir recuperación.
+
+4. **MEDIA — falta lo que exigirá el cableado**: no exporta la cadencia de renovación ni un helper de sesión, no expone `acquiredAtMs/renewedAtMs` (el llamador no puede presupuestar la tenencia máxima de 60 s) y `renew` no exige progreso, así que «no se renueva sin progreso» es inaplicable y puede renovarse indefinidamente.
+
+5. **MEDIA — pruebas que pasarían con la garantía rota**: `firestoreDouble.runTransaction` no serializa ni reintenta (sin conflicto de lectura), así que «escribe nada» y un único ganador no se verifican a nivel unitario; faltan casos de token no seguro, renovación retrocedida y ventana de expiración excesiva.
+
+6. **BAJA — higiene**: `plainDocId` rechaza `/` y controles, pero admite espacios, `:` y `__…__`, pese a que el comentario dice que el cursor vuelve a una ruta.
+
+RESULTADO: FALLA

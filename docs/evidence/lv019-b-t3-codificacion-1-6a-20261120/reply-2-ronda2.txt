@@ -1,0 +1,35 @@
+Ronda 2 verificada de punta a punta en este worktree. Todo verde, sin commit.
+
+**Archivos** (3 nuevos, `??`, nada más tocado)
+- `server/commercial/billingDrainLease.ts` — módulo del candado, A–E aplicados.
+- `server/commercial/billingDrainLease.test.ts` — 43 pruebas vitest (doble de Firestore en memoria).
+- `server/commercial/billingDrainLease.emulator.mjs` — 10 pruebas node:test contra 8185, `recursiveDelete` + `db.terminate()` en `finally` con esperas acotadas.
+
+**Cambios adoptados (confirmados en el código real)**
+- A · `renew` monotono: `at=Math.max(now,lease.renewedAtMs)`, `expiresAtMs=Math.max(lease.expiresAtMs,at+ttlMs)`, `acquiredAtMs` intacto; la puerta de propiedad sigue con el `now` del llamador (`billingDrainLease.ts:161-168`).
+- B · `maxTenureMs` (1000..600000, default `DEFAULT_DRAIN_LEASE_MAX_TENURE_MS=120000`) con corte `>=` y sin escritura; exportados `DEFAULT_DRAIN_LEASE_RENEW_EVERY_MS=10000` y los alias MIN/MAX de tenure.
+- C · `readLease` rechaza ventana `expiresAtMs-renewedAtMs > MAX_DRAIN_LEASE_TTL_MS`; `isHeld` exige además `expiresAtMs-now <= MAX` (solo vivacidad).
+- D · `plainDocId` rechaza `/^__.*__$/` (comentario ajustado a lo que valida).
+- E · comentarios de token (ignorado si no es entero seguro positivo; fencing por igualdad holder+token; EXHAUSTED inalcanzable ~1e11 años; recuperación = borrar `billingDrainLease/counter` con aviso), sin cambio de comportamiento.
+
+**Resultados**
+- `npx tsc --noEmit` → exit 0.
+- `npx vitest run server/commercial/billingDrainLease.test.ts` → 43/43.
+- Emulador (8185, mismo comando) → 10/10.
+- Sin BOM ni caracteres no-ASCII en los tres archivos.
+
+**Mutaciones (13/13 DETECTADAS, 0 supervivientes, archivo restaurado byte-idéntico)**
+- A: `at=now`; `expiresAtMs=at+ttl` (unit + emulador).
+- B: `>=`→`>` (unit + emulador); check eliminado; validación de tenure quitada.
+- C: cota de ventana en `readLease` (unit + emulador); cota forward en `isHeld` (unit + emulador).
+- D: aceptar ids reservados (unit + emulador).
+
+**Pruebas de ronda 1 ajustadas (por A–D)**
+- "extends only for the holder…" ahora espera `expiresAtMs=NOW+TTL` (90 s), no `NOW+1+30s`: con A un ttl corto ya no acorta la expiración.
+- Tenencia usa `acquire(...,MAX_DRAIN_LEASE_TTL_MS)` para que el arriendo siga vivo en el límite; el corte exacto `now-acquiredAtMs===maxTenureMs` rechaza y uno menos acepta.
+- `__` no es reservado (la forma reservada requiere ≥4 chars `__x__`); se acepta y `getDrainCursor` lo devuelve.
+
+**Límites**
+- `assertDrainLeaseHeld` y `getDrainCursor` son lecturas puras, no transaccionales (documentado); el token vive en `.../counter` para crecer tras liberar.
+- No ejecuté la regresión financiera de 222 (fuera de alcance, emulador compartido). Ronda 1: suite vitest completa 1478 pasan / 113 omitidas / 1 falla preexistente y ajena (`server/commercial/web/reviewBrowserNodeFixtures.test.ts:18`).
+- El cableado del candado en los drenajes y en la pasada de mantenimiento es otra entrega; `DEFAULT_DRAIN_LEASE_RENEW_EVERY_MS` queda para ese cableado.
