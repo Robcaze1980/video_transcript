@@ -378,10 +378,13 @@ export const UNKNOWN_REVIEW_WINDOW_MS=6*60*60*1000;
 /** Tolerance for a `quarantinedAtMs` written slightly ahead of the resolver's injected clock (clock skew between writers). */
 export const UNKNOWN_CLOCK_SKEW_MS=10*60*1000;
 /**
- * Test-only override of the review window: no production caller passes it and no HTTP route can reach it. It is validated
- * as a safe integer >= this floor so a fixture can expire a row on demand without weakening the real six-hour window.
+ * Test-only override of the review window: no production caller passes it and no HTTP route can reach it. It may only
+ * SHORTEN the real window, so it is validated as a safe integer in [this floor, UNKNOWN_REVIEW_WINDOW_MS]; a longer window
+ * would delay a release the six-hour policy already allows.
  */
 const MIN_TEST_UNKNOWN_WINDOW_MS=1_000;
+/** Test-only `skewMs` ceiling: one hour. A larger tolerance could mask a genuinely future `quarantinedAtMs`. */
+const MAX_TEST_UNKNOWN_SKEW_MS=3_600_000;
 /** A cursor is a document id read back into a path: bounded, no separator, no control character, no `.`/`..`, not a Firestore reserved id. */
 const MAX_CURSOR_BYTES=1500,RESERVED_DOC_ID=/^__.*__$/;
 const plainDocumentId=(value:unknown):value is string=>typeof value==='string'&&value.length>=1&&Buffer.byteLength(value,'utf8')<=MAX_CURSOR_BYTES&&!RESERVED_DOC_ID.test(value)&&!/[\/\u0000-\u001f\u007f]/.test(value)&&value!=='.'&&value!=='..';
@@ -394,10 +397,18 @@ export type UnknownQuarantineVerdict={state:'not_due'}|{state:'invalid';field:'q
  * Classify one unknown row's quarantine BEFORE deciding it is due. Validation comes first: `quarantinedAtMs` must be a safe
  * integer >= 0 and not in the future beyond the tolerated skew (a bad value can never silently read as not-due), and, only
  * when the row carries an admission, `unknownAttemptId` must be a UUID (without it `settle` would throw on every pass and the
- * reservation would stay retained forever). `windowMs`/`skewMs` are test-only overrides. Pure: no I/O, no clock.
+ * reservation would stay retained forever). `windowMs`/`skewMs` are test-only overrides with their own bounds (a longer
+ * window or a wider skew is refused). Pure: no I/O, no clock.
  */
 export function classifyUnknownQuarantine(row:{quarantinedAtMs?:unknown;unknownAttemptId?:unknown},options:{jobId:string;admitted:boolean;now:number;windowMs?:number;skewMs?:number}):UnknownQuarantineVerdict{
-  const windowMs=options.windowMs??UNKNOWN_REVIEW_WINDOW_MS,skewMs=options.skewMs??UNKNOWN_CLOCK_SKEW_MS,quarantinedAtMs=row.quarantinedAtMs;
+  // Only `undefined` selects the production default, matching the drain lease module: a `null` override is a bad parameter,
+  // not an omitted one, so it falls into the bounds check below and is refused.
+  const windowMs=options.windowMs===undefined?UNKNOWN_REVIEW_WINDOW_MS:options.windowMs,skewMs=options.skewMs===undefined?UNKNOWN_CLOCK_SKEW_MS:options.skewMs,quarantinedAtMs=row.quarantinedAtMs;
+  // A test-only override may only SHORTEN the window and only within the documented skew ceiling. A value outside those
+  // bounds (including NaN, Infinity or a negative) is refused outright instead of silently changing the policy: the caller
+  // must never be able to buy a longer wait or a larger tolerance with a bad number.
+  if(!Number.isSafeInteger(windowMs)||windowMs<MIN_TEST_UNKNOWN_WINDOW_MS||windowMs>UNKNOWN_REVIEW_WINDOW_MS)throw new LedgerFault('invalid');
+  if(!Number.isSafeInteger(skewMs)||skewMs<0||skewMs>MAX_TEST_UNKNOWN_SKEW_MS)throw new LedgerFault('invalid');
   if(typeof quarantinedAtMs!=='number'||!Number.isSafeInteger(quarantinedAtMs)||quarantinedAtMs<0||quarantinedAtMs>options.now+skewMs)return {state:'invalid',field:'quarantinedAtMs'};
   if(options.admitted&&(typeof row.unknownAttemptId!=='string'||!uuid.test(row.unknownAttemptId)))return {state:'invalid',field:'unknownAttemptId'};
   if(quarantinedAtMs>options.now-windowMs)return {state:'not_due'};
@@ -1915,16 +1926,20 @@ export class FirestoreBackend {
    * LV-019.B step 1.2: release `unknown` jobs whose review window has elapsed, at most `limit` per pass, in document-id order
    * from `after` (null starts over). The clock is the injected `now`; no wall clock decides expiry. Each row runs in its own
    * transaction and its own try/catch: one malformed or failing row counts `failed` and never stops the pass, and an already
-   * released row is a no-op. This resolver NEVER captures; it only ever releases. `windowMs` is a TEST-ONLY override,
-   * validated below, never passed by a production caller and unreachable from any HTTP route. The cursor advances over every
-   * row read and wraps to null at the end; the counts carry no ids and no content. Design: sections 3 and 4.
+   * released row is a no-op. Voice (`narration:`) rows are never eligible: they keep their own proportional-charge policy
+   * (C2/C3) and are counted not-due. This resolver NEVER captures; it only ever releases. `windowMs`/`skewMs` are TEST-ONLY
+   * overrides, validated below, never passed by a production caller and unreachable from any HTTP route. The cursor advances
+   * over every row read and wraps to null at the end; the counts carry no ids and no content. Design: sections 3 and 4.
    */
-  async resolveExpiredUnknown(options:{now:number;limit:number;after?:string|null;windowMs?:number}){
-    const now=options?.now,limit=options?.limit,after=options?.after??null,windowMs=options?.windowMs;
+  async resolveExpiredUnknown(options:{now:number;limit:number;after?:string|null;windowMs?:number;skewMs?:number}){
+    const now=options?.now,limit=options?.limit,after=options?.after??null,windowMs=options?.windowMs,skewMs=options?.skewMs;
     if(!Number.isSafeInteger(now)||(now as number)<0)throw new LedgerFault('invalid');
     if(!Number.isSafeInteger(limit)||(limit as number)<1||(limit as number)>100)throw new LedgerFault('invalid');
     if(after!==null&&!plainDocumentId(after))throw new LedgerFault('invalid');
-    if(windowMs!==undefined&&(!Number.isSafeInteger(windowMs)||(windowMs as number)<MIN_TEST_UNKNOWN_WINDOW_MS))throw new LedgerFault('invalid');
+    // Test-only overrides: `windowMs` may only SHORTEN the window, `skewMs` must stay within its ceiling. Anything else
+    // (non-number, NaN, Infinity, negative or out of range) is a bad parameter, not a policy change.
+    if(windowMs!==undefined&&(!Number.isSafeInteger(windowMs)||(windowMs as number)<MIN_TEST_UNKNOWN_WINDOW_MS||(windowMs as number)>UNKNOWN_REVIEW_WINDOW_MS))throw new LedgerFault('invalid');
+    if(skewMs!==undefined&&(!Number.isSafeInteger(skewMs)||(skewMs as number)<0||(skewMs as number)>MAX_TEST_UNKNOWN_SKEW_MS))throw new LedgerFault('invalid');
     // The page read is the first database access, so a rejected argument never reaches the runner (validated above).
     const page=await this.db.runTransaction(async tx=>{
       let query=this.root.collection('jobs').where('state','==','unknown').orderBy(FieldPath.documentId()).limit(limit as number);
@@ -1938,12 +1953,15 @@ export class FirestoreBackend {
         outcome=await this.db.runTransaction(async tx=>{
           const doc=await tx.get(this.ref('jobs',jobId));
           if(!doc.exists||doc.get('state')!=='unknown')return 'skipped' as const;
+          // Voice has its own proportional-charge policy and recovery (C2/C3): releasing a narration here with K=0 would
+          // contradict the owner's policy, so a voice row is never eligible. It is counted not-due and left untouched.
+          if(narrationRequiresReview(doc.get('operation')))return 'not_due' as const;
           const accountId=doc.get('accountId');
           if(typeof accountId!=='string')return 'failed' as const;
           const c=await this.context(tx,accountId,jobId,true);
           if(c.job.state!=='unknown')return 'skipped' as const;
           const admitted=!!c.providerReceipts&&c.providerReceipts.length>0;
-          const verdict=classifyUnknownQuarantine({quarantinedAtMs:c.job.quarantinedAtMs,unknownAttemptId:c.job.unknownAttemptId},{jobId,admitted,now:now as number,...(windowMs!==undefined?{windowMs}:{})});
+          const verdict=classifyUnknownQuarantine({quarantinedAtMs:c.job.quarantinedAtMs,unknownAttemptId:c.job.unknownAttemptId},{jobId,admitted,now:now as number,...(windowMs!==undefined?{windowMs}:{}),...(skewMs!==undefined?{skewMs}:{})});
           if(verdict.state==='invalid')return 'failed' as const;
           if(verdict.state==='not_due')return 'not_due' as const;
           if(admitted)this.settle(tx,c,'failed',verdict.evidence,{kind:'unknown_expired',evidenceSha256:verdict.evidenceSha256});

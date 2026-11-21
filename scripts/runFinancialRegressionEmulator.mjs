@@ -30,7 +30,7 @@ const expectedSkippedNames = [
 const expectedSkipped = expectedSkippedNames.length;
 const guardFile = 'scripts/financialEmulatorNetworkGuard.cjs';
 const inventoryFile = 'scripts/inspectFinancialSyntheticRoots.mjs';
-const fixtureFiles = ['server/commercial/firestoreBackend.emulator.mjs', 'server/commercial/firestoreAiBackend.emulator.mjs', 'server/commercial/firestoreAi.emulator.mjs', 'server/commercial/firestoreVideoSettlementC2a.emulator.mjs'];
+const fixtureFiles = ['server/commercial/firestoreBackend.emulator.mjs', 'server/commercial/firestoreAiBackend.emulator.mjs', 'server/commercial/firestoreAi.emulator.mjs', 'server/commercial/firestoreVideoSettlementC2a.emulator.mjs', 'server/commercial/firestoreDrainControl.emulator.mjs', 'server/commercial/firestoreUnknownResolver.emulator.mjs'];
 const tracked = Object.freeze([
   'server/commercial/firestoreBackend.ts',
   'server/commercial/firestoreAi.ts',

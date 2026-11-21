@@ -1,0 +1,64 @@
+1.2 cancelacion y unknown pruebas
+mcp:a3846da7-5aae-4e80-8226-51e9a6f46d51  completed  linguistvision-openrouter/deepseek/deepseek-v4.1-flash
+lv019b/t3-unknown  C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-unknown
+
+[assistant]
+Vitest 15/15. Ahora el escenario de voz en el emulador. Reviso helpers y el final del archivo.
+
+[assistant]
+Añado el escenario de voz al final del emulador.
+
+
+
+[assistant]
+Verifico el escenario de voz (ya con la guarda aplicada debe pasar) y luego el emulador completo.
+
+
+
+[assistant]
+El balance de Cuenta no cambia con el resolvedor (la liberación llega al drenar). Ajusto la aserción: comparo el balance antes/después en lugar de un valor fijo.
+
+
+
+[assistant]
+Escenario de voz verde. Confirmo que estaba rojo **antes** de la guarda (reviso por mutación) y corro el emulador completo.
+
+
+
+[assistant]
+La guarda de voz queda cazada. Ahora corro el emulador completo (32 pruebas) para confirmar todo verde.
+
+[assistant]
+Emulador 32/32. Ahora muto las cotas (windowMs, skewMs) y la guarda de voz para confirmar que las pruebas nuevas las cazan, con restauración verificada.
+
+[assistant]
+Las cuatro cotas (método y función pura) quedan cazadas. Limpio temporales y hago la verificación final.
+
+
+
+[assistant]
+Todo verde. Confirmo el diff final y el estado del worktree.
+
+[assistant]
+Ronda 3 completada (una sola entrega).
+
+**Archivos**
+- `server/commercial/firestoreBackend.ts` — (1) guarda de voz: dentro de la transacción por fila, tras leer el trabajo, `narrationRequiresReview(doc.get('operation'))` ⇒ `not_due`, sin modificar nada; (2) cotas: `MAX_TEST_UNKNOWN_SKEW_MS=3_600_000`; en `classifyUnknownQuarantine` y `resolveExpiredUnknown`, `windowMs` entero seguro en `[1000, UNKNOWN_REVIEW_WINDOW_MS]` (solo acorta) y `skewMs` en `[0, 3_600_000]`; fuera de rango (NaN/Infinity/negativos/`null`/no número) ⇒ `invalid`. Elección más simple y conservadora: la función pura **lanza** `LedgerFault('invalid')`; además, `undefined` selecciona el default y `null` es parámetro inválido (alineado con `billingDrainLease`).
+- `server/commercial/firestoreUnknownResolver.test.ts` — pruebas de cotas (función pura y método) con valores límite legales verificados.
+- `server/commercial/firestoreUnknownResolver.emulator.mjs` — escenario de voz: `narration:*` vencido con admisión queda intacto (campos, saldo, outbox, providerCalls), cuenta `notDue`, y un texto vencido de la misma pasada sí se resuelve.
+
+**Resultados**
+- `tsc --noEmit`: limpio (exit 0).
+- vitest (resolvedor + candado): **58/58** (antes 55; +3 de cotas).
+- emulador (resolvedor 21 + candado 11): **32/32**, Cuenta real.
+
+**Mutaciones** (restauración byte-idéntica verificada por hash; todas cazadas, `restored=OK`)
+- Guarda de voz desactivada → rojo el escenario de voz (1).
+- Cota superior de `windowMs` en el método → rojo (1).
+- Cota de `skewMs` en el método (quitada) → rojo (1).
+- Cota de `windowMs` en la función pura → rojo (1).
+- Cota de `skewMs` en la función pura → rojo (1).
+
+**Supervivientes**: ninguno.
+
+**No tocado** (límites declarados): fila corrupta sigue contándose `failed` y reportándose por `unknown_age` sin autoreparación; `admitted` sigue derivándose de cualquier fila `providerCalls`. Sin `git commit`.

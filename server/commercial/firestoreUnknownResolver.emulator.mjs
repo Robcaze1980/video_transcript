@@ -575,3 +575,28 @@ test('(rojo) resolving one unknown frees the account slot so the next enqueue is
   assert.ok(forJobs.length>=1,'the unknown_age alerts remain');
   for(const alert of forJobs)assert.equal(alert.get('status'),'open','an alert of a resolved unknown is never closed automatically');
 });
+
+test('(rojo) a voice unknown is never eligible: an expired narration is left intact while a text row of the same pass resolves',async()=>{
+  const c=await fixture('r12_voice_not_eligible');
+  const voice=await newJob(c,'voice'),text=await newJob(c,'text');
+  // A narration cannot be sealed or cancelled through the normal path (both refuse voice), so it is seeded as a text job
+  // and only then labelled as narration: the resolver reads `doc.get('operation')` straight from the job document.
+  const sealedVoice=await sealUnknown(c,voice,{admit:true});
+  await ref(c.root,'jobs',voice.id).update({operation:'narration:en'});
+  const sealedText=await sealUnknown(c,text,{admit:true});
+  const now=Math.max(sealedVoice.quarantinedAtMs,sealedText.quarantinedAtMs)+WINDOW;
+  const before=await accounting(c,voice);
+  const voiceJobBefore=await c.backend.job(c.account,voice.id);
+  const balanceBefore=await c.store.videoBalance(c.identity);
+  const result=await resolve(c,{now,limit:10});
+  // The text row is due and resolves; the voice row is counted not-due, never failed, and is not modified at all.
+  assert.equal(result.resolved,1,'the expired text row of the same pass is resolved');
+  assert.equal(result.failed,0,'a voice row is never counted failed');
+  assert.equal(result.notDue,1,'the expired voice row is reported as not due');
+  assert.equal((await c.backend.job(c.account,text.id)).state,'failed','the text row really settled');
+  assert.equal((await c.backend.job(c.account,voice.id)).state,'unknown','the voice row stays quarantined');
+  assert.deepEqual(await c.backend.job(c.account,voice.id),voiceJobBefore,'not one job field of the voice row changes');
+  assert.deepEqual(await accounting(c,voice),before,'no movement, outbox row, provider call or balance moves for the voice row');
+  // The resolver only writes Video; the Account reservation moves when the outbox drains, which has not happened yet.
+  assert.deepEqual(await c.store.videoBalance(c.identity),balanceBefore,'the resolver pass leaves Account untouched');
+});

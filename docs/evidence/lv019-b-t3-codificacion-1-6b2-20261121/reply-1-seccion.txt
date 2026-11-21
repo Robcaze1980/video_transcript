@@ -1,0 +1,23 @@
+**Archivos**
+- `server/commercial/billingDrainSection.ts` (nuevo): sección con candado, renovación y liberación condicionadas, `shouldContinue` por presupuesto + margen 15 s, orden bloqueos→intenciones/salidas→bloqueos→unknown, cursores, tope 5/cuenta y 100/tipo, guarda por raíz, latido único de 12 claves. Importa por valor solo `billingDrainLease`; `ai`/`backend` por parámetro.
+- `server/commercial/billingDrainSection.test.ts` (nuevo, 30 pruebas): rojo→verde, dobles inyectables, temporizador con `unref`/limpieza, renovación rechazada, presupuesto por sección, orden, cursores, arranque, latido sin datos sembrados, cercado de imports y estáticas del cableado.
+- `server/commercial/billingDrainSection.emulator.mjs` + `.emulator.worker.mjs` (nuevos, 7 escenarios (a)-(g)) con `AccountStore` real y un segundo contexto real para la carrera.
+- `server/commercial/cloudFilesRuntime.ts` (+20/−1): sección arrancada antes de archivos/IA, esperada al final, `drain` en la respuesta, y `maintenanceResponse()` puro que prueba el aislamiento.
+
+**Resultados**
+- `tsc --noEmit`: limpio.
+- Vitest dirigido: `billingDrainSection` 30/30, `billingSweepSection` 28/28, `billingDrainLease` 43/43, `firestoreDrainControl` y `firestoreUnknownResolver` verdes (123/123 juntos).
+- Emulador: 7/7 propios; junto a `firestoreDrainControl` 18/18.
+- Suíte completa: 1555 pasan; 2 fallos preexistentes y ajenos (`scripts/validateListeningScripts.test.ts` con error de sintaxis; `reviewBrowserNodeFixtures` por la carpeta `outputs/` ausente en este worktree, verificado ejecutando el helper por separado).
+
+**Mutaciones** (todas restauradas, archivo idéntico verificado): mataron 23/23 tras reforzar pruebas — candado (skipped, error de adquisición, no liberar sin adquirir), renovación (se detiene al rechazo, `unref`, limpieza), `assertHeld` y corte estructural de secciones, presupuesto por sección, orden, cursores (incluido `unknown`), guarda en vuelo, interruptor, latido (claves exactas y sin `reason`), saneado de recuentos, `resolved≠notDue`, fallo contado como `failed`, tope por cuenta y techo de tenencia.
+
+**Límites y decisiones conservadoras**
+- El brief permitía `skipped` por pasada previa viva; usé `reason:'in_flight'` (no puntualizado) y `lease_held` para el candado. Ambos fuera del latido.
+- El reparto por defecto es 12/30/8/10 s (documentado en el módulo); un override que sume más del presupuesto es `error` de configuración.
+- En (a) la concurrencia "real" se logra con un hilo trabajador con su propio cliente y guarda; comparte solo el emulador de loopback.
+- En (e) el resolvedor sella y encola; la liquidación necesita una segunda pasada con el reloj de Cuenta pasado su piso de 15 min (comportamiento certificado de 1.1/1.2, no del ejecutor).
+- `now` (reloj inyectado) se usa para el arriendo y el resolvedor; el vencimiento de filas de los drenajes sigue usando el reloj del proceso, como hoy.
+- Sin `git commit`, sin red, sin secretos, sin tocar `server/account/*` ni el modo `billing`.
+
+Nota: el shell heredaba un `OPENROUTER_API_KEY`; no se usó ni se imprimió, pero endurecí la guarda del fixture para que nunca ecoe valores (solo el nombre de la variable).

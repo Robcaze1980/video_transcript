@@ -24,6 +24,14 @@ const classify=api.classifyUnknownQuarantine as
   (row:{quarantinedAtMs?:unknown;unknownAttemptId?:unknown},options:{jobId:string;admitted:boolean;now:number;windowMs?:number;skewMs?:number})=>Verdict;
 const evidenceOf=api.unknownExpiredEvidence as (jobId:string,unknownAttemptId:string|null,quarantinedAtMs:number)=>string;
 const evidence=(attempt:string|'none',quarantinedAtMs:number)=>`unknown_expired:v1:${JOB}:${attempt}:${quarantinedAtMs}`;
+// The pure classifier raises when a test-only override is out of its bounds (the simplest, most conservative reading of
+// invalid override): a caller must never be able to buy a longer window or a wider skew with a bad number.
+const expectInvalid=(overrides:{windowMs?:unknown;skewMs?:unknown})=>{
+  let thrown:unknown=null;
+  try{classify({quarantinedAtMs:NOW,unknownAttemptId:ATTEMPT},{jobId:JOB,admitted:true,now:NOW,...overrides} as never);}
+  catch(error){thrown=error;}
+  expect(thrown).toMatchObject({code:'invalid'});
+};
 
 describe('the UNKNOWN review window and clock skew constants',()=>{
   it('declares a six-hour window above the Account floor and a ten-minute tolerated future skew',()=>{
@@ -78,6 +86,23 @@ describe('classifying one unknown row before the resolver decides its due date',
     expect(classify({quarantinedAtMs:NOW-1_000,unknownAttemptId:ATTEMPT},{jobId:JOB,admitted:true,now:NOW,windowMs:1_000}).state).toBe('expired');
     expect(classify({quarantinedAtMs:NOW-1_000,unknownAttemptId:ATTEMPT},{jobId:JOB,admitted:true,now:NOW,windowMs:1_001}).state).toBe('not_due');
   });
+  it('refuses a window override that is not a safe integer in [1000, six hours]',()=>{
+    // The override may only SHORTEN the six-hour window; a value outside the bounds (or not a number) is refused, never
+    // silently honored, so a fixture cannot buy a longer wait with a bad parameter.
+    for(const windowMs of [NaN,Infinity,-Infinity,Number.MAX_SAFE_INTEGER,0,-1,1.5,999,WINDOW+1,'1000',null,true,{}])
+      expectInvalid({windowMs});
+    // The exact bounds are legal: one second at the floor, the full window at the ceiling.
+    expect(classify({quarantinedAtMs:NOW-1_000,unknownAttemptId:ATTEMPT},{jobId:JOB,admitted:true,now:NOW,windowMs:1_000}).state).toBe('expired');
+    expect(classify({quarantinedAtMs:NOW-WINDOW,unknownAttemptId:ATTEMPT},{jobId:JOB,admitted:true,now:NOW,windowMs:WINDOW}).state).toBe('expired');
+    expect(classify({quarantinedAtMs:NOW-WINDOW+1,unknownAttemptId:ATTEMPT},{jobId:JOB,admitted:true,now:NOW,windowMs:WINDOW}).state).toBe('not_due');
+  });
+  it('refuses a skew override that is not a safe integer in [0, one hour]',()=>{
+    for(const skewMs of [NaN,Infinity,-Infinity,Number.MAX_SAFE_INTEGER,-1,1.5,3_600_001,'0',null,true,[]])
+      expectInvalid({skewMs});
+    // Zero and the one-hour ceiling are legal.
+    expect(classify({quarantinedAtMs:NOW,unknownAttemptId:ATTEMPT},{jobId:JOB,admitted:true,now:NOW,skewMs:0}).state).toBe('not_due');
+    expect(classify({quarantinedAtMs:NOW+SKEW,unknownAttemptId:ATTEMPT},{jobId:JOB,admitted:true,now:NOW,skewMs:3_600_000}).state).toBe('not_due');
+  });
 });
 
 describe('resolveExpiredUnknown argument validation',()=>{
@@ -99,5 +124,15 @@ describe('resolveExpiredUnknown argument validation',()=>{
       await expect(call({now:NOW,limit:5,after})).rejects.toMatchObject({code:'invalid'});
     // A null cursor is the wrap; it must get past validation (it will then reach the inert runner and fail there).
     await expect(call({now:NOW,limit:5,after:null})).rejects.toThrow(/must not be touched/);
+  });
+  it('rejects a test-only window or skew override outside its bounds before touching the database',async()=>{
+    // The window override may only shorten the interface; the skew stays within its ceiling. Everything else is invalid.
+    for(const windowMs of [NaN,Infinity,-Infinity,Number.MAX_SAFE_INTEGER,0,-1,1.5,999,WINDOW+1,'1000',null,true,{}])
+      await expect(call({now:NOW,limit:5,windowMs}),String(windowMs)).rejects.toMatchObject({code:'invalid'});
+    for(const skewMs of [NaN,Infinity,-Infinity,Number.MAX_SAFE_INTEGER,-1,1.5,3_600_001,'0',null,true,[]])
+      await expect(call({now:NOW,limit:5,skewMs}),String(skewMs)).rejects.toMatchObject({code:'invalid'});
+    // The legal bounds get past validation and then reach the inert runner.
+    await expect(call({now:NOW,limit:5,windowMs:1_000,skewMs:0})).rejects.toThrow(/must not be touched/);
+    await expect(call({now:NOW,limit:5,windowMs:WINDOW,skewMs:3_600_000})).rejects.toThrow(/must not be touched/);
   });
 });
