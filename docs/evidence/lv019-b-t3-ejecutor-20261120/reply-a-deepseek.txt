@@ -1,0 +1,13 @@
+1. ALTA — Seguridad: la clave (reserva, acción) no impide Capture y Release sobre la misma reserva; con ACK perdido, una liberación posterior puede cobrar y liberar. Corrección: estado terminal de reserva en Cuenta (PENDING→CAPTURED|RELEASED) en la misma transacción del asiento; la acción opuesta devuelve conflicto y Video nunca libera por timeout sin leer Cuenta.
+
+2. ALTA — Vivacidad: un error de infraestructura no incrementa intentos ni mueve la fila; si persiste, queda pendiente para siempre y solo hay latido “error”. Corrección: persistir intentos/edad/nextAttemptAt y escalar a needs_review por antigüedad máxima también en errores de infraestructura; alertar por edad de la fila más antigua.
+
+3. ALTA — Arriendo: no se exige que renovación y liberación sean condicionales al token; un titular pausado >90 s puede renovar o borrar el arriendo del nuevo. Un proceso atascado que renueva indefinidamente también bloquea. Corrección: renovar/liberar solo con holderId+token; token de fencing validado en cada escritura de Video y antes de llamar a Cuenta; expiresAt acotado con tiempo de servidor/margen, tenencia máxima y renovación solo con progreso.
+
+4. ALTA — Inanición: el tope de 5/cuenta no define rotación; las mismas 5 filas fallidas o las primeras cuentas pueden acaparar cada pasada, y si la llegada supera 5/pasada la cola crece sin cota. Corrección: round-robin persistido por cuenta/tipo y cursor global, orden por nextAttemptAt/edad, exclusión de needs_review y control de capacidad/backpressure.
+
+5. MEDIA — “Si algo cambió” sobre todo el historial puede mandar a cuarentena por cambios benignos (updatedAt, intentos) y romper vivacidad. Corrección: comparar versión/estado esperado y campos inmutables de la operación, no el historial completo.
+
+6. MEDIA — Faltan pruebas de Capture vs Release, ACK perdido+release, titular viejo tras expirar, reloj/expiresAt lejano, fallo prolongado, saturación e interruptor apagado. Faltan señales de edad por cola/cuenta, skips/tenencia del arriendo, needs_review y conciliación Cuenta→Video; alertar por falta de progreso, no solo por falta de latido.
+
+RESULTADO: FALLA

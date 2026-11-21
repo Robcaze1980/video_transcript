@@ -1,0 +1,19 @@
+**Hallazgos**
+
+1. **MEDIA** (b): La pasada no verifica el token del arriendo antes de cada fila. Si el proceso pausa >90 s y otra pasada toma el arriendo, la reanudada sigue procesando y causa cuarentenas falsas. Corrección: comprobar `holderId+token` contra `billingDrainLease/current` antes de cada fila; abortar limpiamente si se perdió.
+
+2. **MEDIA** (a-vivacidad): No se especifica el orden de selección de las 100 filas por tipo. Sin «más antigua primero», una fila puede quedar perpetuamente fuera del subconjunto. Corrección: garantizar orden por antigüedad dentro de cada tipo.
+
+3. **MEDIA** (d): Con el interruptor apagado no se define si se emite línea de latido. Si no, la alerta «sin latido» se dispara permanentemente. Corrección: emitir `outcome:disabled` y que Monitoring lo trate como sano.
+
+4. **MEDIA** (d): Solo existe la alerta «sin latido». Un `outcome:error` sostenido o `failed>0` (p. ej. Cuenta caída) genera latidos pero nadie alerta. Corrección: alerta basada en métrica de registro para `outcome:error` y `failed>0` sostenido.
+
+5. **MEDIA** (d): No hay señal de antigüedad de fila. Una fila en reintento persistente (infraestructura degradada) no llega a `needs_review` ni dispara alerta. Corrección: alertar filas con edad > umbral definido.
+
+6. **MEDIA** (d): Falta prueba de inyección de fallo en el punto exacto entre cobro exitoso en Cuenta y escritura en Video (cobro sin ACK). Corrección: matar el proceso justo tras la respuesta de Cuenta y verificar que la siguiente pasada concilia sin segundo cargo.
+
+7. **BAJA** (a-vivacidad): El presupuesto de 60 s con bloqueos primero puede consumirse íntegro en bloqueos y dejar salidas sin servir en esa pasada. Corrección: sub-presupuesto por sección o intercalado.
+
+(a) Sin hueco de seguridad. (b) Sin bloqueo permanente. (c) Sin inanición indefinida si rige orden antiguo-primero (hallazgo 2).
+
+RESULTADO: FALLA
