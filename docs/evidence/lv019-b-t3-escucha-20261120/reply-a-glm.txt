@@ -1,0 +1,9 @@
+1. **ALTA** — La escucha «ciega» no es ciega: el dueño conoce el texto, lo que infla fidelidad y naturalidad. Añade un oyente ingenuo por idioma que transcriba cada muestra sin ver el guion; aprueba solo si ambas personas superan los umbrales (≤1 palabra distinta por muestra, ninguna cifra errónea). (c)
+2. **MEDIA** — No se prueba no-determinismo ni errores intermitentes: genera cada guion 2 veces por voz y verifica estabilidad (misma voz, ritmo, sin cortes) y tasa de fallos/reintentos. (b)
+3. **MEDIA** — Falta texto largo: añade 1–2 guiones de 60–90 s con listas y pausas para detectar fragmentación y caída de calidad. (b)
+4. **MEDIA** — Hashes sin audio no permiten reauditar: conserva los audios aprobados en almacenamiento privado (fuera del repo), con modelo, versión, fecha, parámetros y transcripción exacta referenciados en el acta. (d)
+5. **BAJA** — Si una corrección cambia normalización o estilo, reevalúa todos los guiones afectados, no solo el corregido más uno.
+6. **BAJA** — El tope de US$5 no es criterio de calidad: presupuesto agotado sin voz aprobada = «no aprobado», nunca aprobación por omisión.
+7. **BAJA** — 12 muestras y umbrales 4.0/3.0 son un filtro mínimo razonable, no garantía: decláralo como filtro en el acta y evalúa con el formato final de entrega (codec/bitrate) que escuchará el cliente.
+
+RESULTADO: FALLA

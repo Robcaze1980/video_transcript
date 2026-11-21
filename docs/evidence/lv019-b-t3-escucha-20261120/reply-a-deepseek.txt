@@ -1,0 +1,17 @@
+1. **ALTA — Muestra y umbrales arbitrarios:** 12 guiones de 20-40 s y 2 voces no cubren videos completos ni la variabilidad del TTS; el 4.0/5 carece de justificación. Corrección: añadir guiones de 2-5 min y validar umbrales con 2-3 evaluadores o un piloto.
+
+2. **ALTA — No prueba no determinismo:** la misma entrada puede cambiar prosodia, cifras, siglas o cortes entre ejecuciones. Corrección: 3 repeticiones del mismo guion, comparar hashes y escuchar; criterio explícito de estabilidad.
+
+3. **ALTA — No prueba fragmentación en textos largos.** Corrección: evaluar cortes de frase, empalmes y continuidad entre párrafos.
+
+4. **MEDIA — “Falla crítica corregible y no repetible” es ambigua:** no define quién califica ni con qué evidencia. Corrección: lista cerrada de ejemplos y registro de causa raíz.
+
+5. **MEDIA — Un solo oyente que conoce el texto sesga la escucha y “corrige” mentalmente.** Corrección: un oyente ciego adicional, orden aleatorio, sin guion a la vista y registro de desacuerdos.
+
+6. **MEDIA — Abrir un idioma con una sola voz aprobada no fija respaldo.** Corrección: exigir 2 voces aprobadas o un plan de sustitución.
+
+7. **BAJA — Falta prueba en ruido/altavoz y a 1.25x; el acta sin audio impide reauditar.** Corrección: retención temporal cifrada y consentimiento.
+
+Para que sea evidencia: pre-registrar criterios antes de escuchar, doble puntuación, control negativo con error conocido y trazabilidad de iteraciones y gasto.
+
+RESULTADO: FALLA
