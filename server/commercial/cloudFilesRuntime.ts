@@ -9,6 +9,8 @@ import {privateBucket,privateUuid} from './privateObjectPlan';
 import {privateVideoProbe} from './privateVideoProbe';
 import {firestoreHttp} from './firestoreHttp';
 import {AccountBillingClient} from './accountBillingClient';
+// Step 3.4 (A2): static import is a decision, not an oversight. A load failure of this module is a COMPILE error caught by tsc and the tests, never a runtime risk; a dynamic import would only move the same failure into a request and could hide it.
+import {runBillingSweepSection} from './billingSweepSection';
 
 const accounts={api:'vistavo-files-api',validate:'vistavo-files-validator',cleanup:'vistavo-files-cleaner',maintenance:'vistavo-files-maintenance',proof:'vistavo-bootstrap',ai:'vistavo-runtime'} as const;
 export async function cloudFilesRuntime(role:keyof typeof accounts){
@@ -80,9 +82,17 @@ export async function filesMain(){
  const server=createServer(mode==='api'?firestoreHttp({backend:runtime.backend,identity:runtime.identity,origin:'https://vistavo.app',files:runtime.files,...(process.env.VISTAVO_AI_ENABLED==='1'?{ai:runtime.ai}:{})}):async(req,res)=>{
   // IAM-authenticated internal Cloud Run service, invokable only by Scheduler.
   if(req.method!=='POST'||req.url!=='/internal/maintenance'){req.resume();res.writeHead(404).end();return;}
-  try{req.resume();const fileDrain=await drainCloudFiles({pending:()=>runtime.files.maintenanceReport(),dispatch:runtime.dispatch});
+  try{req.resume();
+   // Step 3.4 (A2): the sweep sub-handler runs as its OWN section, OFF unless explicitly enabled. It is STARTED (not
+   // awaited) before the file and AI sections so it never delays them, and awaited only at the end to include it in the
+   // response. It never throws, so a failing or timed-out sweep neither changes the status of the other sections nor
+   // counts as `failed`; a load/execution error is swallowed into an error outcome instead of the outer 503.
+   const sweepPromise=runBillingSweepSection({db:runtime.db,root:runtime.root,now:Date.now(),enabled:process.env.VISTAVO_BILLING_SWEEP==='1',budgetMs:20000,log:line=>console.log(line)})
+    .catch(error=>{console.error(JSON.stringify({event:'billing-sweep-section-failed',type:error?.name,code:error?.code}));return {outcome:'error'};});
+   const fileDrain=await drainCloudFiles({pending:()=>runtime.files.maintenanceReport(),dispatch:runtime.dispatch});
    const aiDrain=await runtime.nudgeAi();
-   const failed=fileDrain.failed+(aiDrain?.failures.length??0);res.writeHead(failed?503:200,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify({due:fileDrain.due,failed,fileDrain,aiDrain}));
+   const sweep=await sweepPromise;
+   const failed=fileDrain.failed+(aiDrain?.failures.length??0);res.writeHead(failed?503:200,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify({due:fileDrain.due,failed,fileDrain,aiDrain,sweep}));
   }catch(error){console.error(JSON.stringify({event:'maintenance-failed',type:error?.name,code:error?.code}));res.writeHead(503,{'Cache-Control':'no-store'}).end();}
  });
  server.requestTimeout=180000;server.headersTimeout=30000;

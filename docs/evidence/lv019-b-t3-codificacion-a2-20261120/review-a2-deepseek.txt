@@ -1,0 +1,15 @@
+Revisión (solo lectura: `git diff`, archivos citados).
+
+1. ALTA — aislación rota por import estático de nivel superior. `server/commercial/cloudFilesRuntime.ts:12` hace `import {runBillingSweepSection} from './billingSweepSection'`. Un fallo de carga (sintaxis, o cualquier dep transitiva) tumba el módulo entero, así que api/validate/cleanup/ai/maintenance no arrancan y no se emite latido alguno. Corrección: `await import('./billingSweepSection')` perezoso dentro de la rama mantenimiento, envuelto en try/catch. La valla es un test, no una garantía de build.
+
+2. ALTA — la valla de imports es burlable. En `server/commercial/billingSweepSection.test.ts`, `readImports` y el test de valla solo conservan especificadores `./`/`../`: cualquier alias (`@/…`, que tsconfig paths y vite sí resuelven) o paquete queda invisible al cierre Y al chequeo de prohibidos. Además el regex `(?:from|import)\s*\(?\s*['"]` no ve `require('…')` ni `import(\`…\`)`/variable. Corrección: recoger también no-relativos, resolver alias tsconfig, prohibir especificadores absolutos, y usar AST (`ts-morph`) en vez de regex.
+
+3. MEDIA — el timeout no cancela: `runPendingSweep` no tiene abort y recorre TODAS las filas no terminales en memoria. Tras el latido `timeout` con 0 recuentos el barrido sigue vivo horas/minutos, sigue leyendo y SÍ escribirá alertas después. El test de emulador «timeout no escribe nada» inyecta `()=>new Promise(()=>{})`, así que no prueba nada del barrido real. Corrección: propagar deadline/AbortSignal a `readPendingReport`/raise/clear, o declarar el latido como «abandonado, puede escribir aún».
+
+4. MEDIA — pruebas que pasan con la garantía rota: el test de cableado no fija que el barrido corra ANTES del drenaje; moverlo al final restaura el fallo «sin latido si archivos lanza» y el test sigue verde. `/sweep\b/` es vacuo.
+
+5. BAJA — rama muerta: `runPendingSweep` nunca resuelve `ok:false` (lanza `SweepError`), así que `partial` es inalcanzable en producción; los parciales reales salen como `error`. Y `stage` se valida solo como string, sin lista blanca: un `stage` arbitrario se filtra al latido y a la respuesta.
+
+6. Decisión: correr primero es defendible (sin él, un fallo de archivos/IA daría 503 sin latido), pero como el barrido ya emite su propio latido, `Promise.allSettled` con las otras secciones elimina el retraso ≤20 s (peor caso 60 s vs `requestTimeout` 180000) conservando el latido.
+
+RESULTADO: FALLA

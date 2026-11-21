@@ -1,0 +1,13 @@
+Revisión completada. Hallazgos:
+
+**1. MEDIA — Aislamiento: barrido colgado se acumula entre pasadas.** `billingSweepSection.ts` usa `Promise.race([run,gate])` sin cancelar `run`: tras `timeout`, el barrido real sigue vivo y puede seguir leyendo/escribiendo alertas. Con un `runPendingSweep` colgado (p. ej. consulta Firestore sin responder), cada pasada de 5 min apila otro run con su informe completo en memoria; crecimiento acumulativo en la instancia (mín. 0, larga vida) y transacciones duplicadas contra la siguiente pasada. Los writes son idempotentes, así que el estado no se corrompe; el fallo es memoria/acumulación sin tope. Corrección: registro de pasada en curso por `root` (omisión o reemplazo de la anterior) en el módulo de la sección.
+
+**2. MEDIA — Frontera de importaciones burlable en la prueba estática.** En `billingSweepSection.test.ts` el nombre prohibido es `spec.replace(/^\.\//,'')…`; un import `from '../commercial/firestoreBackend'` resuelve al fichero ya presente en el conjunto congelado (no cambia el conjunto) y el nombre resultante no coincide con la regex prohibida: pasa ambas aserciones. Igual con especificador dinámico concatenado (`await import('./firestore'+'Backend')`), cuyo literal no contiene el nombre. Corrección: canonicalizar cada especificador con `resolve`+`relative` contra `server/commercial` antes de comparar, y rechazar `import(` con especificador no literal.
+
+**3. MEDIA — Fuga latente por `stage` sin validar.** En el catch de `runBillingSweepSection`, cualquier `typeof record.stage==='string'` se acepta (no solo `SweepError`); ese `stage` viaja en `sweep` dentro de la respuesta HTTP en `cloudFilesRuntime.ts`. Un rechazo arbitrario con `stage` fabricado filtra contenido libre al llamante. Corrección: aceptar `stage` solo si pertenece al conjunto fijo (`read|raise|clear|review|alert`) u omitirlo si no.
+
+**4. BAJA — Prueba que pasaría con la garantía rota.** El test de latido verifica presencia de campos y ausencia de secretos sembrados, pero no fija el conjunto exacto de claves: añadir `message`/`error` a la línea pasaría si no contiene esos secretos. Corrección: asertar `Object.keys(JSON.parse(line)).sort()` contra el conjunto exacto permitido.
+
+Decisión de correr primero: correcta; garantiza el latido aunque las secciones siguientes fallen o cuelguen, con coste acotado a 20 s solo cuando está activada.
+
+RESULTADO: FALLA

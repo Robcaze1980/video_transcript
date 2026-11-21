@@ -1,0 +1,52 @@
+A2 barrido apto para la nube
+mcp:5325b554-daf4-4ce8-b484-a19ecd0fe377  completed  linguistvision-openrouter/deepseek/deepseek-v4.1-flash
+lv019b/t3-a2-sweep  C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-a2-sweep
+
+[assistant]
+Emulator is healthy right now (1.3 s). The ~453 s hang was transient. Let me re-run my emulator test and confirm.
+
+[assistant]
+The hang was transient (emulator contention from concurrent fixtures; it responds in ~1.3 s now and my run passed in 5 s). But a fixture that can hang for minutes and then leave an orphan is exactly the earlier risk, so let me harden it. First, check the `terminate` signature available.
+
+[assistant]
+`terminate()` takes no options here, so `force` isn't available. Let me check for leftover processes from that hung run and confirm the emulator's shared-port contention theory.
+
+[assistant]
+No orphaned `node --test` processes remain, and the emulator is responsive (1.3 s). The 453 s durations were the shared emulator stalling under contention with the other thread's fixtures, not a logic failure. Two robustness gaps remain in my fixture: a slow emulator can hang a test for minutes, and if `terminate()` itself were skipped we'd leak again. Let me bound the fixture so it fails fast and always tears down.
+
+[assistant]
+Let me bound the fixture so a stalled emulator fails fast instead of hanging, while always tearing down.
+
+[assistant]
+The `unref()` on the guard reintroduces the exact bug I fixed in the module: the timeout may never fire. Let me clear the timer on settle instead.
+
+[assistant]
+Now verify: run the emulator test repeatedly, confirm timing and no leaks.
+
+[assistant]
+Stable (5/5 five times, ~5 s each, no leaks). Now verify the bounded cleanly fails fast when the emulator is unreachable, and re-run tsc + vitest.
+
+[assistant]
+All green (`tsc` 0; 39/39). Guard fires at 611 ms as designed. Let me confirm the final diff and no leaks.
+
+[assistant]
+Done. The 453 s failures were a stalled shared emulator, not a logic fault; I hardened the fixture so it can't hang or leak again.
+
+**Diagnóstico**
+- Las duraciones de ~453 s por prueba eran el **emulador compartido detenido**, no un fallo del barrido: el `java` (PID 7724) seguía escuchando en 8185 pero dejó de responder bajo contención con los fixtures del **otro hilo** (`billingSettlementSnapshotBinding`, `firestoreVideoSettlementC2a`) que usan el mismo puerto.
+- Comprobado en el momento: sonda directa al emulador → `READ/WRITE ok` en **1.3 s**; mi fixture volvió a pasar en **5 s**. No hubo huérfanos de `node --test` míos tras esa corrida.
+- Es transitorio y de entorno, pero un fixture que puede colgarse minutos y saltarse el `terminate()` es precisamente el riesgo que produjo el huérfano con OAuth de antes. Lo blindé.
+
+**Arreglo (solo mi fixture, `billingSweepSection.emulator.mjs`)**
+- `bounded(promise, ms, label)`: temporizador **referenciado** mientras espera (para que el timeout sí dispare) y `clearTimeout` en `.finally` en cuanto la carrera se resuelve (sin penalizar la corrida normal ni dejar timers vivos). Un asentamiento tardío no provoca rechazo no capturado.
+- `fixture`: el trabajo se acota a 60 s y el `recursiveDelete` a 30 s; el `finally` anidado garantiza que **`db.terminate()` corre siempre**, aunque el borrado falle o se cuelgue.
+
+**Verificación**
+- Emulador: 5 corridas seguidas, 5/5 cada una, ~5 s, **sin procesos residuales**.
+- La guarda dispara de verdad: a nivel unitario, un work colgado lanza `emulator timeout: fixture work` a los 611 ms (no se queda esperando). *(Nota: no uso `unref()` en esa guarda, consciente del bug que ya corregí en el módulo.)*
+- `tsc --noEmit`: exit 0. `billingPendingSweep.test.ts` + `billingSweepSection.test.ts`: 39/39.
+- Sin procesos `node` míos residuales.
+
+**Ajeno (no tocado)**: el emulador y los fixtures `billingSettlementSnapshotBinding` / `firestoreVideoSettlementC2a` son de otro hilo. Su `finally { recursiveDelete(...); terminate(); }` tiene la misma fragilidad (si el borrado falla, se salta `terminate()`); si interesa, ese endurecimiento conviene replicarlo allí, pero queda fuera de mi alcance.
+
+**Estado del worktree** (sin commit): `cloudFilesRuntime.ts` modificado + `billingSweepSection.ts`/`.test.ts`/`.emulator.mjs` nuevos. Sin más cambios pendientes.
