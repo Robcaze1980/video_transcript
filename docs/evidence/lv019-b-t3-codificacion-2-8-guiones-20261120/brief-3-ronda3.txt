@@ -1,0 +1,14 @@
+RONDA 3 (pequena) de los guiones. Un revisor independiente (GLM) respondio FALLA con calcos reales que Codex verifico y ADOPTA. Aplica exactamente esto en guiones.json (conserva tildes, enie y signos; el cambio en un guion con referenceText se aplica IGUAL a text y referenceText; no cambies cifras ni expectedTokens; actualiza `notes` si algo declarado cambia). Despues vuelve a correr tsc, vitest del validador, el validador (ok) y tus mutaciones (todas detectadas; restaurado identico).
+ESPANOL
+1. es-short-06: "cumple el codigo" -> "cumple con el codigo"; "una clasificacion de fuego clase A" -> "una clasificacion contra incendios de clase A".
+2. es-short-09 y es-extended-01: "un iman de barrido" -> "un iman para recoger clavos" (y en el extendido "un iman de barrido para los clavos" -> "un iman para recoger los clavos").
+3. es-short-12: "mirara la perforacion del ano pasado" -> "mirara la gotera del ano pasado".
+4. es-long-01: "anoto el dia en la tarjeta del permiso" -> "anoto la fecha en la tarjeta del permiso".
+5. es-long-02: "el remate de la chimenea esta oxidado de lado a lado" -> "el remate de la chimenea esta oxidado por completo".
+6. es-extended-01: "la garantia del material sigue las condiciones del fabricante" -> "la garantia del material esta sujeta a las condiciones del fabricante"; "igual rechazamos el trabajo" -> "aun asi rechazamos el trabajo".
+7. es-short-10: "el reclamo que dice que el dano vino de la tormenta" -> "el reclamo que dice que el dano fue causado por la tormenta".
+INGLES
+8. en-short-06: "rated R 38" -> "rated R-38" y "UV rated kit" -> "UV-rated kit" (si expectedTokens usa "R 38", conserva el token literal que corresponda y ajusta el validador/pruebas SOLO si dependen de esa forma; di que hiciste).
+9. en-long-01: "wrote the day on the permit card" -> "wrote the date on the permit card".
+NO se cambia (decision de Codex tras contrastar): "remate" para flashing y "vertiente" para la cara del techo se conservan; son terminos de oficio usados en la region y el criterio final lo da la escucha. Anotalo en `notes` de los guiones afectados (una linea, p. ej. "terminologia de oficio: remate/vertiente, a confirmar en la escucha").
+Responde breve: archivos y resultados.

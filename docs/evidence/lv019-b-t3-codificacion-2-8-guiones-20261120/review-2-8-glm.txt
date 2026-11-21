@@ -1,0 +1,15 @@
+1. ALTA — `es-short-11` / `es-extended-01` — "un remate suelto" / "sellamos valles y remates": en techos, "remate" es la moldura o el borde, no la base de ventilación ("boot"). Corrección: "una campana suelta" / "sellamos valles y bases de ventilación".
+2. MEDIA — `es-short-12` — "mirará la perforación del año pasado": "perforación" suena a agujero taladrado, no a fuga. Corrección: "mirará la gotera del año pasado".
+3. MEDIA — `es-short-06` — "cumple el código": calco de "meets code"; falta la preposición. Corrección: "cumple con el código".
+4. MEDIA — `es-short-06` — "una clasificación de fuego clase A": calco de "fire rating". Corrección: "una clasificación contra incendios de clase A".
+5. MEDIA — `es-short-09` / `es-extended-01` — "un imán de barrido": calco de "magnet sweep". Corrección: "un imán para recoger clavos".
+6. MEDIA — `es-long-01` — "anotó el día en la tarjeta del permiso": calco de "wrote the day". Corrección: "anotó la fecha en la tarjeta del permiso".
+7. MEDIA — `es-long-02` — "el remate de la chimenea está oxidado de lado a lado": calco de "rusted through". Corrección: "el remate de la chimenea está oxidado por completo".
+8. MEDIA — `es-extended-01` — "la garantía del material sigue las condiciones del fabricante": calco de "follows the terms". Corrección: "la garantía del material está sujeta a las condiciones del fabricante".
+9. MEDIA — `es-extended-01` — "igual rechazamos el trabajo": "igual" como "aun así" no es neutro. Corrección: "aun así rechazamos el trabajo".
+10. BAJA — `es-short-08` / `es-long-01` — "la vertiente oeste" / "la vertiente norte": "vertiente" es menos común para la cara del techo en América Latina. Corrección: "la inclinación oeste" / "la parte norte del techo".
+11. BAJA — `es-short-10` — "el daño vino de la tormenta": calco de "came from the storm". Corrección: "el daño fue causado por la tormenta".
+12. BAJA — `en-short-06` — "rated R 38" y "UV rated kit": faltan los guiones estándar. Corrección: "rated R-38" y "UV-rated kit".
+13. BAJA — `en-long-01` — "wrote the day on the permit card": "the day" no es natural. Corrección: "wrote the date on the permit card".
+
+RESULTADO: FALLA

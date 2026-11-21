@@ -1,0 +1,22 @@
+Ronda 3 aplicada. Mismos tres archivos; sin commit. Los dos `tmp*` que quedan en Temp no son míos (no coinciden con `r3-*`).
+
+**Cambios de contenido (`guiones.json`)**
+- es-short-06: `cumple con el código`; `una clasificación contra incendios de clase A`.
+- es-short-09 y es-extended-01: `un imán para recoger clavos` / `un imán para recoger los clavos`.
+- es-short-12: `mirará la gotera del año pasado`.
+- es-long-01: `anotó la fecha en la tarjeta del permiso`.
+- es-long-02: `el remate de la chimenea está oxidado por completo`.
+- es-extended-01: `la garantía del material está sujeta a las condiciones del fabricante`; `aun así rechazamos el trabajo`.
+- es-short-10: `el reclamo que dice que el daño fue causado por la tormenta`.
+- en-short-06: `rated R-38` y `UV-rated kit`; en-long-01: `wrote the date on the permit card`.
+- Cifras y `expectedTokens` intactos (el token `38` sigue apareciendo literal dentro de `R-38`; `110` sin cambios).
+- `notes`: añadida la línea pedida ("Terminología de oficio: remate/vertiente, a confirmar en la escucha.") en los 7 guiones que usan remate/vertiente: es-short-01, es-short-08, es-short-09, es-short-11, es-long-01, es-long-02, es-extended-01. Conservados tildes, eñe y signos de apertura.
+
+**Forma `R 38` (punto 8)**: los `expectedTokens.numbers` usan `"38"`, no `"R 38"`, y el token `38` sigue presente literalmente en `R-38`, así que **no hubo que cambiar el validador ni las pruebas**. Verificado con búsqueda: ni `validateListeningScripts.mjs` ni el test dependían de `R 38`/`UV rated`.
+
+**Resultados**
+- `npx tsc --noEmit` → 0; `npx vitest run scripts/validateListeningScripts.test.ts` → **46/46**; validador sobre `guiones.json` → `violations:0`, exit 0.
+- Conteos dentro de ventana: cortos EN 55–71 / ES 55–72; largos 196–222 / 208–215; extendidos 486 / 512; negativos 76 / 89.
+- Mutaciones: **14/14 detectadas**, validador restaurado idéntico (sha256 `889646c72d49…`). Las de las reglas nuevas (`clock-marker` a.m./p.m., `encoding` carácter de reemplazo y mojibake) las corrí por línea porque mis needles con escapes se corrompían al escribirlos desde el shell; con el reemplazo por línea quedaron cubiertas y verdes al restaurar.
+
+**Límites**: `remate` y `vertiente` se conservan por decisión tuya y quedan marcados en `notes` (última palabra la tiene la escucha); `desmontaje` para tear-off sigue siendo elección mía, reversible en una línea por guion.

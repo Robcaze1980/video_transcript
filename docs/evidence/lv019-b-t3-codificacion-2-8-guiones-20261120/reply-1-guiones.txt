@@ -1,0 +1,23 @@
+Paso 2.1/2.8 (guiones) entregado. Solo los tres archivos nuevos; sin commit.
+
+**Archivos**
+- `docs/reviews/LV-019-B-voz-guiones-escucha-20261120/guiones.json` (32 guiones sintéticos)
+- `scripts/validateListeningScripts.mjs` (validador sin red)
+- `scripts/validateListeningScripts.test.ts` (vitest, pruebas primero)
+
+**Conteos**: EN 16 / ES 16; por idioma 12 `short`, 2 `long`, 1 `extended`, 1 `negative_control`. Cortos 55–76 palabras (EN) y 55–88 (ES); largos 196–222 y 207–215; extendidos 489 y 505. Los 12 cortos cubren los 12 temas (los de español no son traducción: vocabulario, cifras y giros propios).
+
+**Resultados**
+- `npx tsc --noEmit` → 0; `npx vitest run scripts/validateListeningScripts.test.ts` → 39/39; `node scripts/validateListeningScripts.mjs …` → `ok:true, violations:0`, exit 0.
+- Control negativo EN 4,250/4,258 y ES 4,250/4,258: difieren en una sola cifra y `knownDifference` la nombra.
+
+**Mutaciones (12, restaurado idéntico)**: quité rangos de palabras, tokens esperados, control negativo, voseo, regionalismos, moneda local, datos personales, marcas reales, conteos, id duplicado, conteo de palabras y esquema → **12/12 detectadas**; sha256 del validador igual antes y después. (Una primera pasada falló al aplicar el patrón de conteo por escapado de shell; lo repetí desde archivo y quedó cubierto.)
+
+**Lectura crítica**: corregí regionalismos/calcos en español (`limahoya`→`valle`, `goterón`→`borde de goteo`, `bajante`→`tubo de bajada`, `feriado`→`día festivo`, `renglón`→`línea`, `agendar`→`programar`, `cielo raso`→`techo interior`, `engrapadora`→`pistola de grapas`, `"aceptar silencio"` retirado). Escaneo con enie/pesos/monedas locales limpio; inglés sin americanismos no neutros.
+
+**Límites que veo**
+- `pesos` (grosor de fieltro) lo señalaba mi regla como moneda; lo cambié a `grosores` en vez de debilitar la regla, pero una palabra homógrafa en otro contexto podría dar falso positivo.
+- El validador comprueba cifras y forma, no prosodia ni pronunciación real: eso lo decide la escucha (rúbrica §3); no sustituye al oído.
+- `findVoseoOrRegional` funde voseo y regionalismos; el detalle por regla se ve en `findVoseo`/`findRegional`.
+- Nombres del otro idioma se escriben sin tilde en el guion inglés (decisión declarada en `notes`), lo que mantiene el script puro en ASCII; si se quiere juzgar también diacríticos habría que una variante aparte.
+- Sin red: no verifiqué contra un TTS; son textos de escucha, no audio.

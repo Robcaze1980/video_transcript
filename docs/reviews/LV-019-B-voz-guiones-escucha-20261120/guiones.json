@@ -1,0 +1,294 @@
+[
+  {
+    "id": "en-short-01",
+    "language": "en",
+    "kind": "short",
+    "topic": "trade vocabulary: roofs, tiles, estimate, warranty, inspection",
+    "text": "Our crew finished the roof on Tuesday. The old shingles came off clean, and the underlayment still looked solid. We replaced two cracked tiles near the ridge and sealed the flashing around the chimney. The written estimate covers labor, hauling and a five-year workmanship warranty. After the final inspection, we send the invoice and the signed warranty card.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Highest-frequency trade words in one breath, so a wrong word is easy to spot."
+  },
+  {
+    "id": "en-short-02",
+    "language": "en",
+    "kind": "short",
+    "topic": "numbers and figures with decimals",
+    "text": "Here are today's readings. The slope of the main roof is 4.5 in twelve, and the pitch of the porch is 12.75 degrees. We measured 0.5 inches of rain overnight and 24.6 gallons in the downspout. The ridge height is 18.25 feet, while the patio grade drops 0.75 inches over ten feet. Please log each figure before the crew leaves.",
+    "expectedTokens": {"numbers": ["4.5", "12.75", "0.5", "24.6", "18.25", "0.75"], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Decimals of one and two places, including a value below one."
+  },
+  {
+    "id": "en-short-03",
+    "language": "en",
+    "kind": "short",
+    "topic": "money and percentages",
+    "text": "The estimate for the whole job is 12,500 dollars, and the deposit is 25 percent. Materials run about 6,300 dollars, labor about 4,900, and permits 300. If we add a skylight, the price rises 8.5 percent. A rush schedule costs 12 percent extra. You can pay half up front and the rest on completion. Ask about the 3 percent discount for a cash payment.",
+    "expectedTokens": {"numbers": ["12,500", "6,300", "4,900", "300"], "dates": [], "money": ["12,500 dollars", "6,300 dollars", "4,900", "300"], "percents": ["25 percent", "8.5 percent", "12 percent", "3 percent"], "times": []},
+    "notes": "Grouped amounts and percentages together; the deposit is spoken as a percentage, never as a figure."
+  },
+  {
+    "id": "en-short-04",
+    "language": "en",
+    "kind": "short",
+    "topic": "dates and times",
+    "text": "On March 3, 2027, we will start at 7:30 a.m. sharp. The inspector arrives on Thursday, June 12, at 2:15 p.m. We finish the tear-off by Friday, July 4, and the crew returns on the first Monday of August. The final walkthrough is set for September 22 at 9:45 a.m. Please confirm each date, and call if any window changes.",
+    "expectedTokens": {"numbers": ["3", "2027", "12", "4", "22"], "dates": ["March 3, 2027", "Thursday, June 12", "Friday, July 4", "first Monday of August", "September 22"], "money": [], "percents": [], "times": ["7:30", "2:15", "9:45"]},
+    "notes": "Month-day-year order, a weekday date and three clock times with the a.m. and p.m. markers."
+  },
+  {
+    "id": "en-short-05",
+    "language": "en",
+    "kind": "short",
+    "topic": "addresses",
+    "text": "Our shop sits at 1240 Maple Bend Road, near the old mill. The warehouse is at 87 Cedar Hollow Lane, and the yard is behind it. A second crew meets at 19 Harbor View Circle. Mail the permit packet to 356 Sunfield Terrace, Unit B, and leave a copy at the front desk. None of these buildings sits in a city center; they are all on county roads.",
+    "expectedTokens": {"numbers": ["1240", "87", "19", "356"], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Fictional street names with no city, so the audio cannot be tied to a real property."
+  },
+  {
+    "id": "en-short-06",
+    "language": "en",
+    "kind": "short",
+    "topic": "acronyms and brand names",
+    "text": "The new panel is rated R-38, and the fasteners meet code. Our supplier, Tejarrube, sells the Cumbratel underlayment and the Pluvionorte gutter line. Ask for the UV-rated kit from the Duroteja catalog. The label shows an R value, a Class A fire rating, and a wind uplift of 110 miles per hour. Keep the spec sheet with the invoice.",
+    "expectedTokens": {"numbers": ["38", "110"], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Short forms spoken as letters, plus three invented marks that must be read as written."
+  },
+  {
+    "id": "en-short-07",
+    "language": "en",
+    "kind": "short",
+    "topic": "proper names in the other language (Spanish names inside English)",
+    "text": "Marisol Ventura-Ríos signed the contract for the north roof. Teodoro Alcázar will lead the crew, and Xiomara Beltrán handles the permits. The homeowner, Andrés Peñalosa, asked about the warranty. Our estimator, Sofía Márquez, speaks Spanish and English. Please copy Ana Lucía Terreros on every message, and send the invoice to Ramón Estrada at the office.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Spanish names written with their real accents in the English script, so the voice is judged on pronouncing the names and their diacritics; surnames are invented."
+  },
+  {
+    "id": "en-short-08",
+    "language": "en",
+    "kind": "short",
+    "topic": "questions and exclamations",
+    "text": "Did the crew seal the ridge cap? Yes, they did. How steep is the west slope? It is nearly vertical. Will the inspector come back if we fail the first pass? She will, at no charge. What a clean tear-off that was! Watch out for the loose ladder! Can you send the revised estimate today? Please do, and mark the rush line clearly.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Rising intonation on seven questions, two exclamations, and one flat closing order."
+  },
+  {
+    "id": "en-short-09",
+    "language": "en",
+    "kind": "short",
+    "topic": "lists",
+    "text": "Please bring four items: a staple gun, a chalk line, a magnet sweep, and a bundle of ridge caps. The crew also needs three sizes of nails: two and a half inches, three inches, and three and a quarter inches. Add five tubes of sealant, two rolls of underlayment, one box of flashing, and six bundles of shingles. Check each item off the list before you load the truck.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Four-item and three-item lists in a row, with a compound size written in words."
+  },
+  {
+    "id": "en-short-10",
+    "language": "en",
+    "kind": "short",
+    "topic": "long sentences with subordinate clauses",
+    "text": "If the adjuster approves the claim that the storm damage was sudden, we can schedule the repair for the week after the holiday, provided that the supplier, which is already behind on two orders, delivers the ridge caps on time. Because the homeowner wants to avoid another leak, the crew will tarp the exposed section tonight and return with the full material list as soon as the adjuster signs the report.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Two long periods with nested clauses, so a fluffed middle is audible."
+  },
+  {
+    "id": "en-short-11",
+    "language": "en",
+    "kind": "short",
+    "topic": "punctuation and pauses",
+    "text": "First we inspect, then we measure, and finally we quote. The order matters: inspection, measurement, quote. We flag three problems, namely a soft deck, a rusted valley, and a loose boot; each one changes the price. (The tarp stays until the repair, by the way.) So the short version is this: we fix the deck, we seal the valley, and we replace the boot. That is the plan.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Commas, a colon, a semicolon and a parenthesis, each of which should buy a pause."
+  },
+  {
+    "id": "en-short-12",
+    "language": "en",
+    "kind": "short",
+    "topic": "apostrophes, hyphens, quotes and dashes",
+    "text": "The homeowner's neighbor's roof needs work, and the crew's ladder is on the truck. Use a three-quarter inch board and a two-by-four to brace the ridge. The label reads \"seal before use,\" and the inspector called it a \"no-brainer.\" The crew leader, a careful man, checked the drip edge twice. Do not skip the self-adhering layer; that is the whole point.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Two possessives in a row, hyphens, and two quoted phrases."
+  },
+  {
+    "id": "en-long-01",
+    "language": "en",
+    "kind": "long",
+    "topic": "one working day: arrival, tear-off, deck check, tarp",
+    "text": "The crew reached the house a little after seven. The foreman walked the perimeter twice and marked two soft spots on the north slope with chalk. By eight, the ladder was tied off and the first bundle was on the ridge. The tear-off went quickly because the old shingles were brittle and came up in wide sheets. Under the shingles the deck told a different story: two sheets of sheathing had rotted near the valley, and one rafter end was soft to the touch. We stopped, called the homeowner, and explained the extra cost before we touched a nail. She approved the repair, so we cut out the bad wood, sistered the rafter, and laid new sheathing. The crew sealed the valley, replaced the boot around the vent pipe, and tarped the open section when the sky turned gray. By four in the afternoon the roof was dry and the yard was swept twice. The foreman wrote the date on the permit card, took photos from four angles, and left the homeowner a written note about what comes next. Tomorrow the crew returns at seven thirty to set the underlayment and the ridge caps, weather permitting.",
+    "expectedTokens": {"numbers": ["seven", "eight", "two", "four", "seven thirty"], "dates": [], "money": [], "percents": [], "times": [], "unreliable": []},
+    "notes": "A single continuous narrative to expose a mid-text drift in pace or a dropped phrase."
+  },
+  {
+    "id": "en-long-02",
+    "language": "en",
+    "kind": "long",
+    "topic": "inspection findings and a price conversation",
+    "text": "Thank you for meeting us on site this morning. I want to walk through what the inspector found and what it means for the price. Three items drive the work. First, the flashing at the chimney is rusted through, so water gets behind the counterflashing and runs down the framing. Second, the drip edge along the north eave is missing in two places, which lets water curl back under the first course. Third, the attic shows a long stain that follows a rafter, not a pipe, so the leak is probably at the chimney and not at the vent. The good news is that the deck is dry everywhere else, and the trusses are sound. To fix the three items we need two days, one dumpster and about six bundles of shingles. The revised estimate comes to 4,250 dollars plus tax, and the deposit is 850 dollars. If you want us to add a skylight while the roof is open, the price rises 8.5 percent and the schedule grows by half a day. I can hold this price for fourteen days. After that, the quote follows the next material list, which we expect to increase in the spring. If you approve, sign the last page and send it back today, and the crew can start on the first Monday of next month.",
+    "expectedTokens": {"numbers": ["4,250", "850", "8.5", "fourteen"], "dates": ["first Monday of next month"], "money": ["4,250 dollars", "850 dollars"], "percents": ["8.5 percent"], "times": []},
+    "notes": "A spoken estimate with three findings, so a dropped item or a swapped figure is easy to hear."
+  },
+  {
+    "id": "en-extended-01",
+    "language": "en",
+    "kind": "extended",
+    "topic": "about three minutes: services, material list, schedule, figures, safety, warranty",
+    "text": "Good morning, and thank you for calling Tejarrube Roofing. This message covers the work we do, the materials we stock, the way we set a price, and what you can expect from our crews.\n\nOur crews handle a wide range of jobs. We replace shingles, we repair slate and tile, we install ridge caps and drip edges, we seal valleys and boots, and we clear gutters after a storm. A typical tear-off takes two days, while a small repair can be done in an afternoon. When a deck is soft, we replace the sheathing before we lay anything on top, because a new surface over rotten wood only hides the problem for one season.\n\nHere is the material list we keep in the yard. Underlayment, in two weights; ridge caps, in three colors; flashing, in three sizes; nails, in three lengths, that is two and a half inches, three inches, and three and a quarter inches; sealant, in five tubes to a box; and shingles, in six bundles to a square. Please tell the yard which square count you need, because we do not sell a partial bundle.\n\nThe schedule works like this. On March 3, 2027, the first crew starts at 7:30 a.m. The inspector arrives on Thursday, June 12, at 2:15 p.m. We finish the tear-off by Friday, July 4, and the crew returns on the first Monday of August. The final walkthrough is set for September 22 at 9:45 a.m. If rain moves in, we tarp the open section and shift the next window by one day.\n\nNow the numbers. The estimate for the whole job is 12,500 dollars, and the deposit is 25 percent. Materials run about 6,300 dollars, labor about 4,900, and permits 300. If we add a skylight, the price rises 8.5 percent. A rush schedule costs 12 percent extra. The slope of the main roof is 4.5 in twelve, and the ridge height is 18.25 feet. You can pay half up front and the rest on completion, and there is a 3 percent discount for a cash payment.\n\nSafety comes before speed. Anytime a ladder is up, a spotter stays on the ground. We do not work on a wet roof, and we never leave a ladder unsecured overnight. Each crew carries a first aid kit, a magnet sweep for nails, and a chalk line for layout. If a customer asks us to rush, we still refuse the job when the wind is too strong.\n\nBefore we close, a short note on the warranty. Workmanship is covered for five years, and the material warranty follows the terms of the maker. The written estimate covers labor, hauling and cleanup. After the final inspection, we send the invoice and the signed warranty card. If you have a question about a leak, a stain on the ceiling, or a crack near the chimney, call the office and we will set a time.",
+    "expectedTokens": {"numbers": ["4.5", "18.25", "12,500", "6,300", "4,900", "300"], "dates": ["March 3, 2027", "Thursday, June 12", "Friday, July 4", "first Monday of August", "September 22"], "money": ["12,500 dollars", "6,300 dollars", "4,900", "300"], "percents": ["25 percent", "8.5 percent", "12 percent", "3 percent"], "times": ["7:30", "2:15", "9:45"]},
+    "notes": "Six paragraphs and four topic changes, with lists inside prose, to expose fragmentation and a drift in voice."
+  },
+  {
+    "id": "en-neg-01",
+    "language": "en",
+    "kind": "negative_control",
+    "topic": "negative control: the estimate differs from the printed text by one cipher",
+    "text": "The revised estimate for the north roof is 4,250 dollars, and the deposit is 850 dollars. The crew will start on Monday morning and finish in two days, weather permitting. The price covers labor, hauling and cleanup, and it holds for fourteen days. If you approve the quote, sign the last page and send it back today so we can order the shingles before the yard closes. Call the office if anything changes before Friday morning.",
+    "referenceText": "The revised estimate for the north roof is 4,258 dollars, and the deposit is 850 dollars. The crew will start on Monday morning and finish in two days, weather permitting. The price covers labor, hauling and cleanup, and it holds for fourteen days. If you approve the quote, sign the last page and send it back today so we can order the shingles before the yard closes. Call the office if anything changes before Friday morning.",
+    "expectedTokens": {"numbers": ["4,250", "850"], "dates": [], "money": ["4,250 dollars", "850 dollars"], "percents": [], "times": []},
+    "knownDifference": {"field": "money", "heard": "4,250", "reference": "4,258", "note": "The audio says 4,250 and the printed text shows 4,258: the last cipher of the total changed on purpose."},
+    "notes": "The listener must catch that the spoken total does not match the printed one."
+  },
+  {
+    "id": "es-short-01",
+    "language": "es",
+    "kind": "short",
+    "topic": "vocabulario del oficio: techos, tejas, presupuesto, garantía, inspección",
+    "text": "La cuadrilla terminó el techo el martes. Retiramos las tejas viejas y revisamos la base de madera. Cambiamos dos tejas partidas cerca de la cumbrera y sellamos el remate junto a la chimenea. El presupuesto por escrito cubre mano de obra, retiro del material y una garantía de cinco años. Después de la inspección final, enviamos la factura y el certificado de garantía firmado.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Las palabras más frecuentes del oficio en una sola toma; sin cifras, para juzgar únicamente el léxico. Terminología de oficio: remate/vertiente, a confirmar en la escucha."
+  },
+  {
+    "id": "es-short-02",
+    "language": "es",
+    "kind": "short",
+    "topic": "números y cifras con decimales",
+    "text": "Estos son los datos de hoy. La pendiente del techo principal es de 4.5 en doce, y la inclinación del porche es de 12.75 grados. Medimos 0.5 pulgadas de lluvia durante la noche y 24.6 galones en el tubo de bajada. La altura de la cumbrera es de 18.25 pies, y el patio baja 0.75 pulgadas en diez pies. Anote cada cifra antes de que la cuadrilla se retire.",
+    "expectedTokens": {"numbers": ["4.5", "12.75", "0.5", "24.6", "18.25", "0.75"], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Decimales de uno y dos lugares, incluido un valor menor que uno."
+  },
+  {
+    "id": "es-short-03",
+    "language": "es",
+    "kind": "short",
+    "topic": "moneda y porcentajes",
+    "text": "El presupuesto completo es de 12,500 dólares y el anticipo es del 25 por ciento. Los materiales cuestan unos 6,300 dólares, la mano de obra unos 4,900 y los permisos 300. Si agregamos una claraboya, el precio sube 8.5 por ciento. Un plazo urgente cuesta 12 por ciento más. Puede pagar la mitad al inicio y el resto al terminar. Pregunte por el descuento del 3 por ciento si paga en efectivo.",
+    "expectedTokens": {"numbers": ["12,500", "6,300", "4,900", "300"], "dates": [], "money": ["12,500 dólares", "6,300 dólares", "4,900", "300"], "percents": ["25 por ciento", "8.5 por ciento", "12 por ciento", "3 por ciento"], "times": []},
+    "notes": "Montos agrupados y porcentajes juntos; el anticipo se dice como porcentaje, nunca como cifra."
+  },
+  {
+    "id": "es-short-04",
+    "language": "es",
+    "kind": "short",
+    "topic": "fechas y horas",
+    "text": "El 3 de marzo de 2027 empezamos a las 7:30 de la mañana en punto. El inspector llega el jueves 12 de junio a las 2:15 de la tarde. Terminamos el desmontaje el viernes 4 de julio y la cuadrilla regresa el primer lunes de agosto. La revisión final queda para el 22 de septiembre a las 9:45 de la mañana. Confirme cada fecha y llame si cambia alguna hora.",
+    "expectedTokens": {"numbers": ["3", "2027", "12", "4", "22"], "dates": ["3 de marzo de 2027", "jueves 12 de junio", "viernes 4 de julio", "primer lunes de agosto", "22 de septiembre"], "money": [], "percents": [], "times": ["7:30", "2:15", "9:45"]},
+    "notes": "Orden día-mes-año, una fecha con día de la semana y tres horas con mañana y tarde."
+  },
+  {
+    "id": "es-short-05",
+    "language": "es",
+    "kind": "short",
+    "topic": "direcciones",
+    "text": "Nuestro taller está en la avenida Roble 1240, junto al molino viejo. El almacén está en el pasaje Cedro 87 y el patio de materiales queda detrás. Otra cuadrilla se reúne en el circuito Puerto 19. Envíe el paquete de permisos a la calle Campo de Sol 356, unidad B, y deje una copia en recepción. Ninguno de estos edificios está en el centro de una ciudad; todos quedan en caminos rurales.",
+    "expectedTokens": {"numbers": ["1240", "87", "19", "356"], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Calles ficticias y genéricas sin ciudad, para que el audio no se pueda ligar a un inmueble real."
+  },
+  {
+    "id": "es-short-06",
+    "language": "es",
+    "kind": "short",
+    "topic": "siglas y marcas",
+    "text": "El panel nuevo tiene un valor R 38 y cumple con el código. Nuestro proveedor, Tejarrube, vende el fieltro Cumbratel y la línea de canaletas Pluvionorte. Pida el equipo con protección UV del catálogo Duroteja. La etiqueta indica el valor R, una clasificación contra incendios de clase A y una resistencia al viento de 110 millas por hora. Guarde la ficha técnica con la factura.",
+    "expectedTokens": {"numbers": ["38", "110"], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Formas cortas que se leen como letras y tres marcas inventadas que deben leerse tal cual."
+  },
+  {
+    "id": "es-short-07",
+    "language": "es",
+    "kind": "short",
+    "topic": "nombres propios en el otro idioma (nombres ingleses dentro del español)",
+    "text": "El señor Jonathan Bellworth firmó el contrato del techo norte. La ingeniera Katherine Drayton dirigirá la cuadrilla y el señor Robert Holloway tramita los permisos. La propietaria, Susan Markham, preguntó por la garantía. Nuestra estimadora, Emily Cordray, habla inglés y español. Copie a Bryan Whitfield en cada mensaje y envíe la factura a la oficina.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Apellidos inventados con nombre inglés: se juzga solo la pronunciación del nombre ajeno."
+  },
+  {
+    "id": "es-short-08",
+    "language": "es",
+    "kind": "short",
+    "topic": "preguntas y exclamaciones",
+    "text": "¿La cuadrilla selló la cumbrera? Sí, ya la selló. ¿Qué tan inclinada está la vertiente oeste? Está casi vertical. ¿El inspector vuelve si no pasamos la primera revisión? Sí, vuelve sin costo. ¡Qué limpio quedó el desmontaje! ¡Cuidado con la escalera suelta! ¿Puede enviar el presupuesto corregido hoy? Hágalo, por favor, y marque claramente la línea como urgente.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Entonación de subida en seis preguntas, dos exclamaciones y una orden de cierre. Terminología de oficio: remate/vertiente, a confirmar en la escucha."
+  },
+  {
+    "id": "es-short-09",
+    "language": "es",
+    "kind": "short",
+    "topic": "listas",
+    "text": "Traiga cuatro cosas: una pistola de grapas, una línea de tiza, un imán para recoger clavos y un paquete de caballetes. La cuadrilla también necesita tres medidas de clavos: dos y media pulgadas, tres pulgadas y tres y un cuarto de pulgada. Agregue cinco tubos de sellador, dos rollos de fieltro, una caja de remates y seis paquetes de tejas. Marque cada cosa en la lista antes de cargar el camión.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Una lista de cuatro y otra de tres, con una medida compuesta escrita en palabras. Terminología de oficio: remate/vertiente, a confirmar en la escucha."
+  },
+  {
+    "id": "es-short-10",
+    "language": "es",
+    "kind": "short",
+    "topic": "frases largas con subordinadas",
+    "text": "Si el ajustador aprueba el reclamo que dice que el daño fue causado por la tormenta, podemos programar la reparación para la semana siguiente al día festivo, siempre que el proveedor, que ya lleva dos pedidos atrasados, entregue los caballetes a tiempo. Como el propietario quiere evitar otra gotera, la cuadrilla cubrirá esta noche la sección abierta y volverá con la lista completa de materiales en cuanto el ajustador firme el informe.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Dos periodos largos con oraciones anidadas: si se pierde el hilo, se nota."
+  },
+  {
+    "id": "es-short-11",
+    "language": "es",
+    "kind": "short",
+    "topic": "puntuación y pausas",
+    "text": "Primero inspeccionamos, después medimos y al final cotizamos. El orden importa: inspección, medición, cotización. Señalamos tres problemas, a saber: una base blanda, un valle oxidado y un remate suelto; cada uno cambia el precio. (La lona se queda hasta la reparación, por cierto.) Así que la versión corta es esta: arreglamos la base, sellamos el valle y cambiamos el remate. Ese es el plan.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Comas, dos puntos, punto y coma y paréntesis: cada signo debe comprar su pausa. Terminología de oficio: remate/vertiente, a confirmar en la escucha."
+  },
+  {
+    "id": "es-short-12",
+    "language": "es",
+    "kind": "short",
+    "topic": "tildes, eñe y signos de apertura",
+    "text": "Mañana el niño de la señora Muñoz mirará la gotera del año pasado. La pequeña tenía razón: la lámina de zinc se oxidó junto al tubo. ¡Qué rápido pasó el tiempo! ¿Cuándo volverá el dueño del edificio? También revisaremos el baño, el pasillo y la habitación que da al jardín. Si el año próximo se repite la filtración, la garantía cubre la reparación completa.",
+    "expectedTokens": {"numbers": [], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Texto cargado de tildes, eñe y signos de apertura de interrogación y exclamación."
+  },
+  {
+    "id": "es-long-01",
+    "language": "es",
+    "kind": "long",
+    "topic": "una jornada de trabajo: llegada, retiro, revisión de la base, lona",
+    "text": "La cuadrilla llegó a la casa poco después de las siete. El capataz recorrió el perímetro dos veces y marcó con tiza dos puntos blandos en la vertiente norte. Para las ocho, la escalera ya estaba amarrada y el primer paquete de tejas descansaba sobre la cumbrera. El desmontaje avanzó rápido porque las tejas viejas estaban quebradizas y salían en láminas anchas. Debajo apareció un problema distinto: dos tableros de madera se habían podrido junto al valle y un extremo de viga estaba blando al tacto. Nos detuvimos, llamamos al propietario y explicamos el costo adicional antes de tocar un clavo. Ella aprobó la reparación, así que cortamos la madera dañada, reforzamos la viga y colocamos madera nueva. La cuadrilla selló el valle, cambió el remate del tubo de ventilación y cubrió con lona la sección abierta cuando el cielo se puso gris. A las cuatro de la tarde el techo estaba seco y el patio se había barrido dos veces. El capataz anotó la fecha en la tarjeta del permiso, tomó fotos desde cuatro ángulos y dejó al propietario una nota escrita con lo que sigue. Mañana la cuadrilla vuelve a las siete y media para colocar el fieltro y los caballetes, si el tiempo lo permite.",
+    "expectedTokens": {"numbers": ["siete", "ocho", "dos", "cuatro", "siete y media"], "dates": [], "money": [], "percents": [], "times": []},
+    "notes": "Un relato continuo para detectar un cambio de ritmo a mitad del texto o una frase perdida. Terminología de oficio: remate/vertiente, a confirmar en la escucha."
+  },
+  {
+    "id": "es-long-02",
+    "language": "es",
+    "kind": "long",
+    "topic": "hallazgos de la inspección y conversación sobre el precio",
+    "text": "Gracias por recibirnos hoy en el sitio. Quiero repasar lo que encontró el inspector y lo que significa para el precio. Tres puntos definen el trabajo. Primero, el remate de la chimenea está oxidado por completo, así que el agua pasa por detrás y baja por la estructura. Segundo, falta el borde de goteo del alero norte en dos tramos, y el agua se filtra por debajo de la primera hilada. Tercero, el ático muestra una mancha larga que sigue una viga y no un tubo, así que la filtración viene de la chimenea y no de la ventilación. La buena noticia es que el resto de la base está seco y las armaduras están sanas. Para arreglar los tres puntos necesitamos dos días, un contenedor y unos seis paquetes de tejas. El presupuesto corregido llega a 4,250 dólares más impuestos, y el anticipo es de 850 dólares. Si quiere que agreguemos una claraboya mientras el techo está abierto, el precio sube 8.5 por ciento y el cronograma crece medio día. Puedo mantener este precio por catorce días. Después, la cotización seguirá la próxima lista de precios de materiales, que esperamos que suba en primavera. Si aprueba, firme la última página y envíela hoy, y la cuadrilla puede empezar el primer lunes del próximo mes.",
+    "expectedTokens": {"numbers": ["4,250", "850", "8.5", "catorce"], "dates": ["primer lunes del próximo mes"], "money": ["4,250 dólares", "850 dólares"], "percents": ["8.5 por ciento"], "times": []},
+    "notes": "Presupuesto hablado con tres hallazgos: si se cae un punto o se cambia una cifra, se oye. Terminología de oficio: remate/vertiente, a confirmar en la escucha."
+  },
+  {
+    "id": "es-extended-01",
+    "language": "es",
+    "kind": "extended",
+    "topic": "unos tres minutos: servicios, lista de materiales, calendario, cifras, seguridad, garantía",
+    "text": "Buenos días, y gracias por llamar a Tejarrube Roofing. Este mensaje cubre el trabajo que hacemos, los materiales que tenemos en el almacén, la forma en que fijamos el precio y lo que puede esperar de nuestras cuadrillas.\n\nNuestras cuadrillas atienden trabajos muy variados. Cambiamos tejas, reparamos pizarra y losa, colocamos caballetes y bordes de goteo, sellamos valles y remates, y limpiamos canaletas después de una tormenta. Un desmontaje típico toma dos días, mientras que una reparación pequeña se resuelve en una tarde. Cuando la base está blanda, cambiamos la madera antes de colocar cualquier cosa encima, porque una superficie nueva sobre madera podrida solo esconde el problema una temporada.\n\nEsta es la lista que guardamos en el almacén. Fieltro, en dos grosores; caballetes, en tres colores; remates, en tres medidas; clavos, en tres largos, es decir dos y media pulgadas, tres pulgadas y tres y un cuarto de pulgada; sellador, en cinco tubos por caja; y tejas, en seis paquetes por cada cien pies cuadrados. Dígale al almacén cuántos pies cuadrados necesita, porque no vendemos un paquete a medias.\n\nEl cronograma es el siguiente. El 3 de marzo de 2027 la primera cuadrilla empieza a las 7:30 de la mañana. El inspector llega el jueves 12 de junio a las 2:15 de la tarde. Terminamos el desmontaje el viernes 4 de julio y la cuadrilla regresa el primer lunes de agosto. La revisión final queda para el 22 de septiembre a las 9:45 de la mañana. Si llega la lluvia, cubrimos la sección abierta y movemos la siguiente ventana un día.\n\nAhora las cifras. El presupuesto completo es de 12,500 dólares y el anticipo es del 25 por ciento. Los materiales cuestan unos 6,300 dólares, la mano de obra unos 4,900 y los permisos 300. Si agregamos una claraboya, el precio sube 8.5 por ciento. Un plazo urgente cuesta 12 por ciento más. La pendiente del techo principal es de 4.5 en doce y la altura de la cumbrera es de 18.25 pies. Puede pagar la mitad al inicio y el resto al terminar, y hay un descuento del 3 por ciento si paga en efectivo.\n\nLa seguridad va antes que la velocidad. Cada vez que hay una escalera arriba, un compañero vigila desde el suelo. No trabajamos sobre un techo mojado y nunca dejamos una escalera suelta durante la noche. Cada cuadrilla lleva un botiquín, un imán para recoger los clavos y una línea de tiza para el trazo. Si un cliente pide prisa, aun así rechazamos el trabajo cuando el viento es demasiado fuerte.\n\nAntes de cerrar, una nota breve sobre la garantía. La mano de obra está cubierta cinco años y la garantía del material está sujeta a las condiciones del fabricante. El presupuesto por escrito cubre mano de obra, retiro del material y limpieza. Después de la inspección final, enviamos la factura y el certificado de garantía firmado. Si tiene una pregunta sobre una gotera, una mancha en el techo interior o una grieta junto a la chimenea, llame a la oficina y le fijamos una hora.",
+    "expectedTokens": {"numbers": ["4.5", "18.25", "12,500", "6,300", "4,900", "300"], "dates": ["3 de marzo de 2027", "jueves 12 de junio", "viernes 4 de julio", "primer lunes de agosto", "22 de septiembre"], "money": ["12,500 dólares", "6,300 dólares", "4,900", "300"], "percents": ["25 por ciento", "8.5 por ciento", "12 por ciento", "3 por ciento"], "times": ["7:30", "2:15", "9:45"]},
+    "notes": "Seis párrafos y cuatro cambios de tema, con listas dentro de la prosa, para exponer la fragmentación y un cambio de voz. Terminología de oficio: remate/vertiente, a confirmar en la escucha."
+  },
+  {
+    "id": "es-neg-01",
+    "language": "es",
+    "kind": "negative_control",
+    "topic": "control negativo: el presupuesto difiere del texto impreso en una cifra",
+    "text": "El presupuesto corregido para el techo norte es de 4,250 dólares y el anticipo es de 850 dólares. La cuadrilla empieza el lunes por la mañana y termina en dos días, si el tiempo lo permite. El precio cubre mano de obra, retiro del material y limpieza, y es válido por catorce días. Si aprueba la cotización, firme la última página y envíela hoy para que podamos pedir las tejas antes de que cierre el proveedor. Llame a la oficina si algo cambia antes del viernes por la mañana.",
+    "referenceText": "El presupuesto corregido para el techo norte es de 4,258 dólares y el anticipo es de 850 dólares. La cuadrilla empieza el lunes por la mañana y termina en dos días, si el tiempo lo permite. El precio cubre mano de obra, retiro del material y limpieza, y es válido por catorce días. Si aprueba la cotización, firme la última página y envíela hoy para que podamos pedir las tejas antes de que cierre el proveedor. Llame a la oficina si algo cambia antes del viernes por la mañana.",
+    "expectedTokens": {"numbers": ["4,250", "850"], "dates": [], "money": ["4,250 dólares", "850 dólares"], "percents": [], "times": []},
+    "knownDifference": {"field": "money", "heard": "4,250", "reference": "4,258", "note": "El audio dice 4,250 y el texto impreso muestra 4,258: cambio a propósito la última cifra del total."},
+    "notes": "Quien escucha debe notar que el total hablado no coincide con el impreso."
+  }
+]

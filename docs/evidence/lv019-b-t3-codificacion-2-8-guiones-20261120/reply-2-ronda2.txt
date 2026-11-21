@@ -1,0 +1,25 @@
+Ronda 2 aplicada. Mismos tres archivos; sin commit.
+
+**Cambios de contenido (`guiones.json`)**
+- Calcos corregidos: `calendario`→`plazo`/`cronograma` (es-short-03, es-long-02, es-extended-01); `patio` (almacén)→`almacén`/`patio de materiales`/`proveedor` (es-short-05, es-extended-01, es-neg-01 text+ref); `sostener/sostiene`→`mantener`/`es válido por catorce días` (es-long-02, es-neg-01 text+ref).
+- es-long-02: `seguirá la próxima lista de precios de materiales… en primavera`. es-long-01: `dos tableros de madera`, `un problema distinto:`. es-short-05: `caminos rurales`. es-short-08: `marque claramente la línea como urgente`.
+- `retiro`→`desmontaje` donde era tear-off (es-short-04/08, es-long-01, es-extended-01); se conserva `retiro del material` con sentido de llevarse escombros (es-short-01, es-extended-01, es-neg-01).
+- es-extended-01: `seis paquetes por cada cien pies cuadrados`.
+- Inglés: `a. m.`/`p. m.`→`a.m.`/`p.m.` (en-short-04, en-extended-01; `notes` actualizado). Nombres con diacríticos restaurados en en-short-07 (Ventura-Ríos, Alcázar, Beltrán, Andrés Peñalosa, Sofía Márquez, Ana Lucía, Ramón); `notes` reescrito.
+- Nada de cifras ni `expectedTokens` cambió (las horas son `7:30/2:15/9:45`, no los marcadores). Conservados tildes, eñe y signos de apertura.
+
+**Validador y pruebas**
+- Regla nueva `clock-marker` (marcadores con espacio, solo inglés) y regla nueva `encoding` (`findEncodingDamage`: rechaza carácter de reemplazo y mojibake `Ã©`/`Ã±`/`Â¿`). No añadí ninguna restricción ASCII: el validador nunca la tuvo, así que el texto UTF-8 ya se aceptaba; la prueba nueva lo fija explícitamente. Sin relajar otras reglas.
+- Pruebas: de 39 a **46** (marcadores, UTF-8 con tildes/eñe/signos, mojibake, nombre acentuado en guion inglés).
+
+**Resultados**
+- `npx tsc --noEmit` → 0; `npx vitest run scripts/validateListeningScripts.test.ts` → **46/46**; `node scripts/validateListeningScripts.mjs …` → `ok:true, violations:0`, exit 0.
+- Cortos EN 55–71 / ES 55–72; largos 196–222 / 208–217; extendidos 486 / 510; negativos 76 / 89 (todos dentro de ventana).
+- Prueba end-to-end sobre copias del documento: reinjectar `a. m.` → `clock-marker@en-short-04`; reinjectar mojibake → `encoding@es-short-12`; sinónimo benigno y nombre sin tilde en ES no disparan nada falso.
+- Mutaciones: **14/14 detectadas**, validador restaurado idéntico (sha256 `889646c72d49…`).
+
+**Límites**
+- `encoding` solo detecta el mojibake de doble codificación y el carácter de reemplazo; no valida normalización Unicode (NFC/NFD) ni detecta un fiordo de bytes raro si el archivo se guardara mal de otra forma.
+- `desmontaje` es mi elección para tear-off; si el dueño prefiere otro término neutro, es un cambio de una palabra por guion.
+- El guion de nombres en inglés ahora prueba también diacríticos, lo que mezcla dos cosas (nombre ajeno + acento); si se quiere aislar, habría que un guion aparte solo de nombres.
+- Sin red: sigue sin verificar pronunciación real; eso lo decide la escucha.
