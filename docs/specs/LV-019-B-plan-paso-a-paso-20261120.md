@@ -9,7 +9,7 @@ Un paso **no está terminado** hasta cumplir lo que le toque de esta lista, y se
 1. **Pruebas primero:** se escriben antes y se ven fallar por el motivo correcto; después pasan.
 2. **Mutaciones:** se rompe a propósito cada condición del código nuevo y alguna prueba lo detecta.
 3. **Regresión financiera completa** en emulador cada vez que se integra algo (hoy 222 aprobadas y 5 pausadas de voz).
-4. **Revisión T3** (dos modelos) de diseño y de código; cada hallazgo se contrasta contra el código y todas las respuestas se conservan, también las FALLA.
+4. **Revisión T3 por nivel de riesgo (aprobada por el dueño el 21 nov):** **dos modelos** (GLM y DeepSeek) en el **diseño y el código que mueven saldo** (reservas, capturas, liberaciones, bloqueos, ejecutor, contratos de Cuenta); **un solo revisor** (GLM) en lo mecánico o sin saldo (scripts de lectura, guiones, interfaz, documentación). Cada hallazgo se contrasta contra el código y todas las respuestas se conservan, también las FALLA. Si un cambio «mecánico» resulta escribir saldo, vuelve a revisión doble.
 5. **Revisión con `google/gemini-4-hydrogen:batch`** de la migración y el backend integrados antes de abrir nada al público.
 6. **Cambio de nube = lectura previa + ensayo en seco + revisión T3 del cambio + verificación + reversión probada.** IAM y secretos los hace el dueño con comandos que preparo.
 7. **Nada de secretos** en el repositorio ni en lo que se envía a revisores; documentos al día en el mismo commit.
