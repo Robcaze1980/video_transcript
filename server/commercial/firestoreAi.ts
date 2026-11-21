@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {FieldPath,type Firestore,type DocumentReference,type Transaction} from 'firebase-admin/firestore';
-import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence} from './firestoreBackend';
+import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,pickOutboxSnapshot,copyOutboxSnapshot,OUTBOX_METADATA_KEYS,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence} from './firestoreBackend';
 import {aiOperation,artifactPlanHash,validateArtifactPlan,validateArtifactManifest,simulatedAiPrice,storageQuota,AI_CATALOG_VERSION,AI_BILLING_PROFILE,AI_TEXT_WINDOW_MS,AI_TEXT_MAX_DURATION_MS,AI_VOICE_BUDGET,AiContractFault,type AiArtifactReceipt} from './aiContracts';
 import type {CloudObjects,CloudObject} from './gcsObjects';
 import {readyPrivateInput,privateUuid} from './privateObjectPlan';
@@ -253,9 +253,11 @@ export class FirestoreAi {
      continue;
     }
     if(typeof validity==='string')throw new AiFault('conflict');
-    settlementSnapshot=validity.snapshot;
-    expected={jobId:row.jobId,accountId:row.accountId,provider:'account_seconds',identityKey:row.identityKey,reservationId:row.reservationId,seconds:row.seconds,action:row.action,...(row.action==='capture'?{attemptId:row.attemptId}:{})};
-    ack=await this.accountBilling.settle(expected.identityKey,expected.reservationId,expected.action,expected.seconds,expected.action==='capture'?{jobId:expected.jobId,attemptId:expected.attemptId!}:undefined);
+    settlementSnapshot=validity.snapshot;expected=settlementSnapshot.expected;
+    // LV-019.B C2a: a protocol-3 release after an admission sends the admission together with the row's resolution; a capture sends its admitted attempt.
+    const claim=expected.settlementProtocol===3&&expected.resolutionKind!==undefined?{jobId:expected.jobId,attemptId:expected.attemptId!}:expected.action==='capture'?{jobId:expected.jobId,attemptId:expected.attemptId!}:undefined;
+    const options=expected.settlementProtocol===3&&expected.resolutionKind!==undefined?{resolution:{kind:expected.resolutionKind,evidenceSha256:expected.evidenceSha256!}}:expected.settlementProtocol===3&&expected.capturedSeconds!==undefined?{capturedSeconds:expected.capturedSeconds}:undefined;
+    ack=await this.accountBilling.settle(expected.identityKey,expected.reservationId,expected.action,expected.seconds,claim,options);
     if(await this.backend.markExternalBillingSettled(expected,settlementSnapshot)){settled++;continue;}
     const q=await this.backend.quarantineExternalBillingOutbox(row.id,{phase:'after_ack',snapshotVersion:row.snapshotVersion,expected,ack,settlementSnapshot});
     if(q.state!=='already_settled')failed++;
@@ -270,13 +272,17 @@ export class FirestoreAi {
  /** A privileged account movement requires a matching durable terminal job and outbox. */
  private async validExternalBillingOutbox(row:Record<string,any>):Promise<{state:'eligible';snapshot:ExternalBillingSettlementReadSnapshot}|'already_settled'|'changed'|'invalid'|'blocked'>{
   if(!row||typeof row.id!=='string')return 'invalid';
-  if(typeof row.jobId!=='string'||!privateUuid.test(row.jobId)||row.id!==row.jobId||typeof row.accountId!=='string'||!privateUuid.test(row.accountId)||typeof row.identityKey!=='string'||!/^[a-f0-9]{64}$/.test(row.identityKey)||typeof row.reservationId!=='string'||!privateUuid.test(row.reservationId)||!Number.isSafeInteger(row.seconds)||row.seconds<1||row.seconds>600||row.provider!=='account_seconds'||!['capture','release'].includes(row.action)||row.action==='capture'&&(typeof row.attemptId!=='string'||!privateUuid.test(row.attemptId))||row.action==='release'&&row.attemptId!==undefined)return 'invalid';
+  if(typeof row.jobId!=='string'||!privateUuid.test(row.jobId)||row.id!==row.jobId||typeof row.accountId!=='string'||!privateUuid.test(row.accountId)||typeof row.identityKey!=='string'||!/^[a-f0-9]{64}$/.test(row.identityKey)||typeof row.reservationId!=='string'||!privateUuid.test(row.reservationId)||!Number.isSafeInteger(row.seconds)||row.seconds<1||row.seconds>600||row.provider!=='account_seconds'||!['capture','release'].includes(row.action))return 'invalid';
+  // LV-019.B C2a: the strict v1/v3 shape gate, so a new field without `settlementProtocol: 3` or any unexpected key is invalid (quarantined before any POST).
+  // The documented metadata keys are passed explicitly; nothing else on the document is tolerated.
+  if(!copyOutboxSnapshot(row,['snapshotVersion',...OUTBOX_METADATA_KEYS]))return 'invalid';
   if(typeof row.snapshotVersion!=='string'||!/^\d{1,15}:\d{9}$/.test(row.snapshotVersion))throw new AiFault('invalid');
   return this.db.runTransaction(async tx=>{
    const [account,outbox,job,terminal,artifact]=await tx.getAll(this.ref('accounts',row.accountId),this.ref('billingOutbox',row.jobId),this.ref('jobs',row.jobId),this.ref('movements','terminal:'+row.jobId),this.ref('artifacts',row.jobId));
    const j=job.data(),b=outbox.data(),t=terminal.data(),a=artifact.data(),ext=j?.externalBilling;
    const time=outbox.updateTime,version=time?`${time.seconds}:${String(time.nanoseconds).padStart(9,'0')}`:null;
-   const same=!!b&&b.jobId===row.jobId&&b.accountId===row.accountId&&b.provider==='account_seconds'&&b.identityKey===row.identityKey&&b.reservationId===row.reservationId&&b.seconds===row.seconds&&b.action===row.action&&b.attemptId===row.attemptId;
+   const expected=copyOutboxSnapshot(row,['snapshotVersion',...OUTBOX_METADATA_KEYS])!;
+   const stored=copyOutboxSnapshot(b,OUTBOX_METADATA_KEYS),same=!!b&&!!stored&&JSON.stringify(stored)===JSON.stringify(expected);
    if(!outbox.exists||!same)return 'changed';
    if(b.state!=='settled'&&version!==row.snapshotVersion)return 'changed';
    // The current drainer has no billing lease; do not send on a row claimed elsewhere.
@@ -297,7 +303,6 @@ export class FirestoreAi {
    if(!validClearIntentAdmissionGuard(intentGuard,key))return 'blocked';
    if(intent.get('state')!=='job_created')return 'blocked';
    if(b.state==='settled')return 'already_settled';
-   const expected:ExternalBillingOutboxSnapshot={jobId:row.jobId,accountId:row.accountId,provider:'account_seconds',identityKey:row.identityKey,reservationId:row.reservationId,seconds:row.seconds,action:row.action,...(row.action==='capture'?{attemptId:row.attemptId}:{})};
    const snapshot=await this.backend.captureExternalBillingSettlement(tx,expected,key);
    return snapshot?{state:'eligible',snapshot}:'blocked';
   });

@@ -1,0 +1,44 @@
+1.1 revision independiente glm
+mcp:2b00d9ba-e135-4a28-ac11-248ff4162852  completed  linguistvision-openrouter/~z-ai/glm-flash-latest
+
+[assistant]
+Reviso `recoverExpiredLeases` y `claimDispatch` — podrían reponer intentos tras llamadas existentes.
+
+[assistant]
+Confirmo el guard de `completeDigitalSilence` y el flujo de `providerCalls` para cerrar el análisis del punto (a).
+
+[assistant]
+Reviso el flujo de escritura de llamadas y sus reintentos en `cloudAiWorker` para cerrar si los guardas del punto (a) son insuficientes.
+
+[assistant]
+La condición del límite difiere del brief (usa `EXTERNAL_BILLING_ATTEMPT_LIMIT` general, no el de conflicto). Verifico su valor y la selección de `needs_review` en el reporte.
+
+[assistant]
+Confirmo la cobertura de `needs_review` y el contrato de `settle` en Cuenta para calibrar el límite y el `attemptId` del reclamo.
+
+[assistant]
+Verifico los llamadores de `reconcile` y si la ruta de voz puede alcanzar `unknown` → reconcile sin carga de llamadas.
+
+[assistant]
+Reviso dónde se expone `backend.reconcile` en HTTP o CLI para confirmar si la ruta de reconcile es solo pruebas/interna.
+
+[assistant]
+Verifico si la fila `billingOutbox` con llamadas existe y cuál es su estado cuando `claimDispatch` genera el error; y el gasto del error `quota` en el límite (¿transitorio?).
+
+[assistant]
+Tengo suficiente para el veredicto. Redacto el informe final (≤360 palabras).
+
+[assistant]
+**Hallazgos**
+
+1. **ALTA — `settle()` puede lanzar invariant con llamadas admitidas.** `settle()` (firestoreBackend.ts:1385-1387) marca `admitted` si hay filas en `providerCalls` y exige `resolution`. `failBeforeInvocation()` (1320), `claim()` (1566), `beginInvocation()` (1583), `heartbeat()` (1599) y `cancelInTransaction()` (1797/1799) llaman `settle(tx,c,'failed'|'cancelled')` sin resolución. Sus guardas `cleanPendingPreprovider` solo aplican a `textAi()` (operación `translation:en`); un job de voz/narración con facturación externa y llamadas admitidas que vuelva a `running/not_started` (p. ej. tras un error posinvocación en `cloudAiWorker.ts:77`) aborta la transacción con `invariant`, queda `running` sin liquidación ni outbox, y el terminal ya existente se evita pero la fila de Cuenta permanece reservada. Corrección: extender el guard (o derivar `unknown()`/reconcile) a estos llamadores cuando existan llamadas.
+
+2. **MEDIA — Límite de intentos no es solo `conflict`.** `recordExternalBillingFailure()` (1452) usa `EXTERNAL_BILLING_ATTEMPT_LIMIT` (8) para todo código permanente (`invalid`,`forbidden`,`not_found`,`quota`,`insufficient`,`conflict`), no solo conflicto repetido; un job con 7 fallos `quota` + 1 `conflict` llega a `needs_review` prematuramente. `too_early` (1434-1436) no consume intento y reprográma con `UNKNOWN_RESOLUTION_MIN_AGE_MS`; correcto. `needs_review` sí se reporta (`billingPendingReport.ts:21`) y no se reintenta. Corrección: contar solo `conflict` consecutivos o alinear el spec con el límite global documentado (S14 lo codifica así).
+
+3. **MEDIA — `matchesOutboxSnapshot()` no detecta v1→v3.** Si `expected.settlementProtocol!==3` devuelve `true` con solo core-match (300), aceptando una fila que ganó campos protocol-3 (o viceversa para v3→v1). Un snapshot v1 capturado antes de una reescritura a v3 pasa. Corrección: en la rama v1 rechazar si la fila tiene `settlementProtocol/capturedSeconds/resolutionKind/evidenceSha256` que el expected no tiene.
+
+4. **MEDIA — Cobertura de pruebas insuficiente para (3).** Ninguna suite prueba `matchesOutboxSnapshot` directamente (solo `copyOutboxSnapshot` y `copyExternalBillingSettlementReadSnapshot` en `firestoreVideoSettlementC2a.test.ts:6`). Un mutante que la haga devolver siempre `true` sobrevive a todas. Corrección: añadir pruebas unitarias v1↔v3 y divergencia core.
+
+5. **BAJA — Reclamo `attemptId` correcto pero sin test de discrepancia.** `settle()` deriva `releasedAttempt=job.attemptId??job.unknownAttemptId` (1386); los caminos que llegan a `admitted=true` garantizan que coincide con la admisión de Cuenta (S1, S3, S9 lo verifican implícitamente). Sin discrepancia real; solo falta un caso explícito de fila `unknown` que preserve `unknownAttemptId`.
+
+RESULTADO: FALLA

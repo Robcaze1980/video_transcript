@@ -1,0 +1,9 @@
+Listo. S20 añadido y verificado.
+
+**Archivo**: `server/commercial/firestoreVideoSettlementC2a.emulator.mjs` — nuevo test **S20** (`unavailable` transitorio, no acotado por conteo). Sin cambios de producción.
+
+**S20 hace**: fila pendiente tras una admisión real; `forceReleaseCode='unavailable'` y `EXTERNAL_BILLING_CONFLICT_ATTEMPT_LIMIT+4` drenajes seguidos (repeticiones calculadas con la constante exportada, no el literal). En cada uno afirma `retry_wait`, `lastErrorCode='unavailable'`, `nextAttemptAt` futuro, nunca `needs_review`, sin incidente y sin bloquear al dueño. Luego comprueba que `attempts` ya llegó al tope y que un `conflict` único lleva la fila a `needs_review` con `lastErrorCode='conflict'` y sin bloqueo, con comentario que documenta ese comportamiento vigente y fail-closed.
+
+**Mutante**: quitar `code!=='unavailable'&&` ⇒ **S20 roja** (`pass=0 fail=1`); restaurado **byte-idéntico** (hash de producción `BCAB9159…`).
+
+**Resultados**: suite C2a completa ⇒ **21 tests / 21 pass / 0 fail**, cleanup **24/24**; `npx tsc --noEmit` ⇒ exit 0.

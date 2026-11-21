@@ -1,0 +1,15 @@
+He leído el diseño y contrastado con el código (texto). Hallazgos:
+
+1. **ALTA — §3.1 parte de un hecho falso y duplica la alerta.** `jobs` nunca lleva `createdAtMs` (el literal de `firestoreBackend.ts:1257` no lo escribe), así que `normalizePending` lo deja en `null` y `attentionOf` devuelve `unknown_age` para todo `unknown`; `reasonFor` ya alerta a cualquier edad. Añadir `unknown_overdue` (la clave incluye el motivo) crea un **segundo** aviso abierto de la misma fila, y `clearResolvedAlerts` mantiene los `job_unknown` para siempre (`PENDING_SOURCES` con `terminalStates===null` → `kept`). «No se duplica» y «la cierra al resolverse» no se cumplen. Corrección: definir conjunto terminal/regla de cierre para `jobs` y reconciliar la regla `createdAtMs===null`.
+
+2. **ALTA — §3 descarta el `quarantinedAtMs` corrupto en silencio.** Con `undefined + ventana <= now` el resultado es `NaN` → falso → la fila se cuenta `notDue`, no `failed`, contra §5.6; valores string, negativos o futuros retienen el saldo sin fin. Corrección: validar `quarantinedAtMs` como entero seguro ≥0, contar inválido como `failed` y acotar el desfase futuro.
+
+3. **ALTA — la «admisión» de Video no es la de Cuenta.** `invoke` crea la fila `providerCalls` ('intent') antes de `AccountBilling.admit`; si `admit` falla, `providerReceipts.length>0` pero Cuenta no tiene admisión → el resolvedor manda `unknown_expired` con resolución y Cuenta, sin `previous`, lanza `conflict` (`backend.ts:369-374` con `resolution!==undefined`) → fila a `needs_review` y reserva retenida. Corrección: derivar la resolución de la admisión realmente registrada, no de la mera presencia de `providerCalls`.
+
+4. **MEDIA — cursor por id frente a vencimiento por `quarantinedAtMs`.** El diseño no dice si el cursor avanza sobre las filas no vencidas: si no avanza, una fila fresca al frente atasca el barrido; si avanza sin reintentar, una fila que vence tras el paso del cursor se pierde hasta una vuelta. Corrección: fijar la regla (avanzar y envolver, o consulta por índice de vencimiento).
+
+5. **MEDIA — §3.1 introduce un umbral por defecto de 30 min**, contradiciendo la política documentada «There is no default age threshold: age alerts exist only when the owner supplies one» (`billingPendingAlerts.ts`, `AlertPolicy`). Además usa `unknown_overdue`, que no existe en `AlertReason`/`PendingAttention`. Corrección: decisión del dueño explícita o declarar la excepción.
+
+6. **MEDIA — pruebas que pasan aunque falle.** La prueba 5 confunde el límite de 3 por cuenta con el cerrojo por input (`asset.unknownCount>0` bloquea cualquier alta en ese input, y 2 incógnitas no caben en el mismo); la prueba 3 («finish tardío») es trivialmente verde porque `finish` ya sale en la comprobación de estado; la prueba 2 no cubre la divergencia del hallazgo 3. Corrección: inputs distintos, forzar el `finish` antes de la lectura del resolvedor y añadir el caso sin admisión en Cuenta.
+
+RESULTADO: FALLA

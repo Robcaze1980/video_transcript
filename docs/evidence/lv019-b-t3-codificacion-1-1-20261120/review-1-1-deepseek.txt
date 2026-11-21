@@ -1,0 +1,15 @@
+Leí el diff y los llamadores. Hallazgos:
+
+**1. MEDIA (b) captura con resolución aceptada.** `validOutboxSnapshot` (firestoreBackend.ts:262) exige `hasResolution ⇒ validResolution`, pero no ata `hasResolution` a `action==='release'`: una fila `capture` con `settlementProtocol:3,resolutionKind,evidenceSha256` valida. El drenador (firestoreAi.ts:260) prioriza `resolution` sobre `capturedSeconds`, el cliente lanza `invalid` (accountBillingClient.ts:110: resolución con acción ≠ release) sin POST, y la fila queda en `retry_wait` para siempre. Corrección: exigir `hasResolution ⇒ release` y `capturedSeconds ⇒ capture`.
+
+**2. MEDIA (d) tope sólo para `conflict`.** `recordExternalBillingFailure` (firestoreBackend.ts:1418) pasa a `needs_review` sólo con `code==='conflict'`; `invalid`, `forbidden`, `not_found`, `quota`, `insufficient` (p. ej. la fila del hallazgo 1, o un reclamo que Cuenta rechaza con 400) se quedan en `retry_wait` con retroceso acotado a 15 min pero **sin tope de intentos**, contra §5 («toda fila llega a terminal o needs_review en un número acotado»). Corrección: acotar todo código, o enviar los permanentes a needs_review.
+
+**3. MEDIA (b) puerta previa al POST permisiva.** `validExternalBillingOutbox` usa `pickOutboxSnapshot(row)`, que ignora claves desconocidas, aunque su comentario afirma la misma puerta que el backend (`copyOutboxSnapshot`, que las rechaza). Una fila con un campo inesperado (p. ej. `captureAdmission`) se POSTea, y `matchesOutboxSnapshot`/`markExternalBillingSettled` también lo ignoran. Corrección: `copyOutboxSnapshot(row)`.
+
+**4. (a) Ningún llamador llega a `admitted` sin `resolution`.** Llamadores: `claim`, `beginInvocation`, `heartbeat`, `failBeforeInvocation`, `completeDigitalSilence`, `completeNoSpeech`, `finish`, `cancelInTransaction`, `reconcile`. Las filas `providerCalls` sólo se escriben con `invocationPhase==='invoking'` (firestoreAi.ts:441); el resto queda cercado en queued/not_started/local_check (los de texto exigen además `cleanPendingPreprovider`). Efecto: el invariante `admitted&&!resolution` es inalcanzable — `cancelled` con admisión no existe (cancelar invocando va a `unknown`) — así que eliminarlo no rompe prueba alguna; bórralo o cúbrelo.
+
+**5. (c) Sin discrepancia.** Reclamo y admisión derivan del mismo `attemptId` (`c.job.attemptId ?? c.job.unknownAttemptId`) y `verifiedProviderReceipt` ata cada llamada a ese intento. Nota: `admitted` cuenta filas `intent`/`ambiguous` como admisión; es benigno porque Cuenta ignora el reclamo sin admisión almacenada.
+
+**6. MEDIA (e) huecos de prueba.** `matchesOutboxSnapshot=()=>true` sobrevive: todo `false` observado viene de `outboxVersion`/`JSON.stringify(current)!==snapshot` o de otro `jobId`. `S6` importa la constante, así que el valor 8 no se afirma. `unknown_expired`/`capturedSeconds` no tienen productor (Cuenta sólo lanza `too_early` por `unknown_expired`, backend.ts:386) y S6b lo fuerza con bandera; la cancelación tras admisión de §2/§5 no tiene escenario.
+
+RESULTADO: FALLA

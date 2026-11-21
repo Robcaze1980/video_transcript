@@ -101,7 +101,8 @@ async function settlementFixture(){
 }
 async function expectedAndSnapshot(c,id){
  const job=await c.backend.job(c.account,id),outbox=(await ref(c,'billingOutbox',id).get()).data();
- const expected={jobId:id,accountId:c.account,provider:'account_seconds',identityKey:job.externalBilling.identityKey,reservationId:job.externalBilling.reservationId,seconds:job.externalBilling.seconds,action:outbox.action,...(outbox.action==='capture'?{attemptId:outbox.attemptId}:{})};
+ // The expectation must mirror the stored row's settlement protocol exactly: a v1 tuple no longer matches a v3 row (matchesOutboxSnapshot asserts the shape both ways).
+ const expected={jobId:id,accountId:c.account,provider:'account_seconds',identityKey:job.externalBilling.identityKey,reservationId:job.externalBilling.reservationId,seconds:job.externalBilling.seconds,action:outbox.action,...(outbox.action==='capture'?{attemptId:outbox.attemptId}:{}),...(outbox.settlementProtocol!==undefined?{settlementProtocol:outbox.settlementProtocol}:{}),...(outbox.capturedSeconds!==undefined?{capturedSeconds:outbox.capturedSeconds}:{}),...(outbox.resolutionKind!==undefined?{resolutionKind:outbox.resolutionKind}:{}),...(outbox.evidenceSha256!==undefined?{evidenceSha256:outbox.evidenceSha256}:{})};
  const intentId=sha(JSON.stringify([c.account,job.requestKey])),snapshot=await c.db.runTransaction(tx=>c.backend.captureExternalBillingSettlement(tx,expected,intentId));assert.ok(snapshot);return {expected,snapshot};
 }
 test('one job snapshot cannot settle a different job or carry an unrelated observation',{timeout:30000},async()=>{

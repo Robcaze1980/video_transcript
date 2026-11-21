@@ -6,9 +6,12 @@ import {narrationChunks,VOICE_MODEL} from './pipelineVoiceProvider';
 import {textModel} from './pipelineTextProvider';
 import {AI_CATALOG_VERSION,AI_TEXT_WINDOW_MS,AI_TEXT_MAX_DURATION_MS,AI_TEXT_MAX_WINDOWS,artifactPlan,artifactPlanHash,simulatedAiPrice,storageQuota,validateArtifactManifest,type AiArtifactPlan,type AiArtifactReceipt} from './aiContracts';
 import {validateDigitalSilenceProof,digitalSilenceProofHash} from './digitalSilence';
+import {validResolution,UNKNOWN_RESOLUTION_MIN_AGE_MS,type ResolutionKind,type VideoResolution} from '../account/settlementContract';
 
 // Server-only persistence for the cloud candidate; the public application remains separate.
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** LV-019.B C2a: `reconcile` evidence is already a bounded text string, so its hash is over the raw bytes (never JSON-quoted). */
+const textHash = (value: string) => createHash('sha256').update(value).digest('hex');
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}(?![\s\S])/i;
 type State = 'queued' | 'running' | 'unknown' | 'succeeded' | 'failed' | 'cancelled';
 type Balance = { credited: number; available: number; reserved: number; consumed: number; active: number };
@@ -37,7 +40,15 @@ export type ExternalBillingConfirmedIntentObservation = {reservationId:string;se
   |{action:'release';source:'resolution_status';terminalAction:'seal'|'release';state:'released'}
   |{action:'seal';source:'resolution_status';terminalAction:'seal'|'release';state:'sealed'});
 export type ExternalBillingIntentObservationResult = {state:'closed'|'already_closed';ownerBlocked:false}|{state:'needs_review';ownerBlocked:boolean;incidentId?:string};
-export type ExternalBillingOutboxSnapshot = ExternalVideoBilling & {jobId:string;accountId:string;action:'capture'|'release';attemptId?:string};
+export type ExternalBillingOutboxSnapshot = ExternalVideoBilling & {jobId:string;accountId:string;action:'capture'|'release';attemptId?:string;
+  settlementProtocol?:3;capturedSeconds?:number;resolutionKind?:ResolutionKind;evidenceSha256?:string};
+/**
+ * LV-019.B C2a: a repeated `conflict` must stop retrying here and move the row to `needs_review` with an alert. `too_early` is an early refusal of an unknown
+ * release and never consumes an attempt.
+ */
+export const EXTERNAL_BILLING_ATTEMPT_LIMIT=8;
+/** @deprecated Kept for the existing tests and callers that already import the old name. */
+export const EXTERNAL_BILLING_CONFLICT_ATTEMPT_LIMIT=EXTERNAL_BILLING_ATTEMPT_LIMIT;
 const settlementDocumentNames=['account','outbox','job','terminal','artifact','classification','simulatedReserve','identity','request','intent','guard','intentGuard','origin','jobMarker'] as const;
 type SettlementDocumentName=typeof settlementDocumentNames[number];
 export type ExternalBillingSettlementReadSnapshot={expected:ExternalBillingOutboxSnapshot;intentId:string;versions:Record<SettlementDocumentName,TerminalRecoveryDocumentVersion>};
@@ -223,11 +234,14 @@ export function copyExternalBillingSettlementReadSnapshot(value:unknown):Externa
     if(Object.keys(row).length!==3||!Object.hasOwn(row,'expected')||!Object.hasOwn(row,'intentId')||!Object.hasOwn(row,'versions'))return null;
     const expectedValue=row.expected,intentId=row.intentId,versionsValue=row.versions;
     if(!expectedValue||typeof expectedValue!=='object'||Array.isArray(expectedValue))return null;
-    const e=expectedValue as Record<string,unknown>,expectedKeys=Object.keys(e);
-    const jobId=e.jobId,accountId=e.accountId,provider=e.provider,identityKey=e.identityKey,reservationId=e.reservationId,seconds=e.seconds,action=e.action,attemptId=e.attemptId;
-    const fields=['jobId','accountId','provider','identityKey','reservationId','seconds','action',...(action==='capture'?['attemptId']:[])];
-    if(expectedKeys.length!==fields.length||fields.some(field=>!Object.hasOwn(e,field)))return null;
-    const expected={jobId,accountId,provider,identityKey,reservationId,seconds,action,...(action==='capture'?{attemptId}:{})} as ExternalBillingOutboxSnapshot;
+    const e=expectedValue as Record<string,unknown>;
+    // LV-019.B C2a: accept the v1 tuple (no new fields, no `attemptId` on release) and the protocol-3 tuple; any unknown key is rejected, and a new field
+    // without `settlementProtocol: 3` is rejected by `validOutboxSnapshot`.
+    if(Object.keys(e).some(key=>!(outboxSnapshotKeys as readonly string[]).includes(key)))return null;
+    const expected={jobId:e.jobId,accountId:e.accountId,provider:e.provider,identityKey:e.identityKey,reservationId:e.reservationId,seconds:e.seconds,action:e.action,
+      ...(e.attemptId!==undefined?{attemptId:e.attemptId}:{}),...(e.settlementProtocol!==undefined?{settlementProtocol:e.settlementProtocol}:{}),
+      ...(e.capturedSeconds!==undefined?{capturedSeconds:e.capturedSeconds}:{}),...(e.resolutionKind!==undefined?{resolutionKind:e.resolutionKind}:{}),
+      ...(e.evidenceSha256!==undefined?{evidenceSha256:e.evidenceSha256}:{})} as ExternalBillingOutboxSnapshot;
     validOutboxSnapshot(expected);
     if(typeof intentId!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(intentId)||!versionsValue||typeof versionsValue!=='object'||Array.isArray(versionsValue))return null;
     const raw=versionsValue as Record<string,unknown>;if(Object.keys(raw).length!==settlementDocumentNames.length||settlementDocumentNames.some(name=>!Object.hasOwn(raw,name)))return null;
@@ -251,11 +265,55 @@ function validOutboxSnapshot(snapshot:ExternalBillingOutboxSnapshot){
   if(!snapshot||typeof snapshot!=='object')throw new LedgerFault('invalid');
   identifier(snapshot.jobId);identifier(snapshot.accountId);validExternalBilling(snapshot);
   if(!['capture','release'].includes(snapshot.action))throw new LedgerFault('invalid');
-  if(snapshot.action==='capture')identifier(snapshot.attemptId as string);else if(snapshot.attemptId!==undefined)throw new LedgerFault('invalid');
+  // LV-019.B C2a: a row without `settlementProtocol` keeps the v1 semantics; every new field is only valid under `settlementProtocol: 3`.
+  const protocol=snapshot.settlementProtocol;
+  if(protocol!==undefined&&protocol!==3)throw new LedgerFault('invalid');
+  const resolutionKind=snapshot.resolutionKind,evidenceSha256=snapshot.evidenceSha256,capturedSeconds=snapshot.capturedSeconds;
+  const hasResolution=resolutionKind!==undefined||evidenceSha256!==undefined;
+  if((hasResolution||capturedSeconds!==undefined||snapshot.action==='release'&&snapshot.attemptId!==undefined)&&protocol!==3)throw new LedgerFault('invalid');
+  // LV-019.B C2a: each protocol-3 field belongs to one action. A resolution only describes a release and `capturedSeconds` only a partial capture;
+  // crossing them would make the client reject the POST every time, so the row would sit in `retry_wait` forever.
+  if(hasResolution&&snapshot.action!=='release')throw new LedgerFault('invalid');
+  if(capturedSeconds!==undefined&&snapshot.action!=='capture')throw new LedgerFault('invalid');
+  if(hasResolution&&!validResolution({kind:resolutionKind,evidenceSha256}))throw new LedgerFault('invalid');
+  if(capturedSeconds!==undefined&&(!Number.isSafeInteger(capturedSeconds)||capturedSeconds<1||capturedSeconds>=snapshot.seconds))throw new LedgerFault('invalid');
+  if(snapshot.action==='capture')identifier(snapshot.attemptId as string);
+  else if(snapshot.attemptId!==undefined){if(protocol!==3||!hasResolution)throw new LedgerFault('invalid');identifier(snapshot.attemptId);}
+  else if(hasResolution||capturedSeconds!==undefined)throw new LedgerFault('invalid');
 }
-function matchesOutboxSnapshot(value:unknown,expected:ExternalBillingOutboxSnapshot){
+const outboxSnapshotKeys=['jobId','accountId','provider','identityKey','reservationId','seconds','action','attemptId','settlementProtocol','capturedSeconds','resolutionKind','evidenceSha256'] as const;
+/** Scheduling/review metadata that lives on the stored `billingOutbox` document next to the settlement tuple. It is never part of the tuple itself. */
+export const OUTBOX_METADATA_KEYS=['id','snapshotVersion','state','attempts','generation','nextAttemptAt','createdAtMs','settledAtMs','lastErrorCode','lastAttemptAtMs',
+  'reviewIncidentId','updatedAtMs','leaseToken','leaseOwner','leaseUntil'] as const;
+/** Pick the settlement fields of a stored outbox row into the validated tuple, or null when the shape is not a legal v1/v3 row. */
+export function pickOutboxSnapshot(value:unknown):ExternalBillingOutboxSnapshot|null{
+  try{
+    if(!value||typeof value!=='object'||Array.isArray(value))return null;const row=value as Record<string,unknown>;
+    const expected={jobId:row.jobId,accountId:row.accountId,provider:row.provider,identityKey:row.identityKey,reservationId:row.reservationId,seconds:row.seconds,action:row.action,
+      ...(row.attemptId!==undefined?{attemptId:row.attemptId}:{}),...(row.settlementProtocol!==undefined?{settlementProtocol:row.settlementProtocol}:{}),
+      ...(row.capturedSeconds!==undefined?{capturedSeconds:row.capturedSeconds}:{}),...(row.resolutionKind!==undefined?{resolutionKind:row.resolutionKind}:{}),
+      ...(row.evidenceSha256!==undefined?{evidenceSha256:row.evidenceSha256}:{})} as ExternalBillingOutboxSnapshot;
+    validOutboxSnapshot(expected);return expected;
+  }catch{return null;}
+}
+/** Strict copy for a settlement snapshot: an unknown field is never carried. A stored row may pass its documented metadata keys explicitly. */
+export function copyOutboxSnapshot(value:unknown,metadataKeys:readonly string[]=[]):ExternalBillingOutboxSnapshot|null{
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const allowed:readonly string[]=[...outboxSnapshotKeys,...metadataKeys];
+  if(Object.keys(value as Record<string,unknown>).some(key=>!allowed.includes(key)))return null;
+  return pickOutboxSnapshot(value);
+}
+export function matchesOutboxSnapshot(value:unknown,expected:ExternalBillingOutboxSnapshot){
   if(!value||typeof value!=='object')return false;const row=value as Partial<ExternalBillingOutboxSnapshot>;
-  return row.jobId===expected.jobId&&row.accountId===expected.accountId&&row.action===expected.action&&row.attemptId===expected.attemptId&&matchesExternalBilling(row,expected);
+  // An unexpected key on a stored row is never silently ignored: it is a shape error, not a field to skip.
+  const allowed:readonly string[]=[...outboxSnapshotKeys,...OUTBOX_METADATA_KEYS];
+  if(Object.keys(row as Record<string,unknown>).some(key=>!allowed.includes(key)))return false;
+  if(!(row.jobId===expected.jobId&&row.accountId===expected.accountId&&row.action===expected.action&&row.attemptId===expected.attemptId&&matchesExternalBilling(row,expected)))return false;
+  // GLM hardening: the protocol shape is asserted in both directions. A v1 tuple matches only a row with NO protocol-3 field at all (a row silently
+  // rewritten from v1 to v3 must not pass), and a v3 tuple matches only the row that carries the fields exactly, including their absence.
+  if(expected.settlementProtocol!==3)
+    return row.settlementProtocol===undefined&&row.capturedSeconds===undefined&&row.resolutionKind===undefined&&row.evidenceSha256===undefined;
+  return row.settlementProtocol===3&&row.capturedSeconds===expected.capturedSeconds&&row.resolutionKind===expected.resolutionKind&&row.evidenceSha256===expected.evidenceSha256;
 }
 function outboxVersion(doc:DocumentSnapshot){
   const time=doc.updateTime;if(!time||!Number.isSafeInteger(time.seconds)||time.seconds<0||!Number.isSafeInteger(time.nanoseconds)||time.nanoseconds<0||time.nanoseconds>=1_000_000_000)return null;
@@ -1329,11 +1387,24 @@ export class FirestoreBackend {
       return this.sameDigitalSource(c,binding)&&!!c.artifact&&['purging','purged'].includes(c.artifact.state)&&c.artifact.entries.length===0&&c.artifact.attemptId===null&&!Object.hasOwn(c.artifact,'callReceiptHash')&&!Object.hasOwn(c.artifact,'callKeys')&&movement.exists&&movement.get('accountId')===accountId&&movement.get('reference')===jobId&&movement.get('credits')===c.job.price&&movement.get('kind')===(c.job.externalBilling?'external_release':'release');
     });
   }
-  private settle(tx: Transaction, c: Context, state: 'succeeded' | 'failed' | 'cancelled', evidence: string | null = null) {
+  /**
+   * LV-019.B C2a: any failure/cancellation of an externally billed job that already has admitted provider calls (a provider call row is the durable admission
+   * proof) is a release WITH a claim: the admission (`jobId`, `attemptId`) plus the caller's resolution. Without admitted calls it stays the plain release. Either
+   * way the row is protocol 3. `resolution` is only ever supplied by the two callers that can observe admitted calls (`completeNoSpeech`, `reconcile`).
+   */
+  private settle(tx: Transaction, c: Context, state: 'succeeded' | 'failed' | 'cancelled', evidence: string | null = null, resolution?:VideoResolution) {
     if (c.terminalExists) throw new LedgerFault('invariant');
     const capture = state === 'succeeded', price = c.job.price;
     const capturedAttempt=capture&&c.job.externalBilling?c.job.attemptId:undefined;
     if(capture&&c.job.externalBilling&&(!capturedAttempt||!uuid.test(capturedAttempt)))throw new LedgerFault('invariant');
+    const admitted=!capture&&!!c.job.externalBilling&&!!c.providerReceipts&&c.providerReceipts.length>0;
+    const releasedAttempt=admitted?c.job.attemptId??c.job.unknownAttemptId:null;
+    // GLM reachability: today only text with external billing can reach `admitted`, and both callers that do (`completeNoSpeech`, `reconcile`) always pass
+    // the resolution. Every other money path that could load provider receipts is fenced first: `finish`/`complete`/`quarantine` refuse a
+    // non-`invoking` phase, `cancel` and the claim path run `cleanPendingPreprovider`, and voice (`narration:`) is refused outright. The guard is kept as
+    // defence in depth: a future caller that admitted calls without a resolution fails CLOSED with `invariant`, and no balance is moved.
+    if(admitted&&(!resolution||!validResolution(resolution)))throw new LedgerFault('invariant');
+    if(admitted&&(!releasedAttempt||!uuid.test(releasedAttempt)))throw new LedgerFault('invariant');
     let quota:ReturnType<typeof storageQuota>|undefined;
     if(c.artifact){
       if(capture){const entries=this.publishableManifest(c);const bytes=entries.reduce((n,e)=>n+e.size,0);if(c.artifact.quotaMode!=='reserved'||c.artifact.quotaHeld!==c.artifact.plan.budgetBytes)throw new LedgerFault('invariant');quota=storageQuota(c.rawAccountData,-c.artifact.quotaHeld,bytes);}
@@ -1348,7 +1419,9 @@ export class FirestoreBackend {
     tx.update(c.inputRef, { unknownCount });
     tx.update(this.ref('outbox', c.jobRef.id), {state: 'sent', leaseUntil: null});
     tx.create(c.terminalRef, { accountId: c.job.accountId, reference: c.jobRef.id, credits: price, kind: c.job.externalBilling?`external_${capture?'capture':'release'}`:capture ? 'capture' : 'release' });
-    if(c.job.externalBilling)tx.create(this.ref('billingOutbox',c.jobRef.id),{accountId:c.job.accountId,jobId:c.jobRef.id,...copyExternalBilling(c.job.externalBilling),action:capture?'capture':'release',...(capturedAttempt?{attemptId:capturedAttempt}:{}),state:'pending',createdAtMs:Date.now(),attempts:0,nextAttemptAt:Date.now()});
+    if(c.job.externalBilling)tx.create(this.ref('billingOutbox',c.jobRef.id),{accountId:c.job.accountId,jobId:c.jobRef.id,...copyExternalBilling(c.job.externalBilling),action:capture?'capture':'release',
+      ...(capturedAttempt?{attemptId:capturedAttempt}:admitted?{attemptId:releasedAttempt!}:{}),settlementProtocol:3,
+      ...(admitted?{resolutionKind:resolution!.kind,evidenceSha256:resolution!.evidenceSha256}:{}),state:'pending',createdAtMs:Date.now(),attempts:0,nextAttemptAt:Date.now()});
   }
 
   /**
@@ -1364,7 +1437,9 @@ export class FirestoreBackend {
   async recordExternalBillingFailure(jobId:string,code:string,expected?:ExternalBillingOutboxFailureEvidence){
     identifier(jobId);if(!expected)return false;validOutboxSnapshot(expected.outbox);
     if(expected.outbox.jobId!==jobId||typeof expected.snapshotVersion!=='string'||!/^\d{1,15}:\d{9}(?![\s\S])/.test(expected.snapshotVersion)||!['pending','retry_wait'].includes(expected.state))throw new LedgerFault('invalid');
-    if(!/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden)$/.test(code))code='unavailable';const ref=this.ref('billingOutbox',jobId);
+    // LV-019.B C2a: `too_early` is an early refusal of an unknown-expired release; it must be preserved, must not consume an attempt, and reschedules for later.
+    const tooEarly=code==='too_early';
+    if(!tooEarly&&!/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden)$/.test(code))code='unavailable';const ref=this.ref('billingOutbox',jobId);
     return this.db.runTransaction(async tx=>{
       const [d,job,terminal,artifact]=await tx.getAll(ref,this.ref('jobs',jobId),this.ref('movements','terminal:'+jobId),this.ref('artifacts',jobId));
       if(!d.exists||d.get('state')!==expected.state||outboxVersion(d)!==expected.snapshotVersion||!matchesOutboxSnapshot(d.data(),expected.outbox)||hasIntentLease(d.data()!)||!validUnleasedBillingMetadata(d.data()!)||!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<0)return false;
@@ -1372,7 +1447,14 @@ export class FirestoreBackend {
       if(!owner||owner.guardBlocked||owner.intentState!=='job_created'||(expected.outbox.action==='capture'?owner.job.state!=='succeeded'||owner.job.completedAttemptId!==expected.outbox.attemptId||a?.attemptId!==expected.outbox.attemptId:!['failed','cancelled'].includes(owner.job.state))||
         t?.accountId!==owner.accountId||t.reference!==jobId||t.credits!==expected.outbox.seconds||t.kind!=='external_'+expected.outbox.action||a?.accountId!==owner.accountId||a.jobId!==jobId||a.inputId!==owner.job.inputId)return false;
       const previous=d.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
-      const attempts=Number(previous)+1,delay=Math.min(15*60_000,1000*2**Math.min(attempts,10)),now=Date.now();tx.update(ref,{state:'retry_wait',attempts,lastErrorCode:code,nextAttemptAt:now+delay,lastAttemptAtMs:now});return true;
+      const now=Date.now();
+      if(tooEarly){tx.update(ref,{state:'retry_wait',lastErrorCode:'too_early',nextAttemptAt:now+UNKNOWN_RESOLUTION_MIN_AGE_MS,lastAttemptAtMs:now});return true;}
+      const attempts=Number(previous)+1,delay=Math.min(15*60_000,1000*2**Math.min(attempts,10));
+      // LV-019.B C2a: every permanent refusal shares one bound, so no row can retry forever. The row becomes `needs_review` (reported by
+      // `readPendingReport`, alerted by `raisePendingAlerts`) and is never retried again; the owner is not blocked, so no hold and no guard are set.
+      // Only `unavailable` is exempt: it is transient infrastructure and step 1.6 bounds it by the periodic runner's maximum age.
+      if(code!=='unavailable'&&attempts>=EXTERNAL_BILLING_ATTEMPT_LIMIT){tx.update(ref,{state:'needs_review',attempts,lastErrorCode:code,lastAttemptAtMs:now});return true;}
+      tx.update(ref,{state:'retry_wait',attempts,lastErrorCode:code,nextAttemptAt:now+delay,lastAttemptAtMs:now});return true;
     });
   }
   /** An error/timeout is not an ACK; stale evidence cannot write or release a lease. */
@@ -1418,9 +1500,8 @@ export class FirestoreBackend {
   }
   /** Compare the original pre-POST read in the same transaction as the local settlement. */
   async markExternalBillingSettled(expectedInput:ExternalBillingOutboxSnapshot,snapshotInput:ExternalBillingSettlementReadSnapshot){
-    const {jobId,accountId,provider,identityKey,reservationId,seconds,action,attemptId}=expectedInput;
-    const expected={jobId,accountId,provider,identityKey,reservationId,seconds,action,...(action==='capture'?{attemptId}:{})};
-    validOutboxSnapshot(expected);const snapshot=copyExternalBillingSettlementReadSnapshot(snapshotInput);if(!snapshot||!matchesOutboxSnapshot(snapshot.expected,expected))return false;
+    const expected=copyOutboxSnapshot(expectedInput);if(!expected)return false;
+    const snapshot=copyExternalBillingSettlementReadSnapshot(snapshotInput);if(!snapshot||!matchesOutboxSnapshot(snapshot.expected,expected))return false;
     return this.db.runTransaction(async tx=>{
       const current=await this.captureExternalBillingSettlement(tx,expected,snapshot.intentId);
       if(!current||JSON.stringify(current)!==JSON.stringify(snapshot))return false;
@@ -1437,8 +1518,7 @@ export class FirestoreBackend {
     if(phase==='before_ack'&&!version)return {state:'changed',ownerBlocked:false};
     let after:{expected:ExternalBillingOutboxSnapshot;ack:ExternalBillingObservation;settlementSnapshot:ExternalBillingSettlementReadSnapshot|null}|null=null;
     if(options.phase==='after_ack'){
-      const source=options.expected,{jobId,accountId,provider,identityKey,reservationId,seconds,action,attemptId}=source;
-      const expected={jobId,accountId,provider,identityKey,reservationId,seconds,action,...(action==='capture'?{attemptId}:{})};validOutboxSnapshot(expected);
+      const expected=copyOutboxSnapshot(options.expected);if(!expected)throw new LedgerFault('invalid');
       const observation=options.ack;if(!observation)throw new LedgerFault('invalid');
       const ack={reservationId:observation.reservationId,state:observation.state,seconds:observation.seconds};
       if(ack.reservationId!==expected.reservationId||ack.seconds!==expected.seconds||ack.state!==(expected.action==='capture'?'captured':'released'))throw new LedgerFault('invalid');
@@ -1463,7 +1543,9 @@ export class FirestoreBackend {
       const owner=jobDoc?await this.verifiedOutboxOwner(tx,outboxId,jobDoc,after?.expected):null;
       // A related document may have been repaired even while the outbox version stayed fixed.
       if(phase==='before_ack'&&owner&&!owner.guardBlocked&&owner.intentState==='job_created'&&['pending','retry_wait'].includes(current.get('state'))){
-        const raw=current.data()!,candidate=raw as ExternalBillingOutboxSnapshot;let valid=true;try{validOutboxSnapshot(candidate);}catch(error){if(error instanceof LedgerFault)valid=false;else throw error;}
+        const raw=current.data()!,candidate=raw as ExternalBillingOutboxSnapshot;
+        // A row with an unexpected key is never a clean repair; only an exact v1/v3 tuple with its documented metadata may take the `changed` fast path.
+        let valid=!!copyOutboxSnapshot(raw,OUTBOX_METADATA_KEYS);if(valid)try{validOutboxSnapshot(candidate);}catch(error){if(error instanceof LedgerFault)valid=false;else throw error;}
         if(valid&&!hasIntentLease(raw)&&validUnleasedBillingMetadata(raw)&&Number.isSafeInteger(raw.nextAttemptAt)&&raw.nextAttemptAt>=0&&candidate.jobId===outboxId&&candidate.accountId===owner.accountId&&matchesExternalBilling(candidate,owner.billing)){
           const [terminal,artifact]=await tx.getAll(this.ref('movements','terminal:'+outboxId),this.ref('artifacts',outboxId)),t=terminal.data(),a=artifact.data();
           const stateValid=candidate.action==='capture'?owner.job.state==='succeeded':['failed','cancelled'].includes(owner.job.state);
@@ -1705,7 +1787,8 @@ export class FirestoreBackend {
       const receipt=this.verifiedProviderReceipt(c);
       if(validatedProof.length!==receipt.keys.length||validatedProof.some((row,index)=>row.callKey!==receipt.keys[index]||
         row.responseSha256!==c.providerReceipts!.find(call=>call.data.callKey===row.callKey)?.data.responseSha256))throw new LedgerFault('conflict');
-      this.settle(tx,c,'failed','no-speech:'+hash(validatedProof));
+      // LV-019.B C2a: the release claim is derived from data written in this same transaction: the already-computed receipt hash of the admitted calls.
+      this.settle(tx,c,'failed','no-speech:'+hash(validatedProof),{kind:'no_speech',evidenceSha256:receipt.hash});
       tx.update(c.jobRef,{failureCode:'no_speech',noSpeechReceiptHash:receipt.hash});
       return true;
     });
@@ -1766,7 +1849,9 @@ export class FirestoreBackend {
       }
       // AI success recovery is allowed only via staged re-read before UNKNOWN/purge, never resurrection afterward.
       if(c.artifact&&outcome==='succeeded')throw new LedgerFault('conflict');
-      this.settle(tx, c, outcome === 'succeeded' && this.usable(c.input,c.job.inputId,c.job) ? 'succeeded' : 'failed', evidence); return true;
+      const failed=!(outcome === 'succeeded' && this.usable(c.input,c.job.inputId,c.job));
+      // LV-019.B C2a: a failed reconcile with admitted calls releases with the `not_delivered` claim; the evidence hash is over the raw evidence string.
+      this.settle(tx, c, failed?'failed':'succeeded', evidence, failed?{kind:'not_delivered',evidenceSha256:textHash(evidence)}:undefined); return true;
     });
   }
   async job(accountId: string, jobId: string) {

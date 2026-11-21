@@ -1,0 +1,33 @@
+1.2 diseno revision glm
+mcp:fce52d65-9690-424b-a31a-fcaa686d38d7  completed  linguistvision-openrouter/~z-ai/glm-flash-latest
+
+[user]
+Eres REVISOR independiente (T3). NO modifiques archivos ni ejecutes pruebas ni nada contra la red; solo lee. Maximo 350 palabras. Hallazgos numerados con severidad ALTA/MEDIA/BAJA, cada uno con el estado o la secuencia concreta que produce el fallo y la correccion. No repitas lo correcto. Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+
+DOCUMENTO A REVISAR: docs/specs/LV-019-B-cancelacion-y-unknown-diseno.md (diseno del paso 1.2). Contexto: docs/specs/LV-019-B-liquidacion-parcial-y-liberacion-posadmision.md (contrato con Cuenta, resolucion unknown_expired con piso de 15 min), server/commercial/firestoreBackend.ts (cancelInTransaction, unknown, settle, reconcile, claim, finish/stage y su comprobacion de attemptId), server/commercial/billingPendingReport.ts (attentionOf) y billingPendingAlerts.ts. Decisiones del dueno vigentes: no se cobra si fallamos; ante cancelacion tras enviar al proveedor solo se cobra lo entregado y verificado (en texto es cero); nada de cobro parcial en texto; un trabajo en duda no retiene saldo sin fin.
+
+BUSCA FALLOS REALES: (1) caminos donde el resolvedor automatico pueda cobrar, liberar dos veces, liberar un trabajo que luego SI se entrega al cliente (carrera con un finish/stage del worker o con el recibo tardio), o dejar saldo retenido sin fin; (2) huecos del plazo (reloj, quarantinedAtMs ausente o corrupto, trabajo unknown sin admision, trabajo unknown con admision pero sin attemptId valido, unknownAttemptId nulo); (3) el limite de 3 activos por cuenta: como lo afecta cada transicion y si el resolvedor/cancelacion pueden dejarlo inconsistente; (4) la alerta de unknown envejecido y su idempotencia; (5) pruebas exigidas que pasarian aunque el comportamiento estuviera roto o faltan casos; (6) cualquier decision de politica no cubierta por las del dueno que el diseno tome sin avisar.
+
+
+[assistant]
+Voy a leer el diseño y los archivos de contexto citados.
+
+[assistant]
+Voy a leer el diseño y el código citado para confirmar los hallazgos antes de emitir el veredicto.
+
+[assistant]
+Ahora confirmo los puntos citados del código para sustentar los hallazgos.
+
+[assistant]
+Reviso la sección del resolvedor (§3) y el bloque de `settle` para cerrar la secuencia exacta.
+
+[assistant]
+1. **ALTA — `unknownAttemptId` sin validar**: el diseño valida `quarantinedAtMs` (§3) pero no `unknownAttemptId`. Secuencia: `unknown` con admisión y `unknownAttemptId` nulo o no-UUID → vence → `settle` (`firestoreBackend.ts:1401-1402`): `uuid.test` falla → `invariant` → transacción aborta → la fila queda `unknown` indefinidamente, retiene saldo y cupo `active` sin fin (contraviene «un trabajo en duda no retiene saldo sin fin») y la evidencia se construye sobre `null`. Corrección: validar UUID en la misma prevalidación; inválido → contar `failed`, no tocar la fila. Añadir el caso a la prueba 6.
+
+2. **MEDIA — excepción de `settle` no cubierta**: el diseño no define qué pasa si `settle` lanza por una causa distinta a los datos ya validados (p. ej. invariantes de saldo o cuenta inconsistente). Una excepción sin manejo por fila puede abortar la pasada entera y bloquear las demás filas. Corrección: capturar por fila, contar `failed` y reintentar en la siguiente rotación.
+
+3. **BAJA — evidencia sin admisión**: un `unknown` sin admisión con `unknownAttemptId` nulo resuelve bien, pero la evidencia contiene el literal `null`. Definir el formato para ese caso o validarlo igualmente.
+
+La alerta `unknown_age`, su idempotencia, el cursor con vuelta, el límite de 3 activos (que `settle` decrementa) y el sellado contra `finish`/`stage`/recibo tardío ya están correctamente cubiertos; no los repito.
+
+RESULTADO: FALLA
