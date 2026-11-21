@@ -1,3 +1,39 @@
+1.6b-2 seccion del ejecutor
+mcp:03ff2fff-1ac0-4c3d-908a-25b3c211be6c  completed  linguistvision-openrouter/deepseek/deepseek-v4.1-flash
+lv019b/t3-drain-section  C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-drain-section
+
+[assistant]
+Two full-suite failures are pre-existing and unrelated (missing `outputs/` fixture dir; a syntax error in a scripts test). Cleaning scratch files and re-verifying.
+
+
+
+[assistant]
+Now one final mutation round on the remaining survivors (renewal-refusal, drain-failure counting, heartbeat keys) to see if the tests can be tightened cheaply.
+
+[assistant]
+Two genuine test gaps remain (M13, M22). Adding targeted tests for them.
+
+[assistant]
+All mutations killed now. Final verification: tsc, the targeted suites, and the emulator.
+
+
+
+[assistant]
+Final review of the module for quality and leftovers.
+
+[assistant]
+Two refinements: honour the design's max tenure (60 s pass budget) and tighten the response shaper types.
+
+[assistant]
+Two more gaps (tenure param, unconditional release). Adding coverage for both.
+
+[assistant]
+Wiring diff is minimal and the handler literals the certified sweep test pins are intact. Final full run of the targeted suites plus emulator, then cleanup.
+
+[assistant]
+Both emulator fixtures pass (18/18). Last check: file integrity, no stray scratch files.
+
+[assistant]
 **Archivos**
 - `server/commercial/billingDrainSection.ts` (nuevo): sección con candado, renovación y liberación condicionadas, `shouldContinue` por presupuesto + margen 15 s, orden bloqueos→intenciones/salidas→bloqueos→unknown, cursores, tope 5/cuenta y 100/tipo, guarda por raíz, latido único de 12 claves. Importa por valor solo `billingDrainLease`; `ai`/`backend` por parámetro.
 - `server/commercial/billingDrainSection.test.ts` (nuevo, 30 pruebas): rojo→verde, dobles inyectables, temporizador con `unref`/limpieza, renovación rechazada, presupuesto por sección, orden, cursores, arranque, latido sin datos sembrados, cercado de imports y estáticas del cableado.

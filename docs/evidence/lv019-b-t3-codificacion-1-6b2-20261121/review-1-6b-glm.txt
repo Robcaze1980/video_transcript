@@ -1,0 +1,38 @@
+1.6b codigo revision glm
+mcp:2cd25c9c-96cb-4ad9-83e2-b50b9cfc78d6  completed  linguistvision-openrouter/~z-ai/glm-flash-latest
+
+[user]
+Eres REVISOR independiente (T3). NO modifiques archivos ni ejecutes nada; solo lee y se economico (maximo 12 lecturas; NO abras firestoreBackend.ts ni firestoreAi.ts completos: usa Grep y Read con offset/limit). Maximo 400 palabras. Hallazgos numerados con severidad ALTA/MEDIA/BAJA, cada uno con la secuencia concreta (estado inicial, eventos, resultado errado) y la correccion. No repitas lo correcto. Termina con una linea: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+CODIGO A REVISAR (paso 1.6b, ejecutor periodico de drenajes de saldo; mueve saldo): server/commercial/billingDrainSection.ts (la seccion: candado, renovacion, presupuesto, orden, cursores, latido, guarda en vuelo), su cableado en server/commercial/cloudFilesRuntime.ts (busca runBillingDrainSection y maintenanceResponse), el `control` de los drenajes en server/commercial/firestoreAi.ts (type DrainControl, drainExternalBilling y drainExternalHolds con control) y la rotacion con cursor en server/commercial/firestoreBackend.ts (pendingExternalBillingIntents, pendingExternalBilling, dueRows, scanDueRows). Contratos: docs/specs/LV-019-B-ejecutor-periodico-drenajes.md (diseno v2, secciones 2 a 4), server/commercial/billingDrainLease.ts (candado certificado: acquire, renew, release, assert, cursores) y docs/specs/LV-019-B-cancelacion-y-unknown-diseno.md (el resolvedor de unknown que la seccion invoca).
+BUSCA FALLOS REALES: (1) seguridad: que dos pasadas simultaneas, una pasada pausada que despierta tarde o un titular antiguo muevan saldo dos veces o toquen filas despues de perder el arriendo (la garantia final es la idempotencia de Cuenta, pero el candado debe cortar a tiempo); (2) el temporizador de renovacion: fugas, renovacion despues de liberar, renovar con otro holderId/token, tenencia maxima, que un error de renovacion no deje la pasada trabajando sin arriendo; (3) presupuestos por seccion: que una seccion lenta no agote las demas y que un presupuesto agotado no tome filas nuevas; (4) cursores: orden, vuelta, que un cursor de otra pasada o corrupto no rompa ni atasque (ids no planos, reservados), que setDrainCursor solo ocurra con arriendo vigente; (5) aislamiento en el manejador de mantenimiento: que un fallo/timeout/skipped del drenaje no cambie el codigo de estado ni cuente como failed, y que el interruptor VISTAVO_BILLING_DRAIN apagado no toque nada; (6) latido: SOLO recuentos, nunca ids de cuenta/fila ni contenido ni mensajes de error; (7) el tope por cuenta y la equidad (una cuenta con muchas filas no acapara; las filas omitidas no se pierden); (8) pruebas que pasarian con el codigo roto y casos que faltan.
+
+
+[assistant]
+Reviso por separado los puntos del candado, presupuesto, cursores y mantenimiento.
+
+[assistant]
+Ya mapeé referencias; ahora leo la sección y su cableado.
+
+[assistant]
+La sección parece sólida; contrasto ahora candado certificado y diseño.
+
+[assistant]
+Candado consistente con diseño; reviso el control dentro de los drenajes.
+
+[assistant]
+Cierro con 3 lecturas: rotación exacta, latido/abort y pruebas de cursores.
+
+[assistant]
+**Hallazgos**
+
+1. **MEDIA — El drenaje de bloqueos no rota y una cuenta grande acapara.** Estado inicial: 100+ filas `pending` de la cuenta A vencidas y de B detrás del límite de página; eventos: `pendingExternalHolds(100)` lee por `nextAttemptAt`, la capa deja 5 de A y salta las demás sin cambiarlas, así que las 95 siguen al frente cada pasada; resultado: B no aparece hasta drenar ~19 pasadas, violando la rotación por tipo del diseño 3.3 (`DRAIN_CURSOR_KINDS` incluye `holds`, pero `runBillingDrainSection` nunca lo lee ni escribe y `drainExternalHolds` no acepta `after`). Corrección: añadir cursor `after` a `pendingExternalHolds`/`drainExternalHolds` y leerlo/escribirlo con el candado bajo `kind:'holds'`, o rotar por id de documento.
+
+2. **BAJA — Sin cliente de Cuenta se borra el cursor de facturación.** Estado: cursor previo `intents/outbox` vigente; `accountBilling===undefined`; `drainExternalBilling` con `control` devuelve `next:{intents:null,outbox:null}`; la sección escribe esos `null` y reinicia la rotación. Corrección: omitir `next` cuando no hay cliente, o no persistir cursores si la pasada no examinó filas.
+
+3. **BAJA — `skippedRows` puede contar dos veces.** En `pendingExternalBillingIntents`, si la cola de reservas tras el cursor se agota, esa consulta vuelve al inicio y puede redevolver filas ya saltadas por tope en esta misma pasada (la de salidas hace lo propio); se duplica la métrica aunque no se toque saldo. Corrección: deduplicar por id dentro de la pasada o no envolver una consulta que ya fue rotada en la misma pasada.
+
+4. **BAJA — Pruebas ausentes.** No hay caso de cursor corrupto/inexistente a nivel de sección ni de equidad de bloqueos (hallazgo 1); las pruebas actuales de rotación cubren intents/outbox y pasarían con el drenaje de bloqueos sin rotación. Corrección: pruebas en emulador para ambos casos.
+
+Lo demás revisado cumple: renovación liberada por `holderId+token`, tenencia acotada, liberación sin borrar arriendo ajeno, presupuesto por sección secuencial, `shouldContinue` antes de cada fila, `setCursor` solo con arriendo vivo, latido solo con recuentos, aislamiento del manejador (`drain` no altera 503/`failed`) y interruptor apagado sin llamadas.
+
+RESULTADO: FALLA

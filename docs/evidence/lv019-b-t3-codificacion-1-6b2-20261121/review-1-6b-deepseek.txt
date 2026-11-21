@@ -1,0 +1,17 @@
+**1. ALTA — `unknown` sin presupuesto ni arriendo.** La sección invoca `backend.resolveExpiredUnknown({now,limit,after})` sin `shouldContinue`/deadline, y `leaseLost` solo cambia dentro de los `gate`, que se evalúan por fila. Secuencia: holdsBefore/billing/holdsAfter vacíos (ningún `assertHeld`) → una renovación devuelve `false` y `stopRenewal()` apaga el timer → el arriendo vence a los 90 s → la sección igual recorre hasta 100 filas `unknown` liberando saldo, y sus 10 s no limitan nada. Como el manejador hace `await drainPromise` antes de responder, la pasada puede pasar de los 180 s de `requestTimeout` y el planificador reintenta. Corrección: pasar deadline y `assertHeld` por fila al resolvedor (o envolverlo) y terminar la pasada si se perdió el arriendo.
+
+**2. ALTA — `intentsFailed++` sin constancia de intento.** `if(typeof row.snapshotVersion!=='string'){intentsFailed++;continue;}`, `if(!failureEvidence){intentsFailed++;continue;}` y `if(!statusSnapshot){intentsFailed++;continue;}` salen sin `recordExternalBillingFailure`: la fila no avanza `nextAttemptAt` ni edad → reintento eterno, nunca llega a `needs_review` (viola 3.4 y vivacidad). Corrección: registrar intento/espera creciente en esas tres rutas.
+
+**3. MEDIA — tope por cuenta es por drenaje, no por pasada.** Hay tres mapas `perAccount` (holdsBefore, billing, holdsAfter): una cuenta puede tomar 15 filas con cap=5, contra 3.3. Corrección: un solo mapa por pasada, compartido.
+
+**4. MEDIA — no existe el cursor `holds`.** `DRAIN_CURSOR_KINDS` incluye `'holds'`, pero `pendingExternalHolds` no acepta `after` y la sección nunca lee/escribe ese cursor: la rotación de bloqueos pedida en 3.3 no ocurre y siempre se sirven las mismas primeras filas por `nextAttemptAt`. Corrección: `after`+cursor para holds, o quitarlo del contrato.
+
+**5. MEDIA — se reescribe el cursor de un tipo no recorrido.** Si el billing se detiene por presupuesto en intents (`stopped=true`), no recorre outbox y devuelve `next.outbox=null`; la sección lo escribe (`cursorValue(null)≠undefined`) y borra la rotación previa. Secuencia: pass 1 rota outbox a la mitad; pass 2 se detiene en intents → outbox vuelve al inicio. Corrección: escribir solo el cursor del tipo efectivamente recorrido.
+
+**6. MEDIA — pérdida de arriendo no propagada desde el timer.** `live===false` solo hace `stopRenewal()`, sin marcar `leaseLost`; una pérdida real (p. ej. sesgo de reloj) deja la pasada moviendo filas y solo la corta el `gate` por fila, ausente en `unknown`. Corrección: distinguir "tenencia agotada" de "arriendo perdido" y propagar la pérdida.
+
+**7. BAJA — latido con 13 claves:** se filtra además `unknownResolved` de las 12 de 3.5; es recuento (no ids), pero contradice el contrato enumerado.
+
+**8. BAJA — pruebas que pasarían en roto:** el test de cableado es regex sobre el fuente (no ejecuta el manejador con el interruptor apagado/encendido); faltan casos de "outbox no recorrido no reescribe su cursor", presupuesto/arriendo en `unknown`, y tope por pasada frente a por drenaje.
+
+RESULTADO: FALLA

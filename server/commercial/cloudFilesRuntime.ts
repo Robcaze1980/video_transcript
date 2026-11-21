@@ -11,6 +11,8 @@ import {firestoreHttp} from './firestoreHttp';
 import {AccountBillingClient} from './accountBillingClient';
 // Step 3.4 (A2): static import is a decision, not an oversight. A load failure of this module is a COMPILE error caught by tsc and the tests, never a runtime risk; a dynamic import would only move the same failure into a request and could hide it.
 import {runBillingSweepSection} from './billingSweepSection';
+// Step 1.6b: same decision for the periodic drain section. It receives `ai` and `backend` from the runtime below; it never builds its own Cuenta client.
+import {runBillingDrainSection} from './billingDrainSection';
 
 const accounts={api:'vistavo-files-api',validate:'vistavo-files-validator',cleanup:'vistavo-files-cleaner',maintenance:'vistavo-files-maintenance',proof:'vistavo-bootstrap',ai:'vistavo-runtime'} as const;
 export async function cloudFilesRuntime(role:keyof typeof accounts){
@@ -83,6 +85,12 @@ export async function filesMain(){
   // IAM-authenticated internal Cloud Run service, invokable only by Scheduler.
   if(req.method!=='POST'||req.url!=='/internal/maintenance'){req.resume();res.writeHead(404).end();return;}
   try{req.resume();
+   // Step 1.6b (second part): the periodic drain executor is its OWN section, OFF unless explicitly enabled. Started
+   // (not awaited) before the file and AI sections so it never delays them, awaited only at the end to include its
+   // summary in the response. It never throws, so a failing or skipped drain neither changes the status of the other
+   // sections nor counts as `failed`; a load/execution error is swallowed into an error outcome instead of the 503.
+   const drainPromise=runBillingDrainSection({db:runtime.db,root:runtime.root,ai:runtime.ai,backend:runtime.backend,now:Date.now(),enabled:process.env.VISTAVO_BILLING_DRAIN==='1',budgetMs:60000,log:line=>console.log(line)})
+    .catch(error=>{console.error(JSON.stringify({event:'billing-drain-section-failed',type:error?.name,code:error?.code}));return {outcome:'error'};});
    // Step 3.4 (A2): the sweep sub-handler runs as its OWN section, OFF unless explicitly enabled. It is STARTED (not
    // awaited) before the file and AI sections so it never delays them, and awaited only at the end to include it in the
    // response. It never throws, so a failing or timed-out sweep neither changes the status of the other sections nor
@@ -91,11 +99,22 @@ export async function filesMain(){
     .catch(error=>{console.error(JSON.stringify({event:'billing-sweep-section-failed',type:error?.name,code:error?.code}));return {outcome:'error'};});
    const fileDrain=await drainCloudFiles({pending:()=>runtime.files.maintenanceReport(),dispatch:runtime.dispatch});
    const aiDrain=await runtime.nudgeAi();
+   const drain=await drainPromise;
    const sweep=await sweepPromise;
-   const failed=fileDrain.failed+(aiDrain?.failures.length??0);res.writeHead(failed?503:200,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify({due:fileDrain.due,failed,fileDrain,aiDrain,sweep}));
+   const failed=fileDrain.failed+(aiDrain?.failures.length??0);res.writeHead(failed?503:200,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify(maintenanceResponse({fileDrain,aiDrain,drain,sweep}).body));
   }catch(error){console.error(JSON.stringify({event:'maintenance-failed',type:error?.name,code:error?.code}));res.writeHead(503,{'Cache-Control':'no-store'}).end();}
  });
  server.requestTimeout=180000;server.headersTimeout=30000;
  server.listen(Number(process.env.PORT)||8080,'0.0.0.0');
  process.once('SIGTERM',()=>server.close(()=>void runtime.close().finally(()=>process.exit(0))));
+}
+
+
+/**
+ * The maintenance response. The status code and the `failed` count depend ONLY on the file and AI sections: the
+ * drain and the sweep are optional, isolated sections that can be `error`, `skipped` or absent without changing them.
+ */
+export function maintenanceResponse(sections:{fileDrain:{due:number;failed:number};aiDrain?:{failures:unknown[]}|undefined;drain:{outcome:string};sweep?:{outcome:string}}){
+  const failed=sections.fileDrain.failed+(sections.aiDrain?.failures.length??0);
+  return {status:failed?503:200,body:{due:sections.fileDrain.due,failed,fileDrain:sections.fileDrain,aiDrain:sections.aiDrain,drain:sections.drain,sweep:sections.sweep}};
 }
