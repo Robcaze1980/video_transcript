@@ -1,0 +1,54 @@
+A0 lectura previa de nube
+mcp:119511f9-dadd-4f0c-b99f-ed9eb290ce28  completed  linguistvision-openrouter/deepseek/deepseek-v4.1-flash
+lv019b/t3-a0-readback  C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-a0-readback
+
+[assistant]
+Three real misses; fixing implementation for two and correcting one test assumption (`:443` normalizes away).
+
+[assistant]
+38/38 green. Verifying `tsc` and checking the `main` signature tolerates a bare `argv`.
+
+[assistant]
+38/38 and `tsc` clean. Now mutations over eachnew line.
+
+[assistant]
+Two survivors to resolve honestly, plus one bad anchor. Checking the URL factsfirst.
+
+[assistant]
+Two survivors, one of which needs a proper check. Reviewing the exactlines.
+
+[assistant]
+Let me check how the double reported that call, to explain the redaction survivor accurately.
+
+[assistant]
+Two survivors to address honestly: one dead guard, and one line that URL parsing makes unreachable. Fixing the first, documenting the second.
+
+[assistant]
+One mutation anchor was wrong; let me get the real text for the unsafe-name branch.
+
+[assistant]
+All mutations killed. Final confirmation run pluscleanup check.
+
+[assistant]
+Los ocho aplicados, con pruebas primero y mutaciones sobre cada línea nueva.
+
+**Resultados**
+- `npx vitest run scripts/a0CloudReadback.test.ts` → `Tests 38 passed (38)`, 1 archivo.
+- `npx tsc --noEmit` → exit 0.
+- Antes de tocar el código fallaban 9 de 38, todas por los defectos señalados.
+- Sin commit, sin ejecución contra la nube; solo los dos archivos del paso.
+
+**Cambios**
+1. `journalPathFor(outputPath)` exige `.json`, rechaza `.journal.json` y `.json` a secas; `main` deriva la ruta con ella. Quité el guard «deben diferir» porque era código muerto (reemplazar el sufijo cambia el nombre siempre); la propiedad queda probada explícitamente en su lugar.
+2. `runReadback` acepta `onJournal` y registra también la entrada de transporte rechazado; `main` guarda el diario parcial en `finally`, así queda escrito aunque falle el token o el transporte.
+3. `segment` exportado; un nombre inseguro o ausente produce `{name:null, error:"unsafe resource name"}`, no pide su política y la lectura continúa. `.` y `..` también se rechazan: pasaban el juego de caracteres.
+4. `host` y `path` del target del Scheduler pasan por `redactText`; el query string sigue fuera.
+5. `failure()` copia solo un `error.status` de una lista corta de estados de Google; cualquier otra cosa (objetos, arrays, correos) se convierte en `unknown`.
+6. `assertUrl` rechaza cualquier `parsed.port` no vacío.
+7. `limits.notRead`: «Firestore business documents» y «Firestore index definitions: this script has no Firestore section, it only probes the datastore.indexes.* permissions».
+8. Añadidas: sonda 200 con `permissions` no array, 500 en POST y en GET, no-200 a mitad de paginación con `partialRows`, y la aserción de ruta del diario pasó de `toContain` a regex exacta del proyecto.
+
+**Mutaciones** (restauración con `try/finally`; 0 supervivientes, 0 anclas fallidas en la pasada final): sufijo `.json`, `.journal.json`, `.json` pelado, ruta de diario igual al resultado, salto del `finally`, observador eliminado, entrada de transporte rechazado eliminada, nombre inseguro que aborta / se descarta, `.`/`..` permitidos, redacción de `path` y de `host`, error copiado tal cual, lista de errores ampliada, comprobación de puerto, y textos de `notRead`.
+
+**Un punto para ti, sin arreglar**
+- La mutación «redactar `host` no hace nada» sobrevive, y no es un fallo de prueba: el parser de URL nunca deja un `@` en `hostname` (`https://ana@example.com/...` da host `example.com`), así que `redactText` sobre el host es defensa en profundidad. Lo dejé porque el encargo lo pedía, pero conviene saber que hoy es inalcanzable. En `path` sí es load-bearing y está matada.

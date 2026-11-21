@@ -1,0 +1,29 @@
+Paso 3.1 (A0) listo. Nada se ejecutó contra la nube real, no hay commit, y solo quedan los dos archivos nuevos.
+
+**Archivos**
+- `scripts/a0CloudReadback.mjs` — lectura A0 (`runReadback`, `assertUrl`, `assertRequest`, `redactText`, `sanitizeBindings`, `sanitizeAlertPolicy`, `summarizePermissions`, `summarizeQuotaInfos`). `main()` solo corre si es script; `google-auth-library` se importa dinámicamente ahí.
+- `scripts/a0CloudReadback.test.ts` — 23 pruebas vitest con doble de `fetch`, sin red.
+
+**Garantías**
+- Hosts: lista cerrada de 8 (`cloudresourcemanager`, `serviceusage`, `run`, `iam`, `monitoring`, `logging`, `cloudscheduler`, `cloudquotas`); sin `secretmanager` (solo se pregunta su permiso).
+- Rutas: `/^\/v\d+\/projects\/vistavo-prod(?:[\/:]|$)/`, id escapado; `vistavo-prod-other` rechazado. Como el parser de URL normaliza `..` y `%2e` *antes* de mirar, comparo el path crudo con el normalizado: un rewrite se rechaza en vez de desviarse en silencio (eso destapó un hueco real en el patrón de p0).
+- Sin cuerpo salvo la excepción; único POST `projects/vistavo-prod:testIamPermissions`, ruta exacta, sin query, cuerpo idéntico a `TEST_IAM_BODY` (14 permisos, orden fijo). Un solo POST por corrida.
+- `redirect:'error'` en todas; `AbortSignal.timeout`; sin redirecciones.
+- Salida: solo metadatos. Correos de personas → `<email redacted>` (los `*.gserviceaccount.com` se conservan); miembros IAM por lista positiva (`serviceAccount:*@*.gserviceaccount.com`, `allUsers`, `allAuthenticatedUsers`), el resto `<other member redacted>`. Canales: tipo, nombre visible redactado, estado; sin `labels`. Políticas: `{name, enabled}`. Scheduler: host/path del target, nunca el query string ni el token OIDC.
+- Diario: `{host, method, path, status}` por petición; ni token, ni cuerpo, ni correos. Transporte que falla → `request transport refused` con el diario parcial.
+- 403/404 → `{readable:false, httpStatus, error}`, sin excepción ni reintentos; en paginación se devuelve `partialRows`.
+
+**Corregido durante la verificación**
+- Los tokens de página de Google son base64 y pueden traer `+`/`=`; la regex los rechazaba y habría abortado la lectura completa. Ahora solo se rechazan blancos y caracteres de control. Hay prueba que falla con la regex anterior.
+- Un tope de 20 páginas cortaba la lista en silencio y la presentaba como completa. Ahora cada sección marca `truncated:true` y `limits.truncatedSections` lo lista.
+- `limits` declara `metadataOnly`, `emptyReadDoesNotProveCapacity`, `emptyBasesDoNotValidateReconciliation`, `quotaIsNotMargin` y `notRead[]` (incluye Secret Manager, documentos/índices de Firestore, la política IAM del proyecto, datos de registro, coste real).
+
+**Verificación**
+- `npx vitest run scripts/a0CloudReadback.test.ts` → `Test Files 1 passed`, `Tests 23 passed (23)`.
+- `npx tsc --noEmit` → exit 0.
+- Mutaciones (restauración garantizada con `try/finally`, 0 supervivientes): host, proyecto con sufijo, `%`, `..`, credenciales/fragmento, query fuera de lista, GET con cuerpo, POST en otra ruta o con cuerpo distinto, redirect, lista negativa de miembros, correo de persona, 403/404, token en diario, regex de `pageToken`, truncamiento y su declaración, y el chequeo canónico nuevo — todas detectadas.
+- `node scripts/a0CloudReadback.mjs` sin argumento responde `usage: ...` (exit 1) sin pedir credenciales ni tocar la red.
+
+**Pendiente para ti (Codex)**
+- No lo corrí contra `vistavo-prod`: falta la autorización expresa del dueño que exige el encargo. Cuando la tengas, `node scripts/a0CloudReadback.mjs <salida>.json` deja `<salida>.json` y `<salida>.journal.json`.
+- El paso 3.1 del plan pide informe con T3 antes de la lectura real; eso no lo hice, y conviene que decidas si va antes de pedir la autorización.

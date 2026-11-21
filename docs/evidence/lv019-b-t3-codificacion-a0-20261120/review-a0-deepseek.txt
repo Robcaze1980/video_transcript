@@ -1,0 +1,17 @@
+Leí `scripts/a0CloudReadback.mjs` (478 líneas), su prueba (371) y `p0CloudReadback.mjs` (patrón). Hallazgos:
+
+1. MEDIA — `main()`: `writeFileSync(out.replace(/\.json$/,'.journal.json'),…)` con un `out` sin sufijo `.json` apunta al mismo archivo. Entrada: `node scripts/a0CloudReadback.mjs report` → `report` queda con el diario y el resultado se pierde en silencio. Corrección: derivar la ruta del diario explícitamente (o rechazar nombres sin `.json`).
+
+2. MEDIA — Scheduler: `target.path`/`host` se copian crudos desde `parsedUri.pathname`. Entrada: job con `httpTarget.uri=https://svc.a.run.app/notify/ana@example.com` → correo de persona en la salida, contra la garantía de redacción. Corrección: pasar `path` y `host` por `redactText`.
+
+3. MEDIA — La guarda `segment()` que valida nombres de servicio reutilizados en la ruta `:getIamPolicy` no tiene ninguna prueba, y el doble solo verifica cabeceras (nunca host ni ruta). Entrada: servicio llamado `a%2F..%2Fb`; si se elimina `segment()` todas las pruebas siguen pasando. Corrección: exportar `segment` y probar un nombre inseguro.
+
+4. MEDIA — `limits.notRead` dice "Firestore indexes beyond the metadata listed in this result", pero no existe sección Firestore: solo se sondea `datastore.indexes.*`. Sugiere que los índices se leyeron cuando no fue así. Corrección: corregir el texto o leerlos.
+
+5. BAJA — `failure()` copia `response.data.error.status` sin sanear; una forma inesperada (`{error:{status:{…}}}`) se serializa tal cual. Corrección: forzar string o lista blanca.
+
+6. BAJA — La entrada de diario con `outcome:'refused'` se arma en `error.journal` pero `main()` nunca la persiste: una petición rechazada no deja diario. Tampoco hay prueba de 500 ni de un no-200 a mitad de paginación.
+
+7. BAJA — Lista de hosts cerrada solo por `parsed.hostname`; `https://run.googleapis.com:8443/…` pasaría. Corrección: rechazar `parsed.port`.
+
+RESULTADO: FALLA

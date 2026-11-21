@@ -1,0 +1,13 @@
+1. **MEDIA** — `runReadback` (services Cloud Run): `segment(short(service?.name)??'')` lanza si `service.name` falta o tiene un carácter fuera de `SAFE_SEGMENT` (`/`, `%`, cadena vacía). Todo el readback aborta y el diario no se escribe. Corrección: validar por servicio; ante fallo, empujar `{name:null, error:'unsafe resource name'}` y continuar.
+
+2. **MEDIA** — El diario solo se escribe tras una ejecución exitosa. Ante cualquier error (transporte rechazado o `refuse`), el diario de las peticiones anteriores se pierde: los `refuse` no lo adjuntan al error y el `catch` de `main` no lo escribe. Corrección: escribir el diario en un bloque `finally` (o adjuntarlo a todo error y volcarlo en `main`).
+
+3. **BAJA** — `out.replace(/\.json$/,'.journal.json')`: con una ruta de salida que no termine en `.json`, el diario sobrescribe el archivo de resultado. Corrección: exigir `.json` o derivar la ruta del diario explícitamente.
+
+4. **BAJA** — Pruebas ausentes: respuesta 200 de `testIamPermissions` con `permissions` no array (forma no reconocida), respuesta 500, nombre de servicio inválido y salida de consola libre de token.
+
+5. **BAJA** — La aserción de la ruta del diario usa `toContain('/projects/vistavo-prod')` (subcadena); una ruta de proyecto ajeno la pasaría. El regex del doble evita un falso positivo en la práctica, pero la aserción es débil. Corrección: aserción exacta `/^\/v\d+\/projects\/vistavo-prod(?:[/:]|$)/`.
+
+No hay fallos de seguridad: validación de URL, lista cerrada de hosts, ruta exacta del proyecto, un único POST fijo, rechazo de redirecciones, redacción y salida solo con metadatos son correctos y más estrictos que p0. Ninguna diferencia con p0 debilita a0.
+
+RESULTADO: PASS
