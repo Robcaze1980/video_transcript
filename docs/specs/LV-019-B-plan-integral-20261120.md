@@ -14,6 +14,8 @@
 | Cancelación del cliente tras enviar al proveedor | «se cobra lo que ya se cobró y proporcional al precio» | **Mi lectura (a corregir si no era así):** se cobra solo la parte ya enviada **y entregada**, proporcional al precio (segundos fuente cubiertos, redondeo hacia arriba); el resto se libera. Antes de enviar nada se libera todo. Los fragmentos en vuelo o sin confirmar al cancelar no se cobran (coherente con «si fallamos, no se cobra»). Si se cobra lo entregado, lo entregado debe poder descargarse. **Requiere ampliar el contrato de Cuenta** (paso C2a). |
 | Pares de voz | «analizamos si se puede los mismos pares de transcript» | Análisis en C0a: la voz depende solo del idioma destino y los diez idiomas figuran en el proveedor; falta escuchar y aprobar cada uno (LV-004). |
 | Gasto de medir el coste real | Autorizado | Vigente, pero **no se hicieron llamadas nuevas**: no hay clave de Gemini en esta PC; se usan las mediciones reales del 14 nov y la tarifa publicada. |
+| Tope de la prueba online | «$5» | Tope de US$5 de gasto de proveedor para la prueba online con saldo real (≈370 min de voz a la tarifa de 2026, ≈185 min desde 2027, sin contar texto ni otros costes). Cualquier gasto mayor se consulta antes. |
+| Clave de Gemini | «sí de facturación» | El dueño confirma que la clave de producción es de un proyecto con facturación (servicio de pago). Codex no puede comprobarlo; cuenta como afirmación del dueño. |
 | Despliegue | «no hacer deploy hasta que voz esté listo también» | **G0: no se despliega nada** (ni mantenimiento ni operador) hasta que la voz esté lista; la primera salida a la nube es conjunta. Mi lectura de «lista»: la voz cumple G1–G5 en local y se prueba por primera vez en la nube con cuentas de verificación, sin abrir al público. A4 y A5 quedan diferidos; A0–A3 no son despliegue. |
 
 ### 0.1 Qué significa «lista» para el primer despliegue (T3 ronda 3)
@@ -71,7 +73,7 @@ Piezas verificadas en local y desconectadas: canon v1 (99 pruebas), codec de mar
 
 | Paso | Qué | Depende de |
 |---|---|---|
-| C0a | **Hechos recogidos el 20 nov ([nota C0a](LV-019-B-voz-c0a-hechos-proveedor-20261120.md)); falta confirmar que la clave de producción es de un proyecto con facturación, leer la adenda de datos y decidir la retención.** Hechos y decisiones que condicionan el diseño: términos del proveedor sobre uso, retención y borrado; catálogo de voces; **coste real por minuto medido** frente al precio de US$0.10/min; privacidad y retención definidas (C6a). Decisiones del dueño abajo. | — (solo lectura/documentos; medir coste requiere autorizar gasto) |
+| C0a | **Hechos recogidos el 20 nov ([nota C0a](LV-019-B-voz-c0a-hechos-proveedor-20261120.md)); la clave de producción es de un proyecto con facturación (confirmado por el dueño el 20 nov; Codex no puede verificarlo); falta leer la adenda de datos.** Hechos y decisiones que condicionan el diseño: términos del proveedor sobre uso, retención y borrado; catálogo de voces; **coste real por minuto medido** frente al precio de US$0.10/min; privacidad y retención definidas (C6a). Decisiones del dueño abajo. | — (solo lectura/documentos; medir coste requiere autorizar gasto) |
 | C0b | Criterio de calidad por par y voz (LV-004). Paralelo. | — |
 | C1 | Reserva de voz (UID → marca → intención → reserva Cuenta simulada en la misma transacción). La reserva es en segundos fuente: no depende del precio ni de la retención. Solo emulador, con la interfaz apagada; **no se da por cerrada ni se integra hasta que B1 pase**. | contrato de B |
 | C2a | **Diseño aceptado por T3 el 20 nov ([especificación](LV-019-B-liquidacion-parcial-y-liberacion-posadmision.md), sin código aún).** **Contrato de Cuenta para liquidación parcial (hallazgo del 20 nov, `server/account/backend.ts`, `settleVideo`).** Hoy Cuenta captura o libera la reserva **entera** (todo o nada), exige que `seconds` coincida con lo reservado (máximo 600 s) y **no permite liberar después de admitir una llamada** (queda cerrado a conciliación manual). Las dos políticas del dueño necesitan lo que hoy no existe: **captura parcial de K segundos con liberación atómica del resto**, y **liberación posadmisión con prueba de fallo o de no entrega**. Es un cambio de contrato financiero: especificación primero, pruebas primero, revisión T3, regresión de Cuenta y de Video, y compatibilidad con reservas antiguas (protocolos 1 y 2). C2 y C3 dependen de este paso. | B1, contrato de B |
@@ -82,7 +84,7 @@ Piezas verificadas en local y desconectadas: canon v1 (99 pruebas), codec de mar
 | C5b | Interfaz conectada (elegir voz, precio adicional confirmado, saldo, revisión que se narrará); teléfonos reales después. | C0a, C1, C2 |
 | C6b | Cumplimiento: interruptor de emergencia probado, habilitación por cuenta apagada por defecto (hoy exige `aiPilot` y `simulationOnly`), auditoría. **No publicar la voz sin prueba en teléfono.** | C0a |
 
-**Decisiones del dueño para la voz (no técnicas), estado tras el 20 nov:** (1) precio: **US$0.10/min, decidido**; (2) no cobro por fallo nuestro: **decidido, sin cobro parcial**; (3) cuánto tiempo se guarda el audio: **decidido, 90 días**; (4) pares y voces del lanzamiento: **análisis hecho** (mismos pares por idioma destino), falta elegir el primero y escuchar; (5) gasto de medir el coste real: **autorizado, sin tope fijado**; falta fijar un tope para la prueba online con saldo real. Cancelación del cliente tras enviar: **decidido, cobro proporcional de lo entregado** (§0).
+**Decisiones del dueño para la voz (no técnicas), estado tras el 20 nov:** (1) precio: **US$0.10/min, decidido**; (2) no cobro por fallo nuestro: **decidido, sin cobro parcial**; (3) cuánto tiempo se guarda el audio: **decidido, 90 días**; (4) pares y voces del lanzamiento: **análisis hecho** (mismos pares por idioma destino), falta elegir el primero y escuchar; (5) gasto de medir el coste real: **autorizado, con un tope de US$5 para la prueba online con saldo real** (≈370 minutos de voz a la tarifa de 2026 y ≈185 desde 2027, sin contar texto ni otros costes). Cancelación del cliente tras enviar: **decidido, cobro proporcional de lo entregado** (§0).
 
 ### Vía D · Experiencia móvil y calidad de idiomas
 
@@ -108,8 +110,8 @@ G0 **ningún despliegue de nada hasta que la voz esté lista** (decisión del du
 2. Confirmar que «lista» (para el primer despliegue conjunto) significa lo que dice la §0, y que subir a GitHub sigue sin autorizar.
 3. Confirmar la recomendación de operador (sección 4) o pedir Cloudflare.
 4. Autorizar una **entrada de registro de prueba** en Cloud Logging para probar la alerta (A3), que puede hacerse antes del despliegue.
-5. Decidir qué idioma y variante abre la voz y fijar un tope para la prueba online con saldo real.
-6. Confirmar en AI Studio que la clave de producción de Gemini pertenece a un proyecto con facturación (servicio de pago): de eso depende que el contenido no se use para mejorar productos de Google.
+5. Decidir con qué idioma destino (y variante) se abre la voz primero (opciones en la [nota C0a](LV-019-B-voz-c0a-hechos-proveedor-20261120.md), §2).
+6. **Confirmado por el dueño el 20 nov:** la clave de producción de Gemini pertenece a un proyecto con facturación (servicio de pago); Codex no puede verificarlo. De eso depende que el contenido no se use para mejorar productos de Google.
 7. Retención de alertas: propongo «sin borrar por ahora», con cota de volumen medida.
 
 ## 7. Riesgos principales

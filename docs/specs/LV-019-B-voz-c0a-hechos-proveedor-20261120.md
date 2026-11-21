@@ -36,6 +36,8 @@ La voz solo depende del **idioma destino** (se genera desde la traducción revis
 | Mandarín | «Chinese (Hans script)»; no dice «Mandarin» | Confirmar que habla mandarín; el cantonés figura aparte |
 | Vietnamita | Sí | Revisión nativa |
 
+**Decisión pendiente del dueño: idioma destino con el que se abre la voz primero.** Opciones: (A) **inglés** (recomendado: es el primer recorrido técnico ES→EN y Kore/Charon ya se ensayaron en inglés; falta la escucha humana), (B) inglés y español a la vez (exige elegir variante del español), (C) otro. Cada idioma adicional necesita su variante, sus voces y una persona nativa que lo apruebe (LV-004); se abren de uno en uno.
+
 **Conclusión:** en teoría **sí**, los 90 pares tienen un idioma destino con voz del proveedor. «Figura en la lista» no es calidad: la página no da calidad por idioma. Cada idioma destino necesita escucha y aprobación según LV-004, y la voz de un par solo se habilita cuando su texto ya está aceptado. Los modelos publican 30 voces predefinidas con nombre (Kore y Charon entre ellas); la documentación no dice qué voces rinden mejor en qué idioma.
 
 ## 3. Formato, tamaño y límites
@@ -62,10 +64,10 @@ Según los [términos adicionales de la API de Gemini](https://aistudio.google.c
 
 - **Servicios de pago:** Google dice que no usa los mensajes ni las respuestas para mejorar sus productos; los registra durante un periodo limitado solo para detectar usos prohibidos y obligaciones legales. **No indica cuánto dura ese periodo**, y los datos pueden almacenarse o procesarse en cualquier país donde Google opere.
 - **Servicios sin pago:** usa el contenido para mejorar productos y personas pueden leerlo; pide no enviar información personal ni confidencial.
-- «De pago» significa que las llamadas pasan por un proyecto de Cloud con facturación activa. **Pendiente de confirmar por el dueño:** que la clave de producción (`vistavo-gemini-provider`) pertenece a un proyecto con facturación; Codex no puede ni debe leer el secreto.
+- «De pago» significa que las llamadas pasan por un proyecto de Cloud con facturación activa. **Confirmado por el dueño el 20 nov:** la clave de producción (`vistavo-gemini-provider`) pertenece a un proyecto con facturación; Codex no puede verificarlo porque no debe leer el secreto.
 - **Borrado:** los términos no ofrecen un mecanismo para pedir el borrado de esos registros. **No se puede prometer al cliente que el proveedor borre lo enviado;** sí que Vistavo borra sus propias copias.
 - Quedan por leer los documentos que gobiernan el tratamiento de datos de pago (adenda de tratamiento de datos) antes de activar la voz.
 
 ## 6. Medición real del coste (autorizada por el dueño el 20 nov)
 
-No se hicieron llamadas nuevas: **no hay clave de Gemini disponible en esta PC** (no existe `%LOCALAPPDATA%\LinguistVision\.env`) y la clave de producción vive solo en Secret Manager para el worker, que no se toca (no hay despliegue). Como medida real se usan las dos llamadas de voz del 14 nov (25,0 tokens/s) y la tarifa publicada. La autorización de gasto queda vigente para medir cuando exista una vía legítima (clave local colocada por el dueño en el archivo privado, o la prueba en línea) y el efecto en factura solo se confirma mirando el informe de facturación de Google Cloud.
+No se hicieron llamadas nuevas: **no hay clave de Gemini disponible en esta PC** (no existe `%LOCALAPPDATA%\LinguistVision\.env`) y la clave de producción vive solo en Secret Manager para el worker, que no se toca (no hay despliegue). Como medida real se usan las dos llamadas de voz del 14 nov (25,0 tokens/s) y la tarifa publicada. La autorización de gasto queda vigente (tope de US$5 para la prueba online con saldo real) para medir cuando exista una vía legítima (clave local colocada por el dueño en el archivo privado, o la prueba en línea) y el efecto en factura solo se confirma mirando el informe de facturación de Google Cloud.
