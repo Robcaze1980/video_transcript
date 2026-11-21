@@ -1,0 +1,13 @@
+1. **ALTA** — `resolveExpiredUnknown` no aplica la guarda `narrationRequiresReview` que sí usan `reconcile`, `finish`, `cancel` y `recover`. Secuencia: un trabajo `narration:...` queda `unknown` (dato histórico, reparación manual o camino futuro); el resolvedor lo procesa igual, y `settle(...,'failed')` libera el precio completo con K=0, aunque la política del dueño exige cobrar los fragmentos ya entregados. Sin `externalBilling` reembolsa todo; con recibos también crea un release total. Corrección: excluir narración (`skipped`/`not_due`) hasta implementar el cálculo K>0, o liquidar los fragmentos entregados.
+
+2. **ALTA** — Una fila corrupta queda en `failed` para siempre y retiene saldo sin fin. Secuencia: `unknownAttemptId` inválido con `admitted=true`, `quarantinedAtMs` corrupto, o artifact ausente/incoherente (que hace fallar `context`); cada pasada vuelve a leer, falla y suma `failed`, sin contador, `needs_review`, alerta ni reparación. `reconcile` puede fallar por la misma causa. Corrección: tras N fallos persistir `needs_review`/alerta y definir reparación determinista; distinguir error transitorio de dato corrupto.
+
+3. **MEDIA** — `windowMs` solo tiene cota inferior. `resolveExpiredUnknown({windowMs:Number.MAX_SAFE_INTEGER})` deja todas las filas `not_due` indefinidamente. Aunque se declare test-only, el método está exportado y no hay tope. Corrección: aceptar únicamente el valor de producción o un rango cerrado.
+
+4. **MEDIA** — `classifyUnknownQuarantine` no valida `windowMs`/`skewMs`. Con `skewMs:NaN`, una fecha futura supera el filtro (`x > now+NaN` es falso) y queda `not_due` para siempre; con `windowMs:NaN`, todo se clasifica vencido. Corrección: validar ambos como enteros seguros positivos y acotar el skew.
+
+5. **MEDIA** — `admitted` se deduce de que exista cualquier fila en `providerCalls`, sin comprobar que su `attemptId` coincida con `unknownAttemptId`. Una fila huérfana o corrupta convierte un unknown sin admisión real en `admitted=true`; `settle` crea el release con `attemptId=unknownAttemptId`, Account puede rechazarlo y `billingOutbox` termina en `needs_review` mientras el job ya está `failed` y la reserva sigue retenida. Corrección: reutilizar `verifiedProviderReceipt` o verificar el `attemptId` antes de decidir `admitted`.
+
+6. **BAJA** — Las pruebas de fila corrupta solo exigen `failed>=5` y que la fila sana se resuelva; pasan con retención permanente. Faltan casos de voz unknown, `unknownAttemptId` inválido en el resolvedor (no solo en la función pura), artifact borrado y cota superior de `windowMs`.
+
+RESULTADO: FALLA

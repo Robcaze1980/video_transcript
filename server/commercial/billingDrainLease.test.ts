@@ -442,7 +442,8 @@ describe('the drain lease keeps its import fence',()=>{
   it('exports exactly the contract surface and the documented cursor kinds',async()=>{
     const module=await import('./billingDrainLease');
     expect(Object.keys(module).sort()).toEqual(['DEFAULT_DRAIN_LEASE_MARGIN_MS','DEFAULT_DRAIN_LEASE_MAX_TENURE_MS','DEFAULT_DRAIN_LEASE_RENEW_EVERY_MS','DEFAULT_DRAIN_LEASE_TTL_MS','DRAIN_CURSOR_KINDS','DRAIN_LEASE_COLLECTION','DRAIN_LEASE_COUNTER_DOC_ID','DRAIN_LEASE_CURSOR_DOC_ID','DRAIN_LEASE_DOC_ID','MAX_DRAIN_LEASE_MAX_TENURE_MS','MAX_DRAIN_LEASE_TTL_MS','MIN_DRAIN_LEASE_MAX_TENURE_MS','MIN_DRAIN_LEASE_TTL_MS','acquireDrainLease','assertDrainLeaseHeld','getDrainCursor','releaseDrainLease','renewDrainLease','setDrainCursor']);
-    expect(DRAIN_CURSOR_KINDS).toEqual(['intents','outbox','holds']);
+    // LV-019.B step 1.2 adds the unknown rotation cursor used by the expired-unknown resolver alongside the three drain kinds.
+    expect(DRAIN_CURSOR_KINDS).toEqual(['intents','outbox','holds','unknown']);
     expect(TTL).toBe(90_000);expect(MARGIN).toBe(15_000);
   });
 });

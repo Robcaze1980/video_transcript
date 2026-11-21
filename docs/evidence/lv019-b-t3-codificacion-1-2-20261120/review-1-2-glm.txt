@@ -1,0 +1,21 @@
+1. **A—VOZ no cubierta.** `narrationRequiresReview` solo entra a `unknown` por fences internos (`settle`/`reconcile`/`finish`), pero un `cancel` sobre `narration:...` que ya inició proveedor hace `unknown()` idéntico al texto. El resolver la ve `admitted=true`, manda `resolution='unknown_expired'`, y `settle` crea `billingOutbox` con `attemptId` liberado. El diseño declara alcance texto, pero el código no la excluye: tendría que fallar cerrado (tratándola como inválida) o respetar la política de cobro por fragmentos; tal como está, libera el intento admitido y, si Cuenta acepta, puede perder el cobro de lo entregado.
+
+2. **A—`settle` puede capturar un `unknown` inválido.** `classifyUnknownQuarantine` valida `unknownAttemptId` solo si `admitted`, y `admitted` se calcula del contexto. Pero `settle(tx,c,'failed',…,{unknown_expired})` llama `settleFailed` (correo) y el branch de `capture` no aplica… sin embargo, si `c.job.externalBilling` existe y `providerReceipts` existe pero `unknownAttemptId` es `null` o no-UUID, `releasedAttempt` es `null` → `invariant` → `failed` cada pasada → saldo retenido sin fin. La validación solo corrige el caso `admitted`; si `externalBilling` existe sin `providerReceipts` (raro), `admitted=false` y `settle` crea `external_release` sin `attemptId`, lo que podría violar la política de Cuenta (refusado → `needs_review` → bloqueo).
+
+3. **B—`now` invalida filas no vencidas.** `now` es global de la pasada; si un `quarantinedAtMs` futuro (skew) llega a `now+skewMs`, pasa; si supera, `invalid` → `failed` cada pasada. `UNKNOWN_CLOCK_SKEW_MS=10min` es pequeño; un desincronismo mayor del observador deja la fila atascada (retención indefinida), con alerta pero sin resolución automática.
+
+4. **M—`resolvedAs` y `reconciliationRef` se escriben dos veces.** `settle` escribe `reconciliationRef=evidence` y `attemptId:null`; después `tx.update(c.jobRef,{resolvedAs:'unknown_expired'})` fusión. Es funcionalmente correcto, pero una transacción fallida entre ambos deja fila `unknown` con `reconciliationRef` ya escrito (no problema real: retry regenera). Riesgo menor.
+
+5. **B—cursor sobre filas vencidas.** `next = last de la página` (siempre `page.length===limit`), aunque todas sean `skipped`/`not_due`/`failed`. Un `not_due` temprano atasca el cursor (nunca avanza más allá de él en esa pasada, pero en la siguiente vuelta vuelve a empezar; la propiedad "una fila no vencida no atasca" se cumple solo porque `next` es el último doc-id de la página, no del último resoluble — correcto: la siguiente llamada con `after` salta al siguiente). Si la primera página son todas `not_due`, `next` apunta al último leído; la siguiente llamada desde `after` reanuda después de él. OK.
+
+6. **B—`reconcile` concurrente.** Cada fila corre en su propia transacción; si `reconcile` manual vence primero, el resolver ve `state!=='unknown'` → `skipped`. `tx.get` + `context` dentro de la misma tx garantiza coherencia. Dos resolvedores: el último pierde, ve `skipped`. OK.
+
+7. **B—voz y `unknownCount`.** `unknown()` suma `unknownCount+1` en `input` para cualquier operación; `settle` resta si `c.job.state==='unknown'`. No hay divergencia.
+
+8. **M—`classifyUnknownQuarantine` acepta `quarantinedAtMs` futuro hasta `now+skew`.** Si el reloj del escritor corre 9 min adelante, la fila no vence hasta `quarantinedAtMs + window` (6h + 9min de retraso). Aceptable, pero la política "vence a las 6h desde sello" se estira 9 min. Baja.
+
+9. **B—`limit` y `windowMs` test-only.** `windowMs` se valida ≥1000; no se puede configurar a 0. Correcto. `limit` ≤100. Correcto.
+
+10. **B—`admitted` depende de `providerReceipts`.** `context(tx,accountId,jobId,true)` con `kind=true` carga `providerReceipts`? Necesito confirmar: si `context` no carga receipts, `admitted` sería siempre false y el resolver nunca manda `unknown_expired` con resolución. Sin poder confirmar, riesgo medio.
+
+**RESULTADO: FALLA**

@@ -368,6 +368,42 @@ const requestFingerprint=(inputId:string,operation:string,revision:number|null,p
  * not a determination that a provider call or charge did or did not happen.
  */
 export function narrationRequiresReview(operation:unknown){return typeof operation==='string'&&operation.startsWith('narration:');}
+/**
+ * LV-019.B step 1.2: how long an `unknown` job stays quarantined before the automatic resolver releases it
+ * (design `LV-019-B-cancelacion-y-unknown-diseno.md`, sections 3 and 4). It must exceed Account's
+ * `UNKNOWN_RESOLUTION_MIN_AGE_MS` floor, otherwise every automatic release would be refused as `too_early`. The value is a
+ * starting point, adjustable with real data: a configuration decision, not a policy one.
+ */
+export const UNKNOWN_REVIEW_WINDOW_MS=6*60*60*1000;
+/** Tolerance for a `quarantinedAtMs` written slightly ahead of the resolver's injected clock (clock skew between writers). */
+export const UNKNOWN_CLOCK_SKEW_MS=10*60*1000;
+/**
+ * Test-only override of the review window: no production caller passes it and no HTTP route can reach it. It is validated
+ * as a safe integer >= this floor so a fixture can expire a row on demand without weakening the real six-hour window.
+ */
+const MIN_TEST_UNKNOWN_WINDOW_MS=1_000;
+/** A cursor is a document id read back into a path: bounded, no separator, no control character, no `.`/`..`, not a Firestore reserved id. */
+const MAX_CURSOR_BYTES=1500,RESERVED_DOC_ID=/^__.*__$/;
+const plainDocumentId=(value:unknown):value is string=>typeof value==='string'&&value.length>=1&&Buffer.byteLength(value,'utf8')<=MAX_CURSOR_BYTES&&!RESERVED_DOC_ID.test(value)&&!/[\/\u0000-\u001f\u007f]/.test(value)&&value!=='.'&&value!=='..';
+/** The evidence string of an expired unknown: reproducible from stored data alone; `none` stands in for the attempt when the row carried no admission. */
+export function unknownExpiredEvidence(jobId:string,unknownAttemptId:string|null,quarantinedAtMs:number){
+  return `unknown_expired:v1:${jobId}:${unknownAttemptId??'none'}:${quarantinedAtMs}`;
+}
+export type UnknownQuarantineVerdict={state:'not_due'}|{state:'invalid';field:'quarantinedAtMs'|'unknownAttemptId'}|{state:'expired';evidence:string;evidenceSha256:string};
+/**
+ * Classify one unknown row's quarantine BEFORE deciding it is due. Validation comes first: `quarantinedAtMs` must be a safe
+ * integer >= 0 and not in the future beyond the tolerated skew (a bad value can never silently read as not-due), and, only
+ * when the row carries an admission, `unknownAttemptId` must be a UUID (without it `settle` would throw on every pass and the
+ * reservation would stay retained forever). `windowMs`/`skewMs` are test-only overrides. Pure: no I/O, no clock.
+ */
+export function classifyUnknownQuarantine(row:{quarantinedAtMs?:unknown;unknownAttemptId?:unknown},options:{jobId:string;admitted:boolean;now:number;windowMs?:number;skewMs?:number}):UnknownQuarantineVerdict{
+  const windowMs=options.windowMs??UNKNOWN_REVIEW_WINDOW_MS,skewMs=options.skewMs??UNKNOWN_CLOCK_SKEW_MS,quarantinedAtMs=row.quarantinedAtMs;
+  if(typeof quarantinedAtMs!=='number'||!Number.isSafeInteger(quarantinedAtMs)||quarantinedAtMs<0||quarantinedAtMs>options.now+skewMs)return {state:'invalid',field:'quarantinedAtMs'};
+  if(options.admitted&&(typeof row.unknownAttemptId!=='string'||!uuid.test(row.unknownAttemptId)))return {state:'invalid',field:'unknownAttemptId'};
+  if(quarantinedAtMs>options.now-windowMs)return {state:'not_due'};
+  const evidence=unknownExpiredEvidence(options.jobId,options.admitted?row.unknownAttemptId as string:null,quarantinedAtMs);
+  return {state:'expired',evidence,evidenceSha256:textHash(evidence)};
+}
 interface Context { accountRef: DocumentReference; jobRef: DocumentReference; inputRef: DocumentReference;
   terminalRef: DocumentReference; account: Balance; job: Job; input: Input; terminalExists: boolean;rawAccountData:Record<string,unknown>;artifactRef?:DocumentReference;artifact?:AiArtifactRecord;providerReceipts?:Array<{id:string;data:Record<string,unknown>}> }
 
@@ -1874,6 +1910,53 @@ export class FirestoreBackend {
   async job(accountId: string, jobId: string) {
     identifier(accountId); identifier(jobId); const doc = await this.ref('jobs', jobId).get();
     if (!doc.exists || doc.get('accountId') !== accountId) throw new LedgerFault('not_found'); return doc.data() as Job;
+  }
+  /**
+   * LV-019.B step 1.2: release `unknown` jobs whose review window has elapsed, at most `limit` per pass, in document-id order
+   * from `after` (null starts over). The clock is the injected `now`; no wall clock decides expiry. Each row runs in its own
+   * transaction and its own try/catch: one malformed or failing row counts `failed` and never stops the pass, and an already
+   * released row is a no-op. This resolver NEVER captures; it only ever releases. `windowMs` is a TEST-ONLY override,
+   * validated below, never passed by a production caller and unreachable from any HTTP route. The cursor advances over every
+   * row read and wraps to null at the end; the counts carry no ids and no content. Design: sections 3 and 4.
+   */
+  async resolveExpiredUnknown(options:{now:number;limit:number;after?:string|null;windowMs?:number}){
+    const now=options?.now,limit=options?.limit,after=options?.after??null,windowMs=options?.windowMs;
+    if(!Number.isSafeInteger(now)||(now as number)<0)throw new LedgerFault('invalid');
+    if(!Number.isSafeInteger(limit)||(limit as number)<1||(limit as number)>100)throw new LedgerFault('invalid');
+    if(after!==null&&!plainDocumentId(after))throw new LedgerFault('invalid');
+    if(windowMs!==undefined&&(!Number.isSafeInteger(windowMs)||(windowMs as number)<MIN_TEST_UNKNOWN_WINDOW_MS))throw new LedgerFault('invalid');
+    // The page read is the first database access, so a rejected argument never reaches the runner (validated above).
+    const page=await this.db.runTransaction(async tx=>{
+      let query=this.root.collection('jobs').where('state','==','unknown').orderBy(FieldPath.documentId()).limit(limit as number);
+      if(after!==null)query=query.startAfter(after);
+      return (await tx.get(query)).docs.map(doc=>doc.id);
+    });
+    const report={scanned:page.length,resolved:0,notDue:0,failed:0,next:(page.length===limit?page[page.length-1]:null) as string|null};
+    for(const jobId of page){
+      let outcome:'resolved'|'not_due'|'failed'|'skipped';
+      try{
+        outcome=await this.db.runTransaction(async tx=>{
+          const doc=await tx.get(this.ref('jobs',jobId));
+          if(!doc.exists||doc.get('state')!=='unknown')return 'skipped' as const;
+          const accountId=doc.get('accountId');
+          if(typeof accountId!=='string')return 'failed' as const;
+          const c=await this.context(tx,accountId,jobId,true);
+          if(c.job.state!=='unknown')return 'skipped' as const;
+          const admitted=!!c.providerReceipts&&c.providerReceipts.length>0;
+          const verdict=classifyUnknownQuarantine({quarantinedAtMs:c.job.quarantinedAtMs,unknownAttemptId:c.job.unknownAttemptId},{jobId,admitted,now:now as number,...(windowMs!==undefined?{windowMs}:{})});
+          if(verdict.state==='invalid')return 'failed' as const;
+          if(verdict.state==='not_due')return 'not_due' as const;
+          if(admitted)this.settle(tx,c,'failed',verdict.evidence,{kind:'unknown_expired',evidenceSha256:verdict.evidenceSha256});
+          else this.settle(tx,c,'failed',verdict.evidence);
+          tx.update(c.jobRef,{resolvedAs:'unknown_expired'});
+          return 'resolved' as const;
+        });
+      }catch{outcome='failed';}
+      if(outcome==='resolved')report.resolved++;
+      else if(outcome==='not_due')report.notDue++;
+      else if(outcome==='failed')report.failed++;
+    }
+    return report;
   }
   /** Customer status must recheck identity and job ownership in the same transaction. */
   async jobForUid(accountId:string,jobId:string,uid:string) {

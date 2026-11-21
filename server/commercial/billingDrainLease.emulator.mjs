@@ -129,7 +129,9 @@ test('the rotation cursor is per kind, conditional on the lease and survives a c
  const first=await acquire(db,root,'first',NOW,10_000);
  assert.equal(await setCursor(db,root,'intents','first',first.token,'intent-3',NOW),true);
  assert.equal(await setCursor(db,root,'holds','first',first.token,'hold-1',NOW),true);
- assert.deepEqual(await cursorDoc(root),{intents:'intent-3',holds:'hold-1'},'each kind keeps its own cursor');
+ // LV-019.B step 1.2 adds the `unknown` rotation cursor alongside the three drain kinds.
+ assert.equal(await setCursor(db,root,'unknown','first',first.token,'unknown-1',NOW),true);
+ assert.deepEqual(await cursorDoc(root),{intents:'intent-3',holds:'hold-1',unknown:'unknown-1'},'each kind keeps its own cursor');
  const second=await acquire(db,root,'second',NOW+10_000,10_000);
  assert.equal(await setCursor(db,root,'intents','second',second.token,null,NOW+10_000),true,'the new holder clears one kind');
  assert.equal(await getDrainCursor({db,root,kind:'intents'}),null);

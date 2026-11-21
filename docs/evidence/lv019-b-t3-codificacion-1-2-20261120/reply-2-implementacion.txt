@@ -1,0 +1,60 @@
+1.2 cancelacion y unknown pruebas
+mcp:a3846da7-5aae-4e80-8226-51e9a6f46d51  completed  linguistvision-openrouter/deepseek/deepseek-v4.1-flash
+lv019b/t3-unknown  C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-unknown
+
+[user]
+El servidor de T3 se reinicio y tu ejecucion anterior se interrumpio (el emulador 8185 tambien se reinicio y ya esta arriba). Continua exactamente donde estabas con el encargo de la ronda 2: revisa tu worktree, no repitas lo ya hecho, y termina con tsc, vitest, emulador y mutaciones; responde breve con archivos, resultados, supervivientes y limites.
+
+[assistant]
+Retomo. Primero reviso el estado del worktree para confirmar qué quedó aplicado antes del reinicio.
+
+[assistant]
+La implementación y las pruebas están intactas. Verifico las correcciones de pruebas y que no quedaran temporales.
+
+
+
+[assistant]
+Todo intacto y sin temporales. Corro tsc y vitest.
+
+
+
+[assistant]
+tsc limpio y vitest 55/55. Ahora el emulador completo (31 pruebas).
+
+[assistant]
+Emulador 31/31. Ahora reverifico las mutaciones clave (incluidos los dos supervivientes que ya cerré) con restauración por hash.
+
+
+
+[assistant]
+Ahora las mutaciones del emulador: nunca captura, tipo de resolución y cursor.
+
+[assistant]
+Ahora las dos mutaciones de cursor: avance (`next`) y uso del `startAfter` entrante.
+
+
+
+[assistant]
+Todas las mutaciones quedan cazadas y el archivo restaurado byte-idéntico. Verifico el hash final y limpio los temporales.
+
+
+
+[assistant]
+El worktree estaba intacto (solo faltaba reve­rificar). Nada que rehacer: corre las cuatro verificaciones tras el reinicio.
+
+**Archivos** (sin cambios respecto a lo ya entregado, sin tocar `server/account/*`, `cloudFilesRuntime.ts` ni los drenajes de `firestoreAi.ts`)
+- `server/commercial/firestoreBackend.ts`: `UNKNOWN_REVIEW_WINDOW_MS`, `UNKNOWN_CLOCK_SKEW_MS`, `unknownExpiredEvidence`, `classifyUnknownQuarantine` y `resolveExpiredUnknown` junto a `reconcile`.
+- `server/commercial/billingDrainLease.ts`: `DRAIN_CURSOR_KINDS=[...,'holds','unknown']`.
+- `server/commercial/firestoreUnknownResolver.emulator.mjs` / `.test.ts`; ajustes del kind en `billingDrainLease.test.ts` / `.emulator.mjs`.
+
+**Resultados**
+- `tsc --noEmit`: limpio (exit 0).
+- vitest (resolvedor + candado): **55/55**.
+- emulador (resolvedor 21 + candado 10): **31/31**, Cuenta real; `db.terminate()` en cada raíz.
+
+**Mutaciones** (una por invocación, restauración byte-idéntica verificada por hash)
+- Límite exacto `>`→`>=` (3 pruebas), quitar validación de `quarantinedAtMs` (2), quitar chequeo UUID (1), quitar guard de id reservado (1), ignorar `skewMs` (1), tipo de resolución `unknown_expired`→`not_delivered` (3), forzar captura (10), no avanzar cursor (3), ignorar `startAfter` entrante (1). Todas en rojo, `restored=OK`.
+
+**Supervivientes**: ninguno (los dos de la ronda anterior —`startAfter` y guard de reservados— siguen cerrados por los escenarios/casos añadidos).
+
+**Límites declarados**: la alerta `unknown_age` de un `unknown` ya resuelto permanece abierta (jobs sin conjunto terminal verificable); el cursor garantiza como máximo una vuelta para una fila que vence tras ser pasada; `windowMs` es solo para pruebas, validado (≥1000), nunca pasado en producción ni alcanzable por HTTP. Sin `git commit`.
