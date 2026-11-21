@@ -1,0 +1,19 @@
+RESUELTOS EN V2: primer contacto real (4.3b, clave del dueño, tope US$1); restricción de cuentas impuesta en servidor (Cuenta y Video); observabilidad mínima con dueño por correo (3.8); restauración ensayada con RTO/RPO y reversión (3.9); abuso/capacidad con cupos e interruptor (3.10); reconciliador periódico (1.6); ensayo de apagado antes de encender (Fase 6).
+
+HALLAZGOS QUE PERSISTEN:
+
+1. ALTA — Interruptor del proveedor acoplado al plano que falla. 3.10 no garantiza que el flag sea alcanzable si el executor o la app es el problema. Corrección: flag en configuración externa sondeada, y orden explícito y medido: cortar ingesta → voz → proveedor → despliegue.
+
+2. ALTA — Executor 1.6 sin arriendo con valla. "Una sola ejecución" no impide doble drenaje tras una pausa; riesgo de cobrar dos veces. Corrección: lease con fencing token más clave de idempotencia por drenaje y prueba de doble cobro.
+
+3. MEDIA — Vigilancia circular: el barrido de alertas vive en el mismo mantenimiento que vigila al executor. Corrección: watchdog externo con latido y alerta por ausencia.
+
+4. MEDIA — 4.3b ocurre antes de G8 y ya envía audio a Google sin términos revisados. Corrección: solo audio sintético y aceptar términos del proveedor antes del 4.3b.
+
+5. MEDIA — Restauración contra purga: un backup puede resucitar datos de cuentas purgadas. Corrección: la purga prevalece; filtro post-restore documentado.
+
+6. MEDIA — Moderación sin decisión: G8 no se puede firmar. Corrección: valor por defecto y fecha límite.
+
+7. BAJA — Alertas sin umbral/SLO ni tiempo máximo de respuesta; conciliación de gasto recién en Fase 6.
+
+RESULTADO: FALLA

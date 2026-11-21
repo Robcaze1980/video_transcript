@@ -1,0 +1,17 @@
+1. **ALTA — Restauración no probada.** Fase 3 solo "copias". Añadir ensayo de *restore* real de Firestore (ambas bases) y GCS con datos sintéticos, midiendo RTO/RPO, antes de G0.
+
+2. **ALTA — Privacidad/legal sin consentimiento ni retención ejecutable.** Falta aviso de privacidad, consentimiento del cliente, encargo/subencargado con Gemini, transferencia internacional y *lifecycle* de GCS que borre audio a 90 días con evidencia. Debe ir antes de Fase 6, no en Fase 7.
+
+3. **ALTA — Abuso/coste no cubierto (riesgo principal).** No hay límites por cuenta, verificación de identidad, ni control de contenido ilegal en video privado. Añadir cuotas de gasto por usuario, detección de abuso y suspensión automática. Poner el *kill-switch* de proveedor probado.
+
+4. **ALTA — Reconciliación entre bases como precondición, no resultado.** Sin transacción conjunta, agregar en Fase 1 tarea explícita de reconcilia­dor periódico + esquema versionado + plan de *backfill* antes de cualquier mutación.
+
+5. **MEDIA — Orden: barrera de aborto al final.** Mover gasto, alertas y apagado (de Fase 3/6) a **antes** del primer tráfico; hoy la reversión se prueba dentro de la ventana.
+
+6. **MEDIA — Fase 6 arranca con tráfico real en Cuenta.** El canario sin tráfico debe incluir Cuenta + gateway + Hosting juntos, y recién después habilitar cuentas de verificación.
+
+7. **MEDIA — Capacidad y backup de datos ausentes.** Falta prueba de carga/backpressure, cuotas Gemini y *rollback de datos* (solo hay reversión de despliegue).
+
+8. **BAJA — Observabilidad mínima.** Correo no cubre incidentes: añadir SLOs, trazas correlacionadas y guardia.
+
+RESULTADO: FALLA

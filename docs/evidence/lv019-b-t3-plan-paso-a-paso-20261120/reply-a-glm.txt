@@ -1,0 +1,16 @@
+**Revisión del plan**
+
+1. **ALTA** — El primer contacto con Gemini real ocurre en la fase 6. Añadir en fase 3/4 una prueba aislada real (una transcripción + un fragmento TTS por idioma) con tope duro de US$5 y coste medido, antes de las puertas.
+2. **ALTA** — La restricción a cuentas de verificación debe imponerse en servidor desde el primer despliegue de Cuenta (allowlist/claim validada por reglas y backend), no solo en Video.
+3. **ALTA** — Privacidad y términos (incluido contenido de terceros/derechos de autor) deben existir y aceptarse en el login antes de cualquier cuenta real, aunque sea de verificación: mover la redacción legal de la fase 7 a la fase 5.
+4. **ALTA** — Observabilidad insuficiente: solo alertas por correo. Añadir en fase 3 métricas y panel (tasa de error, jobs atascados, latencia, divergencia de saldo) y usarlas como criterio de puerta.
+5. **MEDIA** — "Bloqueos permanentes por fallos transitorios" puede inmovilizar saldos. Solo bloqueo permanente ante rechazo definitivo del proveedor; los fallos transitorios van a convergencia/barrido.
+6. **MEDIA** — Las copias no bastan: añadir simulacro de restauración (Firestore PITR + GCS) en fase 3 como condición de puerta.
+7. **MEDIA** — El barrido de convergencia y trabajos `unknown` debe desplegarse y vigilarse en producción desde la fase 6, no quedarse como lógica local.
+8. **MEDIA** — Conciliación diaria en producción entre gasto real del proveedor y libro de saldo, con alerta de divergencia (fase 6).
+9. **MEDIA** — Controles antiabuso antes de Hosting: tamaño/duración máximo por vídeo, concurrencia por cuenta y rate limits; añadirlos en fase 3 y verificarlos en fase 6.
+10. **BAJA** — Versionado de esquema/migraciones para ambas bases y CI/CD con etiquetas trazables para reversión (fase 3).
+
+**(b)** Orden correcto en general; 2 y 3 son barreras previas a la fase 6, 1 entra en fase 3/4. **(c)** El orden de la fase 6 es razonable, pero sin 1–3, 8 y 9 no es seguro. **(d)** Riesgo principal no cubierto: variabilidad real del proveedor (coste, latencia, calidad, modos de fallo) con medios reales; lo resuelve el hallazgo 1.
+
+RESULTADO: FALLA

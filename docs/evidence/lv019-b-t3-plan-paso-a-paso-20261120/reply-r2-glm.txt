@@ -1,0 +1,14 @@
+**Revisión de hallazgos ALTA en la V2:**
+
+1. **Primer contacto con proveedor real:** RESUELTO. 4.3b contacta el proveedor real desde la PC sin desplegar, mide coste/latencia/formato/límites, con clave en archivo privado y tope hasta US$1 antes de cualquier prueba en nube.
+2. **Restricción de cuentas en servidor:** RESUELTO. Habilitación impuesta en servidor (Cuenta y Video); Fase 5 la exige desde el primer despliegue de Cuenta.
+3. **Privacidad antes de cuentas reales:** RESUELTO. G8 (aviso, términos, consentimiento, Google como subencargado, transferencia internacional) precede cualquier cuenta real.
+4. **Observabilidad:** RESUELTO. 3.8 define métricas mínimas (errores, atascos, latencia, divergencia, gasto) y responsable por alerta (dueño por correo, sin guardia 24h).
+5. **Restauración:** RESUELTO. 3.9 simula restauración de ambas bases y GCS con RTO/RPO, versionado de esquema y compatibilidad al revertir; G9 la exige ensayada.
+6. **Abuso/capacidad:** RESUELTO. 3.10 cubre cupos por cuenta, suspensión, rachas, cuotas del proveedor, prueba de carga con simuladores e interruptor total de llamadas separado del de voz; moderación queda como decisión del dueño (pendiente, no bloqueante).
+7. **Reconciliador:** RESUELTO. Conciliación manual contra informe de facturación de Google con alerta de presupuesto; el ejecutor 1.6 drena saldo periódicamente (equitativo, exclusión mutua, pruebas de carrera e interrupción).
+8. **Orden de la barrera de aborto:** RESUELTO. Ensayo en seco de reversión y apagado (voz, proveedor, despliegue) antes de encender; Hosting en canal de vista previa antes del sitio real.
+
+**Residuos (no ALTA):** moderación sin decidir; conciliador manual depende de disciplina del dueño; la clave local de 4.3b exige que nunca llegue a repositorio ni bitácora.
+
+RESULTADO: PASS
