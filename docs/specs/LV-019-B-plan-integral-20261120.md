@@ -7,7 +7,7 @@
 | Tema | Respuesta del dueño | Efecto en el plan |
 |---|---|---|
 | Correo de alertas | Lo entregó en el chat | **No se escribe en el repositorio ni en prompts**; solo irá a la configuración de Monitoring al crear el canal (A3). |
-| Operadores | «solo yo opero» | Un solo operador, el dueño. Sigue faltando su UID. |
+| Operadores | «solo yo opero» | Un solo operador, el dueño. Su UID se recibió el 20 nov. |
 | Precio de la voz | US$0.10 por minuto | Confirmado. El coste del proveedor es ≈13,5 % de ese precio hasta fin de 2026 y ≈27 % desde el 1 ene 2027 ([C0a](LV-019-B-voz-c0a-hechos-proveedor-20261120.md)). |
 | Política de cobro | «no se cobra si fallamos» | **Sin cobro parcial**: un trabajo de voz fallido se libera; una reserva `UNKNOWN` solo retiene saldo, no lo cobra, hasta conciliar (C2/C3). |
 | Retención del audio | **90 días** (decidido tras ver las opciones) | Guardar 10 min cuesta ≈US$0,0016 en 90 días; borrado inmediato a petición del cliente y al eliminar el proyecto; se aplica con la purga por lotes con marcadores (C0a). |
@@ -32,7 +32,7 @@ Una autorización permite hacer algo; no obliga a hacerlo antes de que sea segur
 |---|---|---|---|
 | 1 | «autorizado el disparador» | Un disparador periódico en la nube para el barrido de pendientes: ruta nueva colgada de la pasada de mantenimiento que ya corre cada 5 minutos (opción 1A), **más una alerta de frescura** (si el barrido deja de correr, avisa). **No** el modo `billing`, que mueve saldo. | Código del barrido aislado y probado; cadencia (propongo heredar los 5 minutos); T3 del cambio. |
 | 2 | «canal es email» | Alerta por correo: métrica por registros + política de Cloud Monitoring con canal de correo (opción 2B), más alerta «sin datos». | Correo **recibido el 20 nov** (solo irá a la configuración de Monitoring; nunca al repositorio ni a prompts); confirmar en la documentación oficial; prueba de entrega real. |
-| 3 | «solo yo y el email del destinatario de la alerta» | Operadores = solo el dueño (**confirmado el 20 nov**: «solo yo opero»). | **UID real de Firebase** (o permiso para buscarlo en Auth por su correo). Solo bloquea A5. |
+| 3 | «solo yo y el email del destinatario de la alerta» | Operadores = solo el dueño (**confirmado el 20 nov**: «solo yo opero»). | **UID recibido el 20 nov** (no se guarda en el repositorio); se comprobará con una sesión real en A5. |
 | 4 | «¿un lugar seguro? ¿Cloudflare?» | Pregunta; respuesta en la sección 4. | Confirmación de la recomendación. |
 | 5 | «crear índice real» | Crear **solo** `billingHoldOutbox (state, nextAttemptAt)` en `vistavo-prod`, base `(default)`, con `deploy/google-cloud/billing-hold.indexes.json`. Lo usa la consulta de bloqueos del modo `billing` (`firestoreBackend.ts`, `where state==pending, nextAttemptAt<=ahora, orderBy nextAttemptAt`); crearlo no programa ese modo. | Permiso real de la identidad; verificación con la consulta exacta y estado `READY`; comprobar que no exige otro índice. |
 | 6 | «autorizo los registros de producción» | Escribir en `vistavo-prod` **únicamente** alertas y auditoría en `billingPendingAlerts` y `billingPendingAudit`. Nunca filas de cola, saldos ni cuentas. | Ejecutor con guardas distintas de las del emulador; diferencias antes/después de **todas** las colecciones; «sin borrar por ahora» más cota de volumen. |
@@ -59,7 +59,7 @@ Una autorización permite hacer algo; no obliga a hacerlo antes de que sea segur
 | A2 | Código: ejecutor del barrido apto para la nube con guardas de escritura (solo 2 colecciones, ensayo en seco); **sub-manejador aislado** con su propio `try/catch` que nunca propaga, presupuesto de tiempo propio e idempotente; un latido por pasada; **prueba de frontera de importaciones** (la imagen del mantenimiento no importa rutas de escritura de colas, bloqueos ni modo `billing`); diferencia antes/después de todas las colecciones. Apagado por configuración. | A0 |
 | A3 | Alerta: métrica por registros + política + canal de correo + alerta de **frescura/«sin datos»** (el latido mide que el barrido corrió, no el contenido de las colas: una cola vacía no dispara alerta, ninguna alerta depende del modo `billing`, que está apagado, y se documenta la latencia de detección); prueba de punta a punta con una entrada de registro de prueba marcada (incluye carpeta de spam y fallo del canal). **Antes** de desplegar A2. | A0, correo |
 | A4 | Desplegar revisión nueva sin tráfico → prueba de humo de archivos/IA → promover con el barrido apagado → encender → primer barrido con 0 filas (**solo prueba el cableado, no la lógica**; la lógica la prueban emulador y mutaciones) → un registro de prueba etiquetado. Reversión comprobada. | A1–A3 |
-| A5 | Operador: ver sección 4. Solo tras A0 y con el UID. **A0–A4 avanzan sin el UID.** Antes de cerrar: prueba real de aceptación desde la PC del dueño, prueba de rechazo (otro UID, sin token, sin permiso IAM) y **prueba de revocación** (retirar el permiso IAM y comprobar que deja de entrar); la URL no se publica. | A0, UID |
+| A5 | Operador: ver sección 4. Solo tras A0; el UID ya está recibido. **A0–A4 avanzan sin él.** Antes de cerrar: prueba real de aceptación desde la PC del dueño, prueba de rechazo (otro UID, sin token, sin permiso IAM) y **prueba de revocación** (retirar el permiso IAM y comprobar que deja de entrar); la URL no se publica. | A0, UID |
 
 ### Vía B · Integridad del saldo (local)
 
@@ -104,7 +104,7 @@ G0 **ningún despliegue de nada hasta que la voz esté lista** (decisión del du
 
 ## 6. Lo que necesito del dueño
 
-1. UID real del operador (o permiso para buscarlo). El correo de alertas y «solo yo opero» ya están recibidos.
+1. Nada pendiente de identidad: el correo de alertas, el UID del operador y «solo yo opero» ya están recibidos.
 2. Confirmar que «lista» (para el primer despliegue conjunto) significa lo que dice la §0, y que subir a GitHub sigue sin autorizar.
 3. Confirmar la recomendación de operador (sección 4) o pedir Cloudflare.
 4. Autorizar una **entrada de registro de prueba** en Cloud Logging para probar la alerta (A3), que puede hacerse antes del despliegue.
