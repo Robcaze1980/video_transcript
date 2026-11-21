@@ -47,7 +47,7 @@ Las fases 1 a 3 comparten archivos de saldo y se hacen **una tras otra**; calida
 
 | Paso | Qué se hace | Cómo se sabe que está bien | Quién |
 |---|---|---|---|
-| 2.1 | **Decisiones previas:** variante del español (propuesta: latinoamericano neutro, México/EE. UU.), voces de cada idioma, protocolo y rúbrica de escucha nativa, leer la adenda de datos de Google, texto del precio adicional | Registradas en la nota C0a y el plan | Dueño (variante, escucha) + Codex |
+| 2.1 | **Decisiones previas:** variante del español (**decidida: español neutro latinoamericano**; sin regionalismos, voseo ni vocabulario propio de un país), voces de cada idioma, protocolo y rúbrica de escucha nativa, leer la adenda de datos de Google, texto del precio adicional | Registradas en la nota C0a y el plan | Dueño (variante, escucha) + Codex |
 | 2.2 | **Reserva de voz (C1):** identidad → marca → intención → reserva de Cuenta en una sola transacción, con los negativos del contrato | Pruebas de emulador; no se cierra sin 1.1–1.4 | Codex |
 | 2.3 | **Llamada por fragmento (C2):** cuerpo reconstruido y validado en ambos idiomas (tildes, ñ, ¿ ¡), fragmentos que son una partición exacta de la revisión (para poder calcular lo entregado), una sola llamada en vuelo, jamás reintento automático, `UNKNOWN` si no hay ACK, cobro solo con entrega verificada, sin cobro si fallamos | Pruebas de cada fallo y de cancelación a mitad | Codex |
 | 2.4 | **Recuperación de voz (C3):** ACK perdido, caducidad de `UNKNOWN`, artefacto tardío que no se puede descargar ni cobrar | Pruebas; alerta de reservas envejecidas | Codex |
@@ -115,7 +115,7 @@ Calidad de los demás pares de idiomas (LV-004, uno por uno), experiencia móvil
 
 | Cuándo | Qué |
 |---|---|
-| Ahora | Confirmar la variante del español de la voz (propuesta: latinoamericano neutro, México/EE. UU.) |
+| Hecho (20 nov) | Variante del español de la voz: neutro latinoamericano |
 | Paso 2.8 | Escuchar y aprobar muestras de inglés y español con la rúbrica |
 | Paso 3.3 | Permitir una entrada de registro de prueba en Cloud Logging |
 | Paso 3.5 | Conceder el permiso de invocación del operador (comando que preparo) |

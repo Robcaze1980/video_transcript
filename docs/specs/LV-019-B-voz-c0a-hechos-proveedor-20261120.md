@@ -36,7 +36,7 @@ La voz solo depende del **idioma destino** (se genera desde la traducción revis
 | Mandarín | «Chinese (Hans script)»; no dice «Mandarin» | Confirmar que habla mandarín; el cantonés figura aparte |
 | Vietnamita | Sí | Revisión nativa |
 
-**Decisión del dueño (20 nov): la voz se abre en inglés y español a la vez.** Falta elegir la variante del español (propuesta: latinoamericano neutro, México/EE. UU., el mercado de referencia de [LV-001](LV-001-propuesta-comercial.md)), las voces de cada idioma y la escucha nativa de los dos (LV-004: la aprobación de un idioma no aprueba el otro). El resto de idiomas se abren después, de uno en uno.
+**Decisión del dueño (20 nov): la voz se abre en inglés y español a la vez.** **Variante del español decidida el 20 nov: neutro latinoamericano** (sin regionalismos ni voseo; el mercado de referencia de [LV-001](LV-001-propuesta-comercial.md) es México y EE. UU.). Faltan las voces de cada idioma y la escucha nativa de los dos (LV-004: la aprobación de un idioma no aprueba el otro). El resto de idiomas se abren después, de uno en uno.
 
 **Conclusión:** en teoría **sí**, los 90 pares tienen un idioma destino con voz del proveedor. «Figura en la lista» no es calidad: la página no da calidad por idioma. Cada idioma destino necesita escucha y aprobación según LV-004, y la voz de un par solo se habilita cuando su texto ya está aceptado. Los modelos publican 30 voces predefinidas con nombre (Kore y Charon entre ellas); la documentación no dice qué voces rinden mejor en qué idioma.
 
