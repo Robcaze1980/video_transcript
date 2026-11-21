@@ -9,6 +9,7 @@
 // after an id still returns the plain document order from the beginning.
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {FirestoreBackend} from './firestoreBackend';
+import {FirestoreAi} from './firestoreAi';
 import {stub} from './billingFirestoreStub';
 
 const NOW=Date.now(),DAY=24*60*60*1000;
@@ -97,5 +98,76 @@ describe('the cursor is a document id, not a control object',()=>{
   it('leaves the limit validation intact with a cursor present',async()=>{
     const {b}=backend({billingOutbox:rows('p_',3,{state:'pending'})});
     for(const bad of [0,-1,101,1.5])await expect(b.pendingExternalBilling(bad,'p_0000')).rejects.toMatchObject({code:'invalid'});
+  });
+});
+
+describe('RONDA 2: the per-account cap is per PASS, not per section',()=>{
+  // The shadowed count is what the drain consults over the whole pass; the real shared-map scenario runs on the emulator
+  // (`firestoreDrainControl.emulator.mjs`, S9). Without `accountUsage` the second drain keeps its own map.
+  const {s,b}=backend({});
+  const ai=new FirestoreAi(s.db as never,s.root as never,b,{} as never,undefined,undefined);
+  const capped=(map:Map<string,number>|undefined,account:string,own=new Map<string,number>())=>{
+    const control={perAccountCap:5,...(map?{accountUsage:map}:{})};
+    return (ai as unknown as {drainCapped:(c:unknown,p:Map<string,number>,a:string|null)=>boolean}).drainCapped(control,own,account);
+  };
+  it('a shared map refuses the sixth row of one account even across a second drain',()=>{
+    const shared=new Map<string,number>();
+    const answers=Array.from({length:6},()=>capped(shared,'acct'));
+    expect(answers).toEqual([false,false,false,false,false,true]);
+    expect(capped(shared,'acct')).toBe(true);
+    expect(shared.get('acct')).toBe(5);
+  });
+  it('without the option the drain falls back to its own map (unchanged behaviour)',()=>{
+    const own=new Map<string,number>();
+    const answers=Array.from({length:6},()=>capped(undefined,'acct',own));
+    expect(answers).toEqual([false,false,false,false,false,true]);
+    expect(own.get('acct')).toBe(5);
+  });
+});
+
+describe('RONDA 2: `traversed` tells a stop-before-kind apart from a full wrap',()=>{
+  const seed=()=>rows('i_',3,{accountId:'acct',provider:'account_seconds',state:'reserve_pending',nextAttemptAt:0});
+  it('a stop in intents reports outbox as not traversed, with no client of Cuenta both are false',async()=>{
+    const {s,b}=backend({billingIntents:seed()});
+    let outboxReads=0;
+    const read=b.pendingExternalBilling.bind(b);
+    b.pendingExternalBilling=(async(...args:Parameters<typeof read>)=>{outboxReads++;return read(...args);}) as typeof read;
+    const ai=new FirestoreAi(s.db as never,s.root as never,b,{} as never,undefined,{} as never);
+    const result=await (ai as unknown as {drainExternalBilling:(l:number,c:unknown)=>Promise<any>}).drainExternalBilling(100,{shouldContinue:()=>false});
+    // The control refused BEFORE the first intent row, so neither kind was traversed and no cursor may be written.
+    expect(result.traversed).toEqual({intents:false,outbox:false});
+    expect(outboxReads).toBe(0);
+    const disabled=new FirestoreAi(s.db as never,s.root as never,b,{} as never,undefined,undefined);
+    const none=await (disabled as unknown as {drainExternalBilling:(l:number,c:unknown)=>Promise<any>}).drainExternalBilling(100,{});
+    expect(none.traversed).toEqual({intents:false,outbox:false});
+  });
+  it('a stop at the FIRST outbox row is not a wrap: outbox stays not traversed and `next` stays null',async()=>{
+    // ONE intent, so the control is still true when the pass enters outbox and refuses its very first row.
+    const {s,b}=backend({billingIntents:rows('i_',1,{accountId:'acct',provider:'account_seconds',state:'reserve_pending',nextAttemptAt:0}),
+      billingOutbox:rows('p_',3,{state:'pending'})});
+    const ai=new FirestoreAi(s.db as never,s.root as never,b,{} as never,undefined,{} as never);
+    let asked=0;
+    const result=await (ai as unknown as {drainExternalBilling:(l:number,c:unknown)=>Promise<any>}).drainExternalBilling(100,{shouldContinue:()=>++asked<=1});
+    expect(result.traversed).toEqual({intents:true,outbox:false});
+    expect(result.next.outbox).toBeNull();
+    expect(result.stopped).toBe(true);
+  });
+  it('a stop AFTER an attended outbox row still reports outbox as traversed, so its cursor is kept',async()=>{
+    const {s,b}=backend({billingIntents:rows('i_',1,{accountId:'acct',provider:'account_seconds',state:'reserve_pending',nextAttemptAt:0}),
+      billingOutbox:rows('p_',3,{state:'pending'})});
+    const ai=new FirestoreAi(s.db as never,s.root as never,b,{} as never,undefined,{} as never);
+    let asked=0;
+    const result=await (ai as unknown as {drainExternalBilling:(l:number,c:unknown)=>Promise<any>}).drainExternalBilling(100,{shouldContinue:()=>++asked<=2});
+    expect(result.stopped).toBe(true);
+    expect(result.traversed).toEqual({intents:true,outbox:true});
+    expect(result.next.outbox).toBe('p_0000');
+  });
+  it('a stop at the FIRST intent row is not a wrap either: intents stays not traversed',async()=>{
+    const {s,b}=backend({billingIntents:seed()});
+    const ai=new FirestoreAi(s.db as never,s.root as never,b,{} as never,undefined,{} as never);
+    const result=await (ai as unknown as {drainExternalBilling:(l:number,c:unknown)=>Promise<any>}).drainExternalBilling(100,{shouldContinue:()=>false});
+    expect(result.stopped).toBe(true);
+    expect(result.traversed).toEqual({intents:false,outbox:false});
+    expect(result.next).toEqual({intents:null,outbox:null});
   });
 });

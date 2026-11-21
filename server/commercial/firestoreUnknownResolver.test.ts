@@ -136,3 +136,48 @@ describe('resolveExpiredUnknown argument validation',()=>{
     await expect(call({now:NOW,limit:5,windowMs:WINDOW,skewMs:3_600_000})).rejects.toThrow(/must not be touched/);
   });
 });
+
+describe('resolveExpiredUnknown row-by-row control (RONDA 2)',()=>{
+  // A tiny in-memory backend surface: the page query runs in one transaction and each row in its own. The rows carry no
+  // storable account id, so every attended row is a counted `failed`; the observable contract is how many rows were
+  // ATTENDED before the control stopped the pass.
+  function controlled(ids:string[]){
+    const attended:string[]=[];
+    const query={where(){return query;},orderBy(){return query;},startAfter(){return query;},limit(){return query;}};
+    const db={async runTransaction<T>(fn:(tx:unknown)=>Promise<T>){
+      const tx={async get(refOrQuery:any){
+        if(typeof refOrQuery?.path!=='string')return {docs:ids.map(id=>({id}))};
+        attended.push(refOrQuery.id as string);
+        return {exists:true,get:(field:string)=>field==='state'?'unknown':undefined};
+      }};
+      return fn(tx);
+    }};
+    const root={collection:()=>({...query,doc:(id:string)=>({id,path:'jobs/'+id})})};
+    return {backend:new firestoreBackend.FirestoreBackend(db as never,root as never),attended};
+  }
+  const resolver=(backend:unknown)=>(backend as {resolveExpiredUnknown:(o:unknown)=>Promise<Record<string,unknown>>}).resolveExpiredUnknown.bind(backend);
+  it('asks shouldContinue BEFORE each row and stops cleanly, leaving the rest untouched',async()=>{
+    const ids=[JOB,'20000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000003'];
+    const {backend,attended}=controlled(ids);
+    let asked=0;
+    const report=await resolver(backend)({now:NOW,limit:3,shouldContinue:()=>++asked<2});
+    expect(asked).toBe(2);
+    expect(attended).toHaveLength(1);
+    expect(report).toMatchObject({stopped:true,scanned:3,failed:1});
+    expect(report.next).toBe(JOB);
+  });
+  it('a throwing shouldContinue is a clean stop too, never an exception',async()=>{
+    const {backend,attended}=controlled([JOB]);
+    const report=await resolver(backend)({now:NOW,limit:1,shouldContinue:()=>{throw new Error('lease read down');}});
+    expect(report).toMatchObject({stopped:true,scanned:1,failed:0,resolved:0});
+    expect(report.next).toBeNull();
+    expect(attended).toHaveLength(0);
+  });
+  it('without the option the pass keeps its documented wrap cursor and no `stopped`',async()=>{
+    const {backend,attended}=controlled([JOB]);
+    const report=await resolver(backend)({now:NOW,limit:1});
+    expect(report).toMatchObject({scanned:1,failed:1,next:JOB});
+    expect(report.stopped).not.toBe(true);
+    expect(attended).toEqual([JOB]);
+  });
+});

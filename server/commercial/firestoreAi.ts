@@ -20,8 +20,10 @@ export type AiCandidateLimits=Readonly<{maxSourceSeconds:number;maxNarrationChar
  * - `perAccountCap` is the most rows a single account is served in a pass; the extra rows are counted in `skippedRows` and left untouched.
  * - `after` is a rotation cursor per kind (document id): the reader starts strictly AFTER it and wraps, so a rotation visits each due row at most once.
  * - `maxRows` replaces the positional `limit` (default 25, bounds 1..100).
+ * - `accountUsage` is a per-pass usage map shared by several drains: when present the cap is counted against it, so one
+ *   account cannot take `perAccountCap` rows in each section of the same pass.
  */
-export type DrainControl=Readonly<{shouldContinue?:()=>boolean|Promise<boolean>;perAccountCap?:number;after?:Readonly<{intents?:string|null;outbox?:string|null}>;maxRows?:number}>;
+export type DrainControl=Readonly<{shouldContinue?:()=>boolean|Promise<boolean>;perAccountCap?:number;after?:Readonly<{intents?:string|null;outbox?:string|null}>;maxRows?:number;accountUsage?:Map<string,number>}>;
 function id(value:string){if(typeof value!=='string'||!privateUuid.test(value))throw new AiFault('invalid');}
 function safeUsage(value:any){const out:Record<string,number>={};for(const key of ['promptTokenCount','candidatesTokenCount','totalTokenCount','thoughtsTokenCount','cachedContentTokenCount'])if(Number.isSafeInteger(value?.[key])&&value[key]>=0)out[key]=value[key];return out;}
 /** Candidate-only orchestration. No client can mutate receipts, credits, plans or provider outcomes. */
@@ -164,14 +166,15 @@ export class FirestoreAi {
  /** Counts a taken row against its account; at the cap the row is left pending for a later pass and reported as skipped, never touched. */
  private drainCapped(control:DrainControl|undefined,perAccount:Map<string,number>,accountId:string|null){
   const cap=control?.perAccountCap;if(cap===undefined||accountId===null)return false;
-  const used=perAccount.get(accountId)??0;if(used>=cap)return true;perAccount.set(accountId,used+1);return false;
+  const usage=control?.accountUsage??perAccount;
+  const used=usage.get(accountId)??0;if(used>=cap)return true;usage.set(accountId,used+1);return false;
  }
  /** Recover Account holds independently of user visits; a scheduler is still required. */
  async drainExternalHolds(limit=25,control?:DrainControl):Promise<{applied:number;failed:number;review:number;skippedRows?:number;stopped?:boolean}>{
   const maxRows=this.drainMaxRows(limit,control);
   if(!this.accountBilling)return control===undefined?{applied:0,failed:0,review:0}:{applied:0,failed:0,review:0,skippedRows:0,stopped:false};
   let applied=0,failed=0,review=0,skippedRows=0,stopped=false;
-  const perAccount=new Map<string,number>();
+  const perAccount=control?.accountUsage??new Map<string,number>();
   for(const row of await this.backend.pendingExternalHolds(maxRows) as Array<Record<string,unknown>>){
    if(!await this.drainShouldContinue(control)){stopped=true;break;}
    if(this.drainCapped(control,perAccount,typeof row.accountId==='string'?row.accountId:null)){skippedRows++;continue;}
@@ -203,16 +206,16 @@ export class FirestoreAi {
    :{action:'release' as const,source:'resolution_status' as const,terminalAction:action,state:'released' as const,reservationId:resolution.reservationId,seconds:resolution.seconds};
   return this.backend.recordConfirmedIntentObservation(witness,observed,snapshot);
  }
- async drainExternalBilling(limit=25,control?:DrainControl):Promise<{settled:number;failed:number;intentsRecovered:number;intentsFailed:number;skippedRows?:number;stopped?:boolean;next?:{intents:string|null;outbox:string|null}}>{
+ async drainExternalBilling(limit=25,control?:DrainControl):Promise<{settled:number;failed:number;intentsRecovered:number;intentsFailed:number;skippedRows?:number;stopped?:boolean;next?:{intents:string|null;outbox:string|null};traversed?:{intents:boolean;outbox:boolean}}>{
   const maxRows=this.drainMaxRows(limit,control);
-  if(!this.accountBilling)return control===undefined?{settled:0,failed:0,intentsRecovered:0,intentsFailed:0}:{settled:0,failed:0,intentsRecovered:0,intentsFailed:0,skippedRows:0,stopped:false,next:{intents:null,outbox:null}};
+  if(!this.accountBilling)return control===undefined?{settled:0,failed:0,intentsRecovered:0,intentsFailed:0}:{settled:0,failed:0,intentsRecovered:0,intentsFailed:0,skippedRows:0,stopped:false,next:{intents:null,outbox:null},traversed:{intents:false,outbox:false}};
   let settled=0,failed=0,skippedRows=0,stopped=false,nextIntents:string|null=null,nextOutbox:string|null=null;
-  const perAccount=new Map<string,number>();
-  const intents=await this.backend.pendingExternalBillingIntents(maxRows,control?.after?.intents);let intentsRecovered=0,intentsFailed=0;
+  const perAccount=control?.accountUsage??new Map<string,number>();
+  const intents=await this.backend.pendingExternalBillingIntents(maxRows,control?.after?.intents);let intentsRecovered=0,intentsFailed=0,intentsAttended=false;
   for(const row of intents as Array<Record<string,any>>){
    if(!await this.drainShouldContinue(control)){stopped=true;break;}
    if(this.drainCapped(control,perAccount,typeof row.accountId==='string'?row.accountId:null)){skippedRows++;continue;}
-   if(typeof row.id==='string')nextIntents=row.id;
+   if(typeof row.id==='string'){nextIntents=row.id;intentsAttended=true;}
    let failureEvidence:ExternalBillingIntentFailureEvidence|null=null,terminalObserved=false;
    try{
    if(row.provider!=='account_seconds'||!['reserve_pending','release_pending'].includes(row.state)||typeof row.identityKey!=='string'||typeof row.reservationId!=='string'||typeof row.accountId!=='string'||typeof row.inputId!=='string'||typeof row.requestKey!=='string'||typeof row.operation!=='string'||!Number.isSafeInteger(row.revision)||!Number.isSafeInteger(row.seconds))throw new AiFault('invalid');
@@ -276,10 +279,15 @@ export class FirestoreAi {
   }
   }
   // A stop in the intents section ends the whole pass: no outbox row is read or touched, so a one-shot shouldContinue cannot leak into it.
-  if(!stopped)for(const row of await this.backend.pendingExternalBilling(maxRows,control?.after?.outbox) as Array<Record<string,any>>){
+  // "Traversed" is decided at the END: the outbox kind was walked only if the loop completed, or if it stopped after
+  // attending a row. A stop before the first outbox row leaves `next.outbox` null for "not read", which must never be
+  // persisted as a completed wrap.
+  const enteredOutbox=!stopped;
+  let outboxAttended=false;
+  if(enteredOutbox)for(const row of await this.backend.pendingExternalBilling(maxRows,control?.after?.outbox) as Array<Record<string,any>>){
    if(!await this.drainShouldContinue(control)){stopped=true;break;}
    if(this.drainCapped(control,perAccount,typeof row.accountId==='string'?row.accountId:null)){skippedRows++;continue;}
-   if(typeof row.id==='string')nextOutbox=row.id;
+   if(typeof row.id==='string'){nextOutbox=row.id;outboxAttended=true;}
    let expected:ExternalBillingOutboxSnapshot|undefined,ack:ExternalBillingObservation|undefined,settlementSnapshot:ExternalBillingSettlementReadSnapshot|undefined;
    try{
     const validity=await this.validExternalBillingOutbox(row);
@@ -305,7 +313,7 @@ export class FirestoreAi {
     else if(expected&&typeof row.id==='string'&&typeof row.snapshotVersion==='string'&&['pending','retry_wait'].includes(row.state))await this.backend.recordExternalBillingFailure(row.id,error instanceof AccountBillingFault?error.code:'unavailable',{snapshotVersion:row.snapshotVersion,state:row.state,outbox:expected}).catch(()=>undefined);
    }
   }
-  return control===undefined?{settled,failed,intentsRecovered,intentsFailed}:{settled,failed,intentsRecovered,intentsFailed,skippedRows,stopped,next:{intents:nextIntents,outbox:nextOutbox}};
+  return control===undefined?{settled,failed,intentsRecovered,intentsFailed}:{settled,failed,intentsRecovered,intentsFailed,skippedRows,stopped,next:{intents:nextIntents,outbox:nextOutbox},traversed:{intents:intentsAttended||!stopped,outbox:outboxAttended||!stopped}};
  }
  /** A privileged account movement requires a matching durable terminal job and outbox. */
  private async validExternalBillingOutbox(row:Record<string,any>):Promise<{state:'eligible';snapshot:ExternalBillingSettlementReadSnapshot}|'already_settled'|'changed'|'invalid'|'blocked'>{

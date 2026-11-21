@@ -1929,10 +1929,12 @@ export class FirestoreBackend {
    * released row is a no-op. Voice (`narration:`) rows are never eligible: they keep their own proportional-charge policy
    * (C2/C3) and are counted not-due. This resolver NEVER captures; it only ever releases. `windowMs`/`skewMs` are TEST-ONLY
    * overrides, validated below, never passed by a production caller and unreachable from any HTTP route. The cursor advances
-   * over every row read and wraps to null at the end; the counts carry no ids and no content. Design: sections 3 and 4.
+   * over every row read and wraps to null at the end; the counts carry no ids and no content. `shouldContinue` is consulted BEFORE
+   * each row: `false` or a throw ends the pass cleanly (`stopped:true`, never propagated), the rows after it stay
+   * untouched and `next` is the last row attended, so the next pass resumes right after it. Design: sections 3 and 4.
    */
-  async resolveExpiredUnknown(options:{now:number;limit:number;after?:string|null;windowMs?:number;skewMs?:number}){
-    const now=options?.now,limit=options?.limit,after=options?.after??null,windowMs=options?.windowMs,skewMs=options?.skewMs;
+  async resolveExpiredUnknown(options:{now:number;limit:number;after?:string|null;windowMs?:number;skewMs?:number;shouldContinue?:()=>boolean|Promise<boolean>}){
+    const now=options?.now,limit=options?.limit,after=options?.after??null,windowMs=options?.windowMs,skewMs=options?.skewMs,shouldContinue=options?.shouldContinue;
     if(!Number.isSafeInteger(now)||(now as number)<0)throw new LedgerFault('invalid');
     if(!Number.isSafeInteger(limit)||(limit as number)<1||(limit as number)>100)throw new LedgerFault('invalid');
     if(after!==null&&!plainDocumentId(after))throw new LedgerFault('invalid');
@@ -1940,14 +1942,21 @@ export class FirestoreBackend {
     // (non-number, NaN, Infinity, negative or out of range) is a bad parameter, not a policy change.
     if(windowMs!==undefined&&(!Number.isSafeInteger(windowMs)||(windowMs as number)<MIN_TEST_UNKNOWN_WINDOW_MS||(windowMs as number)>UNKNOWN_REVIEW_WINDOW_MS))throw new LedgerFault('invalid');
     if(skewMs!==undefined&&(!Number.isSafeInteger(skewMs)||(skewMs as number)<0||(skewMs as number)>MAX_TEST_UNKNOWN_SKEW_MS))throw new LedgerFault('invalid');
+    if(shouldContinue!==undefined&&typeof shouldContinue!=='function')throw new LedgerFault('invalid');
     // The page read is the first database access, so a rejected argument never reaches the runner (validated above).
     const page=await this.db.runTransaction(async tx=>{
       let query=this.root.collection('jobs').where('state','==','unknown').orderBy(FieldPath.documentId()).limit(limit as number);
       if(after!==null)query=query.startAfter(after);
       return (await tx.get(query)).docs.map(doc=>doc.id);
     });
-    const report={scanned:page.length,resolved:0,notDue:0,failed:0,next:(page.length===limit?page[page.length-1]:null) as string|null};
+    const report={scanned:page.length,resolved:0,notDue:0,failed:0,next:(page.length===limit?page[page.length-1]:null) as string|null,stopped:false};
+    let lastAttended:string|null=null;
     for(const jobId of page){
+      if(shouldContinue!==undefined){
+        let proceed=false;
+        try{proceed=!!(await shouldContinue());}catch{proceed=false;}
+        if(!proceed){report.stopped=true;report.next=lastAttended??after;break;}
+      }
       let outcome:'resolved'|'not_due'|'failed'|'skipped';
       try{
         outcome=await this.db.runTransaction(async tx=>{
@@ -1970,6 +1979,7 @@ export class FirestoreBackend {
           return 'resolved' as const;
         });
       }catch{outcome='failed';}
+      lastAttended=jobId;
       if(outcome==='resolved')report.resolved++;
       else if(outcome==='not_due')report.notDue++;
       else if(outcome==='failed')report.failed++;

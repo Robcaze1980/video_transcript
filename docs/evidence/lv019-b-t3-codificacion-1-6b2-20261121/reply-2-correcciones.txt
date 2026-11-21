@@ -1,0 +1,58 @@
+1.6b-2 seccion del ejecutor
+mcp:03ff2fff-1ac0-4c3d-908a-25b3c211be6c  completed  linguistvision-openrouter/deepseek/deepseek-v4.1-flash
+lv019b/t3-drain-section  C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-drain-section
+
+[assistant]
+La mutación manual sí mata la prueba; reviso por qué el script la reportó superviviente (probablemente `spawnSync` con `shell:true`).
+
+[assistant]
+Mutuación del `stopped` confirmada roja con el ancla correcta. Verificación final completa.
+
+[assistant]
+Detecté un borde: parar en la primera fila de outbox dejaría `traversed.outbox:true` con `next:null` y borraría el cursor real. Lo cierro de forma conservadora.
+
+[assistant]
+El mutante sobrevivió por un defecto real: `traversedOutbox` se congelaba antes del bucle. Lo corrijo usando el `stopped` final.
+
+
+
+[assistant]
+El mutante `outboxAttended` solo cambia cuando se atienden filas de outbox y luego se corta; falta ese caso. Y el "no leer outbox tras corte en intents" debe medirse por lectura real.
+
+[assistant]
+Todas las mutaciones nuevas ya mueren. Repito la verificación completa tras el último cambio.
+
+[assistant]
+Detecté el mismo borde simétrico en `intents` (corte antes de la primera fila borraría su cursor). Lo cierro igual, de forma conservadora.
+
+[assistant]
+El nuevo caso correcto revela que el test previo asumía `intents:true` al parar antes de la primera fila de intents. Ajusto esa expectativa a la semántica acordada.
+
+[assistant]
+Cierre de verificación: reviso el estado final del bloque modificado y que no queden temporales.
+
+[assistant]
+Ronda 2 cerrada. Todo verificado y restaurado byte a byte tras cada mutación.
+
+**Archivos**
+- `server/commercial/firestoreBackend.ts` — solo `resolveExpiredUnknown`: `shouldContinue` por fila, corte limpio con `stopped:true`, `next` = última fila atendida.
+- `server/commercial/firestoreAi.ts` — `DrainControl.accountUsage` compartido en ambos drenajes, `drainCapped` lo usa si viene; `traversed:{intents,outbox}` en el resultado con control, decidido al final (incluye corte tras atender ≥1 fila; `false` sin cliente o corte antes de la primera fila de ese tipo).
+- `server/commercial/billingDrainSection.ts` — un solo `accountUsage` por pasada, `leaseLost` en renovación rechazada y cortocircuito del gate, `shouldContinue` al resolvedor, cursores escritos solo si `traversed` es true.
+- Pruebas: `billingDrainSection.test.ts`, `firestoreUnknownResolver.test.ts`, `firestoreDrainControl.test.ts`; emulador `billingDrainSection.emulator.mjs` con escenarios nuevos (h) presupuesto/arriendo del resolvedor y (i) tope compartido de 5.
+- `cloudFilesRuntime.ts` sin cambios en esta ronda (cableado y `maintenanceResponse` siguen verdes).
+
+**Resultados**
+- `tsc --noEmit`: 0.
+- Vitest dirigido (sección, resolvedor, control, barrido, arriendo): 140/140.
+- Emuladores: sección 9/9, control 11/11, resolvedor 21/21.
+- `server/commercial` completo: 1434 ok, 1 fallo ajeno preexistente (`web/reviewBrowserNodeFixtures.test.ts`, falta `outputs/`), 113 pausadas.
+
+**Mutaciones** (todas rojas, archivo idéntico restaurado)
+- Resolver: `shouldContinue` ignorado; `stopped` no contado.
+- Sección: `leaseLost` no marcado en renovación rechazada; gate sin cortocircuito; gate del unknown no pasado; `accountUsage` no compartido; `traversed` ignorado en cursores.
+- Drenaje: `drainCapped` sin `accountUsage`; `traversed` siempre true; `enteredOutbox` ignorando corte en intents (lectura extra); `outboxAttended`/`intentsAttended` no marcados o ignorados (corte antes de la 1ª fila vs. tras atender una).
+
+**Límites y decisiones conservadoras**
+- `traversed` de un tipo exige haber atendido ≥1 fila de ese tipo cuando la pasada se corta: así un corte antes de la primera fila nunca borra un cursor real (más estricto que el literal del brief).
+- Siguen sin uso el cursor `holds`, el doble conteo de `skippedRows` tras vuelta (métrica) y el latido con el conjunto enumerado de claves (el brief dice 13 pero enumera 12; se mantiene el enumerado, con `unknownResolved`).
+- El script de mutación inicial dio un falso "superviviente" por `spawnSync` con `npx.cmd` (EINVAL); repetido con el binario correcto y ancla exacta, quedó rojo.
