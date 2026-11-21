@@ -1,0 +1,10 @@
+Documento creado: `docs/plans/LV-019-B-plan-eficiente-bajo-costo-20261121.md` (18,7 KB). Solo leí los documentos indicados (~20 lecturas, sin abrir `firestoreBackend.ts` ni `firestoreAi.ts`; usé anclas de línea). No toqué nada más.
+
+**Resumen en 5 líneas**
+- **Camino crítico real:** para el primer despliegue restringido hacen falta el cierre de dinero (1.2, 1.3a, 1.4, 1.6b, 1.7), casi toda la voz (2.2–2.9), la nube que protege dinero (3.2, 3.3, 3.6–3.8, interruptor de 3.10), el producto real (4.1–4.4, 4.3b, 4.6) y las puertas con G8. Pueden ir después sin riesgo de dinero: 1.3b, 1.5 reducido, 3.5, 3.9 y 3.10 reducidos, y 4.5 parcial.
+- **Palancas:** revisores por riesgo (2 en dinero, 1 en lo mecánico), ≤2 hilos, mapa de código con anclas, una sola ronda de pruebas+implementación, fixtures reutilizables, regresión completa solo al cerrar fase y modelos flash para lo mecánico. Sumadas, ~55–65 % de ahorro.
+- **Hitos H1–H6:** ~100–150 h de reloj y **US$90–150 de T3** (base: ~US$15/día actual, ±50 %), con criterio de aceptación por hito.
+- **Comparación:** el plan actual costaría ~US$170–320 y ~180–300 h; el eficiente baja el gasto sin aflojar el riesgo de dinero.
+- **Decisiones del dueño:** recargar crédito de T3 (hoy 402, ~US$9), aceptar el cambio de criterio de revisión/regresión, y —la grande— si abre solo texto primero: ahorraría ~30–45 h pero rompería su regla actual de no desplegar hasta que la voz esté lista. No la asumí.
+
+Nota honesta: T3 está sin crédito, así que hoy nadie puede programar ni revisar hasta que decidas la recarga.

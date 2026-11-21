@@ -1,0 +1,13 @@
+**Hallazgos**
+
+1. **MEDIA — Contradicción sobre 3.5.** El plan H3 lista «3.5» en su contenido («3.2, 3.3, 3.5, 3.6…»), pero §A.2 dice «3.5 (diferido)». El diseño 1.4 exige: «Solo el dueño, por la herramienta de operador (paso 3.5)» para el desbloqueo auditado. El plan responde «el dueño puede operar a mano (`gcloud`/script)», pero el diseño exige un principal autenticado en lista permitida y reloj del servidor; operar a mano no satisface ese protocolo. Sin 3.5, una cuenta bloqueada no puede desbloquearse, reteniendo saldo sin fin, lo que contradice el criterio H1 («ningún camino… retiene saldo sin fin»). *Corrección:* incluir 3.5 en H3 o documentar explícitamente la limitación y aceptarla por escrito.
+
+2. **MEDIA — Ahorros mezclan costo y reloj.** L6 declara «15–25 %» por regresión focalizada, pero la regresión corre en local «sin gastar tokens de OpenRouter salvo que T3 lea su salida»; el ahorro solo es real si T3 lee menos salida. L2 ahorra tokens (menos hilos concurrentes) pero «suma horas de reloj». El plan no separa ahorro real de ahorro de tiempo. *Corrección:* desglosar por palanca qué porcentaje reduce tokens y cuál solo reduce horas.
+
+3. **BAJA — Estimaciones condicionadas a decisiones pendientes.** El plan estima «~55–65 %» de ahorro asumiendo el refinamiento de las reglas 3 y 4, que §E.2 y §E.3 marcan como pendientes del dueño. Si el dueño no las aprueba, esas cifras no se materializan. *Corrección:* presentar dos escenarios o marcar claramente la condicionalidad.
+
+4. **BAJA — Tasa horaria implícita no verificable.** El plan pasa de «~US$15 por día» a «~US$170–320» para 180–300 h sin declarar horas por día asumidas (~15 h/día). *Corrección:* declarar el supuesto.
+
+**Coherente:** el diferimiento de 1.3b es correcto para el despliegue solo interno (la reserva externa HTTP no se abre); las cifras H1–H6 son internamente consistentes.
+
+RESULTADO: FALLA
