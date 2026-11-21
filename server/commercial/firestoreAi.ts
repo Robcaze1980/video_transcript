@@ -13,6 +13,15 @@ const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex
 function reservationUuid(accountId:string,identityKey:string,inputId:string,operation:string,revision:number,requestKey:string){const bytes=createHash('sha256').update(JSON.stringify(['vistavo-video-reservation-v1',accountId,identityKey,inputId,operation,revision,requestKey])).digest().subarray(0,16);bytes[6]=(bytes[6]&0x0f)|0x40;bytes[8]=(bytes[8]&0x3f)|0x80;const h=bytes.toString('hex');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;}
 export class AiFault extends Error {constructor(readonly code:'invalid'|'not_found'|'conflict'|'disabled'|'unknown'){super(code);}}
 export type AiCandidateLimits=Readonly<{maxSourceSeconds:number;maxNarrationChars:number;maxVoiceChunks:number}>;
+/**
+ * Optional control for ONE drain pass, shared by `drainExternalBilling` and `drainExternalHolds`. It never changes what a row does: it decides how far a pass
+ * goes and how the queue is walked. Without it both drains behave exactly as before.
+ * - `shouldContinue` is consulted BEFORE each row (intent, outbox or hold); a `false` or a throw ends the pass cleanly (`stopped: true`, never an exception).
+ * - `perAccountCap` is the most rows a single account is served in a pass; the extra rows are counted in `skippedRows` and left untouched.
+ * - `after` is a rotation cursor per kind (document id): the reader starts strictly AFTER it and wraps, so a rotation visits each due row at most once.
+ * - `maxRows` replaces the positional `limit` (default 25, bounds 1..100).
+ */
+export type DrainControl=Readonly<{shouldContinue?:()=>boolean|Promise<boolean>;perAccountCap?:number;after?:Readonly<{intents?:string|null;outbox?:string|null}>;maxRows?:number}>;
 function id(value:string){if(typeof value!=='string'||!privateUuid.test(value))throw new AiFault('invalid');}
 function safeUsage(value:any){const out:Record<string,number>={};for(const key of ['promptTokenCount','candidatesTokenCount','totalTokenCount','thoughtsTokenCount','cachedContentTokenCount'])if(Number.isSafeInteger(value?.[key])&&value[key]>=0)out[key]=value[key];return out;}
 /** Candidate-only orchestration. No client can mutate receipts, credits, plans or provider outcomes. */
@@ -143,10 +152,29 @@ export class FirestoreAi {
    error=>error instanceof AiFault||error instanceof LedgerFault||error instanceof AiContractFault,previous,
    {enabled:()=>this.enabledForUid(accountId,uid),job:id=>this.backend.jobForUid(accountId,id,uid)});
  }
+ /** Optional control validation shared by both drains: `maxRows` replaces the positional `limit` (1..100) and `perAccountCap` must be a positive integer. */
+ private drainMaxRows(limit:number,control?:DrainControl){
+  const maxRows=control?.maxRows??limit,cap=control?.perAccountCap;
+  if(control?.maxRows!==undefined&&(!Number.isSafeInteger(maxRows)||maxRows<1||maxRows>100))throw new AiFault('invalid');
+  if(cap!==undefined&&(!Number.isSafeInteger(cap)||cap<1))throw new AiFault('invalid');
+  return maxRows;
+ }
+ /** shouldContinue is asked BEFORE each row: a false value or a throw ends the pass (reported as `stopped:true`) instead of propagating. */
+ private async drainShouldContinue(control?:DrainControl){if(!control?.shouldContinue)return true;try{return !!(await control.shouldContinue());}catch{return false;}}
+ /** Counts a taken row against its account; at the cap the row is left pending for a later pass and reported as skipped, never touched. */
+ private drainCapped(control:DrainControl|undefined,perAccount:Map<string,number>,accountId:string|null){
+  const cap=control?.perAccountCap;if(cap===undefined||accountId===null)return false;
+  const used=perAccount.get(accountId)??0;if(used>=cap)return true;perAccount.set(accountId,used+1);return false;
+ }
  /** Recover Account holds independently of user visits; a scheduler is still required. */
- async drainExternalHolds(limit=25){
-  if(!this.accountBilling)return {applied:0,failed:0,review:0};let applied=0,failed=0,review=0;
-  for(const row of await this.backend.pendingExternalHolds(limit) as Array<Record<string,unknown>>){
+ async drainExternalHolds(limit=25,control?:DrainControl):Promise<{applied:number;failed:number;review:number;skippedRows?:number;stopped?:boolean}>{
+  const maxRows=this.drainMaxRows(limit,control);
+  if(!this.accountBilling)return control===undefined?{applied:0,failed:0,review:0}:{applied:0,failed:0,review:0,skippedRows:0,stopped:false};
+  let applied=0,failed=0,review=0,skippedRows=0,stopped=false;
+  const perAccount=new Map<string,number>();
+  for(const row of await this.backend.pendingExternalHolds(maxRows) as Array<Record<string,unknown>>){
+   if(!await this.drainShouldContinue(control)){stopped=true;break;}
+   if(this.drainCapped(control,perAccount,typeof row.accountId==='string'?row.accountId:null)){skippedRows++;continue;}
    let hold:import('./firestoreBackend').ExternalBillingHold|undefined,holdVersion:string|undefined,ack=false;
    try{
     const authorized=await this.backend.authorizeExternalHold(row);if(authorized.state==='changed')continue;if(authorized.state==='needs_review'){review++;continue;}
@@ -158,7 +186,7 @@ export class FirestoreAi {
     if(hold){if(ack)await this.backend.recordExternalHoldAckMismatch(hold).catch(()=>undefined);else await this.backend.recordExternalHoldFailure(hold,error instanceof AccountBillingFault?error.code:'unavailable',holdVersion).catch(()=>undefined);}
    }
   }
-  return {applied,failed,review};
+  return control===undefined?{applied,failed,review}:{applied,failed,review,skippedRows,stopped};
  }
  /** One recovery read only. A scheduler and durable handling for unresolved rows are still required. */
  async recoverTerminalObservation(terminalId:string){
@@ -175,10 +203,16 @@ export class FirestoreAi {
    :{action:'release' as const,source:'resolution_status' as const,terminalAction:action,state:'released' as const,reservationId:resolution.reservationId,seconds:resolution.seconds};
   return this.backend.recordConfirmedIntentObservation(witness,observed,snapshot);
  }
- async drainExternalBilling(limit=25){
-  if(!this.accountBilling)return {settled:0,failed:0,intentsRecovered:0,intentsFailed:0};let settled=0,failed=0;
-  const intents=await this.backend.pendingExternalBillingIntents(limit);let intentsRecovered=0,intentsFailed=0;
+ async drainExternalBilling(limit=25,control?:DrainControl):Promise<{settled:number;failed:number;intentsRecovered:number;intentsFailed:number;skippedRows?:number;stopped?:boolean;next?:{intents:string|null;outbox:string|null}}>{
+  const maxRows=this.drainMaxRows(limit,control);
+  if(!this.accountBilling)return control===undefined?{settled:0,failed:0,intentsRecovered:0,intentsFailed:0}:{settled:0,failed:0,intentsRecovered:0,intentsFailed:0,skippedRows:0,stopped:false,next:{intents:null,outbox:null}};
+  let settled=0,failed=0,skippedRows=0,stopped=false,nextIntents:string|null=null,nextOutbox:string|null=null;
+  const perAccount=new Map<string,number>();
+  const intents=await this.backend.pendingExternalBillingIntents(maxRows,control?.after?.intents);let intentsRecovered=0,intentsFailed=0;
   for(const row of intents as Array<Record<string,any>>){
+   if(!await this.drainShouldContinue(control)){stopped=true;break;}
+   if(this.drainCapped(control,perAccount,typeof row.accountId==='string'?row.accountId:null)){skippedRows++;continue;}
+   if(typeof row.id==='string')nextIntents=row.id;
    let failureEvidence:ExternalBillingIntentFailureEvidence|null=null,terminalObserved=false;
    try{
    if(row.provider!=='account_seconds'||!['reserve_pending','release_pending'].includes(row.state)||typeof row.identityKey!=='string'||typeof row.reservationId!=='string'||typeof row.accountId!=='string'||typeof row.inputId!=='string'||typeof row.requestKey!=='string'||typeof row.operation!=='string'||!Number.isSafeInteger(row.revision)||!Number.isSafeInteger(row.seconds))throw new AiFault('invalid');
@@ -241,7 +275,11 @@ export class FirestoreAi {
    intentsFailed++;if(!terminalObserved&&failureEvidence&&typeof row.accountId==='string'&&typeof row.requestKey==='string')await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,error instanceof AccountBillingFault?error.code:'unavailable',failureEvidence).catch(()=>undefined);
   }
   }
-  for(const row of await this.backend.pendingExternalBilling(limit) as Array<Record<string,any>>){
+  // A stop in the intents section ends the whole pass: no outbox row is read or touched, so a one-shot shouldContinue cannot leak into it.
+  if(!stopped)for(const row of await this.backend.pendingExternalBilling(maxRows,control?.after?.outbox) as Array<Record<string,any>>){
+   if(!await this.drainShouldContinue(control)){stopped=true;break;}
+   if(this.drainCapped(control,perAccount,typeof row.accountId==='string'?row.accountId:null)){skippedRows++;continue;}
+   if(typeof row.id==='string')nextOutbox=row.id;
    let expected:ExternalBillingOutboxSnapshot|undefined,ack:ExternalBillingObservation|undefined,settlementSnapshot:ExternalBillingSettlementReadSnapshot|undefined;
    try{
     const validity=await this.validExternalBillingOutbox(row);
@@ -267,7 +305,7 @@ export class FirestoreAi {
     else if(expected&&typeof row.id==='string'&&typeof row.snapshotVersion==='string'&&['pending','retry_wait'].includes(row.state))await this.backend.recordExternalBillingFailure(row.id,error instanceof AccountBillingFault?error.code:'unavailable',{snapshotVersion:row.snapshotVersion,state:row.state,outbox:expected}).catch(()=>undefined);
    }
   }
-  return {settled,failed,intentsRecovered,intentsFailed};
+  return control===undefined?{settled,failed,intentsRecovered,intentsFailed}:{settled,failed,intentsRecovered,intentsFailed,skippedRows,stopped,next:{intents:nextIntents,outbox:nextOutbox}};
  }
  /** A privileged account movement requires a matching durable terminal job and outbox. */
  private async validExternalBillingOutbox(row:Record<string,any>):Promise<{state:'eligible';snapshot:ExternalBillingSettlementReadSnapshot}|'already_settled'|'changed'|'invalid'|'blocked'>{

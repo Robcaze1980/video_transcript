@@ -1,0 +1,77 @@
+1.6b control de drenajes pruebas
+mcp:02260f39-7db5-466b-9a66-b2863d9e1f9e  completed  linguistvision-openrouter/deepseek/deepseek-v4.1-flash
+lv019b/t3-drain-exec  C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-drain-exec
+
+[assistant]
+
+
+
+
+[assistant]
+tsc clean, vitest 23/23. Waiting on the emulator run.
+
+
+
+[assistant]
+Emulator 11/11. Now the financial regression fixtures (closest available to the 247-suite given Node 22 only).
+
+
+
+[assistant]
+Regression suite still running (C2a is slow). Waiting.
+
+
+
+[assistant]
+Regression: 248 tests, 243 pass, 5 voice-skipped, 0 fail. Now the mutation battery. Let me rebuild the harness (tmp may be gone).
+
+
+
+[assistant]
+The battery script survived. Let me run it fresh against the current code.
+
+
+
+
+
+[assistant]
+The M12 mutation uses the older loop string; my code now has `if(!stopped)for(...)`. Let me verify the M12 `from` string matches, then run the full battery.
+
+
+
+
+
+[assistant]
+M12's `from` matches the current code. Running the full 12-mutation battery.
+
+
+
+
+
+[assistant]
+All 12 mutations killed with byte-identical restoration. Let me confirm the final tree state and line references for the report.
+
+
+
+[assistant]
+Everything verified after the restart. No work was lost; the four checks all re-ran clean.
+
+**Archivos**
+- `server/commercial/firestoreAi.ts` — `DrainControl` type (:24); helpers `drainMaxRows`/`drainShouldContinue`/`drainCapped` (:156-168); `drainExternalHolds(limit, control?)` (:170); `drainExternalBilling(limit, control?)` (:206), intents loop guarded so a stop never leaks into the outbox loop (:279).
+- `server/commercial/firestoreBackend.ts` — `pendingExternalBillingIntents(limit, afterId?)` (:1043), `pendingExternalBilling(limit, afterId?)` (:1448), private `dueRows(..., afterId?)` (:1055) delegating to new `scanDueRows` (:1062). Solo esos lectores; `reconcile` (:1857) y `billingDrainLease.ts` intactos, `server/account/*` sin tocar.
+- `server/commercial/firestoreDrainControl.emulator.mjs` (nuevo) — 11 escenarios Cuenta real; `server/commercial/firestoreDrainControl.test.ts` (nuevo) — 10 casos puros.
+
+**Resultados (re-ejecutados tras el reinicio)**
+- `tsc --noEmit`: 0 errores.
+- Vitest (`firestoreDrainControl.test.ts` + `billingSelection.test.ts`): 23/23.
+- Emulador `firestoreDrainControl`: 11/11 verde, limpieza verificada, `terminate()` en cada fixture.
+- Regresión financiera (4 fixtures del manifiesto, la vía posible con Node 22): 248 pruebas → 243 ok, 5 voz pausadas, 0 fallos.
+- Mutaciones: **12/12 muertas**, restauración byte-idéntica verificada (`try/finally` + hash). Ningún superviviente.
+
+**Supervivientes:** ninguno.
+
+**Límites**
+- Solo hay Node 22.23.4; los launchers que exigen Node 24 (`runFinancialRegressionEmulator`, `runBillingIntentSelectionEmulator`) no corren. Cubrí el contenido con los 4 fixtures del manifiesto directamente.
+- En el vitest completo persiste **1 fallo preexistente ajeno**: `server/commercial/web/reviewBrowserNodeFixtures.test.ts` (`ENOENT … outputs/lv019-b-review-browser-manifests/manifest-*.json`, entorno). `billingIntentSelection.emulator.mjs` falla en su propio `assertSafeEnvironment` (gate de perfil aislado) antes de tocar código, y no está en el manifiesto financiero.
+- `next` en vuelta **parcial** devuelve el id de la última fila atendida; `null` se reserva para «no se atendió nada». Con las dos colas entremezcladas el drenaje no puede detectar la vuelta parcial de forma fiable sin un indicador extra que el brief no especifica; la prueba de ese sub-caso acepta ambas lecturas.
+- Sin `control` la forma del resultado y las consultas no cambian: los `deepEqual` de `firestoreAi.emulator.mjs` siguen verdes.

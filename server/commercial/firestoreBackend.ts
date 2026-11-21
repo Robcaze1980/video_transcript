@@ -1040,21 +1040,38 @@ export class FirestoreBackend {
    * not due yet (the 2026-11-18 incident: `limit(100)` applied before the date filter let 100 not-yet-due rows hide a due one), and the two kinds are
    * served alternately, releases first, so neither can starve the other.
    */
-  async pendingExternalBillingIntents(limit=25){
+  async pendingExternalBillingIntents(limit=25,afterId?:string|null){
     if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
     const now=Date.now(),due=(d:DocumentSnapshot)=>!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<=now;
-    const [reserves,releases]=await Promise.all([this.dueRows('billingIntents','reserve_pending',limit,due),this.dueRows('billingIntents','release_pending',limit,due)]);
+    const [reserves,releases]=await Promise.all([this.dueRows('billingIntents','reserve_pending',limit,due,afterId),this.dueRows('billingIntents','release_pending',limit,due,afterId)]);
     return interleave(releases,reserves,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
   }
-  /** Rows of one `state` that satisfy `due`, in document-id order, scanning pages (equality + id order: automatic index) until `limit` are found or the state is exhausted. */
-  private async dueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean){
-    const out:DocumentSnapshot[]=[];let last:DocumentSnapshot|undefined;
+  /**
+   * Rows of one `state` that satisfy `due`, in document-id order, scanning pages (equality + id order: automatic index) until `limit` are found or the state is exhausted.
+   * An `afterId` that names a row of this collection makes the read ROTATE: it starts strictly AFTER it and, when that tail is shorter than `limit`, wraps to the beginning
+   * and stops before the cursor, so one rotation serves each due row at most once. An `afterId` that is not a row of this collection (or `null`/absent) reads from the
+   * beginning; without it the query is exactly the plain equality+id one.
+   */
+  private async dueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean,afterId?:string|null){
+    if(!afterId||!(await this.root.collection(collection).doc(afterId).get()).exists)return this.scanDueRows(collection,state,limit,due,null,null);
+    const out=await this.scanDueRows(collection,state,limit,due,afterId,null);
+    if(out.length<limit)for(const d of await this.scanDueRows(collection,state,limit-out.length,due,null,afterId))out.push(d);
+    return out;
+  }
+  /** One bounded scan of a `state` in document-id order, with a first-page exclusive `startAfterId` and an exclusive `stopBeforeId`. */
+  private async scanDueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean,startAfterId:string|null,stopBeforeId:string|null){
+    const out:DocumentSnapshot[]=[];let last:DocumentSnapshot|undefined,first=true;
     for(;;){
       let query=this.root.collection(collection).where('state','==',state).orderBy(FieldPath.documentId()).limit(100);
-      if(last)query=query.startAfter(last);
+      if(first&&startAfterId)query=query.startAfter(this.root.collection(collection).doc(startAfterId));else if(last)query=query.startAfter(last);
+      first=false;
       const page=await query.get();
-      for(const d of page.docs)if(due(d)){out.push(d);if(out.length>=limit)return out;}
-      if(page.docs.length<100)return out;
+      let crossed=false;
+      for(const d of page.docs){
+        if(stopBeforeId!==null&&d.id>=stopBeforeId){crossed=true;break;}
+        if(due(d)){out.push(d);if(out.length>=limit)return out;}
+      }
+      if(crossed||page.docs.length<100)return out;
       last=page.docs[page.docs.length-1];
     }
   }
@@ -1428,10 +1445,10 @@ export class FirestoreBackend {
    * Settlement rows, at most `limit`: `pending` rows whatever their date, and `retry_wait` rows only with a numeric date that is due (one without it is never
    * selected). Each kind is read in document-id order past rows that are not due, and the two are served alternately, pending first.
    */
-  async pendingExternalBilling(limit=25){
+  async pendingExternalBilling(limit=25,afterId?:string|null){
     if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
     const now=Date.now();
-    const [pending,retry]=await Promise.all([this.dueRows('billingOutbox','pending',limit,()=>true),this.dueRows('billingOutbox','retry_wait',limit,d=>typeof d.get('nextAttemptAt')==='number'&&d.get('nextAttemptAt')<=now)]);
+    const [pending,retry]=await Promise.all([this.dueRows('billingOutbox','pending',limit,()=>true,afterId),this.dueRows('billingOutbox','retry_wait',limit,d=>typeof d.get('nextAttemptAt')==='number'&&d.get('nextAttemptAt')<=now,afterId)]);
     return interleave(pending,retry,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
   }
   async recordExternalBillingFailure(jobId:string,code:string,expected?:ExternalBillingOutboxFailureEvidence){
