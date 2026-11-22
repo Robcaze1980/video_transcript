@@ -1,0 +1,15 @@
+Revisión independiente (sin abrir .ts de producción; análisis sobre el código provisto).
+
+**1) ALTA — `escalateStaleBillingRows`: una pausa dentro de un grupo de id empatado pierde filas para siempre.**
+Secuencia: `after=null`; tres filas comparten el mismo id `X` (una en `billingIntents`, otra en `billingOutbox`, otra en `billingHoldOutbox`); `limit=1`. La pasada atiende la primera `X` (`lastAttended='X'`) y `shouldContinue` devuelve `false` en la segunda → `report.next='X'`. El cursor se guarda como `'X'` y la siguiente pasada usa `startAfter(id X)`, estrictamente mayor: las demás filas con id `X` **nunca** se releen y quedan `pending` sin escalar, incumpliendo la garantía de 3.4 (toda fila no terminal > edad debe llegar a `needs_review`). El corte por empates se resuelve en la página llena, pero **no** en la pausada. Corrección: no cortar dentro de un grupo (evaluar `shouldContinue` solo cuando `candidate.id!==lastAttended`) o, al parar, fijar `next` al último id cuyo grupo quedó completo (`after` si el grupo es el primero).
+
+**2) MEDIA — `recordExternalBillingIntentStall` puede quedar inerte si el drenaje aún tiene el arriendo.**
+Secuencia: el drenaje arrienda la intención, falla en una de las tres rutas sin evidencia y llama al registrador; la transacción exige `!hasIntentLease(row)` y devuelve `false`; `attempts`/`nextAttemptAt` no avanzan y la fila se reintenta cada pasada sin llegar nunca a `needs_review` (justo lo que 1.6c pretende evitar). Verificar que las tres rutas liberan el arriendo antes de registrar; si no, liberar dentro de la misma transacción. Falta prueba que afirme `attempts` incrementado y `state:'needs_review'` al 8.
+
+**3) BAJA — cabecera obsoleta (frescura).** Dice "billing … 30 s … unknown 10 s" y omite `age`; el código reparte 12+26+8+9+5=60 (`DEFAULT_SPLIT`/`defaultSectionBudgets`). Un auditor ve cifras contradictorias. Alinear el comentario con el split real.
+
+**4) BAJA — índices, cursor corrupto y filas arrendadas.** `staleScan` hace `where('state','==',s).orderBy(documentId())`: requiere índice compuesto (state, __name__); sin él la sección cuenta `failed` en cada pasada sin escalar. Un cursor `age`/`unknown` corrupto almacenado hace que `plainDocumentId(after)` lance `LedgerFault('invalid')` cada pasada, sin auto-reset. Además el sweep no exige fila sin arriendo ni limpia `leaseToken/leaseOwner/leaseUntil` al pasar a `needs_review`, dejando arriendo colgante.
+
+**Pruebas que faltan:** pausa dentro de empate (#1), avance de `attempts`/tope (#2) y aserción del reparto exacto por defecto (#3); sin ellas los tres fallos pasan inadvertidos.
+
+RESULTADO: FALLA

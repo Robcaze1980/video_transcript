@@ -1,0 +1,22 @@
+age-boundary-strict            unit=KILLED emulator=-
+age-state-reread-removed       unit=KILLED emulator=-
+age-future-accepted            unit=KILLED emulator=-
+age-reason-missing             unit=KILLED emulator=-
+age-terminal-included          unit=KILLED emulator=-
+age-cursor-always-null         unit=KILLED emulator=-
+age-stop-ignored               SKIPPED (count 2)
+age-tie-inclusion-removed      unit=survived emulator=KILLED
+stall-limit-off-by-one         unit=KILLED emulator=-
+stall-lease-ignored            unit=KILLED emulator=-
+stall-state-ignored            unit=KILLED emulator=-
+stall-no-wait                  unit=KILLED emulator=-
+section-age-gate-missing       unit=KILLED emulator=-
+section-age-runs-when-lost     unit=survived emulator=survived
+section-age-not-counted        unit=KILLED emulator=-
+section-age-cursor-not-saved   unit=KILLED emulator=-
+route-snapshot-no-stall        unit=survived emulator=KILLED
+route-evidence-no-stall        unit=survived emulator=KILLED
+route-status-no-stall          unit=survived emulator=KILLED
+final restore verified: True
+survivors: ['section-age-runs-when-lost']
+DONE

@@ -222,11 +222,14 @@ export class FirestoreAi {
    const billing={provider:'account_seconds' as const,identityKey:row.identityKey,reservationId:row.reservationId,seconds:row.seconds};
    // This witness was committed with the original intent, before any Account status or terminal POST.
    const witness=await this.backend.externalIntentWitness(row.accountId,row.requestKey,billing);
-   if(typeof row.snapshotVersion!=='string'){intentsFailed++;continue;}
+   // LV-019.B step 1.6c: the three evidence-less routes below cannot fence a failure record (no snapshotVersion,
+   // no failure evidence, no status snapshot), so each one records a bare ATTEMPT on the row before continuing.
+   // Without it the row would be re-attempted on every pass without advancing its counter or its wait.
+   if(typeof row.snapshotVersion!=='string'){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
    failureEvidence=await this.backend.captureExternalBillingIntentFailureEvidence(witness,row.requestKey,row.snapshotVersion);
-   if(!failureEvidence){intentsFailed++;continue;}
+   if(!failureEvidence){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
    const initialStatus=await this.backend.captureDirectObservation(witness,row.requestKey,'status'),statusSnapshot=copyDirectObservationSnapshot(initialStatus);
-   if(!statusSnapshot){intentsFailed++;continue;}
+   if(!statusSnapshot){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
    // The status proof is checked inside the same transaction that fences and prepares release.
    const releaseAfter=async(snapshot:DirectObservationSnapshot,reason:'status_reserved'|'seal_reserved')=>{
     const prepared=await this.backend.prepareTerminalFromDirectObservation(witness,row.requestKey,'release',reason,snapshot);

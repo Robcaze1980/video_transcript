@@ -7,8 +7,8 @@ import type {BillingDrainSectionAi,BillingDrainSectionBackend,BillingDrainSectio
 import {runBillingDrainSection} from './billingDrainSection';
 
 const NOW=9_000_000;
-const HEARTBEAT_KEYS=['durationMs','event','failed','holds','intentsFailed','intentsRecovered','leaseToken','outcome','settled','skippedRows','startedAtMs','unknownResolved'].sort();
-const EMPTY={settled:0,failed:0,intentsRecovered:0,intentsFailed:0,holds:0,skippedRows:0,unknownResolved:0};
+const HEARTBEAT_KEYS=['durationMs','event','failed','holds','intentsFailed','intentsRecovered','leaseToken','outcome','settled','skippedRows','staleEscalated','startedAtMs','unknownResolved'].sort();
+const EMPTY={settled:0,failed:0,intentsRecovered:0,intentsFailed:0,holds:0,skippedRows:0,unknownResolved:0,staleEscalated:0};
 
 type LeaseOps=NonNullable<BillingDrainSectionOptions['lease']>;
 const deferred=()=>{let resolve:(v:unknown)=>void=()=>{};const promise=new Promise<unknown>(res=>{resolve=res;});return {promise,resolve};};
@@ -36,10 +36,12 @@ function ai(over:Partial<Record<'holds'|'billing',unknown>>={},order:string[]=[]
  };
  return double as unknown as BillingDrainSectionAi;
 }
-function backend(over:Partial<Record<'unknown',unknown>>={},order:string[]=[]){
+function backend(over:Partial<Record<'unknown'|'age',unknown>>={},order:string[]=[]){
  const double={
   resolveExpiredUnknown:vi.fn(async()=>{order.push('unknown');if(over.unknown instanceof Error)throw over.unknown;
    return over.unknown??{scanned:1,resolved:1,notDue:0,failed:0,next:'u9'};}),
+  escalateStaleBillingRows:vi.fn(async()=>{order.push('age');if(over.age instanceof Error)throw over.age;
+   return over.age??{scanned:1,escalated:1,failed:0,next:'a9'};}),
  };
  return double as unknown as BillingDrainSectionBackend;
 }
@@ -73,9 +75,9 @@ describe('runBillingDrainSection outcomes',()=>{
   it('ok: runs holds, billing, holds, unknown in that order, writes both cursors and releases with holder and token',async()=>{
     const order:string[]=[],a=ai({},order),b=backend({},order),log=vi.fn(),{ops,releases,sets}=leaseOps();
     const result=await runBillingDrainSection({...base({log,ai:a,backend:b,lease:ops}),enabled:true});
-    expect(result).toMatchObject({outcome:'ok',leaseToken:7,settled:1,failed:0,intentsRecovered:0,intentsFailed:0,holds:2,skippedRows:0,unknownResolved:1});
-    expect(order).toEqual(['holds','billing','holds','unknown']);
-    expect(sets.map(s=>[s.kind,s.cursor])).toEqual([['intents','i9'],['outbox','o9'],['unknown','u9']]);
+    expect(result).toMatchObject({outcome:'ok',leaseToken:7,settled:1,failed:0,intentsRecovered:0,intentsFailed:0,holds:2,skippedRows:0,unknownResolved:1,staleEscalated:1});
+    expect(order).toEqual(['holds','billing','holds','unknown','age']);
+    expect(sets.map(s=>[s.kind,s.cursor])).toEqual([['intents','i9'],['outbox','o9'],['unknown','u9'],['age','a9']]);
     for(const s of sets){expect(s.token).toBe(7);expect(s.holderId.length).toBeGreaterThan(0);}
     expect(releases).toHaveLength(1);expect(releases[0].token).toBe(7);
     expectKeys(heartbeat(log));
@@ -84,7 +86,7 @@ describe('runBillingDrainSection outcomes',()=>{
     const order:string[]=[],a=ai({holds:new Error('row write failed SECRET')},order),b=backend({},order),log=vi.fn(),{ops,releases}=leaseOps();
     const result=await runBillingDrainSection({...base({log,ai:a,backend:b,lease:ops}),enabled:true});
     expect(result.outcome).toBe('partial');expect(result.failed).toBe(2);expect(result.settled).toBe(1);expect(result.unknownResolved).toBe(1);
-    expect(order).toEqual(['holds','billing','holds','unknown']);
+    expect(order).toEqual(['holds','billing','holds','unknown','age']);
     expect(releases).toHaveLength(1);
     const raw=log.mock.calls[0][0] as string;expect(raw).not.toMatch(/SECRET/);
   });
@@ -92,7 +94,7 @@ describe('runBillingDrainSection outcomes',()=>{
     const order:string[]=[],a=ai({billing:new Error('SECRET settlement failure')},order),b=backend({},order),log=vi.fn();
     const result=await runBillingDrainSection({...base({ai:a,backend:b,log,lease:leaseOps().ops}),enabled:true});
     expect(result.outcome).toBe('partial');expect(result.failed).toBe(1);expect(result.settled).toBe(0);
-    expect(order,'later sections still run after a billing failure').toEqual(['holds','billing','holds','unknown']);
+    expect(order,'later sections still run after a billing failure').toEqual(['holds','billing','holds','unknown','age']);
     expect(result.unknownResolved).toBe(1);
     expect(log.mock.calls[0][0] as string).not.toMatch(/SECRET/);
   });
@@ -333,7 +335,7 @@ describe('runBillingDrainSection round-2 findings',()=>{
       }
       return {scanned:6,resolved:6,notDue:0,failed:0,stopped:false,next:null};
     });
-    const result=await runBillingDrainSection({...base({backend:b,clock:()=>t,lease:leaseOps().ops}),enabled:true,sectionBudgetsMs:{unknown:10_000}});
+    const result=await runBillingDrainSection({...base({backend:b,clock:()=>t,lease:leaseOps().ops}),enabled:true,sectionBudgetsMs:{unknown:10_000,age:0}});
     expect(rowsRead).toEqual([0,1,2]);
     expect(result.unknownResolved).toBe(3);
     expect(result.outcome).toBe('partial');
@@ -356,7 +358,9 @@ describe('runBillingDrainSection round-2 findings',()=>{
       drainExternalBilling:vi.fn(async()=>{order.push('billing');return {settled:0,failed:0,intentsRecovered:0,intentsFailed:0,skippedRows:0,stopped:false,next:{intents:null,outbox:null},traversed:{intents:true,outbox:true}};}),
     } as unknown as BillingDrainSectionAi;
     try{
-      const run=runBillingDrainSection({...base({ai:double,lease:ops}),enabled:true});
+      // The backend double shares `order`, so the unknown resolver and the age escalation (step 1.6c) are covered too:
+      // once the lease is lost NEITHER of them may start (their entries would appear in `order` below).
+      const run=runBillingDrainSection({...base({ai:double,backend:backend({},order),lease:ops}),enabled:true});
       await new Promise(r=>setTimeout(r,0));
       (setSpy.mock.calls[0][0] as ()=>void)();await new Promise(r=>setTimeout(r,0));
       d.resolve(undefined);
@@ -419,12 +423,12 @@ describe('runBillingDrainSection heartbeat',()=>{
     const a=ai(),b=backend();
     await runBillingDrainSection({...base({ai:a,backend:b,lease:ops}),enabled:true});
     const readKinds=(ops.getCursor as unknown as {mock:{calls:any[][]}}).mock.calls.map(c=>c[0].kind);
-    expect(readKinds).toEqual(['intents','outbox','unknown']);
+    expect(readKinds).toEqual(['intents','outbox','unknown','age']);
     const billingControl=(a.drainExternalBilling as unknown as {mock:{calls:any[][]}}).mock.calls[0][1];
     expect(billingControl.after).toEqual({intents:'i1',outbox:'o1'});
     const unknownArgs=(b.resolveExpiredUnknown as unknown as {mock:{calls:any[][]}}).mock.calls[0][0];
     expect(unknownArgs.after).toBe('u1');
-    expect(sets.map(s=>s.kind)).toEqual(['intents','outbox','unknown']);
+    expect(sets.map(s=>s.kind)).toEqual(['intents','outbox','unknown','age']);
   });
 });
 

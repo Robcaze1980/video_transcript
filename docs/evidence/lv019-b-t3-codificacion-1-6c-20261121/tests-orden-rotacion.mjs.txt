@@ -1,0 +1,33 @@
+// Codex certification tests (step 1.6c): the rotation must reach EVERY stale row, whatever the collection it lives in.
+const rotate=async(c,limit,passes,now)=>{
+ let after=null;const reports=[];
+ for(let pass=0;pass<passes;pass++){const report=await c.backend.escalateStaleBillingRows({now,maxAgeMs:DAY,limit,after});reports.push(report);after=report.next;}
+ return reports;
+};
+const freshRow=(c,extra={})=>({accountId:c.account,state:'pending',attempts:0,nextAttemptAt:0,createdAtMs:Date.now(),...extra});
+
+test('(11) a full page of young rows in one collection never starves stale rows with smaller ids in another',{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('rotation_starvation');
+ for(const id of ['h_1','h_2','h_3','h_4'])await seed(c,'billingHoldOutbox',id,freshRow(c));
+ await seed(c,'billingOutbox','a_stale1',staleOutbox(c));await seed(c,'billingOutbox','a_stale2',staleOutbox(c));
+ await rotate(c,3,8,Date.now());
+ for(const id of ['a_stale1','a_stale2'])assert.equal((await ref(c,'billingOutbox',id).get()).get('state'),'needs_review',id+' must be reached by the rotation');
+ for(const id of ['h_1','h_2','h_3','h_4'])assert.equal((await ref(c,'billingHoldOutbox',id).get()).get('state'),'pending',id+' is young and stays untouched');
+});
+
+test('(12) two stale rows with the same id in two collections are both reached even when the page limit is one',{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('rotation_same_id');
+ await seed(c,'billingHoldOutbox','dup',staleHold(c));await seed(c,'billingOutbox','dup',staleOutbox(c));
+ await rotate(c,1,6,Date.now());
+ assert.equal((await ref(c,'billingHoldOutbox','dup').get()).get('state'),'needs_review','hold row');
+ assert.equal((await ref(c,'billingOutbox','dup').get()).get('state'),'needs_review','outbox row');
+});
+
+test('(13) one rotation attends every row exactly once and a short page ends the rotation',{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('rotation_complete');
+ const ids=['r1','r2','r3','r4','r5','r6','r7'];
+ for(const [index,id] of ids.entries())await seed(c,['billingIntents','billingOutbox','billingHoldOutbox'][index%3],id,index%3===0?staleIntent(c):index%3===1?staleOutbox(c):staleHold(c));
+ const now=Date.now();let after=null,escalated=0,passes=0;
+ do{const report=await c.backend.escalateStaleBillingRows({now,maxAgeMs:DAY,limit:3,after});escalated+=report.escalated;after=report.next;passes++;}while(after!==null&&passes<10);
+ assert.equal(escalated,7,'every row escalated once in a single rotation');assert.equal(after,null,'the rotation wrapped');assert.ok(passes<=4,'no pass repeated work: '+passes);
+});

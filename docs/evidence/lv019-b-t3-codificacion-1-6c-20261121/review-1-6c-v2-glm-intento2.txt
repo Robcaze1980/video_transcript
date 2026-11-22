@@ -1,0 +1,7 @@
+**Revisión T3 (GLM) — re-revisión 1.6b/1.6c**
+
+Los cinco hallazgos previos están realmente resueltos en el código: (1) `completed` solo avanza al cerrar el grupo de ids empatados, también al cortar la página (`next=cutId` con desborde anexado); (2) la transacción de edad exige `state===candidate.state` y relee en la misma tx; (3) el stall exige `nextAttemptAt<=Date.now()`, así que un segundo drenaje no cuenta el mismo intento; (4) `leaseUntil>now` devuelve `skipped` y la escalada borra `leaseToken/leaseOwner/leaseUntil` vía `hasIntentLease`; (5) el comentario de presupuesto coincide con `DEFAULT_SPLIT` (12+26+8+9+5). No hay doble atención en una rotación (ids únicos por colección, orden por `(id, colección)`, corte que no divide grupos), ni escritura que pise cambio concurrente (todas las tx releen estado), ni movimiento de saldo ni bloqueos. El cursor de edad se escribe también en parada por presupuesto con el valor seguro `completed??after`, así que ninguna fila queda sin escalar para siempre; una fila fallida se retoma en la siguiente vuelta y queda alertada por `failed>0`.
+
+1. **BAJA**: el latido ahora incluye `staleEscalated`, pero la lista de campos del contrato en la sección 3.5 de la especificación no lo menciona. Corrección: añadir `staleEscalated` a la línea de latido en docs/specs/LV-019-B-ejecutor-periodico-drenajes.md (3.5) en la misma entrega.
+
+RESULTADO: PASS

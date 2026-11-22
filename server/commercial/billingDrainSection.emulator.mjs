@@ -21,7 +21,7 @@ const project='demo-vistavo-ledger',host='127.0.0.1:8185';
 const videoCollection='vistavo_drain_section_video_synthetic',accountCollection='vistavo_drain_section_ledger_synthetic';
 const WORK_TIMEOUT_MS=180000,CLEANUP_TIMEOUT_MS=45000,TERMINATE_TIMEOUT_MS=15000;
 const WINDOW=6*60*60*1000;
-const HEARTBEAT_KEYS=['durationMs','event','failed','holds','intentsFailed','intentsRecovered','leaseToken','outcome','settled','skippedRows','startedAtMs','unknownResolved'].sort();
+const HEARTBEAT_KEYS=['durationMs','event','failed','holds','intentsFailed','intentsRecovered','leaseToken','outcome','settled','skippedRows','staleEscalated','startedAtMs','unknownResolved'].sort();
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const contexts=[],counters={created:0,cleaned:0};
 
@@ -352,7 +352,7 @@ test('(h) the unknown resolver stops row by row when its section budget runs out
 test('(i) one account gets at most five rows across holds-before, billing and holds-after of the same pass',{timeout:WORK_TIMEOUT_MS},async()=>{
   const c=await fixture('i_shared_cap');
   // Six pending holds and six pending billing rows of ONE account; the drain attends malformed rows without any POST.
-  for(let n=1;n<=6;n++)await c.root.collection('billingHoldOutbox').doc('h_'+idFor(n)).create({accountId:c.account,state:'pending',attempts:0,nextAttemptAt:0});
+  for(let n=1;n<=6;n++)await c.root.collection('billingHoldOutbox').doc('h_'+idFor(n)).create({accountId:c.account,state:'pending',attempts:0,nextAttemptAt:0,createdAtMs:Date.now()});
   for(let n=0x100;n<0x106;n++)await seedPendingRow(c,idFor(n),c.account);
   const lines=[];
   const result=await runBillingDrainSection({...options(c),log:line=>lines.push(line)});

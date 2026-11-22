@@ -28,7 +28,7 @@ export const DRAIN_LEASE_COUNTER_DOC_ID='counter';
 /** One document holding the rotation cursor per kind. */
 export const DRAIN_LEASE_CURSOR_DOC_ID='cursors';
 /** The kinds the rotation cursor is defined for. */
-export const DRAIN_CURSOR_KINDS=Object.freeze(['intents','outbox','holds','unknown'] as const);
+export const DRAIN_CURSOR_KINDS=Object.freeze(['intents','outbox','holds','unknown','age'] as const);
 export type DrainCursorKind=typeof DRAIN_CURSOR_KINDS[number];
 /** A pass holds the lease for 90 s and renews every 10 s; the margin checked before each row is 15 s. */
 export const DEFAULT_DRAIN_LEASE_TTL_MS=90_000;

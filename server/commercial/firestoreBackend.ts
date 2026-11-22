@@ -47,6 +47,11 @@ export type ExternalBillingOutboxSnapshot = ExternalVideoBilling & {jobId:string
  * release and never consumes an attempt.
  */
 export const EXTERNAL_BILLING_ATTEMPT_LIMIT=8;
+/**
+ * LV-019.B step 1.6c (design 3.4): a non-terminal row older than this reaches `needs_review` with an alert, even when
+ * the reason is infrastructure. 48 h is a starting point to adjust with real data, like the unknown review window.
+ */
+export const EXTERNAL_BILLING_MAX_AGE_MS=48*60*60*1000;
 /** @deprecated Kept for the existing tests and callers that already import the old name. */
 export const EXTERNAL_BILLING_CONFLICT_ATTEMPT_LIMIT=EXTERNAL_BILLING_ATTEMPT_LIMIT;
 const settlementDocumentNames=['account','outbox','job','terminal','artifact','classification','simulatedReserve','identity','request','intent','guard','intentGuard','origin','jobMarker'] as const;
@@ -319,6 +324,8 @@ function outboxVersion(doc:DocumentSnapshot){
   const time=doc.updateTime;if(!time||!Number.isSafeInteger(time.seconds)||time.seconds<0||!Number.isSafeInteger(time.nanoseconds)||time.nanoseconds<0||time.nanoseconds>=1_000_000_000)return null;
   return `${time.seconds}:${String(time.nanoseconds).padStart(9,'0')}`;
 }
+/** LV-019.B: the shared growing wait of every billing retry, `min(15 min, 1 s * 2^min(attempts,10))`. */
+function billingAttemptDelay(attempts:number){return Math.min(15*60_000,1000*2**Math.min(attempts,10));}
 /** At most `limit` items taken alternately from `first` and `second` (starting with `first`); when one runs out the other fills the rest. */
 function interleave<T>(first:readonly T[],second:readonly T[],limit:number):T[]{
   const out:T[]=[];
@@ -1542,9 +1549,121 @@ export class FirestoreBackend {
       externalIntentTransitionDue(d);const raw=d.data()!,now=Date.now();
       if(expected.mode==='unleased'?hasIntentLease(raw):!hasIntentLease(raw)||!sameIntentLease(raw,expected)||expected.leaseUntil<=now)return false;
       const previous=d.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
-      const attempts=Number(previous)+1,delay=Math.min(15*60_000,1000*2**Math.min(attempts,10));
-      tx.update(ref,{attempts,lastErrorCode:code,nextAttemptAt:now+delay,lastAttemptAtMs:now,...(expected.mode==='leased'?{leaseToken:FieldValue.delete(),leaseOwner:FieldValue.delete(),leaseUntil:FieldValue.delete()}:{})});return true;
+      const attempts=Number(previous)+1;
+      tx.update(ref,{attempts,lastErrorCode:code,nextAttemptAt:now+billingAttemptDelay(attempts),lastAttemptAtMs:now,...(expected.mode==='leased'?{leaseToken:FieldValue.delete(),leaseOwner:FieldValue.delete(),leaseUntil:FieldValue.delete()}:{})});return true;
     });
+  }
+  /**
+   * LV-019.B step 1.6c (design 3.4): the DRAIN's three evidence-less intent routes must still leave a trace of an attempt.
+   * Those routes have no `snapshotVersion`, no failure evidence and no status snapshot, so nothing can be fenced against a
+   * stale read: this method takes NO evidence on purpose. It only advances SCHEDULING metadata (attempts, growing wait,
+   * lastErrorCode, lastAttemptAtMs) inside ONE transaction that re-reads the row and requires it to still be
+   * `reserve_pending` or `release_pending`, unleased and with valid scheduling metadata. At EXTERNAL_BILLING_ATTEMPT_LIMIT
+   * the intent moves to `needs_review` with an alert and WITHOUT blocking the owner, exactly like the outbox recorder. It
+   * never moves balance, never touches a hold, a guard or a witness, and never creates an incident.
+   */
+  async recordExternalBillingIntentStall(accountId:string,requestKey:string,code:string){
+    identifier(accountId);text(requestKey);
+    if(!/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden|reserved_unconfirmed)$/.test(code))code='unavailable';
+    const ref=this.ref('billingIntents',hash([accountId,requestKey]));
+    return this.db.runTransaction(async tx=>{
+      const d=await tx.get(ref);
+      if(!d.exists)return false;
+      const row=d.data() as ExternalBillingIntent;
+      // The row is re-read here: only a still-pending, unleased, well-formed row is rescheduled.
+      if(row.accountId!==accountId||row.requestKey!==requestKey||!['reserve_pending','release_pending'].includes(row.state)||hasIntentLease(d.data()!)||!validUnleasedBillingMetadata(d.data()!)||!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<0||d.get('nextAttemptAt')>Date.now())return false;
+      const previous=d.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
+      const attempts=Number(previous)+1,now=Date.now();
+      // Every permanent refusal shares one bound, so no row can retry forever; the owner is never blocked (no hold, no guard).
+      if(attempts>=EXTERNAL_BILLING_ATTEMPT_LIMIT){tx.update(ref,{state:'needs_review',attempts,lastErrorCode:code,lastAttemptAtMs:now,updatedAtMs:now});return true;}
+      tx.update(ref,{attempts,lastErrorCode:code,nextAttemptAt:now+billingAttemptDelay(attempts),lastAttemptAtMs:now,updatedAtMs:now});return true;
+    });
+  }
+  /**
+   * LV-019.B step 1.6c (design 3.4): MAXIMUM AGE. Non-terminal billing rows older than `maxAgeMs` move to `needs_review`
+   * with `reviewReason:'max_age'`, even when the reason is infrastructure, so a row that never advances cannot linger
+   * forever (the A2 sweep already alerts on `needs_review`). The clock is the injected `now`: no wall clock decides. Each
+   * row runs in its OWN transaction that re-reads the state and only escalates a row that is still non-terminal, so a row
+   * that changed between the page read and its transaction is never overwritten. A missing, non-numeric, negative or
+   * future `createdAtMs` is a counted failure and the row is left intact (never guessed at). It moves no balance, touches
+   * no hold and blocks no owner. The cursor and limit follow the expired-unknown resolver: rows are read in document-id
+   * order from `after`, and `next` is the last row attended (or `null` on a full wrap).
+   */
+  async escalateStaleBillingRows(options:{now:number;maxAgeMs?:number;limit:number;after?:string|null;shouldContinue?:()=>boolean|Promise<boolean>}){
+    const now=options?.now,limit=options?.limit,after=options?.after??null,maxAgeMs=options?.maxAgeMs===undefined?EXTERNAL_BILLING_MAX_AGE_MS:options.maxAgeMs,shouldContinue=options?.shouldContinue;
+    if(!Number.isSafeInteger(now)||(now as number)<0)throw new LedgerFault('invalid');
+    if(!Number.isSafeInteger(limit)||(limit as number)<1||(limit as number)>100)throw new LedgerFault('invalid');
+    if(!Number.isSafeInteger(maxAgeMs)||(maxAgeMs as number)<1)throw new LedgerFault('invalid');
+    if(after!==null&&!plainDocumentId(after))throw new LedgerFault('invalid');
+    if(shouldContinue!==undefined&&typeof shouldContinue!=='function')throw new LedgerFault('invalid');
+    // The three sources and only their NON-terminal states; a terminal row is never a candidate.
+    const sources=[{collection:'billingIntents',states:['reserve_pending','release_pending']},{collection:'billingOutbox',states:['pending','retry_wait']},{collection:'billingHoldOutbox',states:['pending']}] as const;
+    const candidates:Array<{collection:string;id:string;state:string}>=[];
+    for(const source of sources)for(const state of source.states)for(const d of await this.staleScan(source.collection,state,after,limit as number))
+      candidates.push({collection:source.collection,id:d.id,state});
+    // Order by (id, collection), NOT (collection, id): the cursor `after` is a single id shared by every collection, so
+    // ordering by id keeps it monotone and one rotation visits each row once. Ties on the same id are broken by
+    // collection only to keep the order stable.
+    candidates.sort((a,b)=>a.id===b.id?(a.collection<b.collection?-1:a.collection>b.collection?1:0):(a.id<b.id?-1:1));
+    // The cut never splits a group of rows that share the last selected id: `after` is only an id, so every row with that
+    // id must travel in the same page or the next pass (which reads strictly after it) would lose the ones left behind.
+    const selected=candidates.slice(0,limit as number);
+    if(selected.length===limit){
+      const cutId=selected[selected.length-1].id;
+      for(const candidate of candidates.slice(limit))if(candidate.id===cutId)selected.push(candidate);
+    }
+    // Cursor and limit follow the expired-unknown resolver: `next` is the last row attended only when the page was FULL,
+    // and `null` otherwise (a short tail ends the rotation, so the next pass starts over from the beginning).
+    const report={scanned:selected.length,escalated:0,failed:0,next:(selected.length>=limit?selected[selected.length-1]?.id??null:null) as string|null,stopped:false};
+    // On a stop the cursor may only advance past ids whose WHOLE tie group was attended: fter is a single id, so
+    // stopping inside a group would make the next pass read strictly after it and lose the rows left in that group.
+    let completed:string|null=null;
+    for(let index=0;index<selected.length;index++){
+      const candidate=selected[index];
+      if(shouldContinue!==undefined){
+        let proceed=false;
+        try{proceed=!!(await shouldContinue());}catch{proceed=false;}
+        if(!proceed){report.stopped=true;report.next=completed??after;break;}
+      }
+      let outcome:'escalated'|'skipped'|'failed';
+      try{
+        outcome=await this.db.runTransaction(async tx=>{
+          const ref=this.ref(candidate.collection,candidate.id);
+          const doc=await tx.get(ref);
+          if(!doc.exists)return 'skipped' as const;
+          const state=doc.get('state');
+          const nonTerminal=sources.find(source=>source.collection===candidate.collection)!.states as readonly string[];
+          // The state must be EXACTLY the one the scan saw: a row that advanced to another non-terminal state is left for
+          // the next rotation rather than escalated on a stale view.
+          if(typeof state!=='string'||!nonTerminal.includes(state)||state!==candidate.state)return 'skipped' as const;
+          const createdAtMs=doc.get('createdAtMs');
+          const clock=now as number,limitAge=maxAgeMs as number;
+          if(typeof createdAtMs!=='number'||!Number.isSafeInteger(createdAtMs)||createdAtMs<0||createdAtMs>clock)return 'failed' as const;
+          if(clock-createdAtMs<=limitAge)return 'skipped' as const;
+          // An active lease means someone is working the row right now: it is seen again in the next rotation.
+          const leaseUntil=doc.get('leaseUntil');
+          if(Number.isSafeInteger(leaseUntil)&&Number(leaseUntil)>clock)return 'skipped' as const;
+          // A dangling or expired lease must not survive on a reviewed row; the audited release (1.4b) reopens it.
+          const clearLease=hasIntentLease(doc.data()!)?{leaseToken:FieldValue.delete(),leaseOwner:FieldValue.delete(),leaseUntil:FieldValue.delete()}:{};
+          tx.update(ref,{state:'needs_review',reviewReason:'max_age',updatedAtMs:clock,...clearLease});return 'escalated' as const;
+        });
+      }catch{outcome='failed';}
+      if(outcome==='escalated')report.escalated++;else if(outcome==='failed')report.failed++;
+      // An id becomes a safe cursor only once no later selected candidate shares it.
+      if(index===selected.length-1||selected[index+1].id!==candidate.id)completed=candidate.id;
+    }
+    return report;
+  }
+  /**
+   * One bounded read of a state in document-id order strictly after `after`, for the age escalation. A single query of
+   * `limit` rows is enough: the `limit` smallest global ids all lie inside the first `limit` rows of every
+   * collection/state, ties included, so no page loop is needed and a pass costs at most one query per source.
+   */
+  private async staleScan(collection:string,state:string,after:string|null,limit:number){
+    let query=this.root.collection(collection).where('state','==',state).orderBy(FieldPath.documentId()).limit(limit);
+    if(after!==null)query=query.startAfter(this.root.collection(collection).doc(after));
+    const page=await query.get();
+    return page.docs;
   }
   /** Read inside the transaction that authorizes the POST; snapshots alone are not authority. */
   async captureExternalBillingSettlement(tx:Transaction,expected:ExternalBillingOutboxSnapshot,intentId:string):Promise<ExternalBillingSettlementReadSnapshot|null>{

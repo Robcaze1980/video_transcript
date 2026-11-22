@@ -18,7 +18,8 @@
  * COUNTS ONLY: never an account id, a row id or any row content, including when disabled, skipped or failed.
  *
  * Budget: 60 s total by default, split holds-before 12 s, billing (intents+outbox share the drain's single control)
- * 30 s, holds-after 8 s and unknown 10 s. Deadlines are taken one after another, so no section can consume another's
+ * 26 s, holds-after 8 s, unknown 9 s and age 5 s (step 1.6c; the last section takes any rounding remainder).
+ * Deadlines are taken one after another, so no section can consume another's
  * time, and once a section's deadline passes it takes no new row. Design: docs/specs/LV-019-B-ejecutor-periodico-drenajes.md (3.1-3.6).
  */
 import {performance} from 'node:perf_hooks';
@@ -45,10 +46,10 @@ const MAX_BUDGET_MS=60_000;
 const MIN_CAP=1,MAX_CAP=100,MIN_ROWS=1,MAX_ROWS=100;
 
 /** The section of the pass a budget belongs to; billing covers intents and outbox (one shared drain control). */
-export const DRAIN_SECTIONS=['holdsBefore','billing','holdsAfter','unknown'] as const;
+export const DRAIN_SECTIONS=['holdsBefore','billing','holdsAfter','unknown','age'] as const;
 export type DrainSection=typeof DRAIN_SECTIONS[number];
-/** Default split of the 60 s budget: 12 + 30 + 8 + 10; a different total scales the same proportions. */
-const DEFAULT_SPLIT:Record<DrainSection,number>={holdsBefore:12,billing:30,holdsAfter:8,unknown:10};
+/** Default split of the 60 s budget: 12 + 26 + 8 + 9 + 5; a different total scales the same proportions. */
+const DEFAULT_SPLIT:Record<DrainSection,number>={holdsBefore:12,billing:26,holdsAfter:8,unknown:9,age:5};
 const DEFAULT_SPLIT_TOTAL=Object.values(DEFAULT_SPLIT).reduce((total,part)=>total+part,0);
 
 export interface BillingDrainSectionAi{
@@ -58,6 +59,8 @@ export interface BillingDrainSectionAi{
 export interface BillingDrainSectionBackend{
   /** Step 1.2. An absent method is a version without the resolver: the section is then simply skipped. */
   resolveExpiredUnknown?(options:{now:number;limit:number;after?:string|null;shouldContinue?:()=>boolean|Promise<boolean>}):Promise<unknown>;
+  /** Step 1.6c. An absent method is a version without the age escalation: the section is then simply skipped. */
+  escalateStaleBillingRows?(options:{now:number;limit:number;after?:string|null;shouldContinue?:()=>boolean|Promise<boolean>}):Promise<unknown>;
 }
 export interface BillingDrainLeaseOps{
   acquire(options:{db:Firestore;root:DocumentReference;holderId:string;now:number}):Promise<{acquired:true;token:number}|{acquired:false;reason:'held'}>;
@@ -83,7 +86,7 @@ export interface BillingDrainSectionOptions{
 export interface BillingDrainSectionResult{
   outcome:BillingDrainOutcome;/** Only on a skip; never part of the heartbeat. */reason?:BillingDrainSkipReason;
   settled:number;failed:number;intentsRecovered:number;intentsFailed:number;
-  holds:number;skippedRows:number;unknownResolved:number;leaseToken:number;
+  holds:number;skippedRows:number;unknownResolved:number;staleEscalated:number;leaseToken:number;
 }
 
 export const REAL_DRAIN_LEASE_OPS:BillingDrainLeaseOps={
@@ -101,8 +104,8 @@ const count=(value:unknown):number=>typeof value==='number'&&Number.isFinite(val
 const integer=(value:unknown,min:number,max:number):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=min&&value<=max;
 /** A cursor as the drain reports it: a plain string, or `null` for a full wrap; anything else is ignored. */
 const cursorValue=(value:unknown):string|null|undefined=>value===null?null:typeof value==='string'?value:undefined;
-type DrainCounts={settled:number;failed:number;intentsRecovered:number;intentsFailed:number;holds:number;skippedRows:number;unknownResolved:number};
-const emptyCounts=():DrainCounts=>({settled:0,failed:0,intentsRecovered:0,intentsFailed:0,holds:0,skippedRows:0,unknownResolved:0});
+type DrainCounts={settled:number;failed:number;intentsRecovered:number;intentsFailed:number;holds:number;skippedRows:number;unknownResolved:number;staleEscalated:number};
+const emptyCounts=():DrainCounts=>({settled:0,failed:0,intentsRecovered:0,intentsFailed:0,holds:0,skippedRows:0,unknownResolved:0,staleEscalated:0});
 
 /** Roots whose real pass is still running in this process; keyed by document path, like the alert sweep. */
 const inFlight=new Set<string>();
@@ -116,7 +119,8 @@ function defaultSectionBudgets(budgetMs:number):Record<DrainSection,number>{
     const share=Math.floor(budgetMs*DEFAULT_SPLIT[section]/DEFAULT_SPLIT_TOTAL);
     out[section]=share;assigned+=share;
   }
-  out.unknown=Math.max(0,budgetMs-assigned);
+  const tail=DRAIN_SECTIONS[DRAIN_SECTIONS.length-1];
+  out[tail]=Math.max(0,budgetMs-assigned);
   return out;
 }
 /** Validates an optional override: only known sections, each a safe integer in the allowed range, and the total must fit the pass budget. */
@@ -243,6 +247,18 @@ export async function runBillingDrainSection(options:BillingDrainSectionOptions)
         if(count(record.failed)>0||record.stopped===true)partial=true;
         const next=cursorValue(record.next);
         if(next!==undefined&&!leaseLost)await lease.setCursor({db,root,kind:'unknown',holderId,token,cursor:next,now:clock()}).catch(()=>false);
+      }
+    }catch{counts.failed++;partial=true;}
+    if(!leaseLost&&typeof backend.escalateStaleBillingRows==='function')try{
+      const after=await lease.getCursor({db,root,kind:'age'});
+      // The age sweep shares the same pre-row gate and gets its OWN section budget and cursor, like the unknown resolver.
+      const record=asRecord(await backend.escalateStaleBillingRows({now,limit:maxRows,after,shouldContinue:gate('age')}));
+      if(record===undefined){counts.failed++;partial=true;}
+      else{
+        counts.staleEscalated+=count(record.escalated);counts.failed+=count(record.failed);
+        if(count(record.failed)>0||record.stopped===true)partial=true;
+        const next=cursorValue(record.next);
+        if(next!==undefined&&!leaseLost)await lease.setCursor({db,root,kind:'age',holderId,token,cursor:next,now:clock()}).catch(()=>false);
       }
     }catch{counts.failed++;partial=true;}
     if(leaseLost)partial=true;

@@ -1,0 +1,13 @@
+PASO 1.6c, CORRECCION (certificacion de Codex). Trabaja en tu mismo worktree, solo en server/commercial/firestoreBackend.ts (escalateStaleBillingRows y staleScan) y en server/commercial/firestoreAgeEscalation.emulator.mjs. Sin commit.
+
+DEFECTO (probado, prueba 11 en rojo): escalateStaleBillingRows ordena los candidatos primero por COLECCION y luego por id, pero el cursor `after` es solo un id y se aplica a las tres colecciones. Si una coleccion (billingHoldOutbox, la primera alfabeticamente) tiene una pagina completa (>= limit) de filas NO vencidas, el cursor queda en un id de esa coleccion y la siguiente pasada solo ve filas de las otras colecciones con id MAYOR; las de id menor (p. ej. filas vencidas de billingOutbox) nunca se atienden: en la pasada siguiente la cola corta reinicia la rotacion y se repite. Inanicion permanente de filas vencidas. Ademas el cursor puede retroceder.
+
+ARREGLO PEDIDO (tres puntos, todos en el mismo metodo):
+1. Ordenar los candidatos por (id, coleccion), no por (coleccion, id): asi el cursor es monotono y una rotacion recorre cada fila una sola vez.
+2. Como `after` es solo un id, al cortar en `limit` incluye tambien TODOS los candidatos que compartan el id de la ultima fila seleccionada (puede haber una de cada coleccion con el mismo id; el corte nunca debe separarlas). La pagina es "llena" si selected.length >= limit; `next` es el id de la ultima fila seleccionada; pagina corta => next null (fin de rotacion), como hoy.
+3. Acotar la lectura: staleScan debe leer como maximo `limit` filas por coleccion/estado (una sola consulta .limit(limit), sin bucle de paginas). Es suficiente: las `limit` filas de menor id globales estan dentro de las primeras `limit` de cada consulta, incluidos los empates. Asi una pasada cuesta como mucho 7 consultas x limit lecturas, aunque haya miles de filas pendientes.
+Conserva todo lo demas (relectura de estado por fila, createdAtMs invalido = failed sin tocar la fila, reloj inyectado, shouldContinue, sin saldo ni bloqueo).
+
+PRUEBAS: anade al final de firestoreAgeEscalation.emulator.mjs, sin modificar las 10 existentes, el bloque de tests-orden-rotacion.mjs.txt (esta en docs/evidence/lv019-b-t3-codificacion-1-6c-20261121/ del repositorio principal en C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2; copialo tal cual). Las pruebas 11, 12 y 13 deben pasar en verde junto con las 10 anteriores. Ejecuta tsc y el vitest focalizado. Anade una mutacion al arnes (outputs/lv019-b-1-6c-mutations): volver a ordenar por (coleccion, id) debe ser KILLED por la 11; quitar la inclusion de empates debe ser KILLED por la 12.
+
+Informe final corto con: archivos, resultados, mutaciones, limites. Termina SIEMPRE con el informe final.

@@ -1,0 +1,13 @@
+**Hallazgos**
+
+1. **ALTA — Rotación `age`: una pausa puede dejar un empate de `id` sin atender para siempre.** Estado inicial: `billingIntents` y `billingOutbox` tienen filas con el mismo `id X`. Eventos: el barrido procesa la primera, `shouldContinue` falla antes de la segunda y `next = lastAttended = X`. Resultado: la siguiente pasada usa `startAfter(X)` y la segunda fila queda excluida permanentemente. Corrección: procesar el grupo completo de un mismo `id` como unidad; si se pausa dentro del grupo, no avanzar a ese `id`, usar el último límite seguro anterior.
+
+2. **MEDIA — `escalateStaleBillingRows` puede sobrescribir un cambio de estado no terminal.** Estado inicial: la consulta ve `reserve_pending`. Eventos: antes de su transacción un proceso legítimo mueve la fila a `release_pending`; la transacción solo comprueba que siga dentro de estados no terminales. Resultado: igualmente la sobrescribe con `needs_review`. Corrección: guardar el estado visto en el candidato y exigir en la transacción que sea exactamente el mismo antes de escalar.
+
+3. **MEDIA — `recordExternalBillingIntentStall` puede contar el mismo intento dos veces.** Estado inicial: fila con `attempts=0` y `nextAttemptAt` ya vencido; dos drenadores la cargan. Eventos: el primero incrementa a `1` y programa espera futura; el segundo relee la fila, la ve pendiente y no vencida por `nextAttemptAt`, pero como no exige vencimiento, incrementa a `2`. Resultado: con concurrencia repetida se alcanza el tope antes del tiempo real. Corrección: dentro de la transacción exigir `nextAttemptAt <= now` antes de contar.
+
+4. **MEDIA — La edad exacta no se escalar.** Estado inicial: `createdAtMs = now - maxAgeMs`. Eventos: la transacción calcula edad igual al límite. Resultado: `clock - createdAtMs <= limitAge` la marca `skipped`; permanece pendiente otra rotación. Corrección: saltar solo cuando la edad sea estrictamente menor que `maxAgeMs`.
+
+5. **BAJA — Cobertura de pruebas insuficiente.** No hay evidencia de pruebas para pausa dentro de empates de cursor, cambio `reserve_pending → release_pending` antes de escalar, doble conteo concurrente del intento ni la frontera exacta de edad. Corrección: añadir esas regresiones con transacciones controladas y reloj inyectado.
+
+RESULTADO: FALLA
