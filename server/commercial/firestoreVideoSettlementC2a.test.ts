@@ -90,3 +90,39 @@ describe('C2a matchesOutboxSnapshot is exact in both directions',()=>{
     expect(matchesOutboxSnapshot({...v3,capturedSeconds:undefined},v3)).toBe(false);
   });
 });
+// LV-019.B step 1.5 (legacy and future shapes): a stored row written by a LATER protocol (or one that carries a malformed `settlementProtocol`) must fail
+// closed everywhere a settlement tuple is read - before a POST, when persisting an ACK and when matching a stored row - instead of being settled on a
+// best-effort reading. Only an absent value (legacy v1) or exactly the number 3 is legal.
+describe('C2a a future or malformed settlementProtocol fails closed (step 1.5)',()=>{
+  const attemptId=randomUUID();
+  const illegal:unknown[]=[4,2,1,0,-1,3.5,Number.NaN,Number.POSITIVE_INFINITY,'3','4',null,true,{},[3]];
+  const shapes=[
+    {...base,action:'capture' as const,attemptId},
+    {...base,action:'capture' as const,attemptId,capturedSeconds:1},
+    {...base,action:'release' as const,attemptId,resolutionKind:'no_speech' as const,evidenceSha256},
+    {...base,action:'release' as const}
+  ];
+  it('refuses every illegal protocol on every tuple shape in the strict copy and in the read-snapshot gate',()=>{
+    for(const protocol of illegal)for(const shape of shapes){
+      const row={...shape,settlementProtocol:protocol};
+      expect(copyOutboxSnapshot(row),`copy ${String(protocol)} ${shape.action}`).toBeNull();
+      expect(copyExternalBillingSettlementReadSnapshot(snapshot(row)),`read ${String(protocol)} ${shape.action}`).toBeNull();
+    }
+  });
+  it('never matches a stored row that carries a future protocol, whatever protocol the expected tuple claims',()=>{
+    const stored={...base,action:'capture' as const,attemptId,settlementProtocol:4,capturedSeconds:1};
+    expect(matchesOutboxSnapshot(stored,{...base,action:'capture',attemptId})).toBe(false);
+    expect(matchesOutboxSnapshot(stored,{...base,action:'capture',attemptId,settlementProtocol:3,capturedSeconds:1})).toBe(false);
+  });
+  it('a v1 tuple never matches a stored row whose ONLY new field is settlementProtocol (a protocol-3 full capture has no capturedSeconds)',()=>{
+    const v1={...base,action:'capture' as const,attemptId};
+    expect(matchesOutboxSnapshot({...v1,settlementProtocol:3},v1)).toBe(false);
+    expect(matchesOutboxSnapshot({...v1,settlementProtocol:4},v1)).toBe(false);
+    expect(matchesOutboxSnapshot({...v1,settlementProtocol:3},{...v1,settlementProtocol:3})).toBe(true);
+  });
+  it('the legal shapes around the illegal ones still pass (absent = legacy v1, exactly 3 = protocol 3)',()=>{
+    expect(copyOutboxSnapshot({...base,action:'capture',attemptId})).not.toBeNull();
+    expect(copyOutboxSnapshot({...base,action:'capture',attemptId,settlementProtocol:3,capturedSeconds:1})).not.toBeNull();
+    expect(copyOutboxSnapshot({...base,action:'capture',attemptId,settlementProtocol:undefined})).not.toBeNull();
+  });
+});

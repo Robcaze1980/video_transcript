@@ -4,7 +4,7 @@
 
 **Documentos que manda el estado vigente** (si algo difiere, mandan esos): [MASTERPLAN](../../MASTERPLAN.md), [backlog](../../backlog.md), [gantt](../../gantt.md), [plan integral](../specs/LV-019-B-plan-integral-20261120.md), [plan paso a paso](../specs/LV-019-B-plan-paso-a-paso-20261120.md), [HANDOFF](../../HANDOFF.md), [bitácora](../../bitacora.md), [errorlogs](../../errorlogs.md). Este documento solo propone **cómo hacerlo más barato y más rápido**, y marca lo que debe decidir el dueño.
 
-**Punto de partida real (hechos, 21 nov).** Certificado en local: 1.1, 1.6a, 3.4 y 3.1 (script A0, sin ejecutar); guiones de escucha (32) y validador; diseños v2 de 1.2, 1.3 y 1.4 con pruebas en rojo de 1.2 y 1.6b. Sin empezar: 1.5, 1.7, toda la voz, la nube preparada (3.2, 3.3, 3.5–3.10) y las fases 4 a 7. **T3 se detuvo por falta de crédito (402 en OpenRouter, [errorlogs](../../errorlogs.md)) y volvió a trabajar el 21 nov tras una recarga de ≈US$10**; quedan ≈US$9, que a ≈US$1/h con dos hilos alcanzan para unas 9 horas de trabajo.
+**Punto de partida real (hechos, 21 nov).** Certificado en local: 1.1, 1.6a, 3.4 y 3.1 (script A0, sin ejecutar); guiones de escucha (32) y validador; diseños v2 de 1.2, 1.3 y 1.4 con pruebas en rojo de 1.2 y 1.6b. Sin empezar: 1.7, toda la voz (el 1.5 reducido se certificó después, el mismo día: [recibo](../evidence/lv019-b-codex-legado-1-5-20261121/RECIBO.md)), la nube preparada (3.2, 3.3, 3.5–3.10) y las fases 4 a 7. **T3 se detuvo por falta de crédito (402 en OpenRouter, [errorlogs](../../errorlogs.md)) y volvió a trabajar el 21 nov tras una recarga de ≈US$10**; quedan ≈US$9, que a ≈US$1/h con dos hilos alcanzan para unas 9 horas de trabajo.
 
 ---
 
