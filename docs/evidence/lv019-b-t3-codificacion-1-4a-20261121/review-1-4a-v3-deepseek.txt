@@ -1,0 +1,13 @@
+He leído diseño (§§3.1/3.2/3.4), las dos pruebas (`firestoreBlocksA.emulator.mjs`, `.test.ts`) y el diff. Verifiqué contra el contrato; los adjudicados (a)-(e) se sostienen en el diff. Busqué fallos nuevos/regresiones:
+
+1) MEDIA — E-3 sin instantánea sobre una cuenta YA bloqueada por otro motivo sigue creando incidencia y bloqueo.
+Estado inicial: intención `closed` con confirmación idéntica (cierre local escrito, respuesta perdida); `billingGuards/<acc>.blocked===true` por OTRO incidente. Eventos: el cliente reenvía la confirmación directa SIN instantánea → `snapshotBound` falso; la rama nueva exige `guardValid && !guarded`, y `guarded` verdadero la salta; `canClose` también exige `!guarded`; cae al camino de revisión con `identicalClosed` verdadero y escribe incidencia `remote_ack_closure_unverified` + hold + guard (`ownerBlocked:true`). Resultado errado: un reintento benigno de un cierre ya verificado produce incidencia/alerta extra (el síntoma que E-3 debía eliminar). Corrección: evaluar el atajo (`state==='closed'` + `confirmationMatches` + sin instantánea) ANTES de la puerta `guardValid&&!guarded`, ya que solo escribe `attempts` de la propia intención; o aplicar esa puerta únicamente al camino que crea hold/guard.
+
+2) BAJA — C-3 omite `billingOutbox` del cotejo de intactos y no compara su `createTime`.
+Estado inicial: fila `pending|retry_wait` con la tupla esperada, pero el documento `billingOutbox` fue recreado (createTime nuevo) y los otros 12 conservan versión. Eventos: `quarantine...after_ack`; `intact` excluye `name==='outbox'` y `matchesOutboxSnapshot` compara solo la tupla. Resultado errado: se cuenta intento y se reprograma como transitorio en vez de divergencia; la rama `already_settled` sí exige `createTime` igual (asimetría entre ambas rutas). Corrección: incluir el `createTime` de la fila de salida en el discriminador transitorio.
+
+3) BAJA — El conteo E-3 bajo el tope queda sin planificador: se escribe `nextAttemptAt` en una intención `closed`, que ningún barrido lista; si el reenvío externo cesa, nunca se alcanza el tope ni la única alerta prevista. Corrección: encolar el reintento o alertar al vencer `nextAttemptAt`.
+
+No encontré doble movimiento de saldo ni ACK divergente silenciado/duplicado: `ackMatches` bloquea correctamente el atajo `already_settled` y las pruebas 4a/4b lo cubren.
+
+RESULTADO: FALLA

@@ -1,0 +1,7 @@
+RESULTADO: PASS
+
+1. **ALTA** — C-3: estado inicial `pending` con ACK coincidente, 13 documentos intactos y una escritura benigna de la propia fila que además activa `hasIntentLease` (`billingDrainLease/current`). Eventos: entra `after_ack`, pasa la tupla, pero sale por divergencia. Resultado errado: incidencia + hold + bloqueo por una avería local (regresión C-3). Corrección: aceptar una fila con arriendo vigente cuando su marca local es la propia escritura del arriendo (`lease->leaseSourceLocal` o campo propio equivalente); mantener divergencia solo si el arriendo es externo/ajeno.
+
+2. **BAJA** — Alerta `guard`: en un `blocked` legítimo con `accountId` válido pero sin ref de incidente/hold, `normalizePending` lo marca `malformed`. `attentionOf` prioriza `malformed`, y la clave de alerta usará ese estado; cuando 1.4b escriba el ref faltante, la alerta ya abierta (misma fila, misma época, otro `reason`) no se cierra ni se deduplica como la misma cuenta. Corrección: modelar esa condición como `needs_review` (no `malformed`) o resolver/aterrizar la alerta anterior al escribir la evidencia en 1.4b.
+
+3. **BAJA** — Prueba: en `1b`, si la rama E-3 cayera al tope en el bucle, el siguiente reintento devuelve `needs_review` temprano y el `for` termina sin `limitRound`; `assert.ok(limitRound>0)` lo detecta, pero el valor final de `result` ya no corresponde a la ronda del tope. Corrección: asertar dentro del bucle que cada ronda no bloquea y que la ronda del tope escribe `needs_review`.

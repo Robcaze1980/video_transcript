@@ -1,0 +1,56 @@
+1.4a transitorio y alerta de bloqueo
+mcp:98c6184d-ea61-4f69-8bd7-b0e42fe30e12  completed  linguistvision-openrouter/deepseek/deepseek-v4.1-flash
+lv019b/t3-blocks-a  C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-blocks-a
+
+[assistant]
+Now the report/alert/sweep files in full (small).
+
+
+
+[assistant]
+Now the direct-observation block and its helpers.
+
+[assistant]
+Now the harnesses. Let me check them.
+
+[assistant]
+Let me locate the key helper definitions precisely.
+
+[assistant]
+Let me read the receipt for adjudicated findings — it may pin the E-3 discriminator.
+
+
+
+[assistant]
+Now the intents drain loop, the finish* wrappers, and outbox metadata keys.
+
+
+
+[assistant]
+Let me inspect the affected tests and scripts to bound the blast radius.
+
+
+
+[assistant]
+Let me check `billingIntent` (intent shape validation) — it may already reject unexpected keys.
+
+[assistant]
+Let me check the inventory module and the remaining test fixtures that will ripple.
+
+[assistant]
+No pude ejecutar ninguna orden: el revisor automático de aprobaciones devuelve **402 Payment Required** ("This request requires more credits, or fewer max_tokens… can only afford ~26k tokens") y el harness rechaza *todos* los `exec_command` antes de ejecutarlos —incluido `echo`—, también con `require_escalated`. Sin shell no hay lectura, edición ni pruebas.
+
+**Estado real del worktree**
+- Solo existe el cambio previo a esta ronda: `server/commercial/firestoreBackend.ts` (+7/−4), `ackMatches` en `after_ack` y `'retry_wait'` en `ExternalBillingOutboxQuarantineResult`. Sin commit.
+- No he escrito pruebas rojas, ni C-3/3b/E-3/D-4, ni mutaciones. No hay nada que certificar todavía.
+
+**Por qué estoy bloqueado**
+- `apply_patch` no está expuesto como herramienta en esta sesión y el rodeo documentado (`codex.exe --codex-run-as-apply-patch`) exige `exec_command`, que es justo lo rechazado.
+- El bloqueo es del entorno (créditos del revisor de aprobaciones), no del repositorio ni del alcance.
+
+**Para desbloquear** (cualquiera de estas):
+- Recargar créditos de OpenRouter y reanudar el hilo tal cual, o
+- Cambiar el modo de aprobación a uno que no use `auto_review`, o
+- Delegar esta misma tarea a un hilo con ejecución permitida en este worktree.
+
+En cuanto haya shell vuelvo con el plan aprobado sin cambiar de alcance: pruebas 1, 2, 3, 3b, 3c, 4, 5, 6, 7 y 12b en rojo (`firestoreBlocksA.test.ts` + `firestoreBlocksA.emulator.mjs`), implementación de C-3, 3b, E-3 y D-4 (`guard`), ajuste solo de las pruebas que afirman el defecto, `tsc`/`vitest`/emulador y mutaciones con restauración `try/finally`. Una sola respuesta final, breve, con archivos, resultados, supervivientes y límites.

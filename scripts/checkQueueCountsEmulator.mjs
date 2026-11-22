@@ -55,7 +55,7 @@ try{
   const r=run(['--target','emulator','--scope','billing','--root',rootPath,'--out',outFile]);
   assert.equal(r.status,0,'the runner exits cleanly: '+r.stderr.slice(0,200));
   const result=JSON.parse(readFileSync(outFile,'utf8')),c=result.counts;
-  assert.deepEqual(c.sizes,{billingIntents:205,billingIntentTerminalRecovery:3,billingHoldOutbox:14,billingOutbox:23,jobs:8});
+  assert.deepEqual(c.sizes,{billingIntents:205,billingIntentTerminalRecovery:3,billingHoldOutbox:14,billingOutbox:23,jobs:8,billingGuards:0});
   assert.equal(c.report.total,230);
   assert.deepEqual(c.report.byKind.intent.byState,{reserve_pending:175,release_pending:20,needs_review:6});
   assert.equal(c.report.byKind.intent.malformed,5);assert.equal(c.report.byKind.intent.needsReview,6);assert.equal(c.report.byKind.intent.total,201);

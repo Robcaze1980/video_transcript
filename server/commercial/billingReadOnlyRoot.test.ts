@@ -121,7 +121,7 @@ describe('journal and cost guard',()=>{
     expect(journal.length).toBeGreaterThan(0);
     for(const entry of journal)expect(Object.keys(entry).sort()).toEqual(['collection','docs','filters','op']);
     expect(JSON.stringify(journal)).not.toMatch(/reserve_pending|1111|needs_review|accountId/);
-    expect(new Set(journal.map(e=>e.collection))).toEqual(new Set(['billingIntents','billingIntentTerminalRecovery','billingHoldOutbox','billingOutbox','jobs']));
+    expect(new Set(journal.map(e=>e.collection))).toEqual(new Set(['billingIntents','billingIntentTerminalRecovery','billingHoldOutbox','billingOutbox','jobs','billingGuards']));
   });
   it('aborts once more documents than the configured maximum have been read',async()=>{
     const s=seed();

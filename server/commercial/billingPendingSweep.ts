@@ -39,7 +39,7 @@ export async function runPendingSweep(db:Firestore,root:DocumentReference,nowMs:
   try{report=await readPendingReport(root,nowMs,{pageSize,audit:options.audit});}
   catch{
     const alerted=await alertWith('sweep_failed');
-    const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0};
+    const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0,guard:0};
     throw new SweepError('sweep_failed','read',alerted,{ok:false,generatedAtMs:nowMs,reported:0,byKind,attention:0,created:0,seen:0,...zero(),failures:alerted?['read']:['read','alert']});
   }
 

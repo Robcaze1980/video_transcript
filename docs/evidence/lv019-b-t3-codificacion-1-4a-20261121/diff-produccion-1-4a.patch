@@ -1,0 +1,267 @@
+diff --git a/server/commercial/billingPendingReport.ts b/server/commercial/billingPendingReport.ts
+index d8d0acb..6b3ec3f 100644
+--- a/server/commercial/billingPendingReport.ts
++++ b/server/commercial/billingPendingReport.ts
+@@ -7,20 +7,22 @@
+  * Design: docs/specs/LV-019-B-conciliacion-fase2-barrido-diseno.md
+  */
+ import type {DocumentReference,DocumentSnapshot} from 'firebase-admin/firestore';
+ 
+-export type PendingKind='intent'|'terminal_recovery'|'hold'|'outbox'|'job_unknown';
++export type PendingKind='intent'|'terminal_recovery'|'hold'|'outbox'|'job_unknown'|'guard';
+ export type PendingAttention='needs_review'|'malformed'|'unknown_age'|'pending';
+ 
+ /** `terminalStates` lets the opt-in audit tell a finished row from an unexpected one; null = audit not supported (jobs have too many valid states). */
+-export interface PendingSource{kind:PendingKind;collection:string;states:readonly string[];terminalStates:readonly string[]|null}
++export interface PendingSource{kind:PendingKind;collection:string;states:readonly string[];terminalStates:readonly string[]|null;/** A single equality field for sources without a `state` (the D-4 guard); served by Firestore's automatic single-field index. */filter?:{field:string;value:string|number|boolean}}
+ /** Only non-terminal states are ever queried; terminal ones (settled, applied, closed...) are absent on purpose. */
+ export const PENDING_SOURCES:readonly PendingSource[]=Object.freeze([
+   {kind:'intent',collection:'billingIntents',states:['reserve_pending','release_pending','needs_review'],terminalStates:['closed','insufficient','job_created']},
+   {kind:'terminal_recovery',collection:'billingIntentTerminalRecovery',states:['pending'],terminalStates:[]},
+   {kind:'hold',collection:'billingHoldOutbox',states:['pending','needs_review'],terminalStates:['applied']},
+   {kind:'outbox',collection:'billingOutbox',states:['pending','retry_wait','needs_review'],terminalStates:['settled']},
+   {kind:'job_unknown',collection:'jobs',states:['unknown'],terminalStates:null},
++  // LV-019.B D-4: one blocked account, one alert. `blocked == true` is one equality on one field, no composite index; the row has no `state`.
++  {kind:'guard',collection:'billingGuards',states:[],terminalStates:[],filter:{field:'blocked',value:true}},
+ ]);
+ 
+ export interface PendingRow{kind:PendingKind;id:string;state:string;createdAtMs:number|null;nextAttemptAt:number|null;attempts:number|null;lastErrorCode:string|null;accountId:string|null;malformed:boolean}
+ export interface ReportRow extends PendingRow{ageMs:number|null;attention:PendingAttention}
+@@ -28,9 +30,9 @@ export interface PendingReport{generatedAtMs:number;total:number;byKind:Record<P
+ 
+ const nonNegativeInteger=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
+ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+ /** The only codes the writers can store (firestoreBackend.ts failure recorders coerce anything else to 'unavailable'). */
+-const errorCode=/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden|reserved_unconfirmed)$/;
++const errorCode=/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden|reserved_unconfirmed|closure_unverified)$/;
+ 
+ /** Copies only what an operator needs; identity keys, uids and emails are never copied. */
+ export function normalizePending(kind:PendingKind,id:string,data:Record<string,unknown>|undefined):PendingRow{
+   const d=data&&typeof data==='object'?data:{};
+@@ -42,15 +44,21 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
+   const lastErrorCode=typeof d.lastErrorCode==='string'&&errorCode.test(d.lastErrorCode)?d.lastErrorCode:null;
+   const accountId=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null;
+   const malformed=!data||typeof data!=='object'||!state||(present(d.createdAtMs)&&createdAtMs===null)||(present(d.nextAttemptAt)&&nextAttemptAt===null)||(present(d.attempts)&&attempts===null)||
+     (present(d.lastErrorCode)&&lastErrorCode===null)||(present(d.accountId)&&accountId===null);
++  if(kind==='guard'){
++    // A blocked account is its own row. Its state carries the guard epoch, so an account blocked again after a release is a new alert;
++    // a guard with neither incident nor hold ref cannot be attributed to anything and is malformed (the writers create incident and hold in the same transaction).
++    const epoch=nonNegativeInteger(d.epoch)&&d.epoch>=1?d.epoch:1,guardAccount=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null,incident=present(d.lastIncidentId)||present(d.lastOutboxIncidentId);
++    return {kind,id,state:'blocked:'+epoch,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:guardAccount,malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incident};
++  }
+   return {kind,id,state,createdAtMs,nextAttemptAt,attempts,lastErrorCode,accountId,malformed};
+ }
+ 
+-const kindOrder:Record<PendingKind,number>={intent:0,terminal_recovery:1,hold:2,outbox:3,job_unknown:4};
++const kindOrder:Record<PendingKind,number>={intent:0,terminal_recovery:1,hold:2,outbox:3,job_unknown:4,guard:5};
+ function attentionOf(row:PendingRow):PendingAttention{
+   if(row.malformed)return 'malformed';
+-  if(row.state==='needs_review')return 'needs_review';
++  if(row.state==='needs_review'||row.state.startsWith('blocked:'))return 'needs_review';
+   if(row.createdAtMs===null)return 'unknown_age';
+   return 'pending';
+ }
+ /** Pure and deterministic: total order (unknown age first, then oldest, kind, id) and exact-duplicate removal. */
+@@ -64,9 +72,9 @@ export function buildPendingReport(input:readonly PendingRow[],nowMs:number):Pen
+     if(a.createdAtMs!==b.createdAtMs&&a.createdAtMs!==null&&b.createdAtMs!==null)return a.createdAtMs-b.createdAtMs;
+     if(a.kind!==b.kind)return kindOrder[a.kind]-kindOrder[b.kind];
+     return a.id<b.id?-1:a.id>b.id?1:0;
+   });
+-  const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0};
++  const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0,guard:0};
+   for(const row of rows)byKind[row.kind]++;
+   return {generatedAtMs:nowMs,total:rows.length,byKind,oldest:rows.find(row=>row.createdAtMs!==null)??null,attention:rows.filter(row=>row.attention!=='pending'),rows};
+ }
+ 
+@@ -83,9 +91,22 @@ export async function readPendingReport(root:DocumentReference,nowMs:number,opti
+   if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500)throw new RangeError('invalid page size');
+   const rows:PendingRow[]=[];
+   for(const source of PENDING_SOURCES){
+     const audit=options.audit===true&&source.terminalStates!==null;
+-    const terminal=new Set(source.terminalStates??[]),listed=new Set(source.states);
++    const terminal=new Set(source.terminalStates??[]),listed=new Set(source.states),filter=source.filter;
++    // A filtered source (the guard) has no `state`: one equality on one field, paged by document id, in both modes.
++    if(filter){
++      let lastFiltered:DocumentSnapshot|null=null;
++      for(;;){
++        let query=root.collection(source.collection).where(filter.field,'==',filter.value).orderBy('__name__');
++        if(lastFiltered)query=query.startAfter(lastFiltered);
++        const page=await query.limit(pageSize).get();
++        for(const doc of page.docs)rows.push(normalizePending(source.kind,doc.id,doc.data() as Record<string,unknown>|undefined));
++        if(page.docs.length<pageSize)break;
++        lastFiltered=page.docs[page.docs.length-1];
++      }
++      continue;
++    }
+     // Audit mode scans the whole collection once; the default mode runs one equality query per listed state.
+     for(const only of audit?[null]:source.states){
+       let last:DocumentSnapshot|null=null;
+       for(;;){
+diff --git a/server/commercial/billingPendingSweep.ts b/server/commercial/billingPendingSweep.ts
+index 9bf7a8e..495dec2 100644
+--- a/server/commercial/billingPendingSweep.ts
++++ b/server/commercial/billingPendingSweep.ts
+@@ -38,9 +38,9 @@ export async function runPendingSweep(db:Firestore,root:DocumentReference,nowMs:
+   let report;
+   try{report=await readPendingReport(root,nowMs,{pageSize,audit:options.audit});}
+   catch{
+     const alerted=await alertWith('sweep_failed');
+-    const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0};
++    const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0,guard:0};
+     throw new SweepError('sweep_failed','read',alerted,{ok:false,generatedAtMs:nowMs,reported:0,byKind,attention:0,created:0,seen:0,...zero(),failures:alerted?['read']:['read','alert']});
+   }
+ 
+   const failures:SweepStage[]=[];let created=0,seen=0,cleared=zero();
+diff --git a/server/commercial/billingReadOnlyRoot.ts b/server/commercial/billingReadOnlyRoot.ts
+index 813aa07..e64ab55 100644
+--- a/server/commercial/billingReadOnlyRoot.ts
++++ b/server/commercial/billingReadOnlyRoot.ts
+@@ -9,11 +9,13 @@ import type {DocumentReference} from 'firebase-admin/firestore';
+ import {PENDING_SOURCES} from './billingPendingReport';
+ import {createReadOnlyRoot,type CollectionPolicy,type ReadOnlyOptions,type ReadOnlyRoot} from './readOnlyFirestoreRoot';
+ 
+ export type {ReadOnlyDoc,ReadOnlyOptions,ReadOnlyQuery,ReadOnlyRoot} from './readOnlyFirestoreRoot';
+-export const READABLE_COLLECTIONS:readonly string[]=Object.freeze(['billingIntents','billingIntentTerminalRecovery','billingHoldOutbox','billingOutbox','jobs']);
++export const READABLE_COLLECTIONS:readonly string[]=Object.freeze(['billingIntents','billingIntentTerminalRecovery','billingHoldOutbox','billingOutbox','jobs','billingGuards']);
+ /** The only states the readers filter by (listed non-terminal states of the pending sources). */
+ const STATES=PENDING_SOURCES.flatMap(source=>source.states);
+ const queue:CollectionPolicy={select:['state','nextAttemptAt'],expose:['state','createdAtMs','nextAttemptAt','attempts','lastErrorCode','accountId'],dropIfNotScalar:['state'],where:{state:STATES}};
+-const BILLING_POLICY={collections:Object.fromEntries(READABLE_COLLECTIONS.map(name=>[name,queue]))};
++// LV-019.B D-4: the guard collection is read by `blocked == true` only, so it declares its own single-field filter and exposes the incident refs.
++const guard:CollectionPolicy={select:['blocked','accountId','epoch','lastIncidentId','lastOutboxIncidentId','updatedAtMs'],expose:['blocked','accountId','epoch','lastIncidentId','lastOutboxIncidentId','updatedAtMs'],where:{blocked:[true]}};
++const BILLING_POLICY={collections:Object.fromEntries(READABLE_COLLECTIONS.map(name=>[name,name==='billingGuards'?guard:queue]))};
+ 
+ export function readOnlyRoot(root:DocumentReference,options:ReadOnlyOptions={}):ReadOnlyRoot{return createReadOnlyRoot(root,BILLING_POLICY,options);}
+diff --git a/server/commercial/firestoreAi.ts b/server/commercial/firestoreAi.ts
+index fdcb091..e8ad45d 100644
+--- a/server/commercial/firestoreAi.ts
++++ b/server/commercial/firestoreAi.ts
+@@ -300,9 +300,18 @@ export class FirestoreAi {
+     const q=await this.backend.quarantineExternalBillingOutbox(row.id,{phase:'after_ack',snapshotVersion:row.snapshotVersion,expected,ack,settlementSnapshot});
+     if(q.state!=='already_settled')failed++;
+    }catch(error){
+     failed++;
+-    if(ack&&expected&&typeof row.id==='string')await this.backend.quarantineExternalBillingOutbox(row.id,{phase:'after_ack',snapshotVersion:row.snapshotVersion,expected,ack,settlementSnapshot}).catch(()=>undefined);
++    if(ack&&expected&&typeof row.id==='string'){
++     // LV-019.B 3b (design v2): a throw from the quarantine must never be swallowed leaving the row pending with no alert. The quarantine records
++     // the divergent ACK itself; if that write also fails, fall back to the durable review incident so the owner is blocked and a human sees it.
++     try{await this.backend.quarantineExternalBillingOutbox(row.id,{phase:'after_ack',snapshotVersion:row.snapshotVersion,expected,ack,settlementSnapshot});}
++     catch{
++           // The outbox row has no requestKey; it is resolved from the job that owns the row (the same document the quarantine reads).
++           const job=await this.backend.job(row.accountId,row.id).catch(()=>null);
++           if(job&&typeof job.requestKey==='string')await this.backend.recordExternalBillingReview(row.accountId,job.requestKey,{provider:expected.provider,identityKey:expected.identityKey,reservationId:expected.reservationId,seconds:expected.seconds},ack).catch(()=>undefined);
++          }
++    }
+     else if(expected&&typeof row.id==='string'&&typeof row.snapshotVersion==='string'&&['pending','retry_wait'].includes(row.state))await this.backend.recordExternalBillingFailure(row.id,error instanceof AccountBillingFault?error.code:'unavailable',{snapshotVersion:row.snapshotVersion,state:row.state,outbox:expected}).catch(()=>undefined);
+    }
+   }
+   return control===undefined?{settled,failed,intentsRecovered,intentsFailed}:{settled,failed,intentsRecovered,intentsFailed,skippedRows,stopped,next:{intents:nextIntents,outbox:nextOutbox}};
+diff --git a/server/commercial/firestoreBackend.ts b/server/commercial/firestoreBackend.ts
+index a82aad8..57b6c4d 100644
+--- a/server/commercial/firestoreBackend.ts
++++ b/server/commercial/firestoreBackend.ts
+@@ -55,9 +55,9 @@ export type ExternalBillingSettlementReadSnapshot={expected:ExternalBillingOutbo
+ export type ExternalBillingOutboxFailureEvidence = {snapshotVersion:string;state:'pending'|'retry_wait';outbox:ExternalBillingOutboxSnapshot};
+ export type ExternalBillingOutboxQuarantine =
+   | {phase:'before_ack';snapshotVersion?:string|null}
+   | {phase:'after_ack';snapshotVersion?:string|null;expected:ExternalBillingOutboxSnapshot;ack:ExternalBillingObservation;settlementSnapshot?:ExternalBillingSettlementReadSnapshot|null};
+-export type ExternalBillingOutboxQuarantineResult = {state:'changed'|'already_settled'|'needs_review';ownerBlocked:boolean;incidentId?:string};
++export type ExternalBillingOutboxQuarantineResult = {state:'changed'|'already_settled'|'retry_wait'|'needs_review';ownerBlocked:boolean;incidentId?:string};
+ export type Job = { aiProfile?:typeof AI_CATALOG_VERSION;snapshotSha256?:string; accountId: string; inputId: string; price: number; state: State; inputSha256: string;
+   externalBilling?:ExternalVideoBilling;
+   operation: string; revision: number | null; snapshot: ProjectSnapshot | null;
+   inputStorage: PrivateInputBinding | null;
+@@ -440,10 +440,11 @@ export class FirestoreBackend {
+       const marker=d.origin.get('terminalRecovery');
+       return !!marker&&(source==='status'||marker[source==='seal'?'sealPrepared':'releasePrepared']===true)&&validInitialReaderPair(marker.sealPrepared,d.sealWitness,d.sealRecovery,witness,'seal')&&validInitialReaderPair(marker.releasePrepared,d.releaseWitness,d.releaseRecovery,witness,'release');
+     }catch(error){if(error instanceof LedgerFault)return false;throw error;}
+   }
+-  private matchingDirectObservation(snapshot:DirectObservationSnapshot,d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source']){
+-    return snapshot.source===source&&sameIntentWitness(snapshot.witness,witness)&&this.validDirectObservationDocs(d,witness,requestKey,source)&&directDocumentNames.every(name=>sameTerminalDocumentVersion(d[name],snapshot.versions[name]));
++  private matchingDirectObservation(snapshot:DirectObservationSnapshot,d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],options:{ignore?:readonly DirectDocumentName[];allowClosed?:boolean}={}){
++    const ignore=options.ignore??[];
++    return snapshot.source===source&&sameIntentWitness(snapshot.witness,witness)&&this.validDirectObservationDocs(d,witness,requestKey,source,options.allowClosed??false)&&directDocumentNames.every(name=>ignore.includes(name)||sameTerminalDocumentVersion(d[name],snapshot.versions[name]));
+   }
+   /**
+    * Preserve a returned read whose original local history changed. This is not a
+    * financial ACK, nor an authenticated capability, and never moves balance.
+@@ -1041,8 +1042,28 @@ export class FirestoreBackend {
+       // but cannot prove that this was the only subsequent write to that document.
+       // Until a provable post-commit version is available, even an apparently identical
+       // direct retry goes to review. Recovery-status has its own different snapshot rules.
+       if(isRecovery&&owner&&actionProven&&jobless&&guardValid&&!guarded&&identicalClosed&&historyMatched)return {state:'already_closed',ownerBlocked:false};
++      // LV-019.B E-3 (design v2 3.2): the direct path accepts the identical close it already wrote. The write itself moved `intent.updateTime`,
++      // so the intent is compared by identity (same document: same createTime) instead of by version, while every other direct document must
++      // still show its pre-close version. A later rewrite that recreates the intent (new createTime) keeps the review. No block, nothing written.
++      let directIntentSameDocument=false;
++      if(!isRecovery&&direct&&direct.versions.intent.exists&&current.exists){const version=terminalDocumentVersion(current);directIntentSameDocument=!!version&&version.exists&&version.createTime===direct.versions.intent.createTime;}
++      const directClosedMatch=!isRecovery&&!!direct&&!!directDocs&&snapshotBound&&typeof requestKey==='string'&&this.matchingDirectObservation(direct,directDocs,witness,requestKey,directSource,{ignore:['intent'],allowClosed:true});
++      if(!isRecovery&&owner&&actionProven&&jobless&&guardValid&&!guarded&&identicalClosed&&directClosedMatch&&directIntentSameDocument)return {state:'already_closed',ownerBlocked:false};
++      // LV-019.B E-3 (design v2 3.2): an identical-looking retry with NO snapshot cannot be proven to be the close it already wrote (there is
++      // nothing to compare), so it is transient, not a divergence: count the attempt on the intent itself with the shared wait and limit
++      // (`closure_unverified`). A demonstrated divergence (a snapshot exists and some document's version moved, a differing tuple or a
++      // missing confirmation) never reaches this branch, so the incident + hold + block below are kept exactly as today.
++      if(recordReview&&!isRecovery&&!snapshotBound&&owner&&actionProven&&jobless&&guardValid&&!guarded&&identicalClosed&&current.exists){
++        const previous=current.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
++        const attempts=Number(previous)+1,nowMs=Date.now();
++        if(attempts<EXTERNAL_BILLING_ATTEMPT_LIMIT){
++          const delay=Math.min(15*60_000,1000*2**Math.min(attempts,10));
++          tx.update(intent,{attempts,lastErrorCode:'closure_unverified',nextAttemptAt:nowMs+delay,lastAttemptAtMs:nowMs,updatedAtMs:nowMs});
++          return {state:'needs_review',ownerBlocked:false};
++        }
++      }
+       const canClose=owner&&actionProven&&historyMatched&&same&&jobless&&guardValid&&!guarded&&(row!.state==='release_pending'||row!.state==='reserve_pending'&&observed.source==='status');
+       if(canClose){const now=Date.now();tx.update(intent,{state:'closed',...(observed.action==='release'?{releaseConfirmed:true,releaseReservationId:witness.reservationId,releaseSeconds:witness.seconds,releaseObservationSource:observed.source}:{sealConfirmed:true,sealReservationId:witness.reservationId,sealSeconds:witness.seconds,sealObservationSource:observed.source}),...(!isRecovery&&direct&&directReceipt?{directObservationReceiptHash:directReceipt,directObservationAttemptId:direct.attemptId}:{}),updatedAtMs:now});return {state:'closed',ownerBlocked:false};}
+       if(!recordReview)return {state:'needs_review',ownerBlocked:false};
+       const now=Date.now(),reviewReason=(!isRecovery&&identicalClosed?'remote_ack_closure_unverified':'remote_ack_intent_mismatch') as ExternalBillingReviewReason,reviewValid=!oldReview.exists||oldReview.get('accountId')===witness.accountId&&oldReview.get('identityKey')===witness.identityKey&&oldReview.get('intentId')===key&&oldReview.get('reservationId')===witness.reservationId&&oldReview.get('expectedSeconds')===witness.seconds;
+@@ -1568,16 +1589,19 @@ export class FirestoreBackend {
+   async quarantineExternalBillingOutbox(outboxId:string,options:ExternalBillingOutboxQuarantine):Promise<ExternalBillingOutboxQuarantineResult>{
+     if(typeof outboxId!=='string'||!outboxId||Buffer.byteLength(outboxId)>1500||outboxId==='.'||outboxId==='..'||/[\/\x00-\x1f\x7f]/.test(outboxId)||!options||!['before_ack','after_ack'].includes(options.phase))throw new LedgerFault('invalid');
+     const phase=options.phase,rawVersion=options.snapshotVersion,version=typeof rawVersion==='string'&&/^\d{1,15}:\d{9}$/.test(rawVersion)?rawVersion:null;
+     if(phase==='before_ack'&&!version)return {state:'changed',ownerBlocked:false};
+-    let after:{expected:ExternalBillingOutboxSnapshot;ack:ExternalBillingObservation;settlementSnapshot:ExternalBillingSettlementReadSnapshot|null}|null=null;
++    let after:{expected:ExternalBillingOutboxSnapshot;ack:ExternalBillingObservation;ackMatches:boolean;settlementSnapshot:ExternalBillingSettlementReadSnapshot|null}|null=null;
+     if(options.phase==='after_ack'){
+       const expected=copyOutboxSnapshot(options.expected);if(!expected)throw new LedgerFault('invalid');
+       const observation=options.ack;if(!observation)throw new LedgerFault('invalid');
+       const ack={reservationId:observation.reservationId,state:observation.state,seconds:observation.seconds};
+-      if(ack.reservationId!==expected.reservationId||ack.seconds!==expected.seconds||ack.state!==(expected.action==='capture'?'captured':'released'))throw new LedgerFault('invalid');
++      // LV-019.B 3b: an ACK that does not correspond to the row's action is a DEMONSTRATED DIVERGENCE, not a shape error. It is recorded below
++      // (needs_review + hold + guard) instead of thrown, so a divergent ACK can never be silenced leaving the row `pending` with no incident.
++      // `ackMatches` gates the two safe fast paths (already_settled and the transient retry): only a matching ACK may take them.
++      const ackMatches=ack.reservationId===expected.reservationId&&ack.seconds===expected.seconds&&ack.state===(expected.action==='capture'?'captured':'released');
+       const snapshot=copyExternalBillingSettlementReadSnapshot(options.settlementSnapshot);
+-      after={expected,ack,settlementSnapshot:snapshot&&matchesOutboxSnapshot(snapshot.expected,expected)?snapshot:null};
++      after={expected,ack,ackMatches,settlementSnapshot:snapshot&&matchesOutboxSnapshot(snapshot.expected,expected)?snapshot:null};
+     }
+     const key=hash(['billing-outbox-review-v1',outboxId,phase,version,after?safeOutboxAudit(after.expected):null]);
+     const outbox=this.ref('billingOutbox',outboxId),incident=this.ref('billingOutboxReviewIncidents',key),holdRef=this.ref('billingHoldOutbox',hash(['account-hold-v1','outbox',key])),job=uuid.test(outboxId)?this.ref('jobs',outboxId):null;
+     return this.db.runTransaction(async tx=>{
+@@ -1585,12 +1609,26 @@ export class FirestoreBackend {
+       const currentVersion=current.exists?outboxVersion(current):null;
+       // LV-019.B double ACK (docs/specs/LV-019-B-doble-ack-liquidacion.md): another drainer already settled this exact row (same document: its createTime is the one
+       // read before the POST, only its updateTime moved), and the 13 other documents this POST validated still have their pre-POST versions, so the ACK confirms
+       // that same settlement. Nothing is written; any other case is reviewed below.
+-      if(after?.settlementSnapshot&&current.exists&&current.get('state')==='settled'&&matchesOutboxSnapshot(current.data(),after.expected)){
++      if(after?.ackMatches&&after.settlementSnapshot&&current.exists&&current.get('state')==='settled'&&matchesOutboxSnapshot(current.data(),after.expected)){
+         const reread=await this.captureExternalBillingSettlement(tx,after.expected,after.settlementSnapshot.intentId),before=after.settlementSnapshot.versions.outbox,row=reread?.versions.outbox;
+         if(reread&&before.exists&&row?.exists&&before.createTime===row.createTime&&settlementDocumentNames.every(name=>name==='outbox'||JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot!.versions[name])))return {state:'already_settled',ownerBlocked:false};
+       }
++      // LV-019.B C-3 (design v2 3.1): a local failure that did not commit is not a divergence. When the ACK matches the row's action, the row itself
++      // has not moved since the pass started, it still carries the expected tuple in pending/retry_wait and the other 13 settlement documents keep
++      // their pre-POST versions, only the local mark failed. No incident, no hold and no guard: count the attempt and reschedule, bounded by the
++      // shared attempt limit. Any other case (a version moved, a differing tuple or a divergent ACK) keeps the incident + hold + block below.
++      if(after?.ackMatches&&after.settlementSnapshot&&current.exists&&['pending','retry_wait'].includes(current.get('state'))&&currentVersion===version&&matchesOutboxSnapshot(current.data(),after.expected)){
++        const reread=await this.captureExternalBillingSettlement(tx,after.expected,after.settlementSnapshot.intentId);
++        const intact=!!reread&&settlementDocumentNames.every(name=>name==='outbox'||JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot!.versions[name]));
++        if(intact){
++          const previous=current.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
++          const now=Date.now(),attempts=Number(previous)+1,delay=Math.min(15*60_000,1000*2**Math.min(attempts,10));
++          if(attempts>=EXTERNAL_BILLING_ATTEMPT_LIMIT){tx.update(outbox,{state:'needs_review',attempts,lastErrorCode:'closure_unverified',lastAttemptAtMs:now});return {state:'needs_review',ownerBlocked:false};}
++          tx.update(outbox,{state:'retry_wait',attempts,lastErrorCode:'closure_unverified',nextAttemptAt:now+delay,lastAttemptAtMs:now});return {state:'retry_wait',ownerBlocked:false};
++        }
++      }
+       if(phase==='before_ack'&&(!current.exists||!currentVersion||currentVersion!==version))return {state:'changed',ownerBlocked:false};
+       // A settled row with the same tuple alone does not prove its history was unchanged.
+       if(phase==='before_ack'&&current.get('state')==='settled')return {state:'changed',ownerBlocked:false};
+       const owner=jobDoc?await this.verifiedOutboxOwner(tx,outboxId,jobDoc,after?.expected):null;

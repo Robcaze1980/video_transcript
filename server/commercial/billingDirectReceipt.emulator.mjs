@@ -63,7 +63,7 @@ async function fixture(){
  return f;
 }
 
-test('an apparently identical direct replay stays under review without a provable committed version',async()=>{
+test('an apparently identical direct replay is accepted as the same close it already wrote',async()=>{
  const f=await fixture();
  const snapshot=await f.backend.captureDirectObservation(f.witness,f.requestKey,'status');
  assert.ok(snapshot);
@@ -71,14 +71,35 @@ test('an apparently identical direct replay stays under review without a provabl
  assert.equal(await f.backend.finishExternalBillingRelease(f.account,f.requestKey,f.billing,ack,f.witness,'status',snapshot),true);
  const closed=await f.intent.get();
  assert.equal(closed.get('state'),'closed');
- assert.equal(await f.backend.finishExternalBillingRelease(f.account,f.requestKey,f.billing,ack,f.witness,'status',snapshot),false);
+ // LV-019.B E-3: the identical re-close is the same close it already wrote, so it is accepted, not refused.
+ assert.equal(await f.backend.finishExternalBillingRelease(f.account,f.requestKey,f.billing,ack,f.witness,'status',snapshot),true);
  const result=await f.backend.recordConfirmedIntentObservation(f.witness,{action:'release',source:'status',state:'released',reservationId:f.billing.reservationId,seconds:f.billing.seconds},snapshot);
- assert.equal(result.state,'needs_review');
- assert.equal((await f.root.collection('billingIntentObservationIncidents').get()).size,1);
- assert.equal((await f.root.collection('billingReviewIncidents').doc(f.witness.intentId).get()).get('reason'),'remote_ack_closure_unverified');
+ assert.equal(result.state,'already_closed');assert.equal(result.ownerBlocked,false);
+ assert.equal((await f.root.collection('billingIntentObservationIncidents').get()).size,0,'no incident for the exact close');
+ assert.equal((await f.root.collection('billingReviewIncidents').doc(f.witness.intentId).get()).exists,false);
 });
 
-test('a later modification of the closed intent cannot pass as the original close',async()=>{
+test('a direct replay over a closed intent with a changed tuple, or a missing confirmation, stays under review',async()=>{
+ const changed=await fixture();
+ const changedSnapshot=await changed.backend.captureDirectObservation(changed.witness,changed.requestKey,'status');
+ const changedAck={reservationId:changed.billing.reservationId,seconds:changed.billing.seconds,state:'released'};
+ assert.equal(await changed.backend.finishExternalBillingRelease(changed.account,changed.requestKey,changed.billing,changedAck,changed.witness,'status',changedSnapshot),true);
+ // The stored confirmation no longer matches the observation: not the identical close.
+ await changed.intent.update({releaseReservationId:randomUUID()});
+ const different=await changed.backend.recordConfirmedIntentObservation(changed.witness,{action:'release',source:'status',state:'released',reservationId:changed.billing.reservationId,seconds:changed.billing.seconds},changedSnapshot);
+ assert.equal(different.state,'needs_review');
+ assert.equal((await changed.root.collection('billingIntentObservationIncidents').get()).size,1);
+ const missing=await fixture();
+ const missingSnapshot=await missing.backend.captureDirectObservation(missing.witness,missing.requestKey,'status');
+ const missingAck={reservationId:missing.billing.reservationId,seconds:missing.billing.seconds,state:'released'};
+ assert.equal(await missing.backend.finishExternalBillingRelease(missing.account,missing.requestKey,missing.billing,missingAck,missing.witness,'status',missingSnapshot),true);
+ const data=(await missing.intent.get()).data();delete data.releaseConfirmed;delete data.releaseReservationId;delete data.releaseSeconds;
+ await missing.intent.set(data);
+ const absent=await missing.backend.recordConfirmedIntentObservation(missing.witness,{action:'release',source:'status',state:'released',reservationId:missing.billing.reservationId,seconds:missing.billing.seconds},missingSnapshot);
+ assert.equal(absent.state,'needs_review');
+});
+
+test('an unrelated later field write on the closed intent is not a demonstrated divergence under the E-3 identity rule',async()=>{
  const f=await fixture();
  const snapshot=await f.backend.captureDirectObservation(f.witness,f.requestKey,'status');
  assert.ok(snapshot);
@@ -86,13 +107,16 @@ test('a later modification of the closed intent cannot pass as the original clos
  assert.equal(await f.backend.finishExternalBillingRelease(f.account,f.requestKey,f.billing,ack,f.witness,'status',snapshot),true);
  await f.intent.update({syntheticLaterMutation:'after-close'});
  const before=await f.intent.get();
- assert.equal(await f.backend.finishExternalBillingRelease(f.account,f.requestKey,f.billing,ack,f.witness,'status',snapshot),false);
+ // LV-019.B E-3 (design v2 3.2): the intent is compared by identity (same document, same confirmation), not by version, because the close itself
+ // moved `intent.updateTime`. A later unrelated field write is therefore not a demonstrated divergence; only a changed tuple or a recreated
+ // document is (covered by the neighboring tests).
+ assert.equal(await f.backend.finishExternalBillingRelease(f.account,f.requestKey,f.billing,ack,f.witness,'status',snapshot),true);
  const after=await f.intent.get();
  assert.ok(after.updateTime.isEqual(before.updateTime));
  assert.deepEqual(after.data(),before.data());
  const result=await f.backend.recordConfirmedIntentObservation(f.witness,{action:'release',source:'status',state:'released',reservationId:f.billing.reservationId,seconds:f.billing.seconds},snapshot);
- assert.equal(result.state,'needs_review');
- assert.equal((await f.root.collection('billingIntentObservationIncidents').get()).size,1);
+ assert.equal(result.state,'already_closed');
+ assert.equal((await f.root.collection('billingIntentObservationIncidents').get()).size,0);
 });
 
 test('a recreated closed intent cannot pass as the original close',async()=>{

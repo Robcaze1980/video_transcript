@@ -9,7 +9,7 @@ import {preProcessFile,createSourceFile,isCallExpression,isIdentifier,isStringLi
 import {runBillingSweepSection} from './billingSweepSection';
 
 const NOW=9_000_000;
-const okSummary={ok:true,generatedAtMs:NOW,reported:3,byKind:{intent:2,terminal_recovery:0,hold:1,outbox:0,job_unknown:0},attention:1,created:1,seen:0,cleared:0,superseded:0,kept:0,unverified:0,raced:0,corrupt:0,failures:[]};
+const okSummary={ok:true,generatedAtMs:NOW,reported:3,byKind:{intent:2,terminal_recovery:0,hold:1,outbox:0,job_unknown:0,guard:0},attention:1,created:1,seen:0,cleared:0,superseded:0,kept:0,unverified:0,raced:0,corrupt:0,failures:[]};
 const base=()=>({db:{} as never,root:{} as never,now:NOW,budgetMs:1000,log:vi.fn()});
 const deferred=()=>{let resolve:(v:unknown)=>void=()=>{},reject:(e:unknown)=>void=()=>{};const promise=new Promise<unknown>((res,rej)=>{resolve=res;reject=rej;});return {promise,resolve,reject};};
 /** The heartbeat is exactly one line with a fixed key set: event, timestamps, outcome and counts. */
@@ -129,7 +129,7 @@ describe('runBillingSweepSection',()=>{
     const log=vi.fn();
     const result=await runBillingSweepSection({...base(),log,enabled:true,sweep});
     expect(result).toMatchObject({reported:0,created:2,cleared:0,corrupt:0});
-    expect(result.byKind).toEqual({intent:0,terminal_recovery:0,hold:1,outbox:0,job_unknown:0});
+    expect(result.byKind).toEqual({intent:0,terminal_recovery:0,hold:1,outbox:0,job_unknown:0,guard:0});
     expect(JSON.parse(log.mock.calls[0][0]).byKind).toEqual(result.byKind);
   });
   it('an unusable budget is refused as a config error without calling the sweep and still logs',async()=>{

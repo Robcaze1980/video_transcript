@@ -93,8 +93,10 @@ describe('readPendingReport',()=>{
     const log:string[]=[];
     await readPendingReport(stubRoot({billingOutbox:[{id:'j1',data:{state:'settled',createdAtMs:1}},{id:'j2',data:{state:'retry_wait',createdAtMs:2}}]},log) as never,NOW,{pageSize:10});
     expect(log.every(l=>/^(where|orderBy|startAfter|limit|get):/.test(l))).toBe(true);
-    // Only equality queries on `state` (served by the automatic single-field index, no composite index): never `in`.
-    expect(log.filter(l=>l.startsWith('where:')).every(l=>l.split(':')[2]==='state'&&l.split(':')[3]==='==')).toBe(true);
+    // Only equality queries, each on one field (served by the automatic single-field index, no composite index): never `in`.
+    // The D-4 guard is the one source without a `state`, so it is the only allowed exception.
+    expect(log.filter(l=>l.startsWith('where:')).every(l=>{const[,name,field,op]=l.split(':');return field==='state'&&op==='=='||name==='billingGuards'&&field==='blocked'&&op==='==';})).toBe(true);
+    expect(log.filter(l=>l.startsWith('where:billingGuards:')).every(l=>l==='where:billingGuards:blocked:==:true')).toBe(true);
     const states=log.filter(l=>l.startsWith('where:')).flatMap(l=>l.split(':')[4].split('|'));
     for(const terminal of ['settled','applied','closed','job_created','insufficient','succeeded','failed','cancelled','running'])expect(states).not.toContain(terminal);
     expect(states).toEqual(expect.arrayContaining(['reserve_pending','release_pending','needs_review','retry_wait','pending','unknown']));

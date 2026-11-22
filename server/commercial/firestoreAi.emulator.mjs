@@ -630,13 +630,16 @@ test('a release failure before commit is retried with exactly one ledger movemen
  assert.equal((await c.root.collection('jobs').get()).size,0);
 });
 
-test('concurrent direct releases close at most once and an unproven replay requires review',async()=>{
+test('concurrent direct releases close exactly once and the identical replay is already_closed',async()=>{
  const c=await fixture(),p=await preparedIntent(c),observation={action:'release',source:'release_ack',reservationId:p.reservationId,seconds:2,state:'released'};
  const snapshot=await directSnapshot(c,p,'release');
  const results=await Promise.all([c.backend.finishExternalBillingRelease(c.account,p.requestKey,p.billing,observation,p.witness,'release_ack',snapshot),c.backend.finishExternalBillingRelease(c.account,p.requestKey,p.billing,observation,p.witness,'release_ack',snapshot)]);
- assert.deepEqual(results.sort(),[false,true]);const repeated=await c.backend.recordConfirmedIntentObservation(p.witness,observation,snapshot);assert.equal(repeated.state,'needs_review');
- assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,1);assert.equal((await ref(c,'billingGuards',c.account).get()).get('blocked'),true);
- assert.equal((await ref(c,'billingIntents',p.witness.intentId).get()).get('releaseConfirmed'),true);
+ // LV-019.B E-3: both callers learn the same close (idempotent), and the intent records that close exactly once.
+ assert.deepEqual(results.sort(),[true,true]);
+ const closed=await ref(c,'billingIntents',p.witness.intentId).get();assert.equal(closed.get('state'),'closed');assert.equal(closed.get('releaseConfirmed'),true);assert.equal(closed.get('sealConfirmed'),undefined);
+ const repeated=await c.backend.recordConfirmedIntentObservation(p.witness,observation,snapshot);assert.equal(repeated.state,'already_closed');assert.equal(repeated.ownerBlocked,false);
+ assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0,'no incident for the exact close');
+ assert.notEqual((await ref(c,'billingGuards',c.account).get()).get('blocked'),true);
 });
 
 function pauseObservationTransaction(c){
@@ -709,12 +712,14 @@ test('resolution-status review retains terminalAction while discarding extra fie
  assert.deepEqual(Object.keys(recorded).sort(),['action','atMs','reservationId','seconds','source','state','terminalAction']);assert.equal(recorded.terminalAction,'release');
 });
 
-test('concurrent direct seals close at most once and an unproven replay requires review',async()=>{
+test('concurrent direct seals close exactly once and the identical replay is already_closed',async()=>{
  const c=await fixture(),p=await preparedIntent(c,'seal'),observation={action:'seal',source:'seal_ack',reservationId:p.reservationId,seconds:2,state:'sealed'};
  const snapshot=await directSnapshot(c,p,'seal');
  const results=await Promise.all([c.backend.finishExternalBillingSeal(c.account,p.requestKey,p.billing,observation,p.witness,snapshot),c.backend.finishExternalBillingSeal(c.account,p.requestKey,p.billing,observation,p.witness,snapshot)]);
- assert.deepEqual(results.sort(),[false,true]);const repeated=await c.backend.recordConfirmedIntentObservation(p.witness,observation,snapshot);assert.equal(repeated.state,'needs_review');
- assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,1);assert.equal((await ref(c,'billingGuards',c.account).get()).get('blocked'),true);
+ assert.deepEqual(results.sort(),[true,true]);
+ const repeated=await c.backend.recordConfirmedIntentObservation(p.witness,observation,snapshot);assert.equal(repeated.state,'already_closed');assert.equal(repeated.ownerBlocked,false);
+ assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0,'no incident for the exact close');
+ assert.notEqual((await ref(c,'billingGuards',c.account).get()).get('blocked'),true);
  const closed=await ref(c,'billingIntents',p.witness.intentId).get();assert.equal(closed.get('sealConfirmed'),true);assert.equal(closed.get('releaseConfirmed'),undefined);
 });
 
@@ -900,27 +905,31 @@ test('terminal recovery with the witness already absent reports unverified witho
  assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0);
 });
 
-test('a locally committed release with a lost response remains under review',async()=>{
+test('a locally committed release with a lost response is recognized as the same close on the retry: already_closed, no block',async()=>{
  const c=await fixture(),p=await preparedIntent(c),original=c.backend.finishExternalBillingRelease.bind(c.backend);let releases=0;
  c.backend.finishExternalBillingRelease=async(...args)=>{assert.equal(await original(...args),true);throw Error('synthetic lost local response');};
  const billing=new AccountBillingClient(undefined,{request:async request=>{const path=new URL(request.url).pathname;if(path.endsWith('/status'))return {data:{state:'reserved',reservationId:p.reservationId,seconds:2}};
   if(path.endsWith('/release')){releases++;return {data:{state:'released',reservationId:p.reservationId,seconds:2}};}throw Error('unexpected operation');}}),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,billing);
- try{const result=await ai.drainExternalBilling();assert.equal(result.intentsFailed,1);assert.equal(releases,1);
-  assert.equal((await ref(c,'billingIntents',p.witness.intentId).get()).get('state'),'closed');assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,1);assert.equal((await ref(c,'billingGuards',c.account).get()).get('blocked'),true);
-  assert.equal((await ref(c,'billingReviewIncidents',p.witness.intentId).get()).get('reason'),'remote_ack_closure_unverified');
+ try{const result=await ai.drainExternalBilling();
+  // LV-019.B E-3 (design v2 3.2): the identical direct close the retry re-reads is accepted as already_closed; the drain counts it recovered, not failed.
+  assert.equal(result.intentsRecovered,1);assert.equal(result.intentsFailed,0);assert.equal(releases,1);
+  assert.equal((await ref(c,'billingIntents',p.witness.intentId).get()).get('state'),'closed');
+  assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0,'no incident for the exact close');
+  assert.notEqual((await ref(c,'billingGuards',c.account).get()).get('blocked'),true,'the owner is not blocked');
  }finally{c.backend.finishExternalBillingRelease=original;}
 });
 
-test('a locally committed seal with a lost response remains under review',async()=>{
+test('a locally committed seal with a lost response is recognized as the same close on the retry: already_closed, no block',async()=>{
  const c=await fixture(),p=await preparedIntent(c,'seal'),original=c.backend.finishExternalBillingSeal.bind(c.backend);let seals=0;
  c.backend.finishExternalBillingSeal=async(...args)=>{assert.equal(await original(...args),true);throw Error('synthetic lost local response');};
  const billing=new AccountBillingClient(undefined,{request:async request=>{const path=new URL(request.url).pathname;
   if(path.endsWith('/status'))throw Object.assign(Error('synthetic missing'),{response:{status:404}});
   if(path.endsWith('/seal')){seals++;return {data:{state:'sealed',reservationId:p.reservationId,seconds:2,created:true}};}throw Error('unexpected operation');}}),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,billing);
- try{const result=await ai.drainExternalBilling();assert.equal(result.intentsFailed,1);assert.equal(seals,1);
+ try{const result=await ai.drainExternalBilling();
+  assert.equal(result.intentsRecovered,1);assert.equal(result.intentsFailed,0);assert.equal(seals,1);
   const closed=await ref(c,'billingIntents',p.witness.intentId).get();assert.equal(closed.get('state'),'closed');assert.equal(closed.get('sealConfirmed'),true);
-  assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,1);assert.equal((await ref(c,'billingGuards',c.account).get()).get('blocked'),true);
-  assert.equal((await ref(c,'billingReviewIncidents',p.witness.intentId).get()).get('reason'),'remote_ack_closure_unverified');
+  assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0,'no incident for the exact close');
+  assert.notEqual((await ref(c,'billingGuards',c.account).get()).get('blocked'),true,'the owner is not blocked');
  }finally{c.backend.finishExternalBillingSeal=original;}
 });
 

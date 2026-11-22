@@ -1,0 +1,15 @@
+He revisado el contrato (`docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md`, decisiones 1–3c/5, §3.1/3.2/3.4), el recibo y las pruebas (diff de producción autoritativo). No leí los `.ts` de producción.
+
+**Hallazgos**
+
+1. **ALTA — E-3: al agotar el tope, el cierre no verificable SÍ bloquea (contradice §3.2).** Secuencia: cierre directo, respuesta perdida, `identicalClosed` y `!snapshotBound`; tras 8 drenajes el `if(attempts<EXTERNAL_BILLING_ATTEMPT_LIMIT)` deja de devolver y **cae al camino común**, que crea incidencia + hold + guard (`ownerBlocked:true`). El diseño exige `needs_review` **con alerta y sin bloqueo** salvo historia demostrada distinta; el propio camino de salida (§3.1) sí devuelve `needs_review` sin bloqueo al llegar al tope. Corrección: en el tope, escribir `state:'needs_review'`+`lastErrorCode` y `return {state:'needs_review',ownerBlocked:false}` sin incidente/hold/guard.
+
+2. **ALTA — D-4: la época del guard nunca existe en la práctica; la alerta no distingue re-bloqueos.** Los escritores de Video (según §1.1 y el diff de `quarantineExternalBillingOutbox`, que no añade `epoch`) escriben `{accountId,blocked,lastIncidentId,updatedAtMs}`; `normalizePending` cae a `epoch=1`, así que el estado es siempre `blocked:1`. Tras desbloquear (`blocked:false`/borrado) y re-bloquear, la clave `alertKey('guard',accountId,'blocked:1','needs_review')` es idéntica → el barrido cuenta un avistamiento y **no levanta una segunda alerta**. Corrección: derivar el estado/la clave de un campo que el escritor sí fije (`updatedAtMs`/`lastIncidentId`) o hacer que Video escriba `epoch`. Prueba 12b siembra `epoch:2` a mano, así que **pasa con el código roto** y no cubre el caso que el propio diseño señala (época vuelve a 1).
+
+3. **MEDIA — E-3 devuelve `needs_review` sin persistirlo.** Dentro del tope, el `tx.update` no toca `state` (la intención sigue `release_pending`/`reserve_pending`) pero retorna `{state:'needs_review'}`; §3.1/§3.2 lo describen como reintento acotado. El llamador ve `needs_review` en cada intento. Corrección: devolver un estado de reintento o persistir `needs_review`.
+
+4. **MEDIA — Paginación del camino filtrado sin prueba.** Todas las pruebas de `guard` usan ≤1 fila (< `pageSize`), así que un `startAfter`/bucle roto pasa. Falta una prueba con más filas que `pageSize`.
+
+5. **BAJA — El camino transitorio escribe antes de `verifiedOutboxOwner`**, sin verificar el dueño (a diferencia del camino de divergencia). Probablemente inocuo, pero conviene exigirlo.
+
+RESULTADO: FALLA

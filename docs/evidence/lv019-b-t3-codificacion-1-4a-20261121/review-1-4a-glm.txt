@@ -1,0 +1,16 @@
+**1. MEDIA — Divergencia real sin snapshot se trata como transitoria (E-3).**
+Estado: cierre directo ya escrito; cualquier documento del historial directo cambia después; llega un reintento **sin** snapshot directo. Eventos: la rama nueva exige `owner&&actionProven&&jobless&&guardValid&&!guarded&&identicalClosed&&current.exists` pero omite `historyMatched`, que el hermano `already_closed` (isRecovery) sí exige. Resultado: se cuenta `attempts+1` con `closure_unverified` y **sin bloqueo**, aunque la divergencia sea demostrable en transacción; el bloqueo se difiere hasta el tope. Corrección: añadir `historyMatched` (o el discriminador equivalente computable en transacción) a la rama sin snapshot; si falla, ir a la ruta de incidencia+guard.
+
+**2. MEDIA — ACK divergente silenciado cuando el fallback depende de `job()`.**
+Estado: ACK divergente; `markExternalBillingSettled` falla; `quarantineExternalBillingOutbox` también falla; la lectura del job falla o el job no existe. Eventos: el fallback hace `.catch(()=>null)` y, sin `requestKey`, no registra nada. Resultado: la fila queda `pending`, sin incidencia, sin guard; cada pasada del drenaje vuelve a POSTear. Corrección: último recurso sin dependencia del job (p. ej. `recordExternalBillingFailure` sobre la propia fila, que ya trae `accountId` y tupla en `expected`) para sacar la fila de `pending`; el incidente completo solo cuando el job responda.
+
+**3. BAJA — Alerta de guard imposible de limpiar.**
+`billingGuards` tiene `terminalStates:[]`; al desbloquear, Cuenta **borra** el guard o deja `blocked:false`. En `clearResolvedAlerts`, la fila no existe o su estado no está en la lista → `unverified` para siempre. Si el guard desaparece fuera del flujo de desbloqueo, la alerta queda abierta. Corrección: tratar documento ausente o `blocked!==true` como terminal para `kind:'guard'` (o documentar que la limpieza es responsabilidad de A5).
+
+**4. BAJA — Época inválida no es malformed.**
+Guard con `epoch:0` o no numérico → el fallback lo reporta como `blocked:1` sin marcar malformed; una fila corrupta se ve sana. Corrección: exigir `epoch>=1` o marcar malformed.
+
+**5. BAJA — Cobertura que falta.**
+No hay prueba de la rama E-3 sin snapshot (conteo, tope, divergencia real sin snapshot → ¿bloquea?); ni del reenvío tras ACK exitoso que no duplique saldo (3c); ni de la mutación `ackMatches` (ACK divergente sobre fila ya `settled` → no debe tomar el atajo `already_settled`).
+
+RESULTADO: FALLA

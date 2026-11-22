@@ -61,7 +61,7 @@ export type ExternalBillingOutboxFailureEvidence = {snapshotVersion:string;state
 export type ExternalBillingOutboxQuarantine =
   | {phase:'before_ack';snapshotVersion?:string|null}
   | {phase:'after_ack';snapshotVersion?:string|null;expected:ExternalBillingOutboxSnapshot;ack:ExternalBillingObservation;settlementSnapshot?:ExternalBillingSettlementReadSnapshot|null};
-export type ExternalBillingOutboxQuarantineResult = {state:'changed'|'already_settled'|'needs_review';ownerBlocked:boolean;incidentId?:string};
+export type ExternalBillingOutboxQuarantineResult = {state:'changed'|'already_settled'|'retry_wait'|'needs_review';ownerBlocked:boolean;incidentId?:string};
 export type Job = { aiProfile?:typeof AI_CATALOG_VERSION;snapshotSha256?:string; accountId: string; inputId: string; price: number; state: State; inputSha256: string;
   externalBilling?:ExternalVideoBilling;
   operation: string; revision: number | null; snapshot: ProjectSnapshot | null;
@@ -459,8 +459,9 @@ export class FirestoreBackend {
       return !!marker&&(source==='status'||marker[source==='seal'?'sealPrepared':'releasePrepared']===true)&&validInitialReaderPair(marker.sealPrepared,d.sealWitness,d.sealRecovery,witness,'seal')&&validInitialReaderPair(marker.releasePrepared,d.releaseWitness,d.releaseRecovery,witness,'release');
     }catch(error){if(error instanceof LedgerFault)return false;throw error;}
   }
-  private matchingDirectObservation(snapshot:DirectObservationSnapshot,d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source']){
-    return snapshot.source===source&&sameIntentWitness(snapshot.witness,witness)&&this.validDirectObservationDocs(d,witness,requestKey,source)&&directDocumentNames.every(name=>sameTerminalDocumentVersion(d[name],snapshot.versions[name]));
+  private matchingDirectObservation(snapshot:DirectObservationSnapshot,d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],options:{ignore?:readonly DirectDocumentName[];allowClosed?:boolean}={}){
+    const ignore=options.ignore??[];
+    return snapshot.source===source&&sameIntentWitness(snapshot.witness,witness)&&this.validDirectObservationDocs(d,witness,requestKey,source,options.allowClosed??false)&&directDocumentNames.every(name=>ignore.includes(name)||sameTerminalDocumentVersion(d[name],snapshot.versions[name]));
   }
   /**
    * Preserve a returned read whose original local history changed. This is not a
@@ -1060,6 +1061,38 @@ export class FirestoreBackend {
       // Until a provable post-commit version is available, even an apparently identical
       // direct retry goes to review. Recovery-status has its own different snapshot rules.
       if(isRecovery&&owner&&actionProven&&jobless&&guardValid&&!guarded&&identicalClosed&&historyMatched)return {state:'already_closed',ownerBlocked:false};
+      // LV-019.B E-3 (design v2 3.2): the direct path accepts the identical close it already wrote. The write itself moved `intent.updateTime`,
+      // so the intent is compared by identity (same document: same createTime) instead of by version, while every other direct document must
+      // still show its pre-close version. A later rewrite that recreates the intent (new createTime) keeps the review. No block, nothing written.
+      let directIntentSameDocument=false;
+      if(!isRecovery&&direct&&direct.versions.intent.exists&&current.exists){const version=terminalDocumentVersion(current);directIntentSameDocument=!!version&&version.exists&&version.createTime===direct.versions.intent.createTime;}
+      const directClosedMatch=!isRecovery&&!!direct&&!!directDocs&&snapshotBound&&typeof requestKey==='string'&&this.matchingDirectObservation(direct,directDocs,witness,requestKey,directSource,{ignore:['intent'],allowClosed:true});
+      if(!isRecovery&&owner&&actionProven&&jobless&&guardValid&&!guarded&&identicalClosed&&directClosedMatch&&directIntentSameDocument)return {state:'already_closed',ownerBlocked:false};
+      // LV-019.B E-3 (design v2 3.2): an identical-looking retry with NO snapshot cannot be proven to be the close it already wrote (there is
+      // nothing to compare: GLM 1 adjudicated), so it is transient, not a divergence. Below the limit the intent KEEPS its current `closed` state and
+      // is only rescheduled (DeepSeek 3 adjudicated: the below-limit branch is intentionally non-persistent of `needs_review` and relies on the caller's
+      // retry after `nextAttemptAt`); the attempt is counted on the intent itself with the shared wait and code `closure_unverified`.
+      // At the limit the intent moves to `needs_review` WITHOUT blocking the owner (design v2 3.2: only a demonstrated divergence blocks). Once it is at
+      // the limit a further identical snapshot-less retry is a no-op that returns `needs_review` again (no incident, no hold, no guard, no balance).
+      // A demonstrated divergence (a snapshot exists and some document's version moved, a differing tuple or a missing confirmation) never reaches this
+      // branch, so the incident + hold + block below are kept exactly as today.
+      const confirmationMatches=!!row&&(observed.action==='release'?row.releaseConfirmed===true&&row.releaseReservationId===witness.reservationId&&row.releaseSeconds===witness.seconds&&row.sealConfirmed!==true:row.sealConfirmed===true&&row.sealReservationId===witness.reservationId&&row.sealSeconds===witness.seconds&&row.releaseConfirmed!==true);
+      const closureUnverifiedPending=!!row&&row.state==='needs_review'&&row.lastErrorCode==='closure_unverified';
+      if(recordReview&&!isRecovery&&!snapshotBound&&owner&&actionProven&&jobless&&guardValid&&!guarded&&same&&confirmationMatches&&current.exists&&(row!.state==='closed'||closureUnverifiedPending)){
+        // Already at the limit: the intent stays `needs_review` for a human; an identical retry adds nothing and must never block.
+        if(closureUnverifiedPending)return {state:'needs_review',ownerBlocked:false};
+        const previous=current.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
+        const attempts=Number(previous)+1,nowMs=Date.now();
+        if(attempts<EXTERNAL_BILLING_ATTEMPT_LIMIT){
+          const delay=Math.min(15*60_000,1000*2**Math.min(attempts,10));
+          tx.update(intent,{attempts,lastErrorCode:'closure_unverified',nextAttemptAt:nowMs+delay,lastAttemptAtMs:nowMs,updatedAtMs:nowMs});
+          return {state:'needs_review',ownerBlocked:false};
+        }
+        // The attempt limit is reached: the intent is surfaced for a human with an alert, but the owner is NOT blocked (no incident, no hold, no guard,
+        // no balance movement). The report's `intent` source lists `needs_review`, so the Video sweep raises exactly one alert for this row.
+        tx.update(intent,{state:'needs_review',attempts,lastErrorCode:'closure_unverified',lastAttemptAtMs:nowMs,updatedAtMs:nowMs});
+        return {state:'needs_review',ownerBlocked:false};
+      }
       const canClose=owner&&actionProven&&historyMatched&&same&&jobless&&guardValid&&!guarded&&(row!.state==='release_pending'||row!.state==='reserve_pending'&&observed.source==='status');
       if(canClose){const now=Date.now();tx.update(intent,{state:'closed',...(observed.action==='release'?{releaseConfirmed:true,releaseReservationId:witness.reservationId,releaseSeconds:witness.seconds,releaseObservationSource:observed.source}:{sealConfirmed:true,sealReservationId:witness.reservationId,sealSeconds:witness.seconds,sealObservationSource:observed.source}),...(!isRecovery&&direct&&directReceipt?{directObservationReceiptHash:directReceipt,directObservationAttemptId:direct.attemptId}:{}),updatedAtMs:now});return {state:'closed',ownerBlocked:false};}
       if(!recordReview)return {state:'needs_review',ownerBlocked:false};
@@ -1699,14 +1732,17 @@ export class FirestoreBackend {
     if(typeof outboxId!=='string'||!outboxId||Buffer.byteLength(outboxId)>1500||outboxId==='.'||outboxId==='..'||/[\/\x00-\x1f\x7f]/.test(outboxId)||!options||!['before_ack','after_ack'].includes(options.phase))throw new LedgerFault('invalid');
     const phase=options.phase,rawVersion=options.snapshotVersion,version=typeof rawVersion==='string'&&/^\d{1,15}:\d{9}$/.test(rawVersion)?rawVersion:null;
     if(phase==='before_ack'&&!version)return {state:'changed',ownerBlocked:false};
-    let after:{expected:ExternalBillingOutboxSnapshot;ack:ExternalBillingObservation;settlementSnapshot:ExternalBillingSettlementReadSnapshot|null}|null=null;
+    let after:{expected:ExternalBillingOutboxSnapshot;ack:ExternalBillingObservation;ackMatches:boolean;settlementSnapshot:ExternalBillingSettlementReadSnapshot|null}|null=null;
     if(options.phase==='after_ack'){
       const expected=copyOutboxSnapshot(options.expected);if(!expected)throw new LedgerFault('invalid');
       const observation=options.ack;if(!observation)throw new LedgerFault('invalid');
       const ack={reservationId:observation.reservationId,state:observation.state,seconds:observation.seconds};
-      if(ack.reservationId!==expected.reservationId||ack.seconds!==expected.seconds||ack.state!==(expected.action==='capture'?'captured':'released'))throw new LedgerFault('invalid');
+      // LV-019.B 3b: an ACK that does not correspond to the row's action is a DEMONSTRATED DIVERGENCE, not a shape error. It is recorded below
+      // (needs_review + hold + guard) instead of thrown, so a divergent ACK can never be silenced leaving the row `pending` with no incident.
+      // `ackMatches` gates the two safe fast paths (already_settled and the transient retry): only a matching ACK may take them.
+      const ackMatches=ack.reservationId===expected.reservationId&&ack.seconds===expected.seconds&&ack.state===(expected.action==='capture'?'captured':'released');
       const snapshot=copyExternalBillingSettlementReadSnapshot(options.settlementSnapshot);
-      after={expected,ack,settlementSnapshot:snapshot&&matchesOutboxSnapshot(snapshot.expected,expected)?snapshot:null};
+      after={expected,ack,ackMatches,settlementSnapshot:snapshot&&matchesOutboxSnapshot(snapshot.expected,expected)?snapshot:null};
     }
     const key=hash(['billing-outbox-review-v1',outboxId,phase,version,after?safeOutboxAudit(after.expected):null]);
     const outbox=this.ref('billingOutbox',outboxId),incident=this.ref('billingOutboxReviewIncidents',key),holdRef=this.ref('billingHoldOutbox',hash(['account-hold-v1','outbox',key])),job=uuid.test(outboxId)?this.ref('jobs',outboxId):null;
@@ -1716,9 +1752,31 @@ export class FirestoreBackend {
       // LV-019.B double ACK (docs/specs/LV-019-B-doble-ack-liquidacion.md): another drainer already settled this exact row (same document: its createTime is the one
       // read before the POST, only its updateTime moved), and the 13 other documents this POST validated still have their pre-POST versions, so the ACK confirms
       // that same settlement. Nothing is written; any other case is reviewed below.
-      if(after?.settlementSnapshot&&current.exists&&current.get('state')==='settled'&&matchesOutboxSnapshot(current.data(),after.expected)){
+      if(after?.ackMatches&&after.settlementSnapshot&&current.exists&&current.get('state')==='settled'&&matchesOutboxSnapshot(current.data(),after.expected)){
         const reread=await this.captureExternalBillingSettlement(tx,after.expected,after.settlementSnapshot.intentId),before=after.settlementSnapshot.versions.outbox,row=reread?.versions.outbox;
         if(reread&&before.exists&&row?.exists&&before.createTime===row.createTime&&settlementDocumentNames.every(name=>name==='outbox'||JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot!.versions[name])))return {state:'already_settled',ownerBlocked:false};
+      }
+      // LV-019.B C-3 (design v2 3.1): a local failure that did not commit is not a divergence. When the ACK matches the row's action, the row still
+      // carries the expected tuple in pending/retry_wait and the other 13 settlement documents keep their pre-POST versions, only the local mark
+      // failed. The row's OWN version (updateTime) is deliberately NOT part of the discriminator (design v2 3.1): another drainer may record a local
+      // failure on the same row (same tuple, still pending/retry_wait, no lease, history intact) and that benign race is still transient. A lease means
+      // a NEWER turn actively owns the row (a real divergence: it already re-leased the row for another pass), so a leased row is never rescheduled here.
+      // The row's DOCUMENT IDENTITY (createTime) IS required, the same as the `already_settled` shortcut: a row deleted and recreated with the same
+      // tuple is a DIFFERENT document and a demonstrated divergence, not the row the pass read (DeepSeek 2). The expected tuple already includes
+      // accountId and identityKey and matchesOutboxSnapshot compares them, so this path needs no separate owner check (review adjudication DeepSeek 5).
+      // No incident, no hold and no guard here: count the attempt and reschedule, bounded by the shared attempt limit. Any other case (a version of one
+      // of the 13 other documents moved, a differing tuple, a recreated row, a lease or a divergent ACK) keeps the incident + hold + block below.
+      if(after?.ackMatches&&after.settlementSnapshot&&current.exists&&['pending','retry_wait'].includes(current.get('state'))&&!hasIntentLease(current.data()!)&&matchesOutboxSnapshot(current.data(),after.expected)){
+        const beforeOutbox=after.settlementSnapshot.versions.outbox,currentOutbox=terminalDocumentVersion(current);
+        const sameOutboxDocument=!!beforeOutbox&&beforeOutbox.exists&&!!currentOutbox&&currentOutbox.exists&&beforeOutbox.createTime===currentOutbox.createTime;
+        const reread=await this.captureExternalBillingSettlement(tx,after.expected,after.settlementSnapshot.intentId);
+        const intact=sameOutboxDocument&&!!reread&&settlementDocumentNames.every(name=>name==='outbox'||JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot!.versions[name]));
+        if(intact){
+          const previous=current.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
+          const now=Date.now(),attempts=Number(previous)+1,delay=Math.min(15*60_000,1000*2**Math.min(attempts,10));
+          if(attempts>=EXTERNAL_BILLING_ATTEMPT_LIMIT){tx.update(outbox,{state:'needs_review',attempts,lastErrorCode:'closure_unverified',lastAttemptAtMs:now});return {state:'needs_review',ownerBlocked:false};}
+          tx.update(outbox,{state:'retry_wait',attempts,lastErrorCode:'closure_unverified',nextAttemptAt:now+delay,lastAttemptAtMs:now});return {state:'retry_wait',ownerBlocked:false};
+        }
       }
       if(phase==='before_ack'&&(!current.exists||!currentVersion||currentVersion!==version))return {state:'changed',ownerBlocked:false};
       // A settled row with the same tuple alone does not prove its history was unchanged.

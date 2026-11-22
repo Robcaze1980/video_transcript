@@ -312,7 +312,16 @@ export class FirestoreAi {
     if(q.state!=='already_settled')failed++;
    }catch(error){
     failed++;
-    if(ack&&expected&&typeof row.id==='string')await this.backend.quarantineExternalBillingOutbox(row.id,{phase:'after_ack',snapshotVersion:row.snapshotVersion,expected,ack,settlementSnapshot}).catch(()=>undefined);
+    if(ack&&expected&&typeof row.id==='string'){
+     // LV-019.B 3b (design v2): a throw from the quarantine must never be swallowed leaving the row pending with no alert. The quarantine records
+     // the divergent ACK itself; if that write also fails, fall back to the durable review incident so the owner is blocked and a human sees it.
+     try{await this.backend.quarantineExternalBillingOutbox(row.id,{phase:'after_ack',snapshotVersion:row.snapshotVersion,expected,ack,settlementSnapshot});}
+     catch{
+           // The outbox row has no requestKey; it is resolved from the job that owns the row (the same document the quarantine reads).
+           const job=await this.backend.job(row.accountId,row.id).catch(()=>null);
+           if(job&&typeof job.requestKey==='string')await this.backend.recordExternalBillingReview(row.accountId,job.requestKey,{provider:expected.provider,identityKey:expected.identityKey,reservationId:expected.reservationId,seconds:expected.seconds},ack).catch(()=>undefined);
+          }
+    }
     else if(expected&&typeof row.id==='string'&&typeof row.snapshotVersion==='string'&&['pending','retry_wait'].includes(row.state))await this.backend.recordExternalBillingFailure(row.id,error instanceof AccountBillingFault?error.code:'unavailable',{snapshotVersion:row.snapshotVersion,state:row.state,outbox:expected}).catch(()=>undefined);
    }
   }

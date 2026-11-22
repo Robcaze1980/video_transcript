@@ -22,7 +22,7 @@ describe('summarizeQueues',()=>{
   it('counts sizes, states, attention, ages and error codes exactly',async()=>{
     const s=seed(),c=await summarizeQueues(readOnlyRoot(s.root as never),NOW);
     expect(c.generatedAtMs).toBe(NOW);
-    expect(c.sizes).toEqual({billingIntents:6,billingIntentTerminalRecovery:1,billingHoldOutbox:3,billingOutbox:3,jobs:2});
+    expect(c.sizes).toEqual({billingIntents:6,billingIntentTerminalRecovery:1,billingHoldOutbox:3,billingOutbox:3,jobs:2,billingGuards:0});
     expect(c.report.total).toBe(11);
     const i=c.report.byKind.intent;
     expect(i.total).toBe(5);expect(i.byState).toEqual({reserve_pending:3,release_pending:1,needs_review:1});
@@ -47,7 +47,7 @@ describe('summarizeQueues',()=>{
   });
   it('an empty root gives zeros and null ages',async()=>{
     const c=await summarizeQueues(readOnlyRoot(stub({}).root as never),NOW);
-    expect(Object.values(c.sizes)).toEqual([0,0,0,0,0]);expect(c.report.total).toBe(0);expect(c.report.oldestAgeMs).toBeNull();
+    expect(Object.values(c.sizes)).toEqual([0,0,0,0,0,0]);expect(c.report.total).toBe(0);expect(c.report.oldestAgeMs).toBeNull();
     for(const kind of Object.values(c.report.byKind)){expect(kind.total).toBe(0);expect(kind.oldestAgeMs).toBeNull();expect(kind.byState).toEqual({});}
     expect(c.report.byLastErrorCode).toEqual({});
   });

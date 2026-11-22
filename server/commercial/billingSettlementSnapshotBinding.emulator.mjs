@@ -175,5 +175,6 @@ test('a second ACK for a settled row with a different tuple, no snapshot, or a r
  assert.equal(missing.result.state,'needs_review');assert.equal(missing.incidents.size,1);
  const three=await settlementFixture(),{expected,snapshot}=await expectedAndSnapshot(three.c,three.id),version=await versionOf(three.c,three.id);
  const pending=await three.c.backend.quarantineExternalBillingOutbox(three.id,{phase:'after_ack',snapshotVersion:version,expected,ack:ackFor(expected),settlementSnapshot:snapshot});
- assert.equal(pending.state,'needs_review');assert.equal((await ref(three.c,'billingOutbox',three.id).get()).get('state'),'needs_review');
+  // LV-019.B C-3: a matching ACK on a not-yet-settled row with intact history is a transient local failure, not a divergence.
+  assert.equal(pending.state,'retry_wait');assert.equal(pending.ownerBlocked,false);assert.equal((await ref(three.c,'billingOutbox',three.id).get()).get('state'),'retry_wait');
 });

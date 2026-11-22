@@ -1,0 +1,16 @@
+7
+c3-samedoc-removed               unit=survived emulator=KILLED
+c3-samedoc-createtime-ignored    unit=survived emulator=KILLED
+c3-samedoc-updatetime-instead    unit=survived emulator=KILLED
+c3-version-reintroduced          unit=survived emulator=KILLED
+c3-intact-ignored                unit=survived emulator=KILLED
+c3-no-attempt-limit              unit=survived emulator=KILLED
+c3-ack-match-ignored             unit=survived emulator=KILLED
+final restore verified: True
+survivors: []
+DONE
+firestoreBackend.ts idéntico
+firestoreAi.ts idéntico
+billingPendingReport.ts idéntico
+
+[exited with code 0]

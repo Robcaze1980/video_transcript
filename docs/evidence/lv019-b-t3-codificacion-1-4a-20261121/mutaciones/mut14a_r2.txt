@@ -1,0 +1,22 @@
+c3-ack-match-ignored             unit=survived emulator=KILLED
+c3-version-reintroduced          unit=survived emulator=KILLED
+c3-lease-ignored                 unit=survived emulator=survived
+c3-intact-ignored                unit=survived emulator=KILLED
+c3-no-attempt-limit              unit=survived emulator=KILLED
+c3-attempt-not-counted           unit=survived emulator=KILLED
+already-settled-ack-mismatch-ok  unit=survived emulator=KILLED
+divergent-ack-throws             unit=survived emulator=KILLED
+e3-same-document-unchecked       unit=survived emulator=KILLED
+e3-ignore-all-versions           unit=survived emulator=KILLED
+e3-count-with-snapshot           unit=survived emulator=KILLED
+e3-never-reaches-review          unit=survived emulator=KILLED
+e3-limit-not-persisted           unit=survived emulator=KILLED
+e3-pending-retry-recounts        unit=survived emulator=survived
+guard-epoch-constant             unit=KILLED emulator=-
+guard-epoch-invalid-ok           unit=KILLED emulator=-
+guard-filter-false               unit=KILLED emulator=-
+guard-no-incident-ok             unit=KILLED emulator=-
+catch-fallback-removed           unit=survived emulator=KILLED
+final restore verified: True
+survivors: ['c3-lease-ignored', 'e3-pending-retry-recounts']
+DONE

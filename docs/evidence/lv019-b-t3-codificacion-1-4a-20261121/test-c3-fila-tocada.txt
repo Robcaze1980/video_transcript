@@ -1,0 +1,16 @@
+
+// Codex certification test (step 1.4a): the C-3 discriminator is the 13 OTHER documents and the tuple (design 3.1), NOT the outbox row's own version.
+test('1 positive: a benign write to the outbox row itself (another drainer recorded a failure) with intact history is still a transient retry',{timeout:30000},async()=>{
+  const c=await fixture('c3_row_touched'),job=await releaseJob(c);
+  const {expected,snapshot}=await expectedAndSnapshot(c,job.id),staleVersion=await versionOf(c,job.id);
+  // Another drainer lost its own local mark too and recorded the failure on the same row: same tuple, still retry_wait, other documents untouched.
+  await outbox(c,job.id).update({state:'retry_wait',attempts:1,lastErrorCode:'unavailable',nextAttemptAt:Date.now()+1000,lastAttemptAtMs:Date.now()});
+  assert.notEqual(await versionOf(c,job.id),staleVersion,'the row version really moved');
+  const result=await c.backend.quarantineExternalBillingOutbox(job.id,{phase:'after_ack',snapshotVersion:staleVersion,expected,ack:ackFor(expected),settlementSnapshot:snapshot});
+  assert.deepEqual(result,{state:'retry_wait',ownerBlocked:false});
+  const row=await outbox(c,job.id).get();
+  assert.equal(row.get('state'),'retry_wait');assert.equal(row.get('attempts'),2);
+  assert.equal((await c.root.collection('billingOutboxReviewIncidents').get()).size,0,'no incident for a benign race');
+  assert.notEqual((await ref(c.root,'billingGuards',c.account).get()).get('blocked'),true,'the owner must not be blocked by a benign race');
+  assert.equal((await c.root.collection('billingHoldOutbox').get()).size,0);
+});

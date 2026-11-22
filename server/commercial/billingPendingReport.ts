@@ -8,11 +8,11 @@
  */
 import type {DocumentReference,DocumentSnapshot} from 'firebase-admin/firestore';
 
-export type PendingKind='intent'|'terminal_recovery'|'hold'|'outbox'|'job_unknown';
+export type PendingKind='intent'|'terminal_recovery'|'hold'|'outbox'|'job_unknown'|'guard';
 export type PendingAttention='needs_review'|'malformed'|'unknown_age'|'pending';
 
 /** `terminalStates` lets the opt-in audit tell a finished row from an unexpected one; null = audit not supported (jobs have too many valid states). */
-export interface PendingSource{kind:PendingKind;collection:string;states:readonly string[];terminalStates:readonly string[]|null}
+export interface PendingSource{kind:PendingKind;collection:string;states:readonly string[];terminalStates:readonly string[]|null;/** A single equality field for sources without a `state` (the D-4 guard); served by Firestore's automatic single-field index. */filter?:{field:string;value:string|number|boolean}}
 /** Only non-terminal states are ever queried; terminal ones (settled, applied, closed...) are absent on purpose. */
 export const PENDING_SOURCES:readonly PendingSource[]=Object.freeze([
   {kind:'intent',collection:'billingIntents',states:['reserve_pending','release_pending','needs_review'],terminalStates:['closed','insufficient','job_created']},
@@ -20,6 +20,8 @@ export const PENDING_SOURCES:readonly PendingSource[]=Object.freeze([
   {kind:'hold',collection:'billingHoldOutbox',states:['pending','needs_review'],terminalStates:['applied']},
   {kind:'outbox',collection:'billingOutbox',states:['pending','retry_wait','needs_review'],terminalStates:['settled']},
   {kind:'job_unknown',collection:'jobs',states:['unknown'],terminalStates:null},
+  // LV-019.B D-4: one blocked account, one alert. `blocked == true` is one equality on one field, no composite index; the row has no `state`.
+  {kind:'guard',collection:'billingGuards',states:[],terminalStates:[],filter:{field:'blocked',value:true}},
 ]);
 
 export interface PendingRow{kind:PendingKind;id:string;state:string;createdAtMs:number|null;nextAttemptAt:number|null;attempts:number|null;lastErrorCode:string|null;accountId:string|null;malformed:boolean}
@@ -29,7 +31,7 @@ export interface PendingReport{generatedAtMs:number;total:number;byKind:Record<P
 const nonNegativeInteger=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The only codes the writers can store (firestoreBackend.ts failure recorders coerce anything else to 'unavailable'). */
-const errorCode=/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden|reserved_unconfirmed)$/;
+const errorCode=/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden|reserved_unconfirmed|closure_unverified)$/;
 
 /** Copies only what an operator needs; identity keys, uids and emails are never copied. */
 export function normalizePending(kind:PendingKind,id:string,data:Record<string,unknown>|undefined):PendingRow{
@@ -43,13 +45,23 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
   const accountId=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null;
   const malformed=!data||typeof data!=='object'||!state||(present(d.createdAtMs)&&createdAtMs===null)||(present(d.nextAttemptAt)&&nextAttemptAt===null)||(present(d.attempts)&&attempts===null)||
     (present(d.lastErrorCode)&&lastErrorCode===null)||(present(d.accountId)&&accountId===null);
+  if(kind==='guard'){
+    // A blocked account is its own row. Its state carries the guard epoch, so an account blocked again after a release is a new alert;
+    // a guard with neither incident nor hold ref cannot be attributed to anything and is malformed (the writers create incident and hold in the same transaction).
+    // The Video guard carries no `epoch` until step 1.4b: a guard WITHOUT `epoch` is a normal `blocked:1` row, but an epoch that is PRESENT and
+    // invalid (0, negative, non-integer, a string) is a malformed guard and must never be silently read as `blocked:1`. The 1.4b unblock/re-block
+    // must write a growing `epoch` plus `createdAtMs`, and this key will then use them. No guard writer is changed here.
+    const hasEpoch=present(d.epoch),validEpoch=hasEpoch&&Number.isSafeInteger(d.epoch)&&(d.epoch as number)>=1,epoch=validEpoch?d.epoch as number:1;
+    const guardAccount=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null,incident=present(d.lastIncidentId)||present(d.lastOutboxIncidentId);
+    return {kind,id,state:'blocked:'+epoch,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:guardAccount,malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incident||(hasEpoch&&!validEpoch)};
+  }
   return {kind,id,state,createdAtMs,nextAttemptAt,attempts,lastErrorCode,accountId,malformed};
 }
 
-const kindOrder:Record<PendingKind,number>={intent:0,terminal_recovery:1,hold:2,outbox:3,job_unknown:4};
+const kindOrder:Record<PendingKind,number>={intent:0,terminal_recovery:1,hold:2,outbox:3,job_unknown:4,guard:5};
 function attentionOf(row:PendingRow):PendingAttention{
   if(row.malformed)return 'malformed';
-  if(row.state==='needs_review')return 'needs_review';
+  if(row.state==='needs_review'||row.state.startsWith('blocked:'))return 'needs_review';
   if(row.createdAtMs===null)return 'unknown_age';
   return 'pending';
 }
@@ -65,7 +77,7 @@ export function buildPendingReport(input:readonly PendingRow[],nowMs:number):Pen
     if(a.kind!==b.kind)return kindOrder[a.kind]-kindOrder[b.kind];
     return a.id<b.id?-1:a.id>b.id?1:0;
   });
-  const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0};
+  const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0,guard:0};
   for(const row of rows)byKind[row.kind]++;
   return {generatedAtMs:nowMs,total:rows.length,byKind,oldest:rows.find(row=>row.createdAtMs!==null)??null,attention:rows.filter(row=>row.attention!=='pending'),rows};
 }
@@ -84,7 +96,20 @@ export async function readPendingReport(root:DocumentReference,nowMs:number,opti
   const rows:PendingRow[]=[];
   for(const source of PENDING_SOURCES){
     const audit=options.audit===true&&source.terminalStates!==null;
-    const terminal=new Set(source.terminalStates??[]),listed=new Set(source.states);
+    const terminal=new Set(source.terminalStates??[]),listed=new Set(source.states),filter=source.filter;
+    // A filtered source (the guard) has no `state`: one equality on one field, paged by document id, in both modes.
+    if(filter){
+      let lastFiltered:DocumentSnapshot|null=null;
+      for(;;){
+        let query=root.collection(source.collection).where(filter.field,'==',filter.value).orderBy('__name__');
+        if(lastFiltered)query=query.startAfter(lastFiltered);
+        const page=await query.limit(pageSize).get();
+        for(const doc of page.docs)rows.push(normalizePending(source.kind,doc.id,doc.data() as Record<string,unknown>|undefined));
+        if(page.docs.length<pageSize)break;
+        lastFiltered=page.docs[page.docs.length-1];
+      }
+      continue;
+    }
     // Audit mode scans the whole collection once; the default mode runs one equality query per listed state.
     for(const only of audit?[null]:source.states){
       let last:DocumentSnapshot|null=null;

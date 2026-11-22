@@ -31,7 +31,7 @@ try{
   const fast=await readPendingReport(root,NOW,{pageSize:25});
   assert.equal(fast.total,130+1+1+1+1+1,'fast: 130 future + due + hold + outbox + recovery + unknown job');
   assert.equal(fast.rows[0].id,'due');assert.equal(new Set(fast.rows.map(r=>r.kind+r.id)).size,fast.total);
-  assert.deepEqual(fast.byKind,{intent:131,terminal_recovery:1,hold:1,outbox:1,job_unknown:1});
+  assert.deepEqual(fast.byKind,{intent:131,terminal_recovery:1,hold:1,outbox:1,job_unknown:1,guard:0});
   assert.ok(!fast.rows.some(r=>['done','h2','o2','j2','nostate','numstate'].includes(r.id)),'fast mode must not see terminal rows nor unusable-state rows');
   assert.ok(fast.rows.find(r=>r.id==='h1').attention==='needs_review');
   const audit=await readPendingReport(root,NOW,{pageSize:25,audit:true});
