@@ -1,0 +1,420 @@
+diff --git a/server/commercial/firestoreA3Exit.emulator.mjs b/server/commercial/firestoreA3Exit.emulator.mjs
+new file mode 100644
+index 0000000..49fd972
+--- /dev/null
++++ b/server/commercial/firestoreA3Exit.emulator.mjs
+@@ -0,0 +1,213 @@
++﻿// LV-019-B step 1.3a: A-3 timeout exit. This fixture runs a REAL AccountStore behind a local
++// adapter against the fixed emulator. It covers the deadline fence and the conflict close paths.
++// Every wait is bounded and every Firestore client is terminated in a finally block.
++import assert from 'node:assert/strict';
++import {after,afterEach,before,test} from 'node:test';
++import {createHash,randomUUID} from 'node:crypto';
++import {FieldValue,Firestore} from 'firebase-admin/firestore';
++import {FirestoreBackend} from './firestoreBackend.ts';
++import {FirestoreAi} from './firestoreAi.ts';
++import {AccountBillingClient,accountIdentityKey} from './accountBillingClient.ts';
++import {AccountStore} from '../account/backend.ts';
++import {privateBucket} from './privateObjectPlan.ts';
++
++const project='demo-vistavo-ledger',host='127.0.0.1:8185';
++const videoCollection='vistavo_a3_exit_video_synthetic',accountCollection='vistavo_a3_exit_ledger_synthetic';
++const WORK_TIMEOUT_MS=180000,CLEANUP_TIMEOUT_MS=45000,TERMINATE_TIMEOUT_MS=15000;
++const sha=value=>createHash('sha256').update(value).digest('hex');
++const contexts=[];
++let created=0,cleaned=0;
++const bounded=(promise,ms,label)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout: '+label)),ms))]);
++const ref=(root,collection,id)=>root.collection(collection).doc(id);
++const reservationDoc=(c,reservationId)=>ref(c.accountRoot,'videoReservations',sha(JSON.stringify([c.accountOwner,reservationId])));
++const intentRef=(c,requestKey)=>ref(c.root,'billingIntents',sha(JSON.stringify([c.account,requestKey])));
++async function descendants(root,found=[]){for(const collection of await root.listCollections())for(const doc of await collection.listDocuments()){found.push(doc.ref);await descendants(doc.ref,found);}return found;}
++
++before(async()=>{assert.equal(process.env.NODE_ENV,'test');assert.equal(process.env.FIRESTORE_EMULATOR_HOST,host);assert.equal((await fetch('http://127.0.0.1:8185/',{signal:AbortSignal.timeout(5000)})).status,200);});
++afterEach(async()=>{
++ for(const c of contexts.splice(0)){
++  try{
++   for(const entry of c.roots){const known=await descendants(entry.root);await bounded(c.db.recursiveDelete(entry.root),CLEANUP_TIMEOUT_MS,'cleanup '+entry.root.path);assert.equal((await entry.root.get()).exists,false);for(const doc of known)assert.equal((await doc.get()).exists,false);}
++   cleaned++;
++  }finally{try{await bounded(c.db.terminate(),TERMINATE_TIMEOUT_MS,'terminate');}catch{}}
++ }
++});
++after(()=>{assert.equal(cleaned,created);});
++
++const accountStatus={invalid:400,not_found:404,account_not_provisioned:404,conflict:409,deleted:410,quota:429,insufficient:402,invariant:503,too_early:409,forbidden:403};
++class LocalAccountTransport{
++ bodies=[];
++ constructor(store){this.store=store;}
++ async request(request){
++  const pathname=new URL(request.url).pathname,body=request.data??{},bodies=this.bodies;bodies.push({path:pathname,body});
++  const parts=pathname.split('/'),reservationId=parts.at(-2);
++  const httpFault=(status,code)=>Object.assign(new Error('synthetic account fault'),{response:{status,data:{error:code}}});
++  const guard=async action=>{try{return {data:await action()};}catch(error){if(error?.response)throw error;throw httpFault(accountStatus[error?.code]??503,error?.code??'invariant');}};
++  if(pathname==='/api/internal/video/reservations')return guard(async()=>({...await this.store.reserveVideo(body.identityKey,body.reservationId,body.seconds),reservationId:body.reservationId}));
++  if(pathname.endsWith('/status'))return guard(()=>this.store.videoReservation(body.identityKey,reservationId));
++  if(pathname.endsWith('/release')||pathname.endsWith('/capture')){
++   const action=pathname.endsWith('/release')?'release':'capture';
++   const admission=body.jobId!==undefined?{jobId:body.jobId,attemptId:body.attemptId}:undefined;
++   const options=body.resolutionKind!==undefined?{resolution:{kind:body.resolutionKind,evidenceSha256:body.evidenceSha256}}:body.capturedSeconds!==undefined?{capturedSeconds:body.capturedSeconds}:undefined;
++   return guard(async()=>({...await this.store.settleVideo(body.identityKey,reservationId,action,body.seconds,admission,options),reservationId}));
++  }
++  throw httpFault(404,'not_found');
++ }
++}
++async function fixture(scope){
++ const db=new Firestore({projectId:project,host,ssl:false,preferRest:false});
++ const root=db.collection(videoCollection).doc(randomUUID()),accountRoot=db.collection(accountCollection).doc(randomUUID());
++ const c={scope,db,root,accountRoot,roots:[{root},{root:accountRoot}]};
++ contexts.push(c);created++;
++ for(const entry of c.roots)await entry.root.create({purpose:'a3-exit-synthetic',nonce:randomUUID()});
++ c.backend=new FirestoreBackend(db,root);c.store=new AccountStore(db,accountRoot);
++ c.uid='a3-exit-owner-'+randomUUID();c.account=await c.backend.accountForUid(c.uid);
++ await ref(root,'accounts',c.account).update({aiPilot:true,simulationOnly:true,credited:40,available:40});
++ const boot=await c.store.bootstrap(c.uid);c.accountOwner=boot.account.id;
++ await ref(accountRoot,'accounts',c.accountOwner).update({credited:40,available:40});
++ c.identity=accountIdentityKey(c.uid);
++ c.input=randomUUID();const source=Buffer.from('synthetic A3 source placeholder');
++ await ref(root,'inputs',c.input).create({accountId:c.account,expiresAtMs:Date.now()+3600000,sha256:sha(source),ready:true,unknown:false,duration:2,audioTracks:1});
++ await c.backend.saveProject(c.account,c.input,0,'A3 synthetic source');
++ c.transport=new LocalAccountTransport(c.store);
++ c.ai=new FirestoreAi(db,root,c.backend,{},undefined,new AccountBillingClient(undefined,c.transport));
++ return c;
++}
++/** Create the A-3 state without enqueueing work: begin the intent and reserve only in Account. */
++async function a3(c,{ageMs=0,requestKey=randomUUID(),nextAttemptAt=0,createdAtMs}={}){
++ const billing={provider:'account_seconds',identityKey:c.identity,reservationId:randomUUID(),seconds:2};
++ await c.backend.beginExternalBillingIntent(c.account,c.input,requestKey,'translation:en',1,billing);
++ await c.store.reserveVideo(c.identity,billing.reservationId,2);
++ const intent=intentRef(c,requestKey);
++ await intent.update({createdAtMs:createdAtMs??Date.now()-ageMs,nextAttemptAt});
++ return {requestKey,billing,intent};
++}
++async function intentRow(c,requestKey){return (await intentRef(c,requestKey).get()).data();}
++async function balance(c){return c.store.videoBalance(c.identity);}
++async function localBalance(c){return c.backend.readBalance(c.account);}
++async function jobs(c){return (await c.root.collection('jobs').get()).size;}
++async function terminal(c){return (await c.root.collection('billingIntentTerminalWitnesses').get()).size;}
++async function releaseRows(c){return (await c.root.collection('billingOutbox').get()).size;}
++
++test('A3 timeout boundary: one ms before the limit waits; the exact limit releases; never captures',{timeout:WORK_TIMEOUT_MS},async()=>{
++ const c=await fixture('boundary');
++ const boundaryNow=Date.now();
++ const early=await a3(c,{createdAtMs:boundaryNow-(30*60*1000-1)});
++ const beforeEarly=await balance(c);
++ let r=await c.ai.drainExternalBilling(undefined,{now:boundaryNow});
++ assert.equal(r.intentsRecovered,0);assert.equal(r.intentsFailed,1);
++ const earlyRow=await intentRow(c,early.requestKey);
++ assert.equal(earlyRow.state,'reserve_pending');assert.equal(earlyRow.lastErrorCode,'reserved_unconfirmed');
++ assert.deepEqual(await balance(c),beforeEarly);
++ const exact=await a3(c,{createdAtMs:boundaryNow-30*60*1000});
++ r=await c.ai.drainExternalBilling(undefined,{now:boundaryNow});
++ assert.equal(r.intentsRecovered,1);assert.equal(r.intentsFailed,0);
++ assert.equal((await intentRow(c,exact.requestKey)).state,'closed');
++ assert.deepEqual(await balance(c),{unit:'video_seconds',credited:40,available:38,reserved:0,consumed:0,active:0});
++ assert.equal(await jobs(c),0);assert.equal(await terminal(c),0);
++ assert.deepEqual(c.transport.bodies.filter(x=>x.path.endsWith('/capture')),[]);
++});
++
++test('A3 after the limit without work releases in Account and restores both bases without a job or capture',{timeout:WORK_TIMEOUT_MS},async()=>{
++ const c=await fixture('after_limit');const a=await a3(c,{ageMs:30*60*1000});
++ const r=await c.ai.drainExternalBilling();
++
++ assert.equal(r.intentsRecovered,1);assert.equal(r.intentsFailed,0);
++ assert.equal((await intentRow(c,a.requestKey)).state,'closed');
++ assert.deepEqual(await balance(c),{unit:'video_seconds',credited:40,available:40,reserved:0,consumed:0,active:0});
++ assert.deepEqual(await localBalance(c),{credited:40,available:40,reserved:0,consumed:0,active:0});
++ assert.equal(await jobs(c),0);assert.equal(await terminal(c),0);assert.equal(await releaseRows(c),0);
++ assert.deepEqual(await c.transport.bodies.filter(x=>x.path.endsWith('/capture')),[]);
++});
++
++test('A3 real rescheduled intent resolves after the limit',{timeout:WORK_TIMEOUT_MS},async()=>{
++ const c=await fixture('rescheduled');const a=await a3(c,{ageMs:30*60*1000});
++ await intentRef(c,a.requestKey).update({attempts:5,nextAttemptAt:Date.now()+60000});
++ const r=await c.ai.drainExternalBilling();
++ assert.equal(r.intentsRecovered,1);assert.equal(r.intentsFailed,0);
++ const row=await intentRow(c,a.requestKey);assert.equal(row.state,'closed');assert.equal(row.attempts,5);
++ assert.deepEqual(await balance(c),{unit:'video_seconds',credited:40,available:40,reserved:0,consumed:0,active:0});
++});
++
++test('A3 work appearing between read and fence returns job_created and does not release',{timeout:WORK_TIMEOUT_MS},async()=>{
++ const c=await fixture('job_created');const a=await a3(c,{ageMs:30*60*1000});
++ const original=c.backend.fenceExternalBillingRelease.bind(c.backend);
++ c.backend.fenceExternalBillingRelease=async(...args)=>{await c.backend.reserve(c.account,c.input,a.requestKey,2,'translation:en',1,undefined,undefined,c.uid);return original(...args);};
++ const r=await c.ai.drainExternalBilling();
++ assert.equal(r.intentsRecovered,1);assert.equal(r.intentsFailed,0);
++ assert.deepEqual(await balance(c),{unit:'video_seconds',credited:40,available:40,reserved:0,consumed:0,active:0});
++ assert.equal(await jobs(c),1);
++});
++
++test('A3 Account inherited reservation or stored admission becomes needs_review with balance intact',{timeout:WORK_TIMEOUT_MS},async()=>{
++ for(const mode of ['inherited','admission']){
++  const c=await fixture('conflict_'+mode);const a=await a3(c,{ageMs:30*60*1000});
++   if(mode==='inherited')await reservationDoc(c,a.billing.reservationId).update({admissionProtocol:1});
++   else await c.store.admitVideoCall(c.identity,a.billing.reservationId,2,randomUUID(),randomUUID(),'text-window:0001','gemini-3.8-flash',sha('synthetic-a3-admission'));
++  const before=await balance(c);
++  const r=await c.ai.drainExternalBilling();
++  assert.equal(r.intentsRecovered,0);assert.equal(r.intentsFailed,1);
++  assert.equal((await intentRow(c,a.requestKey)).state,'needs_review');
++  assert.deepEqual(await balance(c),before);
++ }
++});
++
++test('A3 blocked account does not fence or release and leaves balance untouched',{timeout:WORK_TIMEOUT_MS},async()=>{
++ const c=await fixture('blocked');const a=await a3(c,{ageMs:30*60*1000});
++ await ref(c.root,'billingGuards',c.account).set({accountId:c.account,blocked:true});
++ const before=await balance(c),beforeBodies=c.transport.bodies.length;
++ const r=await c.ai.drainExternalBilling();
++ assert.equal(r.intentsRecovered,0);assert.equal(r.intentsFailed,1);
++ assert.equal((await intentRow(c,a.requestKey)).state,'needs_review');
++ assert.deepEqual(await balance(c),before);
++ assert.equal(c.transport.bodies.length,beforeBodies);
++});
++
++test('A3 two concurrent drains produce one close and one terminal movement',{timeout:WORK_TIMEOUT_MS},async()=>{
++ const c=await fixture('concurrent');const a=await a3(c,{ageMs:30*60*1000});
++ const [x,y]=await Promise.all([c.ai.drainExternalBilling(),c.ai.drainExternalBilling()]);
++ assert.equal(x.intentsRecovered+y.intentsRecovered,1);
++ assert.equal((await intentRow(c,a.requestKey)).state,'closed');
++ const releases=c.transport.bodies.filter(x=>x.path.endsWith('/release'));
++ assert.equal(releases.length,1);
++ assert.deepEqual(await balance(c),{unit:'video_seconds',credited:40,available:40,reserved:0,consumed:0,active:0});
++});
++
++test('A3 later released status closes without a second release; captured status goes to review',{timeout:WORK_TIMEOUT_MS},async()=>{
++ for(const state of ['released','captured']){
++  const c=await fixture('later_'+state);const a=await a3(c,{ageMs:30*60*1000});
++  if(state==='released')await c.store.settleVideo(c.identity,a.billing.reservationId,'release',2);
++  else await c.store.settleVideo(c.identity,a.billing.reservationId,'capture',2,{jobId:randomUUID(),attemptId:randomUUID()});
++  const before=c.transport.bodies.length;
++  const r=await c.ai.drainExternalBilling();
++  const row=await intentRow(c,a.requestKey);
++  if(state==='released'){assert.equal(r.intentsRecovered,1);assert.equal(r.intentsFailed,0);assert.equal(row.state,'closed');}
++  else{assert.equal(r.intentsRecovered,0);assert.equal(r.intentsFailed,1);assert.equal(row.state,'needs_review');}
++  assert.equal(c.transport.bodies.length,before,'a later status must not call Account again');
++ }
++});
++
++test('A3 invalid createdAtMs never fences and leaves the pass intact',{timeout:WORK_TIMEOUT_MS},async()=>{
++ for(const bad of [undefined,'text',-1,Date.now()+11*60*1000]){
++  const c=await fixture('bad_clock');const a=await a3(c,{ageMs:30*60*1000});
++  if(bad===undefined)await intentRef(c,a.requestKey).update({createdAtMs:FieldValue.delete()});
++  else await intentRef(c,a.requestKey).update({createdAtMs:bad});
++  const before=await intentRow(c,a.requestKey),beforeBalance=await balance(c),beforeBodies=c.transport.bodies.length;
++  const r=await c.ai.drainExternalBilling();
++  assert.equal(r.intentsRecovered,0);assert.equal(r.intentsFailed,1);
++  const after=await intentRow(c,a.requestKey);assert.equal(after.state,'reserve_pending');assert.equal(after.reviewReason,undefined);
++  assert.equal(after.attempts,before.attempts+1);assert.equal(after.lastErrorCode,'reserved_unconfirmed');
++  assert.deepEqual(await balance(c),beforeBalance);
++  assert.equal(c.transport.bodies.length,beforeBodies);
++ }
++});
++
++test('A3 local identity revocation before the limit does not release',{timeout:WORK_TIMEOUT_MS},async()=>{
++ const c=await fixture('revoked');const a=await a3(c,{ageMs:1000});
++ await ref(c.root,'identities',c.identity).delete();
++ const before=await balance(c);
++ const r=await c.ai.drainExternalBilling();
++ assert.equal(r.intentsRecovered,0);assert.equal(r.intentsFailed,1);
++ assert.equal((await intentRow(c,a.requestKey)).state,'needs_review');
++ assert.deepEqual(await balance(c),before);
++});
+diff --git a/server/commercial/firestoreA3Exit.test.ts b/server/commercial/firestoreA3Exit.test.ts
+new file mode 100644
+index 0000000..264c205
+--- /dev/null
++++ b/server/commercial/firestoreA3Exit.test.ts
+@@ -0,0 +1,42 @@
++﻿// LV-019.B step 1.3a: the pure A-3 timeout boundary. Tests first: this file is red until the constant and the
++// classifier exist. It deliberately checks only the clock/validation contract; the emulator file covers the
++// transactional fence and real Account balance movement.
++import {describe,expect,it} from 'vitest';
++import * as firestoreBackend from './firestoreBackend';
++
++const api=firestoreBackend as unknown as Record<string,unknown>;
++const WINDOW=30*60*1000;
++const SKEW=10*60*1000;
++const NOW=1_000_000_000_000;
++const classify=api.classifyA3ReplayWindow as
++  ((intent:Record<string,unknown>,now:number,windowMs?:number,skewMs?:number)=>'due'|'wait'|'invalid')|undefined;
++
++describe('A-3 replay window',()=>{
++  it('exports a 30-minute replay window and the 10-minute clock-skew tolerance',()=>{
++    expect(api.A3_REPLAY_WINDOW_MS).toBe(WINDOW);
++    expect(api.A3_CLOCK_SKEW_MS).toBe(SKEW);
++  });
++
++  it('is due at the exact limit and waits one millisecond before it',()=>{
++    expect(classify).toBeTypeOf('function');
++    expect(classify!({createdAtMs:NOW-WINDOW},NOW)).toBe('due');
++    expect(classify!({createdAtMs:NOW-WINDOW+1},NOW)).toBe('wait');
++    expect(classify!({createdAtMs:NOW-WINDOW-1},NOW)).toBe('due');
++  });
++
++  it('rejects missing, non-integer, negative, and future timestamps beyond the skew',()=>{
++    for(const bad of [undefined,null,'1000',1.5,Number.NaN,Number.POSITIVE_INFINITY,-1,NOW+SKEW+1]){
++      expect(classify!({createdAtMs:bad},NOW),String(bad)).toBe('invalid');
++    }
++  });
++
++  it('accepts a timestamp exactly at the tolerated future skew',()=>{
++    expect(classify!({createdAtMs:NOW+SKEW},NOW)).toBe('wait');
++  });
++
++  it('uses the injected clock rather than wall time',()=>{
++    const createdAtMs=NOW-WINDOW+1;
++    expect(classify!({createdAtMs},NOW)).toBe('wait');
++    expect(classify!({createdAtMs},NOW+1)).toBe('due');
++  });
++});
+diff --git a/server/commercial/firestoreAi.ts b/server/commercial/firestoreAi.ts
+index fdcb091..d42a6bb 100644
+--- a/server/commercial/firestoreAi.ts
++++ b/server/commercial/firestoreAi.ts
+@@ -1,6 +1,6 @@
+ import {createHash} from 'node:crypto';
+ import {FieldPath,type Firestore,type DocumentReference,type Transaction} from 'firebase-admin/firestore';
+-import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,pickOutboxSnapshot,copyOutboxSnapshot,OUTBOX_METADATA_KEYS,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence} from './firestoreBackend';
++import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,pickOutboxSnapshot,copyOutboxSnapshot,OUTBOX_METADATA_KEYS,classifyA3ReplayWindow,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence,type ExternalBillingReleaseFence} from './firestoreBackend';
+ import {aiOperation,artifactPlanHash,validateArtifactPlan,validateArtifactManifest,simulatedAiPrice,storageQuota,AI_CATALOG_VERSION,AI_BILLING_PROFILE,AI_TEXT_WINDOW_MS,AI_TEXT_MAX_DURATION_MS,AI_VOICE_BUDGET,AiContractFault,type AiArtifactReceipt} from './aiContracts';
+ import type {CloudObjects,CloudObject} from './gcsObjects';
+ import {readyPrivateInput,privateUuid} from './privateObjectPlan';
+@@ -21,7 +21,7 @@ export type AiCandidateLimits=Readonly<{maxSourceSeconds:number;maxNarrationChar
+  * - `after` is a rotation cursor per kind (document id): the reader starts strictly AFTER it and wraps, so a rotation visits each due row at most once.
+  * - `maxRows` replaces the positional `limit` (default 25, bounds 1..100).
+  */
+-export type DrainControl=Readonly<{shouldContinue?:()=>boolean|Promise<boolean>;perAccountCap?:number;after?:Readonly<{intents?:string|null;outbox?:string|null}>;maxRows?:number}>;
++export type DrainControl=Readonly<{shouldContinue?:()=>boolean|Promise<boolean>;perAccountCap?:number;after?:Readonly<{intents?:string|null;outbox?:string|null}>;maxRows?:number;now?:number}>;
+ function id(value:string){if(typeof value!=='string'||!privateUuid.test(value))throw new AiFault('invalid');}
+ function safeUsage(value:any){const out:Record<string,number>={};for(const key of ['promptTokenCount','candidatesTokenCount','totalTokenCount','thoughtsTokenCount','cachedContentTokenCount'])if(Number.isSafeInteger(value?.[key])&&value[key]>=0)out[key]=value[key];return out;}
+ /** Candidate-only orchestration. No client can mutate receipts, credits, plans or provider outcomes. */
+@@ -206,6 +206,7 @@ export class FirestoreAi {
+  async drainExternalBilling(limit=25,control?:DrainControl):Promise<{settled:number;failed:number;intentsRecovered:number;intentsFailed:number;skippedRows?:number;stopped?:boolean;next?:{intents:string|null;outbox:string|null}}>{
+   const maxRows=this.drainMaxRows(limit,control);
+   if(!this.accountBilling)return control===undefined?{settled:0,failed:0,intentsRecovered:0,intentsFailed:0}:{settled:0,failed:0,intentsRecovered:0,intentsFailed:0,skippedRows:0,stopped:false,next:{intents:null,outbox:null}};
++  const now=control?.now??Date.now();
+   let settled=0,failed=0,skippedRows=0,stopped=false,nextIntents:string|null=null,nextOutbox:string|null=null;
+   const perAccount=new Map<string,number>();
+   const intents=await this.backend.pendingExternalBillingIntents(maxRows,control?.after?.intents);let intentsRecovered=0,intentsFailed=0;
+@@ -226,13 +227,13 @@ export class FirestoreAi {
+    if(!statusSnapshot){intentsFailed++;continue;}
+    // The status proof is checked inside the same transaction that fences and prepares release.
+    const releaseAfter=async(snapshot:DirectObservationSnapshot,reason:'status_reserved'|'seal_reserved')=>{
+-    const prepared=await this.backend.prepareTerminalFromDirectObservation(witness,row.requestKey,'release',reason,snapshot);
++     const prepared=await this.backend.prepareTerminalFromDirectObservation(witness,row.requestKey,'release',reason,snapshot);
+     if(prepared.state==='job_created')return 'recovered' as const;if(prepared.state!=='ready')return 'failed' as const;
+-    const captured=await this.backend.captureDirectObservation(witness,row.requestKey,'release'),releaseSnapshot=copyDirectObservationSnapshot(captured);
++     const captured=await this.backend.captureDirectObservation(witness,row.requestKey,'release'),releaseSnapshot=copyDirectObservationSnapshot(captured);
+     if(!releaseSnapshot)return 'failed' as const;
+-    const released=await this.accountBilling!.settle(row.identityKey,row.reservationId,'release',row.seconds);
++     const released=await this.accountBilling!.settle(row.identityKey,row.reservationId,'release',row.seconds);
+     if(released.state!=='released')throw new AiFault('unknown');terminalObserved=true;
+-    return await this.confirmedIntentObservation(witness,row.requestKey,{action:'release',source:'release_ack',reservationId:released.reservationId,seconds:released.seconds,state:released.state},releaseSnapshot)?'recovered' as const:'failed' as const;
++     return await this.confirmedIntentObservation(witness,row.requestKey,{action:'release',source:'release_ack',reservationId:released.reservationId,seconds:released.seconds,state:released.state},releaseSnapshot)?'recovered' as const:'failed' as const;
+    };
+    let held:{reservationId:string;state:'reserved'|'captured'|'released';seconds:number};
+    try{held=await this.accountBilling.status(row.identityKey,row.reservationId);terminalObserved=held.state==='captured'||held.state==='released';}
+@@ -261,6 +262,45 @@ export class FirestoreAi {
+    if(row.state==='release_pending'){
+     const result=await releaseAfter(statusSnapshot,'status_reserved');if(result==='recovered')intentsRecovered++;else intentsFailed++;continue;
+    }
++   // A reserve_pending intent with no work is still uncertain before its deadline. At the
++   // deadline, the fence atomically closes the window for creating work and releases only
++   // when Account still reports the matching reserved status. An invalid clock stays on the
++   // uncertainty path and never fences.
++   const replayWindow=row.state==='reserve_pending'?classifyA3ReplayWindow(row,now):'wait';
++   if(replayWindow==='invalid'){
++    const deferred=await this.backend.recordReservedStatusUncertainty(witness,row.requestKey,statusSnapshot);
++    if(deferred==='unchanged'&&failureEvidence)await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,'reserved_unconfirmed',failureEvidence);
++    intentsFailed++;continue;
++   }
++   if(replayWindow==='wait'){
++    const deferred=await this.backend.recordReservedStatusUncertainty(witness,row.requestKey,statusSnapshot);
++    if(deferred==='unchanged'&&failureEvidence)await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,'reserved_unconfirmed',failureEvidence);
++    intentsFailed++;continue;
++   }
++   if(replayWindow==='due'){
++    let fenced:ExternalBillingReleaseFence;
++    try{fenced=await this.backend.fenceExternalBillingRelease(row.accountId,row.requestKey,billing);}
++    catch(error){
++     if(!(error instanceof LedgerFault)||error.code!=='conflict')throw error;
++     // A blocked account (or an invalid admission guard) closes the A-3 row for
++     // review without blocking the owner or touching Account balance.
++     await this.backend.closeA3ReservationForReview(row.accountId,row.requestKey,billing,{reservationId:held.reservationId,state:'reserved',seconds:held.seconds});
++     intentsFailed++;continue;
++    }
++    if(fenced.state==='job_created'){intentsRecovered++;continue;}
++    const refreshed=await this.backend.captureDirectObservation(witness,row.requestKey,'status'),freshSnapshot=copyDirectObservationSnapshot(refreshed);
++    if(!freshSnapshot){intentsFailed++;continue;}
++    try{
++     const result=await releaseAfter(freshSnapshot,'status_reserved');if(result==='recovered')intentsRecovered++;else intentsFailed++;
++    }catch(error){
++     if(!(error instanceof AccountBillingFault)||error.code!=='conflict')throw error;
++     // Account refused the release (inherited reservation or stored admission).
++     // Preserve the intent for review without a second release or an owner block.
++     await this.backend.closeA3ReservationForReview(row.accountId,row.requestKey,billing,{reservationId:held.reservationId,state:'reserved',seconds:held.seconds});
++     intentsFailed++;
++    }
++    continue;
++   }
+    // A reserved status is not evidence that the original admission history is
+    // still intact. Preserve changes, but do not create a job or release.
+    const deferred=await this.backend.recordReservedStatusUncertainty(witness,row.requestKey,statusSnapshot);
+diff --git a/server/commercial/firestoreBackend.ts b/server/commercial/firestoreBackend.ts
+index a82aad8..49b24dc 100644
+--- a/server/commercial/firestoreBackend.ts
++++ b/server/commercial/firestoreBackend.ts
+@@ -377,6 +377,22 @@ export function narrationRequiresReview(operation:unknown){return typeof operati
+ export const UNKNOWN_REVIEW_WINDOW_MS=6*60*60*1000;
+ /** Tolerance for a `quarantinedAtMs` written slightly ahead of the resolver's injected clock (clock skew between writers). */
+ export const UNKNOWN_CLOCK_SKEW_MS=10*60*1000;
++/**
++ * LV-019.B step 1.3a: how long an A-3 `reserve_pending` intent may wait for a work
++ * creation before the drain closes it by releasing the Account reservation. The value
++ * is a starting point, adjustable with real data: a configuration decision, not a
++ * policy one. It only applies when Video has no work and Account still reports the
++ * matching `reserved` status.
++ */
++export const A3_REPLAY_WINDOW_MS=30*60*1000;
++/** Tolerance for an intent `createdAtMs` written slightly ahead of the drain's injected clock. */
++export const A3_CLOCK_SKEW_MS=10*60*1000;
++/** Pure A-3 clock classification. No I/O and no wall clock: the caller supplies `now`. */
++export function classifyA3ReplayWindow(intent:{createdAtMs?:unknown},now:number,windowMs:number=A3_REPLAY_WINDOW_MS,skewMs:number=A3_CLOCK_SKEW_MS):'due'|'wait'|'invalid'{
++  const createdAtMs=intent.createdAtMs;
++  if(typeof createdAtMs!=='number'||!Number.isSafeInteger(createdAtMs)||createdAtMs<0||createdAtMs>now+skewMs)return 'invalid';
++  return createdAtMs<=now-windowMs?'due':'wait';
++}
+ /**
+  * Test-only override of the review window: no production caller passes it and no HTTP route can reach it. It is validated
+  * as a safe integer >= this floor so a fixture can expire a row on demand without weakening the real six-hour window.
+@@ -931,8 +947,30 @@ export class FirestoreBackend {
+       if(row.state==='job_created'||row.jobId)throw new LedgerFault('invariant');
+       if(row.state==='release_pending'){externalIntentTransitionDue(d);return {state:'release_pending'};}
+       if(row.state!=='reserve_pending')throw new LedgerFault('conflict');
+-      const nextAttemptAt=externalIntentTransitionDue(d);
+-      tx.update(intent,{state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt});return {state:'release_pending'};
++      externalIntentTransitionDue(d);
++      // The caller releases immediately after this fence, so the intent must be due
++      // for the closing observation in the same pass. A future lease is still preserved.
++      tx.update(intent,{state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt:Date.now()});return {state:'release_pending'};
++    });
++  }
++  /**
++   * LV-019.B step 1.3a: close an A-3 intent for review without blocking the owner.
++   * The caller has already proven the local history is unchanged and Account still
++   * reports the matching reserved status. No hold, guard, or balance movement is written.
++   */
++  async closeA3ReservationForReview(accountId:string,requestKey:string,billing:ExternalVideoBilling,observed:ExternalBillingObservation):Promise<ExternalBillingReviewResult>{
++    identifier(accountId);text(requestKey);validExternalBilling(billing);billing=copyExternalBilling(billing);
++    if(!observed||observed.reservationId!==billing.reservationId||observed.state!=='reserved'||!Number.isSafeInteger(observed.seconds)||observed.seconds!==billing.seconds)throw new LedgerFault('invalid');
++    const key=hash([accountId,requestKey]),intent=this.ref('billingIntents',key),incident=this.ref('billingReviewIncidents',key);
++    return this.db.runTransaction(async tx=>{
++      const d=await tx.get(intent);if(!d.exists)throw new LedgerFault('not_found');
++      const row=this.billingIntent(d,accountId,requestKey,billing);
++      if(row.state==='job_created'||row.jobId)throw new LedgerFault('conflict');
++      if(row.state==='closed')return {state:'needs_review',reason:'direct_status_uncertain'};
++      const now=Date.now();
++      if(!(await tx.get(incident)).exists)tx.create(incident,{accountId,intentId:key,identityKey:billing.identityKey,reservationId:billing.reservationId,expectedSeconds:billing.seconds,reason:'direct_status_uncertain',firstObserved:{...observed,atMs:now},createdAtMs:now,updatedAtMs:now});
++      tx.update(intent,{state:'needs_review',reviewReason:'direct_status_uncertain',reviewIncidentId:key,updatedAtMs:now});
++      return {state:'needs_review',reason:'direct_status_uncertain'};
+     });
+   }
+   /** Preserve an anomalous external observation without issuing a refund or capture. */
