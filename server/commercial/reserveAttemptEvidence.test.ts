@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  RESERVE_ATTEMPT_DOCUMENTS, RESERVE_ATTEMPT_PROFILE_V1, prepareReserveAttemptInTransaction, recordReserveAckInTransaction,
+  RESERVE_ATTEMPT_DOCUMENTS, RESERVE_ATTEMPT_PROFILE_V1, prepareReserveAttemptInTransaction, recordReserveAckInTransaction, stageReserveAck,
   type ReserveAttemptEvidence,
 } from './reserveAttemptEvidence';
 
@@ -231,5 +231,38 @@ describe('disconnected evidence for an external reserve attempt',()=>{
       await recordReserveAckInTransaction(f.tx,f.root,a,response(a));
       expect(network).not.toHaveBeenCalled();expect([...f.store.keys()].every(key=>key.startsWith('billingReserve'))).toBe(true);
     }finally{network.mockRestore();}
+  });
+
+  // The job transaction already holds the two snapshots, so `stageReserveAck`
+  // must still validate the observed ACK tuple before writing the observation.
+  it('stages only the ACK tuple of this attempt, or an identical recorded one',async()=>{
+    const f=fakeTransaction(),a=makeAttempt();
+    await prepareReserveAttemptInTransaction(f.tx,f.root,a);
+    const prepared=f.store.get(preparedPath(a));
+    const snapshot=(path:string,value:unknown)=>({exists:value!==undefined,data:()=>structuredClone(value)} as any);
+    const stage=(ack:unknown)=>stageReserveAck(f.tx,f.root,a,ack as any,snapshot(preparedPath(a),prepared),snapshot(ackPath(a),f.store.get(ackPath(a))));
+    for(const bad of [
+      {...response(a),seconds:a.witness.seconds+1},{...response(a),reservationId:randomUUID()},
+      {...response(a),state:'captured'},{...response(a),state:'released'},{...response(a),source:'status'},null,[],{},
+    ])expect(()=>stage(bad)).toThrow(expect.objectContaining(invalid));
+    expect(f.store.has(ackPath(a))).toBe(false);
+    expect(stage(response(a))).toEqual({state:'recorded',attribution:'unverified'});
+    expect((f.store.get(ackPath(a)) as any).attribution).toBe('unverified');
+    f.store.set(ackPath(a),{version:1,attemptId:a.attemptId,source:'status'});
+    expect(()=>stage(response(a))).toThrow(expect.objectContaining(conflict));
+    expect(f.store.get(ackPath(a))).toEqual({version:1,attemptId:a.attemptId,source:'status'});
+  });
+
+  it('copies the staged attempt and ACK before reading the caller snapshots',async()=>{
+    const f=fakeTransaction(),a:any=makeAttempt();
+    await prepareReserveAttemptInTransaction(f.tx,f.root,a);
+    const prepared=f.store.get(preparedPath(a)),ack:any=response(a),original=structuredClone(a);
+    const snap=(value:unknown)=>({exists:value!==undefined,data:()=>structuredClone(value)} as any);
+    // Mutating the caller's objects after the call must not change what is staged.
+    const staged=stageReserveAck(f.tx,f.root,structuredClone(original),structuredClone(ack),snap(prepared),snap(undefined));
+    ack.seconds=4;ack.reservationId=randomUUID();a.witness.identityKey='c'.repeat(64);a.versions.identity.updateTime='2:000000000';
+    expect(staged).toEqual({state:'recorded',attribution:'unverified'});
+    expect((f.store.get(ackPath(original)) as any).identityKey).toBe(original.witness.identityKey);
+    expect((f.store.get(ackPath(original)) as any).snapshot.versions.identity.updateTime).toBe('1:000000000');
   });
 });

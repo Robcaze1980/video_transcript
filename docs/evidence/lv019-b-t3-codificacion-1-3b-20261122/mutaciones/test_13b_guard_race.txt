@@ -1,0 +1,70 @@
+
+// Codex certification test (step 1.3b): the preflight itself refuses a guard that became blocked AFTER the failure-evidence capture and BEFORE the attempt is
+// prepared (a narrow race the earlier capture cannot see). No attempt is recorded and no Account POST is sent.
+test('a guard blocked between the evidence capture and the preflight prevents the Account POST',{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('guard_blocked_race');const key=randomUUID();let posts=0;
+ const originalTransport=c.transport.request.bind(c.transport);
+ c.transport.request=async request=>{if(new URL(request.url).pathname.endsWith('/reservations'))posts++;return originalTransport(request);};
+ const original=c.backend.captureExternalBillingIntentFailureEvidence.bind(c.backend);
+ c.backend.captureExternalBillingIntentFailureEvidence=async(...args)=>{const evidence=await original(...args);await ref(c.root,'billingGuards',c.account).set({accountId:c.account,blocked:true});return evidence;};
+ const result=await observed(c.ai.enqueue(c.account,c.input,'translation:en',1,key,c.uid));
+ c.backend.captureExternalBillingIntentFailureEvidence=original;
+ assert.ok(result.error,'A guard blocked before the preflight must stop the request');
+ assert.equal(posts,0,'No Account POST for a blocked account');
+ assert.equal(await videoJobs(c),0);
+ assert.equal((await c.root.collection('billingReserveAttempts').get()).size,0,'The preflight must not record an attempt for a blocked account');
+});
+
+// Codex certification test (step 1.3b): the preflight also refuses a job request or marker that appeared AFTER the failure-evidence capture and BEFORE the attempt
+// is prepared (work created by a concurrent requester). Neither an attempt nor an Account POST may follow.
+for(const [label,collection]of [['request','requests'],['marker','billingIntentJobMarkers']])test(`a job ${label} appearing between the evidence capture and the preflight prevents the Account POST`,{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('work_race_'+label);const key=randomUUID();let posts=0;
+ const originalTransport=c.transport.request.bind(c.transport);
+ c.transport.request=async request=>{if(new URL(request.url).pathname.endsWith('/reservations'))posts++;return originalTransport(request);};
+ const original=c.backend.captureExternalBillingIntentFailureEvidence.bind(c.backend);
+ c.backend.captureExternalBillingIntentFailureEvidence=async(...args)=>{const evidence=await original(...args);await ref(c.root,collection,sha(JSON.stringify([c.account,key]))).create({synthetic:'concurrent-work'});return evidence;};
+ const result=await observed(c.ai.enqueue(c.account,c.input,'translation:en',1,key,c.uid));
+ c.backend.captureExternalBillingIntentFailureEvidence=original;
+ assert.ok(result.error,'Work that appeared before the preflight must stop the request');
+ assert.equal(posts,0,'No Account POST once work exists');
+ assert.equal((await c.root.collection('billingReserveAttempts').get()).size,0,'No attempt is recorded for an intent that already has work');
+});
+
+// Codex certification test (step 1.3b): a terminal (seal/release) witness or recovery row that exists at the preflight means the intent already went down the
+// release path: no attempt may be recorded and no Account POST may follow.
+for(const [action,collection]of [['seal','billingIntentTerminalWitnesses'],['release','billingIntentTerminalWitnesses'],['seal','billingIntentTerminalRecovery'],['release','billingIntentTerminalRecovery']])test(`a ${action} ${collection} row existing at the preflight prevents the Account POST`,{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('terminal_'+action+'_'+collection);const key=randomUUID();let posts=0;
+ const originalTransport=c.transport.request.bind(c.transport);
+ c.transport.request=async request=>{if(new URL(request.url).pathname.endsWith('/reservations'))posts++;return originalTransport(request);};
+ const intentId=sha(JSON.stringify([c.account,key])),terminalId=sha(JSON.stringify(['billing-intent-terminal-v1',intentId,action]));
+ const original=c.backend.captureExternalBillingIntentFailureEvidence.bind(c.backend);
+ c.backend.captureExternalBillingIntentFailureEvidence=async(...args)=>{const evidence=await original(...args);await ref(c.root,collection,terminalId).create({synthetic:'terminal-row'});return evidence;};
+ const result=await observed(c.ai.enqueue(c.account,c.input,'translation:en',1,key,c.uid));
+ c.backend.captureExternalBillingIntentFailureEvidence=original;
+ assert.ok(result.error,'A terminal row at the preflight must stop the request');
+ assert.equal(posts,0,'No Account POST once a terminal row exists');
+ assert.equal((await c.root.collection('billingReserveAttempts').get()).size,0,'No attempt is recorded for an intent with a terminal row');
+});
+
+// Codex certification test (step 1.3b): the EXACT version of each immutable document, isolated from its content. A harmless MERGE (`update`) changes only the
+// version (updateTime) and leaves every field the other checks read untouched, so only the exact-version comparison can reject it. For the documents that must
+// NOT exist at the preflight, creating them afterwards changes the version from "absent" to "present".
+for(const [name,collection,addressOf,mode]of [
+ ['identity','identities',(c,id)=>c.identity,'update'],['input','inputs',(c,id)=>c.input,'update'],['project','projects',(c,id)=>c.input,'update'],
+ ['origin','billingIntentWitnesses',(c,id)=>id,'update'],['intentGuard','billingIntentAdmissionGuards',(c,id)=>id,'update'],
+ ['jobMarker','billingIntentJobMarkers',(c,id)=>id,'create']])test(`a version-only change of the ${name} document after the preflight blocks the job and keeps only the ACK`,{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('version_only_'+name);const key=randomUUID(),id=sha(JSON.stringify([c.account,key]));
+ const original=c.backend.prepareExternalReserveAttempt.bind(c.backend);
+ c.backend.prepareExternalReserveAttempt=async(...args)=>{
+  const attempt=await original(...args);
+  const target=ref(c.root,collection,addressOf(c,id));
+  if(mode==='update')await target.update({windowProbe:name});else await target.create({windowProbe:name});
+  return attempt;
+ };
+ const result=await observed(c.ai.enqueue(c.account,c.input,'translation:en',1,key,c.uid));
+ c.backend.prepareExternalReserveAttempt=original;
+ assert.ok(result.error,`${name}: a changed immutable version must not authorize work`);
+ assert.equal(await videoJobs(c),0,`${name}: no job may be created`);
+ const acks=await c.root.collection('billingReserveAckObservations').get();
+ assert.equal(acks.size,1,`${name}: the received ACK must survive without a job`);
+});

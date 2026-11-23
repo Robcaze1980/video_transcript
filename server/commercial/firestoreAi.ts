@@ -111,7 +111,15 @@ export class FirestoreAi {
   // Capture once before reserve/status. If ownership cannot be proved, leave the intent recoverable without making a new Account call.
   const failureEvidence=await this.backend.captureExternalBillingIntentFailureEvidence(witness,requestKey);
   if(!failureEvidence||failureEvidence.state!=='reserve_pending')throw new AiFault('unknown');
-  try{await this.accountBilling!.reserve(data.identityKey,data.reservationId,data.seconds);}
+ // Step 1.3b: the preflight re-reads every source document and commits the immutable
+ // attempt BEFORE the Account POST. If it cannot prove the same history, no POST is sent.
+ const attempt=await this.backend.prepareExternalReserveAttempt(accountId,inputId,requestKey,op,revision,uid!);
+ // The POST tuple was computed before the preflight; the persisted intent is the
+ // authority. A difference would reserve in Account with a history the ACK must
+ // reject, leaving a paid reservation without work, so fail closed before the POST.
+ if(data.identityKey!==attempt.witness.identityKey||data.reservationId!==attempt.witness.reservationId||data.seconds!==attempt.witness.seconds)throw new AiFault('conflict');
+ let held:import('./accountBillingClient').VideoReservation;
+ try{held=await this.accountBilling!.reserve(data.identityKey,data.reservationId,data.seconds);}
   catch(error){
    // A later status may aid reconciliation, but cannot establish the direct
    // POST ACK or authorize a job. Preserve the intent and changed history.
@@ -132,10 +140,15 @@ export class FirestoreAi {
    await this.backend.recordReservedStatusUncertainty(witness,requestKey,statusSnapshot);
    throw new AiFault('unknown');
   }
-  // Legacy internal path after a direct ACK. Its durable reserve evidence,
-  // complete history and cross-service authority remain unresolved; the
-  // customer-facing external admission stays disabled.
-  return this.backend.reserve(accountId,inputId,requestKey,q.units,q.operation,revision,AI_CATALOG_VERSION,data,undefined,uid!);
+  // A validated direct ACK. The ACK and the job are written in ONE transaction; if that
+  // local commit fails (including a revoked/reassigned identity or a release fence that
+  // appeared after the POST), the ACK is still preserved without a job (design 3.2.3).
+  const ack={reservationId:held.reservationId,seconds:held.seconds,state:'reserved' as const};
+  try{return await this.backend.reserve(accountId,inputId,requestKey,q.units,q.operation,revision,AI_CATALOG_VERSION,data,undefined,uid!,attempt,ack);}
+  catch(error){
+   await this.backend.recordExternalReserveAck(attempt,ack).catch(()=>undefined);
+   throw error;
+  }
  }
  /** Customer admission is limited to the simulated ledger until external Account ACK recovery is audited. */
  async enqueueForUid(accountId:string,inputId:string,operation:unknown,revision:number,requestKey:string,uid:string){

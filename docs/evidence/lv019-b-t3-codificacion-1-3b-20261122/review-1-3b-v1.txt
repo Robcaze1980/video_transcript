@@ -1,0 +1,356 @@
+Eres REVISOR independiente (T3). NO modifiques archivos ni ejecutes nada; solo lee (maximo 8 lecturas, solo docs y pruebas: TODO el codigo de produccion esta incluido abajo como diff y NO debes abrir los .ts de produccion del disco, otra copia puede estar siendo probada). Maximo 400 palabras. Hallazgos numerados con severidad ALTA/MEDIA/BAJA, cada uno con la secuencia concreta (estado inicial, eventos, resultado errado) y la correccion. No repitas lo correcto. Termina con UNA linea final: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+CODIGO A REVISAR (paso 1.3b, REPETICION DE LA SOLICITUD CON ACK DURABLE, camino del solicitante de A-3; MUEVE SALDO): el diff final abajo. Conecta el modulo reserveAttemptEvidence.ts (antes desconectado): FirestoreAi.enqueue prepara el intento inmutable (prepareExternalReserveAttempt) y espera su commit ANTES del POST a Cuenta; tras el POST el ACK validado viaja a FirestoreBackend.reserve y se registra (stageReserveAck) EN LA MISMA transaccion que crea el trabajo, que ademas comprueba la ventana por documento (reserveAttemptWindow.ts); si ese commit local falla, recordExternalReserveAck conserva el ACK sin trabajo. Contrato: docs/specs/LV-019-B-reserva-sin-trabajo-a3-diseno.md (v2: secciones 1.4, 2, 3.2, 3.3, 5 y 6). Pruebas: server/commercial/textAccountReserveIdentity.emulator.mjs (13 casos de referencia, 6 estaban en rojo y ahora pasan), textAccountReserveAckWindow.emulator.mjs (13, con Cuenta REAL), reserveAttemptWindow.test.ts y reserveAttemptEvidence.test.ts.
+BUSCA FALLOS REALES: (1) que el POST a Cuenta se envie sin intento confirmado, o con una historia distinta de la preparada; (2) la ventana por documento: documentos inmutables con version exacta (identity, input, project, origin, intentGuard, request, jobMarker y las cuatro filas terminales), semantica para intent (state reserve_pending, inputId, operation, revision, seconds, sin jobId) y para account (aiPilot, simulationOnly), guard por ausencia o no bloqueo: un caso que deje pasar un cambio real o rechace un cambio inocuo (la reprogramacion de la intencion); (3) el ACK y el trabajo en UNA transaccion; ACK conservado sin trabajo si falla el commit local, si la identidad se revoco o reasigno, o si aparecio una cerca de liberacion; (4) la validacion de la tupla del ACK en stageReserveAck (un ACK ajeno o de otra historia no debe registrarse como del intento) y la idempotencia de repeticiones; (5) nunca crear un trabajo a partir de un `status`, y dos solicitudes identicas no crean dos reservas ni dos trabajos; (6) los contadores `active` en las dos bases; (7) pruebas que pasarian con el codigo roto y casos que faltan. ADJUDICADO COMO NO CAMBIAR: la atribucion del ACK es siempre `unverified` (no autentica a Cuenta; eso lo da la via HTTP autenticada); la retencion de las dos colecciones privadas es del dueno y no se implementa borrado; enqueueForUid externo sigue deshabilitado; reserveWithReserveAck es un envoltorio sin llamadores.
+
+=== DIFF DE PRODUCCION DE 1.3b (version final) ===
+diff --git a/server/commercial/firestoreAi.ts b/server/commercial/firestoreAi.ts
+index 9d2f6b5..566a908 100644
+--- a/server/commercial/firestoreAi.ts
++++ b/server/commercial/firestoreAi.ts
+@@ -111,7 +111,11 @@ export class FirestoreAi {
+   // Capture once before reserve/status. If ownership cannot be proved, leave the intent recoverable without making a new Account call.
+   const failureEvidence=await this.backend.captureExternalBillingIntentFailureEvidence(witness,requestKey);
+   if(!failureEvidence||failureEvidence.state!=='reserve_pending')throw new AiFault('unknown');
+-  try{await this.accountBilling!.reserve(data.identityKey,data.reservationId,data.seconds);}
++ // Step 1.3b: the preflight re-reads every source document and commits the immutable
++ // attempt BEFORE the Account POST. If it cannot prove the same history, no POST is sent.
++ const attempt=await this.backend.prepareExternalReserveAttempt(accountId,inputId,requestKey,op,revision,uid!);
++ let held:import('./accountBillingClient').VideoReservation;
++ try{held=await this.accountBilling!.reserve(data.identityKey,data.reservationId,data.seconds);}
+   catch(error){
+    // A later status may aid reconciliation, but cannot establish the direct
+    // POST ACK or authorize a job. Preserve the intent and changed history.
+@@ -132,10 +136,15 @@ export class FirestoreAi {
+    await this.backend.recordReservedStatusUncertainty(witness,requestKey,statusSnapshot);
+    throw new AiFault('unknown');
+   }
+-  // Legacy internal path after a direct ACK. Its durable reserve evidence,
+-  // complete history and cross-service authority remain unresolved; the
+-  // customer-facing external admission stays disabled.
+-  return this.backend.reserve(accountId,inputId,requestKey,q.units,q.operation,revision,AI_CATALOG_VERSION,data,undefined,uid!);
++  // A validated direct ACK. The ACK and the job are written in ONE transaction; if that
++  // local commit fails (including a revoked/reassigned identity or a release fence that
++  // appeared after the POST), the ACK is still preserved without a job (design 3.2.3).
++  const ack={reservationId:held.reservationId,seconds:held.seconds,state:'reserved' as const};
++  try{return await this.backend.reserve(accountId,inputId,requestKey,q.units,q.operation,revision,AI_CATALOG_VERSION,data,undefined,uid!,attempt,ack);}
++  catch(error){
++   await this.backend.recordExternalReserveAck(attempt,ack).catch(()=>undefined);
++   throw error;
++  }
+  }
+  /** Customer admission is limited to the simulated ledger until external Account ACK recovery is audited. */
+  async enqueueForUid(accountId:string,inputId:string,operation:unknown,revision:number,requestKey:string,uid:string){
+diff --git a/server/commercial/firestoreBackend.ts b/server/commercial/firestoreBackend.ts
+index dab3c01..6134f53 100644
+--- a/server/commercial/firestoreBackend.ts
++++ b/server/commercial/firestoreBackend.ts
+@@ -7,6 +7,8 @@ import {textModel} from './pipelineTextProvider';
+ import {AI_CATALOG_VERSION,AI_TEXT_WINDOW_MS,AI_TEXT_MAX_DURATION_MS,AI_TEXT_MAX_WINDOWS,artifactPlan,artifactPlanHash,simulatedAiPrice,storageQuota,validateArtifactManifest,type AiArtifactPlan,type AiArtifactReceipt} from './aiContracts';
+ import {validateDigitalSilenceProof,digitalSilenceProofHash} from './digitalSilence';
+ import {validResolution,UNKNOWN_RESOLUTION_MIN_AGE_MS,type ResolutionKind,type VideoResolution} from '../account/settlementContract';
++import {RESERVE_ATTEMPT_DOCUMENTS,RESERVE_ATTEMPT_PROFILE_V1,ReserveAttemptEvidenceFault,prepareReserveAttemptInTransaction,recordReserveAckInTransaction,stageReserveAck,type ReserveAck,type ReserveAttemptDocumentName,type ReserveAttemptEvidenceV1,type ReserveAttemptWitnessV1} from './reserveAttemptEvidence';
++import {reserveAttemptVersions,reserveAttemptWindowChanged,type ReserveAttemptWindowDocuments} from './reserveAttemptWindow';
+ 
+ // Server-only persistence for the cloud candidate; the public application remains separate.
+ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+@@ -155,6 +157,12 @@ function validTerminalRecoveryOrigin(doc:DocumentSnapshot,expected:ExternalBilli
+     typeof marker.sealPrepared==='boolean'&&typeof marker.releasePrepared==='boolean';
+ }
+ function intentTerminalKey(intentId:string,action:'release'|'seal'){return hash(['billing-intent-terminal-v1',intentId,action]);}
++/** Same deterministic reservation id as `FirestoreAi.reservationUuid`, kept here without an import cycle. */
++function reservationUuidFor(accountId:string,identityKey:string,inputId:string,operation:string,revision:number,requestKey:string){
++  const bytes=createHash('sha256').update(JSON.stringify(['vistavo-video-reservation-v1',accountId,identityKey,inputId,operation,revision,requestKey])).digest().subarray(0,16);
++  bytes[6]=(bytes[6]&0x0f)|0x40;bytes[8]=(bytes[8]&0x3f)|0x80;const h=bytes.toString('hex');
++  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
++}
+ function validInitialTerminalRecovery(value:unknown,terminalId:string,createdAtMs:unknown){
+   if(!value||typeof value!=='object'||Array.isArray(value))return false;
+   const row=value as Record<string,unknown>;
+@@ -232,6 +240,16 @@ export function copyTerminalRecoveryReadSnapshot(value:unknown):TerminalRecovery
+ function sameTerminalDocumentVersion(doc:DocumentSnapshot,expected:TerminalRecoveryDocumentVersion){
+   const current=terminalDocumentVersion(doc);return !!current&&current.exists===expected.exists&&(!current.exists||expected.exists&&current.createTime===expected.createTime&&current.updateTime===expected.updateTime);
+ }
++/**
++ * LV-019.B step 1.3b: attempt witness for the durable reserve evidence. It uses the
++ * historical v1 profile instead of the live catalog on purpose (design 7.4a); a
++ * sentinel test fails if the live catalog changes without an explicit migration.
++ */
++function reserveAttemptWitness(witness:ExternalBillingIntentWitness):ReserveAttemptWitnessV1{
++  if(witness.operation!=='translation:en'||witness.provider!=='account_seconds')throw new LedgerFault('invalid');
++  return {intentId:witness.intentId,accountId:witness.accountId,inputId:witness.inputId,operation:'translation:en',revision:witness.revision,
++    profile:RESERVE_ATTEMPT_PROFILE_V1,provider:'account_seconds',identityKey:witness.identityKey,reservationId:witness.reservationId,seconds:witness.seconds};
++}
+ /** In-memory evidence for comparing a POST's original reads; not an authenticated capability. */
+ export function copyExternalBillingSettlementReadSnapshot(value:unknown):ExternalBillingSettlementReadSnapshot|null{
+   try{
+@@ -563,6 +581,79 @@ export class FirestoreBackend {
+     if(!matchesExternalBilling(row,billing))throw new LedgerFault('conflict');
+     return row;
+   }
++  private reserveAttemptRefs(attemptId:string){
++    return {prepared:this.ref('billingReserveAttempts',attemptId),ack:this.ref('billingReserveAckObservations',attemptId)};
++  }
++  /**
++   * Step 1.3b. Before the Account POST, in one transaction: re-read every source
++   * document and the witness, reject a revoked/reassigned identity, a blocked guard,
++   * an intent that is no longer `reserve_pending` and any existing work, then create
++   * the immutable attempt. The caller must treat the attempt as committed only after
++   * this resolves, and `null` means the POST must not happen.
++   */
++  async prepareExternalReserveAttempt(accountId:string,inputId:string,requestKey:string,operation:string,expectedRevision:number,requesterUid:string):Promise<ReserveAttemptEvidenceV1>{
++    if(typeof requesterUid!=='string'||!requesterUid||requesterUid.length>128)throw new LedgerFault('not_found');
++    identifier(accountId);identifier(inputId);text(requestKey);text(operation);integer(expectedRevision,true);
++    const identityKey=hash(['firebase',requesterUid]),key=hash([accountId,requestKey]),attemptId=randomUUID(),
++      expectedReservationId=reservationUuidFor(accountId,identityKey,inputId,operation,expectedRevision,requestKey);
++    return diagnosticTransaction('reserve',this.db,async tx=>{
++      if(!await verifiedUidAccountInTransaction(tx,this.root,accountId,requesterUid))throw new LedgerFault('not_found');
++      // Derive the naming refs from the key only; the authoritative witness values
++      // (seconds, reservationId) come from the persisted intent below.
++      const key=hash([accountId,requestKey]),sealId=intentTerminalKey(key,'seal'),releaseId=intentTerminalKey(key,'release');
++      const refs={account:this.ref('accounts',accountId),identity:this.ref('identities',identityKey),input:this.ref('inputs',inputId),
++        project:this.ref('projects',inputId),intent:this.ref('billingIntents',key),origin:this.ref('billingIntentWitnesses',key),
++        guard:this.ref('billingGuards',accountId),intentGuard:this.ref('billingIntentAdmissionGuards',key),request:this.ref('requests',key),
++        jobMarker:this.ref('billingIntentJobMarkers',key),sealWitness:this.ref('billingIntentTerminalWitnesses',sealId),
++        sealRecovery:this.ref('billingIntentTerminalRecovery',sealId),releaseWitness:this.ref('billingIntentTerminalWitnesses',releaseId),
++        releaseRecovery:this.ref('billingIntentTerminalRecovery',releaseId)} as Record<ReserveAttemptDocumentName,DocumentReference>;
++      const reads=await tx.getAll(...RESERVE_ATTEMPT_DOCUMENTS.map(name=>refs[name])),docs={} as Record<ReserveAttemptDocumentName,DocumentSnapshot>;
++      RESERVE_ATTEMPT_DOCUMENTS.forEach((name,index)=>{docs[name]=reads[index];});
++      if(!docs.account.exists)throw new LedgerFault('not_found');
++      const uid=docs.identity.get('uid');
++      if(!docs.identity.exists||docs.identity.get('accountId')!==accountId||typeof uid!=='string'||!uid||uid.length>128||hash(['firebase',uid])!==identityKey)throw new LedgerFault('conflict');
++      if(this.billingBlocked(docs.guard,accountId)||!validClearIntentAdmissionGuard(docs.intentGuard,key)||
++        docs.request.exists||docs.jobMarker.exists||docs.sealWitness.exists||docs.sealRecovery.exists||docs.releaseWitness.exists||docs.releaseRecovery.exists||
++        !docs.input.exists||docs.input.get('accountId')!==accountId||!docs.project.exists||docs.project.get('accountId')!==accountId)throw new LedgerFault('conflict');
++      // The persisted intent carries the authoritative seconds/reservationId of the POST.
++      if(!docs.intent.exists)throw new LedgerFault('conflict');
++      let stored:ExternalVideoBilling;try{stored=copyExternalBilling(docs.intent.data() as ExternalVideoBilling);validExternalBilling(stored);}catch{throw new LedgerFault('conflict');}
++      if(stored.identityKey!==identityKey||stored.reservationId!==expectedReservationId)throw new LedgerFault('conflict');
++      const witness=intentWitness(accountId,inputId,requestKey,operation,expectedRevision,stored);
++      const row=this.billingIntent(docs.intent,accountId,requestKey,stored);
++      if(row.state!=='reserve_pending'||row.inputId!==inputId||row.operation!==operation||row.revision!==expectedRevision||row.jobId)throw new LedgerFault('conflict');
++      const originUid=docs.origin.get('uid');
++      if(!validStoredIntentWitness(docs.origin,witness)||!matchesExternalBilling(docs.origin.data(),witness)||
++        typeof originUid==='string'&&originUid!==requesterUid)throw new LedgerFault('conflict');
++      externalIntentTransitionDue(docs.intent);
++      const versions=reserveAttemptVersions(docs);
++      if(!versions)throw new LedgerFault('invariant');
++      const attempt:ReserveAttemptEvidenceV1={version:1,attemptId,witness:reserveAttemptWitness(witness),versions};
++      try{await prepareReserveAttemptInTransaction(tx,this.root,attempt);}catch(error){if(error instanceof ReserveAttemptEvidenceFault)throw new LedgerFault('invariant');throw error;}
++      return attempt;
++    });
++  }
++  /**
++   * Step 1.3b: after a validated Account POST whose local job commit cannot happen
++   * (identity revoked/reassigned, the intent fenced to `release_pending`, or a terminal
++   * row already present), preserve the ACK itself in its own transaction. The attempt
++   * is not repriced here, so the semantic comparison of design 3.2 replaces the exact
++   * version: `identity`/`input`/`project`/`origin` are re-read but their version is not
++   * compared because the POST's authorization is the immutable preflight, not this call.
++   */
++  async recordExternalReserveAck(attempt:ReserveAttemptEvidenceV1,observed:ReserveAck):Promise<'recorded'|'already_recorded'|'unknown'>{
++    if(attempt.witness.operation!=='translation:en')throw new LedgerFault('invalid');
++    const raw=observed?.reservationId===attempt.witness.reservationId&&observed.seconds===attempt.witness.seconds&&observed.state==='reserved';
++    if(!raw)throw new LedgerFault('invalid');
++    const record=async()=>this.db.runTransaction(async tx=>{
++      try{const result=await recordReserveAckInTransaction(tx,this.root,attempt,observed);return result.state;}catch(error){if(error instanceof ReserveAttemptEvidenceFault)throw new LedgerFault('conflict');throw error;}
++    });
++    try{return await record();}catch(error){
++      if(error instanceof LedgerFault||error instanceof ReserveAttemptEvidenceFault)throw error;
++      // A lost commit response is UNKNOWN, not a fabricated receipt; a retry is idempotent.
++      try{return await record();}catch{return 'unknown';}
++    }
++  }
+   /** A retry may read a prior job even while the account is blocked; never trust a dangling request. */
+   private async verifiedExternalJob(tx:Transaction,prior:DocumentSnapshot,accountId:string,inputId:string,requestKey:string,operation:string,revision:number,billing:ExternalVideoBilling){
+     if(prior.get('accountId')!==accountId||prior.get('requestFingerprint')!==requestFingerprint(inputId,operation,revision,AI_CATALOG_VERSION))throw new LedgerFault('conflict');
+@@ -1340,9 +1431,10 @@ export class FirestoreBackend {
+   }
+   /** Trusted internal reservation; the generic customer route must use reserveForUid. */
+   async reserve(accountId: string, inputId: string, requestKey: string, price: number, operation: string,
+-    expectedRevision?: number,aiProfile?:typeof AI_CATALOG_VERSION,externalBilling?:ExternalVideoBilling,statusSnapshotInput?:unknown,requesterUid?:string) {
++    expectedRevision?: number,aiProfile?:typeof AI_CATALOG_VERSION,externalBilling?:ExternalVideoBilling,statusSnapshotInput?:unknown,requesterUid?:string,
++    attempt?:ReserveAttemptEvidenceV1,reserveAck?:ReserveAck) {
+     if(externalBilling&&(typeof requesterUid!=='string'||!requesterUid||requesterUid.length>128))throw new LedgerFault('not_found');
+-    return this.reserveAs(accountId,inputId,requestKey,price,operation,expectedRevision,aiProfile,externalBilling,statusSnapshotInput,requesterUid);
++    return this.reserveAs(accountId,inputId,requestKey,price,operation,expectedRevision,aiProfile,externalBilling,statusSnapshotInput,requesterUid,attempt,reserveAck);
+   }
+   /** UID is obtained from the verified token, never the request body. */
+   async reserveForUid(accountId:string,inputId:string,requestKey:string,price:number,operation:string,expectedRevision:number,uid:string) {
+@@ -1350,13 +1442,24 @@ export class FirestoreBackend {
+     integer(expectedRevision,true);
+     return this.reserveAs(accountId,inputId,requestKey,price,operation,expectedRevision,undefined,undefined,undefined,uid);
+   }
++  /**
++   * Step 1.3b: reserve after a validated Account POST, binding the ACK and the job in one
++   * transaction. `ack` is the ACK the POST returned for `attempt`; the attempt was
++   * prepared and committed BEFORE that POST by `prepareExternalReserveAttempt`.
++   */
++  async reserveWithReserveAck(accountId:string,inputId:string,requestKey:string,price:number,operation:string,expectedRevision:number,externalBilling:ExternalVideoBilling,attempt:ReserveAttemptEvidenceV1,ack:ReserveAck,requesterUid:string) {
++    if(typeof requesterUid!=='string'||!requesterUid||requesterUid.length>128)throw new LedgerFault('not_found');
++    integer(expectedRevision,true);
++    return this.reserveAs(accountId,inputId,requestKey,price,operation,expectedRevision,AI_CATALOG_VERSION,externalBilling,undefined,requesterUid,attempt,ack);
++  }
+   /** Customer AI admission with simulated ledger only; external Account remains separate. */
+   async reserveSimulatedAiForUid(accountId:string,inputId:string,requestKey:string,price:number,operation:string,expectedRevision:number,uid:string) {
+     if(typeof uid!=='string'||!uid||uid.length>128)throw new LedgerFault('not_found');integer(expectedRevision,true);
+     return this.reserveAs(accountId,inputId,requestKey,price,operation,expectedRevision,AI_CATALOG_VERSION,undefined,undefined,uid);
+   }
+   private async reserveAs(accountId: string, inputId: string, requestKey: string, price: number, operation: string,
+-    expectedRevision?: number,aiProfile?:typeof AI_CATALOG_VERSION,externalBilling?:ExternalVideoBilling,statusSnapshotInput?:unknown,requesterUid?:string) {
++    expectedRevision?: number,aiProfile?:typeof AI_CATALOG_VERSION,externalBilling?:ExternalVideoBilling,statusSnapshotInput?:unknown,requesterUid?:string,
++    attempt?:ReserveAttemptEvidenceV1,reserveAck?:ReserveAck) {
+     if(aiProfile!==undefined&&aiProfile!==AI_CATALOG_VERSION)throw new LedgerFault('invalid');
+     if(aiProfile&&expectedRevision===undefined)throw new LedgerFault('invalid');
+     identifier(accountId); identifier(inputId); text(requestKey); text(operation); integer(price, true);
+@@ -1375,6 +1478,13 @@ export class FirestoreBackend {
+       const intentRef=externalBilling?this.ref('billingIntents',requestId):null,originRef=externalBilling?this.ref('billingIntentWitnesses',requestId):null,markerRef=externalBilling?this.ref('billingIntentJobMarkers',requestId):null;
+       const readRefs=[a,i,r,this.ref('projects',inputId),this.ref('billingGuards',accountId),...(externalBilling?[intentRef!,originRef!,markerRef!,this.ref('identities',externalBilling.identityKey),this.ref('billingIntentAdmissionGuards',requestId)]:[])];
+       const [account, input, prior, project, guard, intentDoc,originDoc,markerDoc,identityDoc,intentGuard] = await diagnosticStage('reserve.read',()=>tx.getAll(...readRefs));
++      // Step 1.3b: read the attempt/observation pair and terminal rows up front.
++      let ackPrepared:DocumentSnapshot|null=null,ackObserved:DocumentSnapshot|null=null;
++      let attemptDocs:Record<'sealWitness'|'sealRecovery'|'releaseWitness'|'releaseRecovery',DocumentSnapshot>|null=null;
++      if(attempt){const ackRefs=this.reserveAttemptRefs(attempt.attemptId);if(reserveAck)[ackPrepared,ackObserved]=await tx.getAll(ackRefs.prepared,ackRefs.ack);
++        const sealId=intentTerminalKey(requestId,'seal'),releaseId=intentTerminalKey(requestId,'release');
++        const [sealWitness,sealRecovery,releaseWitness,releaseRecovery]=await tx.getAll(this.ref('billingIntentTerminalWitnesses',sealId),this.ref('billingIntentTerminalRecovery',sealId),this.ref('billingIntentTerminalWitnesses',releaseId),this.ref('billingIntentTerminalRecovery',releaseId));
++        attemptDocs={sealWitness,sealRecovery,releaseWitness,releaseRecovery};}
+       if(statusSnapshot&&statusWitness){
+         const direct=await this.directObservationDocs(tx,statusWitness);
+         if(!this.matchingDirectObservation(statusSnapshot,direct,statusWitness,requestKey,'status')){
+@@ -1432,6 +1542,18 @@ export class FirestoreBackend {
+       if(plan)tx.create(this.ref('artifacts',jobId),{accountId,inputId,jobId,plan,planHash:artifactPlanHash(plan),sourceGeneration:asset.storage!.generation,inputSha256:asset.sha256,revision:expectedRevision!,snapshotSha256:draftSha(project.get('draft')),expiresAtMs:asset.expiresAtMs,state:'pending',quotaMode:'reserved',quotaHeld:plan.budgetBytes,entries:[],attemptId:null,nextAttemptAt:Date.now()} satisfies AiArtifactRecord);
+       tx.create(this.ref('outbox', jobId), {accountId, jobId, ...(aiProfile?{aiProfile}:{}), state: 'pending', nextAttemptAt: Date.now(), dispatchAttempt: null, leaseUntil: null});
+       if(externalBilling){tx.create(markerRef!,{...intentWitness(accountId,inputId,requestKey,operation,expectedRevision!,externalBilling),jobId,historyProtocol:1,createdAtMs:Date.now()});tx.update(intentRef!,{state:'job_created',jobId,updatedAtMs:Date.now()});}
++      // Step 1.3b: the ACK and the job commit in ONE transaction. A failure aborts both.
++      if(attempt){
++        // Step 1.3b: the POST is only valid while the recorded window still holds.
++        const windowDocs={account,guard,intent:intentDoc!,identity:identityDoc!,input,project,
++          origin:originDoc!,intentGuard:intentGuard!,request:prior,jobMarker:markerDoc!,
++          sealWitness:attemptDocs.sealWitness,sealRecovery:attemptDocs.sealRecovery,
++          releaseWitness:attemptDocs.releaseWitness,releaseRecovery:attemptDocs.releaseRecovery} as ReserveAttemptWindowDocuments;
++        if(reserveAttemptWindowChanged(attempt,windowDocs,accountId))throw new LedgerFault('conflict');
++        // Step 1.3b: job and ACK commit in ONE transaction; a missing ACK is not a job.
++        if(!reserveAck||!ackPrepared||!ackObserved)throw new LedgerFault('invariant');
++        try{stageReserveAck(tx,this.root,attempt,reserveAck,ackPrepared,ackObserved);}catch(error){if(error instanceof ReserveAttemptEvidenceFault)throw new LedgerFault('invariant');throw error;}
++      }
+       if(!externalBilling)tx.create(this.ref('movements', 'reserve:' + jobId), { accountId, kind: 'reserve', credits: price, reference: jobId });
+       diagnosticMark('reserve.writes_staged');
+       return jobId;
+diff --git a/server/commercial/reserveAttemptEvidence.ts b/server/commercial/reserveAttemptEvidence.ts
+index 9a169da..9523647 100644
+--- a/server/commercial/reserveAttemptEvidence.ts
++++ b/server/commercial/reserveAttemptEvidence.ts
+@@ -181,3 +181,20 @@ export async function recordReserveAckInTransaction(tx:Transaction, root:Documen
+   tx.create(target.ack, observation(attempt));
+   return Object.freeze({state:'recorded', attribution:'unverified'});
+ }
++/**
++ * Same validation and writes as `recordReserveAckInTransaction`, but the caller has
++ * already read `prepared` and `ack` in ITS transaction, so the ACK create can be
++ * bundled with the job's writes. Pass exactly the two documents read there.
++ */
++export function stageReserveAck(tx:Transaction, root:DocumentReference, value:ReserveAttemptEvidenceV1, observed:ReserveAck,
++  prepared:DocumentSnapshot, ack:DocumentSnapshot):ReserveAckRecordResult {
++  const attempt = copyAttemptV1(value); copyAck(observed, attempt.witness);
++  const target = refs(root, attempt.attemptId);
++  if (!prepared.exists || !equalAttempt(data(prepared), attempt)) return conflict();
++  if (ack.exists) {
++    if (!equalObservation(data(ack), attempt)) return conflict();
++    return Object.freeze({state:'already_recorded', attribution:'unverified'});
++  }
++  tx.create(target.ack, observation(attempt));
++  return Object.freeze({state:'recorded', attribution:'unverified'});
++}
+
+=== ARCHIVO NUEVO server/commercial/reserveAttemptWindow.ts (completo) ===
+import type { DocumentSnapshot } from 'firebase-admin/firestore';
+import {
+  RESERVE_ATTEMPT_DOCUMENTS,
+  type ReserveAttemptDocumentName,
+  type ReserveAttemptDocumentVersion,
+  type ReserveAttemptEvidenceV1,
+  type ReserveAttemptVersions,
+} from './reserveAttemptEvidence';
+
+/**
+ * LV-019.B step 1.3b design 3.2. The trusted caller supplies the snapshots it
+ * re-read inside the job transaction. Documents nobody rewrites in the request
+ * window must keep the exact version recorded before the Account POST; the
+ * intent and the account carry only a semantic value; the guard may stay absent
+ * or must not block this account. A mismatched pair of terminal rows is not a
+ * clean history.
+ *
+ * This function is pure shape comparison: it does not authenticate the caller,
+ * prove that the reads happened, or replace the A-3 release fence.
+ */
+export type ReserveAttemptWindowDocuments = Record<ReserveAttemptDocumentName, DocumentSnapshot>;
+
+/**
+ * Nobody rewrites these inside the request window, so the exact version recorded
+ * before the POST must still hold when the job is written. `account`, `intent`
+ * and `guard` are deliberately absent: their comparison is semantic below.
+ */
+export const RESERVE_ATTEMPT_IMMUTABLE_DOCUMENTS = Object.freeze([
+  'identity', 'input', 'project', 'origin', 'intentGuard', 'request', 'jobMarker',
+  'sealWitness', 'sealRecovery', 'releaseWitness', 'releaseRecovery',
+] as const);
+
+function documentVersion(doc:DocumentSnapshot):ReserveAttemptDocumentVersion|null{
+  if(!doc.exists)return {exists:false};
+  const encode=(value:DocumentSnapshot['createTime'])=>value&&Number.isSafeInteger(value.seconds)&&value.seconds>=0&&Number.isSafeInteger(value.nanoseconds)&&value.nanoseconds>=0&&value.nanoseconds<1_000_000_000?`${value.seconds}:${String(value.nanoseconds).padStart(9,'0')}`:null;
+  const createTime=encode(doc.createTime),updateTime=encode(doc.updateTime);
+  return createTime&&updateTime?{exists:true,createTime,updateTime}:null;
+}
+/** The four terminal rows come in witness/recovery pairs; a half pair is not a clean history. */
+function terminalVersion(sealWitness:DocumentSnapshot,sealRecovery:DocumentSnapshot):ReserveAttemptDocumentVersion|null{
+  if(!sealWitness.exists&&!sealRecovery.exists)return {exists:false};
+  if(sealWitness.exists!==sealRecovery.exists)return null;
+  return documentVersion(sealWitness);
+}
+
+/**
+ * Builds the 14-version copy persisted in the attempt. `account`, `intent` and
+ * `guard` keep a placeholder version for the frozen record shape; their real
+ * comparison is semantic in `reserveAttemptWindowChanged`.
+ */
+export function reserveAttemptVersions(docs:ReserveAttemptWindowDocuments):ReserveAttemptVersions|null{
+  const versions={} as Record<ReserveAttemptDocumentName,ReserveAttemptDocumentVersion>;
+  for(const name of RESERVE_ATTEMPT_DOCUMENTS){
+    if(name==='account'||name==='intent'||name==='guard')continue;
+    const value=name==='sealWitness'||name==='sealRecovery'?terminalVersion(docs.sealWitness,docs.sealRecovery):
+      name==='releaseWitness'||name==='releaseRecovery'?terminalVersion(docs.releaseWitness,docs.releaseRecovery):
+      documentVersion(docs[name]);
+    if(!value)return null;
+    versions[name]=value;
+  }
+  if(!docs.account.exists||!docs.intent.exists||!docs.identity.exists||!docs.input.exists||!docs.project.exists||!docs.origin.exists||!docs.intentGuard.exists)return null;
+  const guard=docs.guard.exists?documentVersion(docs.guard):({exists:false} as const);
+  if(!guard)return null;
+  versions.account=documentVersion(docs.account)!;
+  versions.intent=documentVersion(docs.intent)!;
+  versions.guard=guard;
+  return versions;
+}
+
+/** Returns true when any document invalidates the history recorded before the POST. */
+export function reserveAttemptWindowChanged(attempt:ReserveAttemptEvidenceV1,docs:ReserveAttemptWindowDocuments,accountId:string):boolean{
+  for(const name of RESERVE_ATTEMPT_IMMUTABLE_DOCUMENTS){
+    const expected=attempt.versions[name],actual=documentVersion(docs[name]);
+    if(!expected||!actual||expected.exists!==actual.exists)return true;
+    if(expected.exists&&actual.exists&&(expected.createTime!==actual.createTime||expected.updateTime!==actual.updateTime))return true;
+  }
+  const row=docs.intent.data() as {state?:unknown;inputId?:unknown;operation?:unknown;revision?:unknown;seconds?:unknown;jobId?:unknown}|undefined;
+  if(!row)return true;
+  if(row.state!=='reserve_pending')return true;
+  if(row.inputId!==attempt.witness.inputId)return true;
+  if(row.operation!==attempt.witness.operation)return true;
+  if(row.revision!==attempt.witness.revision)return true;
+  if(row.seconds!==attempt.witness.seconds)return true;
+  if(row.jobId!==undefined)return true;
+  if(!docs.account.exists)return true;
+  const account=docs.account.data() as {aiPilot?:unknown;simulationOnly?:unknown};
+  if(account.aiPilot!==true)return true;
+  if(account.simulationOnly!==true)return true;
+  const guard=docs.guard;
+  if(guard.exists&&(guard.get('accountId')!==accountId||guard.get('blocked')!==false))return true;
+  return false;
+}

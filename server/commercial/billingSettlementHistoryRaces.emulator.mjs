@@ -118,7 +118,12 @@ for(const field of ['account','outbox','job','terminal','artifact','classificati
  releaseCapture();const result=await draining,outbox=await ref(c,'billingOutbox',id).get(),incidents=await c.root.collection('billingOutboxReviewIncidents').get();
  const captured=incidents.docs.find(d=>d.get('remoteAck.state')==='captured'),foreign=await ref(c,'billingGuards',c.foreign).get();
  console.log(JSON.stringify({event:'synthetic-settlement-history-race',field,state:outbox.get('state'),result,captured:!!captured,attribution:captured?.get('attribution'),foreignBlocked:foreign.get('blocked')===true}));
- assert.equal(result.settled,0);assert.notEqual(outbox.get('state'),'settled');assert.ok(captured);assert.notEqual(foreign.get('blocked'),true);
+ assert.equal(result.settled,0);assert.notEqual(outbox.get('state'),'settled');assert.notEqual(foreign.get('blocked'),true);
+ if(field==='outbox'){
+  // Step 1.4a (Codex): a benign write to the outbox row ITSELF (same tuple, every other document intact) is a TRANSIENT local failure, not a demonstrated
+  // divergence (design 3.1): the row is rescheduled with no incident and no owner block, and the next pass re-sends the idempotent capture.
+  assert.equal(outbox.get('state'),'retry_wait');assert.equal(incidents.size,0);assert.notEqual((await ref(c,'billingGuards',c.account).get()).get('blocked'),true);
+ }else assert.ok(captured);
 });
 test('a timeout after send is not reported as a confirmed Account ACK',{timeout:30000},async()=>{
  const c=await fixture(),calls=[];const billing=new AccountBillingClient(undefined,{request:async request=>{

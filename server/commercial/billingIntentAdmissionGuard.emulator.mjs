@@ -21,6 +21,8 @@ function reservationFor(account,identity,input,requestKey){
 }
 
 before(async()=>{
+ // Step 1.3b (Codex): under the guarded financial runner no Google credentials exist; like the other fixtures, never try the metadata server.
+ if(!process.env.METADATA_SERVER_DETECTION)process.env.METADATA_SERVER_DETECTION='none';
  assert.equal(process.env.FIRESTORE_EMULATOR_HOST,host,'requires loopback Firestore emulator');
  assert.equal(process.env.NODE_ENV,'test','requires NODE_ENV=test');
  for(const name of ['GOOGLE_APPLICATION_CREDENTIALS','K_SERVICE','K_JOB','FUNCTION_TARGET','GAE_ENV'])assert.ok(!process.env[name],`${name} must be absent`);
@@ -144,7 +146,13 @@ test('a legacy intent missing its guard is not adopted or automatically reconstr
  await assert.rejects(()=>f.backend.recheckExternalBillingAdmission(f.account,f.requestKey,f.billing),error=>error.code==='conflict');
  await assert.rejects(()=>f.backend.reserve(f.account,f.inputId,f.requestKey,2,'translation:en',1,AI_CATALOG_VERSION,f.billing,undefined,f.uid),error=>error.code==='conflict');
  assert.equal((await ai.drainExternalBilling()).intentsFailed,1);assert.deepEqual(calls,[]);assert.equal((await guard.get()).exists,false);
- assert.deepEqual((await f.intent.get()).data(),before);assert.deepEqual(await f.backend.readBalance(f.account),balance);
+ // Step 1.6c (Codex): the drain records ONE attempt on an evidence-less intent so it cannot retry forever without advancing. That changes ONLY the
+ // scheduling metadata; the intent is still never adopted, no guard is reconstructed and no balance moves.
+ const schedulingKeys=['attempts','nextAttemptAt','lastErrorCode','lastAttemptAtMs','updatedAtMs'],stripScheduling=data=>Object.fromEntries(Object.entries(data).filter(([key])=>!schedulingKeys.includes(key)));
+ const after=(await f.intent.get()).data();
+ assert.deepEqual(stripScheduling(after),stripScheduling(before),'only the scheduling metadata may change');
+ assert.equal(after.attempts,(before.attempts??0)+1,'exactly one attempt is recorded');assert.equal(after.lastErrorCode,'unavailable');
+ assert.deepEqual(await f.backend.readBalance(f.account),balance);
 });
 test('a status already in flight is not cancelled, but the changed guard stops the next step',async()=>{
  const {f,jobId,guard}=await createExternalJob(),attempt=await f.backend.claim(f.account,jobId);assert.ok(attempt);

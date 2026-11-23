@@ -1,0 +1,17 @@
+He revisado solo el diff y las pruebas (`reserveAttemptWindow.test.ts`, spec 3.2). Hallazgos:
+
+1. **ALTA — No hay invariante `externalBilling ⇒ attempt/ack`.** Estado inicial: `reserve(...,externalBilling,statusSnapshot,uid)` con `attempt`/`reserveAck` omitidos. Eventos: `reserveAs` entra con `externalBilling` truthy; el bloque `if(attempt){…}` no corre; no existe `if(externalBilling&&!attempt)throw`. Resultado errado: se crea el trabajo externo **sin intento confirmado, sin ventana y sin ACK**, es decir exactamente la ruta que el paso elimina (criterios 1/3/5). Hoy no hay llamador vivo, pero la firma pública lo permite. Corrección: `if(externalBilling&&(!attempt||!reserveAck))throw new LedgerFault('invalid')` al inicio de `reserveAs` (o de `reserve`).
+
+2. **ALTA — Fallo al conservar el ACK es silencioso.** Estado: commit local falla tras el POST. Eventos: `recordExternalReserveAck` reintenta una vez y devuelve `'unknown'`; `firestoreAi` lo traga con `.catch(()=>undefined)`. Resultado errado: la reserva existe en Cuenta, el ACK no queda en ninguna parte y **no hay evidencia ni alerta**, dejando una A-3 indistinguible de una pérdida. Corrección: propagar/registrar evidencia del `'unknown'` (bitácora de fallo o marca de intento) y no silenciarlo.
+
+3. **MEDIA — El POST no se ata al intento antes de enviarse.** Estado: `data.seconds`/`data.reservationId` construidos antes de `prepareExternalReserveAttempt`. Eventos: si el intento persistido difiere de `data`, el POST sale con una historia distinta; el ACK vuelve y solo entonces `stageReserveAck`/`recordExternalReserveAck` lo rechazan por tupla. Resultado errado: reserva hecha en Cuenta sin trabajo local por un ACK ya inválido, detectable solo post-hoc. Corrección: antes del POST, exigir `data.reservationId===attempt.witness.reservationId && data.seconds===attempt.witness.seconds`.
+
+4. **MEDIA — `reservationUuidFor` duplica `FirestoreAi.reservationUuid`** sin prueba centinela de igualdad; una deriva cerraría la puerta en silencio (`conflict` en todo intento). Corrección: prueba que compare ambas salidas para una tupla fija.
+
+5. **BAJA — `terminalVersion` propaga solo la versión de `sealWitness` a ambas filas**; el par recuperación queda indiferenciado al construir `versions`. Hoy es inalcanzable (el preflight rechaza cualquier terminal existente), pero la semántica queda frágil. Y falta prueba directa de `stageReserveAck` (ACK ajeno/idempotencia) y del caso "cambio inocuo" para `request`/`jobMarker`.
+
+6. **BAJA — Comentario/doc desalineado:** dice "`null` significa que el POST no debe ocurrir", pero `prepareExternalReserveAttempt` nunca devuelve `null` (lanza).
+
+Correcto (no repito): ventana inmutable vs semántica, guard por ausencia, terminales, cuenta pilot, one-transaction, idempotencia por transacción.
+
+RESULTADO: FALLA

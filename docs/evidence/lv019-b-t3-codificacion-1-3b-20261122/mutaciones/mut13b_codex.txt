@@ -1,0 +1,32 @@
+post-tuple-equality-removed    unit=survived emulator=KILLED
+ack-not-preserved-on-failure   unit=survived emulator=KILLED
+job-without-ack-argument       unit=survived emulator=KILLED
+window-check-removed           unit=survived emulator=KILLED
+stage-ack-removed              unit=survived emulator=KILLED
+prepare-identity-account-unchecked unit=survived emulator=survived
+prepare-blocked-guard-unchecked unit=survived emulator=survived
+prepare-request-marker-unchecked unit=survived emulator=survived
+prepare-terminal-rows-unchecked unit=survived emulator=survived
+prepare-reservation-id-unchecked unit=survived emulator=survived
+win-state-unchecked            unit=KILLED emulator=-
+win-jobid-unchecked            unit=KILLED emulator=-
+win-simulationonly-unchecked   unit=KILLED emulator=-
+win-aipilot-unchecked          unit=KILLED emulator=-
+win-guard-blocked-unchecked    unit=KILLED emulator=-
+win-seconds-unchecked          unit=KILLED emulator=-
+win-revision-unchecked         unit=KILLED emulator=-
+win-version-time-unchecked     unit=KILLED emulator=-
+win-immutable-identity-dropped unit=survived emulator=survived
+win-immutable-input-dropped    unit=survived emulator=survived
+win-immutable-project-dropped  unit=survived emulator=survived
+win-immutable-origin-dropped   unit=KILLED emulator=-
+win-immutable-intentGuard-dropped unit=survived emulator=survived
+win-immutable-request-dropped  unit=survived emulator=survived
+win-immutable-jobMarker-dropped unit=survived emulator=survived
+win-immutable-sealWitness-dropped unit=KILLED emulator=-
+win-immutable-sealRecovery-dropped unit=KILLED emulator=-
+win-immutable-releaseWitness-dropped unit=KILLED emulator=-
+win-immutable-releaseRecovery-dropped unit=KILLED emulator=-
+final restore verified: True
+survivors: ['prepare-identity-account-unchecked', 'prepare-blocked-guard-unchecked', 'prepare-request-marker-unchecked', 'prepare-terminal-rows-unchecked', 'prepare-reservation-id-unchecked', 'win-immutable-identity-dropped', 'win-immutable-input-dropped', 'win-immutable-project-dropped', 'win-immutable-intentGuard-dropped', 'win-immutable-request-dropped', 'win-immutable-jobMarker-dropped']
+DONE

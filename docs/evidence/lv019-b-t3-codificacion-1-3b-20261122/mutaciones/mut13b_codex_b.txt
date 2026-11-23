@@ -1,0 +1,12 @@
+prepare-blocked-guard-unchecked unit=survived emulator=KILLED
+prepare-request-marker-unchecked unit=survived emulator=survived
+prepare-terminal-rows-unchecked unit=survived emulator=survived
+win-immutable-identity-dropped unit=survived emulator=KILLED
+win-immutable-input-dropped    unit=survived emulator=KILLED
+win-immutable-project-dropped  unit=survived emulator=KILLED
+win-immutable-intentGuard-dropped unit=survived emulator=survived
+win-immutable-request-dropped  unit=survived emulator=survived
+win-immutable-jobMarker-dropped unit=survived emulator=survived
+final restore verified: True
+survivors: ['prepare-request-marker-unchecked', 'prepare-terminal-rows-unchecked', 'win-immutable-intentGuard-dropped', 'win-immutable-request-dropped', 'win-immutable-jobMarker-dropped']
+DONE

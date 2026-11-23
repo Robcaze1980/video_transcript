@@ -181,3 +181,20 @@ export async function recordReserveAckInTransaction(tx:Transaction, root:Documen
   tx.create(target.ack, observation(attempt));
   return Object.freeze({state:'recorded', attribution:'unverified'});
 }
+/**
+ * Same validation and writes as `recordReserveAckInTransaction`, but the caller has
+ * already read `prepared` and `ack` in ITS transaction, so the ACK create can be
+ * bundled with the job's writes. Pass exactly the two documents read there.
+ */
+export function stageReserveAck(tx:Transaction, root:DocumentReference, value:ReserveAttemptEvidenceV1, observed:ReserveAck,
+  prepared:DocumentSnapshot, ack:DocumentSnapshot):ReserveAckRecordResult {
+  const attempt = copyAttemptV1(value); copyAck(observed, attempt.witness);
+  const target = refs(root, attempt.attemptId);
+  if (!prepared.exists || !equalAttempt(data(prepared), attempt)) return conflict();
+  if (ack.exists) {
+    if (!equalObservation(data(ack), attempt)) return conflict();
+    return Object.freeze({state:'already_recorded', attribution:'unverified'});
+  }
+  tx.create(target.ack, observation(attempt));
+  return Object.freeze({state:'recorded', attribution:'unverified'});
+}
