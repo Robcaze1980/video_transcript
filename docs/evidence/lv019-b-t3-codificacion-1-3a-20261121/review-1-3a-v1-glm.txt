@@ -1,0 +1,13 @@
+**Hallazgos**
+
+1. **MEDIA — Procedencia de `firstObserved` en la rama `requireBlocked`.** Estado inicial: A-3 vencida con evidencia `null`; evento: cuenta bloqueada; resultado: la incidencia registra `{state:'reserved',seconds}` construida desde la fila de la intención, no de una lectura real de Cuenta. Un operador del barrido A2 puede tratarla como observación verificada y decidir mal (p. ej., liberar manualmente una reserva ya terminal). Corrección: marcar la tupla como esperada (`expected:true` o razón distintiva) o capturar un `status` real antes de cerrar.
+
+2. **BAJA — Sin prueba de caída entre la cerca y la liberación.** `claimExternalBillingRelease` transiciona a `release_pending` y el drenaje muere antes de `releaseAfter`; la pasada siguiente debe terminar por la maquinaria `release_pending` existente. El ensayo no ejercita esa recuperación tras la nueva transición. Corrección: añadir un caso que deje la fila en `release_pending` tras un claim exitoso y verifique una sola liberación en la pasada siguiente.
+
+3. **BAJA — Sin prueba de idempotencia concurrente en la vía bloqueada.** Dos drenajes simultáneos sobre una A-3 bloqueada llaman ambos `closeA3ReservationForReview(requireBlocked)`. El código es idempotente (transacción + `!existing.exists`), pero la concurrencia solo se prueba en la vía de liberación; una regresión que duplicara la incidencia pasaría. Corrección: añadir el caso concurrente bloqueado y afirmar una sola incidencia y una sola transición a `needs_review`.
+
+4. **BAJA — Manejo de error inconsistente en `closeA3ReservationForReview`.** La rama de evidencia `null` usa `.catch(()=>undefined)`, pero las ramas de conflicto de cerca y de rechazo de Cuenta no. Si la transacción de cierre falla, el error se propaga al `catch` externo y se registra como `'unavailable'` (código engañoso para un `LedgerFault`); la fila queda reintentable y sin riesgo de saldo, pero el registro confunde el diagnóstico. Corrección: envolver con `.catch` de forma uniforme.
+
+Sin hallazgo en el resto del encargo: el drenaje nunca crea trabajo desde `status` ni captura; libera solo tras la cerca atómica y con Cuenta informando `reserved` con los mismos segundos; `transitioned` garantiza dueño único sin doble llamada ni doble ACK; la frontera exacta, los relojes inválidos y el comportamiento pre-plazo están cubiertos por pruebas que fallarían con el código roto; las filas `closed` o con trabajo no se reescriben.
+
+RESULTADO: PASS

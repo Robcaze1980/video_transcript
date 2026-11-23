@@ -1,0 +1,24 @@
+a3-due-boundary-strict         unit=KILLED emulator=-
+a3-future-clock-not-invalid    unit=KILLED emulator=-
+a3-negative-clock-not-invalid  unit=KILLED emulator=-
+claim-never-transitioned       unit=survived emulator=KILLED
+claim-always-transitioned      unit=survived emulator=KILLED
+close-blocked-proof-removed    unit=survived emulator=KILLED
+close-state-proof-removed      unit=survived emulator=survived
+close-closed-row-rewritten     unit=survived emulator=survived
+close-provenance-constant      unit=survived emulator=KILLED
+close-job-conflict-removed     unit=survived emulator=survived
+drain-now-ignored              unit=survived emulator=KILLED
+drain-never-fences             unit=survived emulator=KILLED
+drain-invalid-clock-fences     unit=survived emulator=KILLED
+drain-no-transitioned-guard    unit=survived emulator=KILLED
+drain-job-created-not-recovered unit=survived emulator=KILLED
+drain-evidence-state-removed   unit=survived emulator=survived
+drain-evidence-due-removed     unit=survived emulator=KILLED
+drain-blocked-proof-not-required unit=survived emulator=KILLED
+drain-not-blocked-treated-closed unit=survived emulator=KILLED
+drain-fence-conflict-no-close  unit=survived emulator=KILLED
+drain-refusal-no-close         unit=survived emulator=KILLED
+final restore verified: True
+survivors: ['close-state-proof-removed', 'close-closed-row-rewritten', 'close-job-conflict-removed', 'drain-evidence-state-removed']
+DONE

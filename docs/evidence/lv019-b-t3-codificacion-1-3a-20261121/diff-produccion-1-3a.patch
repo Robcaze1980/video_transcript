@@ -1,0 +1,214 @@
+diff --git a/server/commercial/firestoreAi.ts b/server/commercial/firestoreAi.ts
+index a64377e..9d2f6b5 100644
+--- a/server/commercial/firestoreAi.ts
++++ b/server/commercial/firestoreAi.ts
+@@ -1,7 +1,7 @@
+ import {createHash} from 'node:crypto';
+ import {FieldPath,type Firestore,type DocumentReference,type Transaction} from 'firebase-admin/firestore';
+-import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,pickOutboxSnapshot,copyOutboxSnapshot,OUTBOX_METADATA_KEYS,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence} from './firestoreBackend';
++import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,pickOutboxSnapshot,copyOutboxSnapshot,OUTBOX_METADATA_KEYS,classifyA3ReplayWindow,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence} from './firestoreBackend';
+ import {aiOperation,artifactPlanHash,validateArtifactPlan,validateArtifactManifest,simulatedAiPrice,storageQuota,AI_CATALOG_VERSION,AI_BILLING_PROFILE,AI_TEXT_WINDOW_MS,AI_TEXT_MAX_DURATION_MS,AI_VOICE_BUDGET,AiContractFault,type AiArtifactReceipt} from './aiContracts';
+ import type {CloudObjects,CloudObject} from './gcsObjects';
+ import {readyPrivateInput,privateUuid} from './privateObjectPlan';
+ import {textModel} from './pipelineTextProvider';
+@@ -21,10 +21,12 @@ export type AiCandidateLimits=Readonly<{maxSourceSeconds:number;maxNarrationChar
+  * - `after` is a rotation cursor per kind (document id): the reader starts strictly AFTER it and wraps, so a rotation visits each due row at most once.
+  * - `maxRows` replaces the positional `limit` (default 25, bounds 1..100).
+  * - `accountUsage` is a per-pass usage map shared by several drains: when present the cap is counted against it, so one
+  *   account cannot take `perAccountCap` rows in each section of the same pass.
++ * - `now` overrides the wall clock for the A-3 deadline (step 1.3a). It defaults to `Date.now()` at the start of the pass so a
++ *   single pass uses one clock; no production caller passes it.
+  */
+-export type DrainControl=Readonly<{shouldContinue?:()=>boolean|Promise<boolean>;perAccountCap?:number;after?:Readonly<{intents?:string|null;outbox?:string|null}>;maxRows?:number;accountUsage?:Map<string,number>}>;
++export type DrainControl=Readonly<{shouldContinue?:()=>boolean|Promise<boolean>;perAccountCap?:number;after?:Readonly<{intents?:string|null;outbox?:string|null}>;maxRows?:number;accountUsage?:Map<string,number>;now?:number}>;
+ function id(value:string){if(typeof value!=='string'||!privateUuid.test(value))throw new AiFault('invalid');}
+ function safeUsage(value:any){const out:Record<string,number>={};for(const key of ['promptTokenCount','candidatesTokenCount','totalTokenCount','thoughtsTokenCount','cachedContentTokenCount'])if(Number.isSafeInteger(value?.[key])&&value[key]>=0)out[key]=value[key];return out;}
+ /** Candidate-only orchestration. No client can mutate receipts, credits, plans or provider outcomes. */
+ export class FirestoreAi {
+@@ -208,8 +210,9 @@ export class FirestoreAi {
+  }
+  async drainExternalBilling(limit=25,control?:DrainControl):Promise<{settled:number;failed:number;intentsRecovered:number;intentsFailed:number;skippedRows?:number;stopped?:boolean;next?:{intents:string|null;outbox:string|null};traversed?:{intents:boolean;outbox:boolean}}>{
+   const maxRows=this.drainMaxRows(limit,control);
+   if(!this.accountBilling)return control===undefined?{settled:0,failed:0,intentsRecovered:0,intentsFailed:0}:{settled:0,failed:0,intentsRecovered:0,intentsFailed:0,skippedRows:0,stopped:false,next:{intents:null,outbox:null},traversed:{intents:false,outbox:false}};
++  const now=control?.now??Date.now();
+   let settled=0,failed=0,skippedRows=0,stopped=false,nextIntents:string|null=null,nextOutbox:string|null=null;
+   const perAccount=control?.accountUsage??new Map<string,number>();
+   const intents=await this.backend.pendingExternalBillingIntents(maxRows,control?.after?.intents);let intentsRecovered=0,intentsFailed=0,intentsAttended=false;
+   for(const row of intents as Array<Record<string,any>>){
+@@ -226,9 +229,23 @@ export class FirestoreAi {
+    // no failure evidence, no status snapshot), so each one records a bare ATTEMPT on the row before continuing.
+    // Without it the row would be re-attempted on every pass without advancing its counter or its wait.
+    if(typeof row.snapshotVersion!=='string'){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
+    failureEvidence=await this.backend.captureExternalBillingIntentFailureEvidence(witness,row.requestKey,row.snapshotVersion);
+-   if(!failureEvidence){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
++   if(!failureEvidence){
++          intentsFailed++;
++          // LV-019.B step 1.3a: null failure evidence has many causes that are NOT a blocked account: a benign intent
++          // write racing another drainer, a work request or marker that appeared, a foreign or expired lease, or a
++          // missing input or identity. Close for review ONLY when the row is still reserve_pending, the deadline
++          // passed AND the account is truly blocked, which closeA3ReservationForReview proves in its own transaction.
++          // Any other cause (or a release already underway) keeps today's stall behavior: an overdue row is never
++          // closed to review for nothing.
++          if(row.state==='reserve_pending'&&classifyA3ReplayWindow(row,now)==='due'){
++           const closed=await this.backend.closeA3ReservationForReview(row.accountId,row.requestKey,billing,{reservationId:row.reservationId,state:'reserved',seconds:row.seconds},{requireBlocked:true}).catch(()=>undefined);
++           if(closed&&closed.state==='needs_review')continue;
++          }
++          await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);
++          continue;
++         }
+    const initialStatus=await this.backend.captureDirectObservation(witness,row.requestKey,'status'),statusSnapshot=copyDirectObservationSnapshot(initialStatus);
+    if(!statusSnapshot){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
+    // The status proof is checked inside the same transaction that fences and prepares release.
+    const releaseAfter=async(snapshot:DirectObservationSnapshot,reason:'status_reserved'|'seal_reserved')=>{
+@@ -266,16 +283,43 @@ export class FirestoreAi {
+    }
+    if(row.state==='release_pending'){
+     const result=await releaseAfter(statusSnapshot,'status_reserved');if(result==='recovered')intentsRecovered++;else intentsFailed++;continue;
+    }
+-   // A reserved status is not evidence that the original admission history is
+-   // still intact. Preserve changes, but do not create a job or release.
+-   const deferred=await this.backend.recordReservedStatusUncertainty(witness,row.requestKey,statusSnapshot);
+-   // An unchanged, still-reserved observation is not permission to admit or
+-   // release, but it must be rescheduled using the original failure evidence.
+-   // Changed history is already quarantined and must never be overwritten here.
+-   if(deferred==='unchanged'&&failureEvidence)await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,'reserved_unconfirmed',failureEvidence);
+-   intentsFailed++;
++   // LV-019.B step 1.3a: an A-3 reserve_pending intent with no work is uncertain only until its deadline. At the
++   // deadline the fence atomically closes the window for creating work; Account still reporting the matching reserved
++   // status then lets the drain release, because Account's own admission check is the proof. An invalid clock stays on
++   // the uncertainty path and never fences. Before the deadline behavior is exactly as before: reschedule only.
++   const replayWindow=classifyA3ReplayWindow(row,now);
++   if(replayWindow!=='due'){
++    const deferred=await this.backend.recordReservedStatusUncertainty(witness,row.requestKey,statusSnapshot);
++    if(deferred==='unchanged'&&failureEvidence)await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,'reserved_unconfirmed',failureEvidence);
++    intentsFailed++;continue;
++   }
++   let fenced:{state:'release_pending';transitioned:boolean}|{state:'job_created';jobId:string};
++   try{fenced=await this.backend.claimExternalBillingRelease(row.accountId,row.requestKey,billing);}
++   catch(error){
++    if(!(error instanceof LedgerFault)||error.code!=='conflict')throw error;
++    // A blocked account (or an invalid admission guard) closes the A-3 row for review without
++    // blocking the owner or touching Account balance: the A2 sweep alerts on needs_review.
++    await this.backend.closeA3ReservationForReview(row.accountId,row.requestKey,billing,{reservationId:held.reservationId,state:'reserved',seconds:held.seconds});
++    intentsFailed++;continue;
++   }
++   if(fenced.state==='job_created'){intentsRecovered++;continue;}
++   // A concurrent drain already owns the single release for this intent: only the caller that
++   // performed the reserve_pending -> release_pending transition may contact Account.
++   if(!fenced.transitioned){intentsFailed++;continue;}
++   const refreshed=await this.backend.captureDirectObservation(witness,row.requestKey,'status'),freshSnapshot=copyDirectObservationSnapshot(refreshed);
++   if(!freshSnapshot){intentsFailed++;continue;}
++   try{
++    const result=await releaseAfter(freshSnapshot,'status_reserved');if(result==='recovered')intentsRecovered++;else intentsFailed++;
++   }catch(error){
++    if(!(error instanceof AccountBillingFault)||error.code!=='conflict')throw error;
++    // Account refused the release (inherited reservation or stored admission). Preserve the intent
++    // for review without a second release and without blocking the owner.
++    await this.backend.closeA3ReservationForReview(row.accountId,row.requestKey,billing,{reservationId:held.reservationId,state:'reserved',seconds:held.seconds});
++    intentsFailed++;
++   }
++   continue;
+   }catch(error){
+    // No response is not an ACK. If Firestore also fails after an ACK, the immutable
+    // witness remains for independent reconciliation; a read-only seal status is still pending.
+    intentsFailed++;if(!terminalObserved&&failureEvidence&&typeof row.accountId==='string'&&typeof row.requestKey==='string')await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,error instanceof AccountBillingFault?error.code:'unavailable',failureEvidence).catch(()=>undefined);
+diff --git a/server/commercial/firestoreBackend.ts b/server/commercial/firestoreBackend.ts
+index ce5507b..542c546 100644
+--- a/server/commercial/firestoreBackend.ts
++++ b/server/commercial/firestoreBackend.ts
+@@ -383,8 +383,28 @@ export function narrationRequiresReview(operation:unknown){return typeof operati
+  */
+ export const UNKNOWN_REVIEW_WINDOW_MS=6*60*60*1000;
+ /** Tolerance for a `quarantinedAtMs` written slightly ahead of the resolver's injected clock (clock skew between writers). */
+ export const UNKNOWN_CLOCK_SKEW_MS=10*60*1000;
++/**
++ * LV-019.B step 1.3a: how long an A-3 `reserve_pending` intent may wait for a work
++ * creation before the drain closes it by releasing the Account reservation. The value
++ * is a starting point, adjustable with real data: a configuration decision, not a
++ * policy one. It only applies when Video has no work and Account still reports the
++ * matching `reserved` status.
++ */
++export const A3_REPLAY_WINDOW_MS=30*60*1000;
++/** Tolerance for an intent `createdAtMs` written slightly ahead of the drain's injected clock. */
++export const A3_CLOCK_SKEW_MS=10*60*1000;
++/**
++ * Pure A-3 clock classification. No I/O and no wall clock: the caller supplies `now`.
++ * `invalid` covers a missing, non-integer, negative or implausibly future `createdAtMs`,
++ * which is a counted failure that never fences; `due` is the deadline itself and later.
++ */
++export function classifyA3ReplayWindow(intent:{createdAtMs?:unknown},now:number,windowMs:number=A3_REPLAY_WINDOW_MS,skewMs:number=A3_CLOCK_SKEW_MS):'due'|'wait'|'invalid'{
++  const createdAtMs=intent.createdAtMs;
++  if(typeof createdAtMs!=='number'||!Number.isSafeInteger(createdAtMs)||createdAtMs<0||createdAtMs>now+skewMs)return 'invalid';
++  return createdAtMs<=now-windowMs?'due':'wait';
++}
+ /**
+  * Test-only override of the review window: no production caller passes it and no HTTP route can reach it. It may only
+  * SHORTEN the real window, so it is validated as a safe integer in [this floor, UNKNOWN_REVIEW_WINDOW_MS]; a longer window
+  * would delay a release the six-hour policy already allows.
+@@ -938,8 +958,18 @@ export class FirestoreBackend {
+     });
+   }
+   /** Fence job creation in video Firestore before a separately authorized remote release. */
+   async fenceExternalBillingRelease(accountId:string,requestKey:string,billing:ExternalVideoBilling):Promise<ExternalBillingReleaseFence>{
++    const claimed=await this.claimExternalBillingRelease(accountId,requestKey,billing);
++    return claimed.state==='job_created'?claimed:{state:'release_pending'};
++  }
++  /**
++   * LV-019.B step 1.3a: the same atomic reserve_pending -> release_pending transition as the fence, but it also
++   * reports whether THIS call performed the transition. Two concurrent drains therefore agree on which one owns the
++   * single release: the loser sees `transitioned:false` and must not contact Account again. Behavior is otherwise
++   * identical to `fenceExternalBillingRelease` (work check, blocked guard, admission guard).
++   */
++  async claimExternalBillingRelease(accountId:string,requestKey:string,billing:ExternalVideoBilling):Promise<{state:'release_pending';transitioned:boolean}|{state:'job_created';jobId:string}>{
+     identifier(accountId);text(requestKey);if(!billing||typeof billing!=='object')throw new LedgerFault('invalid');
+     const authorizedBilling=copyExternalBilling(billing);validExternalBilling(authorizedBilling);
+     const key=hash([accountId,requestKey]),account=this.ref('accounts',accountId),intent=this.ref('billingIntents',key),request=this.ref('requests',key),guard=this.ref('billingGuards',accountId),intentGuard=this.ref('billingIntentAdmissionGuards',key);
+     return this.db.runTransaction(async tx=>{
+@@ -947,12 +977,45 @@ export class FirestoreBackend {
+       if(this.billingBlocked(blocked,accountId)||!validClearIntentAdmissionGuard(admission,key))throw new LedgerFault('conflict');
+       const row=this.billingIntent(d,accountId,requestKey,authorizedBilling);
+       if(prior.exists){const jobId=await this.verifiedExternalJob(tx,prior,accountId,row.inputId,requestKey,row.operation,row.revision,authorizedBilling);if(row.jobId&&row.jobId!==jobId)throw new LedgerFault('invariant');return {state:'job_created',jobId};}
+       if(row.state==='job_created'||row.jobId)throw new LedgerFault('invariant');
+-      if(row.state==='release_pending'){externalIntentTransitionDue(d);return {state:'release_pending'};}
++      if(row.state==='release_pending'){externalIntentTransitionDue(d);return {state:'release_pending',transitioned:false};}
+       if(row.state!=='reserve_pending')throw new LedgerFault('conflict');
+       const nextAttemptAt=externalIntentTransitionDue(d);
+-      tx.update(intent,{state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt});return {state:'release_pending'};
++      tx.update(intent,{state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt});return {state:'release_pending',transitioned:true};
++    });
++  }
++  /**
++   * LV-019.B step 1.3a: close an A-3 intent for review WITHOUT blocking the owner.
++   * The caller has already fenced the release window and proven that either the account
++   * is blocked or Account refused the release (inherited reservation or stored admission).
++   * No hold, no guard epoch and no balance movement is written: the A2 sweep alerts on
++   * `needs_review`. The observed tuple comes from the caller's authorized billing, never
++   * from a caller-supplied status read.
++   */
++  async closeA3ReservationForReview(accountId:string,requestKey:string,billing:ExternalVideoBilling,observed:ExternalBillingObservation,options?:{requireBlocked?:boolean}):Promise<ExternalBillingReviewResult|{state:'not_blocked'}>{
++    identifier(accountId);text(requestKey);validExternalBilling(billing);billing=copyExternalBilling(billing);
++    if(!observed||observed.reservationId!==billing.reservationId||observed.state!=='reserved'||!Number.isSafeInteger(observed.seconds)||observed.seconds!==billing.seconds)throw new LedgerFault('invalid');
++    const requireBlocked=options?.requireBlocked===true;
++    const key=hash([accountId,requestKey]),intent=this.ref('billingIntents',key),incident=this.ref('billingReviewIncidents',key),guard=this.ref('billingGuards',accountId);
++    return this.db.runTransaction(async tx=>{
++      const reads=requireBlocked?await tx.getAll(intent,incident,guard):await tx.getAll(intent,incident);
++      const d=reads[0],existing=reads[1],blocked=requireBlocked?reads[2]:null;if(!d.exists)throw new LedgerFault('not_found');
++      const row=this.billingIntent(d,accountId,requestKey,billing);
++      // A `requireBlocked` caller has NOT read Account status: its `observed` tuple is the EXPECTED tuple of the intent,
++      // not a real observation. Close for review only when the row is still reserve_pending AND the account is truly
++      // blocked, proven here in this same transaction. Every other null-evidence reason (a benign version race, an
++      // existing work request or marker, a foreign or expired lease, a missing input or identity, or a release already
++      // underway) returns `not_blocked` without writing, and the caller keeps today's stall behavior. The two other
++      // callers (the fence conflict and the Account release refusal) do not ask for the proof.
++      let blockedNow=false;if(requireBlocked){try{blockedNow=this.billingBlocked(blocked!,accountId);}catch{blockedNow=false;}}
++      if(requireBlocked&&(row.state!=='reserve_pending'||!blockedNow))return {state:'not_blocked' as const};
++      if(row.state==='job_created'||row.jobId)throw new LedgerFault('conflict');
++      if(row.state==='closed')return {state:'needs_review',reason:'direct_status_uncertain'};
++      const now=Date.now();
++      if(!existing.exists)tx.create(incident,{accountId,intentId:key,identityKey:billing.identityKey,reservationId:billing.reservationId,expectedSeconds:billing.seconds,reason:'direct_status_uncertain',firstObserved:{...observed,atMs:now},createdAtMs:now,updatedAtMs:now});
++      if(row.state!=='needs_review')tx.update(intent,{state:'needs_review',reviewReason:'direct_status_uncertain',reviewIncidentId:key,updatedAtMs:now});
++      return {state:'needs_review',reason:'direct_status_uncertain'};
+     });
+   }
+   /** Preserve an anomalous external observation without issuing a refund or capture. */
+   async recordExternalBillingReview(accountId:string,requestKey:string,billing:ExternalVideoBilling,observed:ExternalBillingObservation,snapshotInput?:unknown):Promise<ExternalBillingReviewResult>{

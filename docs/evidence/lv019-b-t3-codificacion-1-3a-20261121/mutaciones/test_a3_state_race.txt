@@ -1,0 +1,41 @@
+
+// Codex certification test (step 1.3a): the in-transaction state proof of the blocked-account closure. The row the drain read as reserve_pending was moved
+// to release_pending by another drain before the closure transaction (a release is now in flight): it must NOT be closed to review, even with the account blocked.
+test('A3 overdue reserve_pending moved to release_pending by another drain before the closure is not closed to review even with a blocked account',{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('state_race_blocked');const a=await a3(c,{ageMs:30*60*1000});
+ await ref(c.root,'billingGuards',c.account).set({accountId:c.account,blocked:true});
+ const original=c.backend.captureExternalBillingIntentFailureEvidence.bind(c.backend);let moved=false;
+ c.backend.captureExternalBillingIntentFailureEvidence=async(...args)=>{if(!moved){moved=true;await a.intent.update({state:'release_pending'});}return original(...args);};
+ const before=await balance(c);
+ const r=await c.ai.drainExternalBilling();
+ assert.equal(r.intentsRecovered,0);assert.equal(r.intentsFailed,1);
+ const row=await intentRow(c,a.requestKey);assert.equal(row.state,'release_pending','a release in flight is never overwritten');assert.equal(row.reviewReason,undefined);
+ assert.equal((await c.root.collection('billingReviewIncidents').get()).size,0);
+ assert.deepEqual(await balance(c),before);
+ assert.deepEqual(c.transport.bodies.filter(x=>x.path.endsWith('/release')||x.path.endsWith('/seal')),[]);
+});
+
+// Codex certification test (step 1.3a): the non-blocked-proof callers of the closure (fence conflict, Account refusal) must not reopen a row another drain already
+// closed. Here the row is moved to `closed` right after the status read, so the fence refuses (conflict) and the closure must return without writing anything.
+test('A3 a fence conflict because another drain closed the row does not reopen it as needs_review',{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('fence_conflict_closed');const a=await a3(c,{ageMs:30*60*1000});
+ const original=c.backend.captureDirectObservation.bind(c.backend);
+ c.backend.captureDirectObservation=async(...args)=>{const snapshot=await original(...args);await a.intent.update({state:'closed'});return snapshot;};
+ const before=await balance(c);
+ const r=await c.ai.drainExternalBilling();
+ assert.equal(r.intentsRecovered,0);assert.equal(r.intentsFailed,1);
+ const row=await intentRow(c,a.requestKey);assert.equal(row.state,'closed','a closed intent is never rewritten');assert.equal(row.reviewReason,undefined);
+ assert.equal((await c.root.collection('billingReviewIncidents').get()).size,0);
+ assert.deepEqual(await balance(c),before);
+ assert.deepEqual(c.transport.bodies.filter(x=>x.path.endsWith('/release')||x.path.endsWith('/seal')),[]);
+});
+
+// Codex certification test (step 1.3a): an intent that already created work is never reopened by the review closure.
+test('A3 closeA3ReservationForReview refuses an intent that already has work and leaves it untouched',{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('close_job_created');const a=await a3(c,{ageMs:30*60*1000});
+ await c.backend.reserve(c.account,c.input,a.requestKey,2,'translation:en',1,AI_CATALOG_VERSION,a.billing,undefined,c.uid);
+ const before=await intentRow(c,a.requestKey);assert.equal(before.state,'job_created');
+ await assert.rejects(()=>c.backend.closeA3ReservationForReview(c.account,a.requestKey,a.billing,{reservationId:a.billing.reservationId,state:'reserved',seconds:2}),error=>error?.code==='conflict');
+ const after=await intentRow(c,a.requestKey);assert.equal(after.state,'job_created','a job-created intent is never reopened');assert.equal(after.reviewReason,undefined);
+ assert.equal((await c.root.collection('billingReviewIncidents').get()).size,0);
+});

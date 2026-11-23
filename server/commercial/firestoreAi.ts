@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {FieldPath,type Firestore,type DocumentReference,type Transaction} from 'firebase-admin/firestore';
-import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,pickOutboxSnapshot,copyOutboxSnapshot,OUTBOX_METADATA_KEYS,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence} from './firestoreBackend';
+import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,pickOutboxSnapshot,copyOutboxSnapshot,OUTBOX_METADATA_KEYS,classifyA3ReplayWindow,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence} from './firestoreBackend';
 import {aiOperation,artifactPlanHash,validateArtifactPlan,validateArtifactManifest,simulatedAiPrice,storageQuota,AI_CATALOG_VERSION,AI_BILLING_PROFILE,AI_TEXT_WINDOW_MS,AI_TEXT_MAX_DURATION_MS,AI_VOICE_BUDGET,AiContractFault,type AiArtifactReceipt} from './aiContracts';
 import type {CloudObjects,CloudObject} from './gcsObjects';
 import {readyPrivateInput,privateUuid} from './privateObjectPlan';
@@ -22,8 +22,10 @@ export type AiCandidateLimits=Readonly<{maxSourceSeconds:number;maxNarrationChar
  * - `maxRows` replaces the positional `limit` (default 25, bounds 1..100).
  * - `accountUsage` is a per-pass usage map shared by several drains: when present the cap is counted against it, so one
  *   account cannot take `perAccountCap` rows in each section of the same pass.
+ * - `now` overrides the wall clock for the A-3 deadline (step 1.3a). It defaults to `Date.now()` at the start of the pass so a
+ *   single pass uses one clock; no production caller passes it.
  */
-export type DrainControl=Readonly<{shouldContinue?:()=>boolean|Promise<boolean>;perAccountCap?:number;after?:Readonly<{intents?:string|null;outbox?:string|null}>;maxRows?:number;accountUsage?:Map<string,number>}>;
+export type DrainControl=Readonly<{shouldContinue?:()=>boolean|Promise<boolean>;perAccountCap?:number;after?:Readonly<{intents?:string|null;outbox?:string|null}>;maxRows?:number;accountUsage?:Map<string,number>;now?:number}>;
 function id(value:string){if(typeof value!=='string'||!privateUuid.test(value))throw new AiFault('invalid');}
 function safeUsage(value:any){const out:Record<string,number>={};for(const key of ['promptTokenCount','candidatesTokenCount','totalTokenCount','thoughtsTokenCount','cachedContentTokenCount'])if(Number.isSafeInteger(value?.[key])&&value[key]>=0)out[key]=value[key];return out;}
 /** Candidate-only orchestration. No client can mutate receipts, credits, plans or provider outcomes. */
@@ -209,6 +211,7 @@ export class FirestoreAi {
  async drainExternalBilling(limit=25,control?:DrainControl):Promise<{settled:number;failed:number;intentsRecovered:number;intentsFailed:number;skippedRows?:number;stopped?:boolean;next?:{intents:string|null;outbox:string|null};traversed?:{intents:boolean;outbox:boolean}}>{
   const maxRows=this.drainMaxRows(limit,control);
   if(!this.accountBilling)return control===undefined?{settled:0,failed:0,intentsRecovered:0,intentsFailed:0}:{settled:0,failed:0,intentsRecovered:0,intentsFailed:0,skippedRows:0,stopped:false,next:{intents:null,outbox:null},traversed:{intents:false,outbox:false}};
+  const now=control?.now??Date.now();
   let settled=0,failed=0,skippedRows=0,stopped=false,nextIntents:string|null=null,nextOutbox:string|null=null;
   const perAccount=control?.accountUsage??new Map<string,number>();
   const intents=await this.backend.pendingExternalBillingIntents(maxRows,control?.after?.intents);let intentsRecovered=0,intentsFailed=0,intentsAttended=false;
@@ -227,7 +230,21 @@ export class FirestoreAi {
    // Without it the row would be re-attempted on every pass without advancing its counter or its wait.
    if(typeof row.snapshotVersion!=='string'){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
    failureEvidence=await this.backend.captureExternalBillingIntentFailureEvidence(witness,row.requestKey,row.snapshotVersion);
-   if(!failureEvidence){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
+   if(!failureEvidence){
+          intentsFailed++;
+          // LV-019.B step 1.3a: null failure evidence has many causes that are NOT a blocked account: a benign intent
+          // write racing another drainer, a work request or marker that appeared, a foreign or expired lease, or a
+          // missing input or identity. Close for review ONLY when the row is still reserve_pending, the deadline
+          // passed AND the account is truly blocked, which closeA3ReservationForReview proves in its own transaction.
+          // Any other cause (or a release already underway) keeps today's stall behavior: an overdue row is never
+          // closed to review for nothing.
+          if(row.state==='reserve_pending'&&classifyA3ReplayWindow(row,now)==='due'){
+           const closed=await this.backend.closeA3ReservationForReview(row.accountId,row.requestKey,billing,{reservationId:row.reservationId,state:'reserved',seconds:row.seconds},{requireBlocked:true}).catch(()=>undefined);
+           if(closed&&closed.state==='needs_review')continue;
+          }
+          await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);
+          continue;
+         }
    const initialStatus=await this.backend.captureDirectObservation(witness,row.requestKey,'status'),statusSnapshot=copyDirectObservationSnapshot(initialStatus);
    if(!statusSnapshot){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
    // The status proof is checked inside the same transaction that fences and prepares release.
@@ -267,14 +284,41 @@ export class FirestoreAi {
    if(row.state==='release_pending'){
     const result=await releaseAfter(statusSnapshot,'status_reserved');if(result==='recovered')intentsRecovered++;else intentsFailed++;continue;
    }
-   // A reserved status is not evidence that the original admission history is
-   // still intact. Preserve changes, but do not create a job or release.
-   const deferred=await this.backend.recordReservedStatusUncertainty(witness,row.requestKey,statusSnapshot);
-   // An unchanged, still-reserved observation is not permission to admit or
-   // release, but it must be rescheduled using the original failure evidence.
-   // Changed history is already quarantined and must never be overwritten here.
-   if(deferred==='unchanged'&&failureEvidence)await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,'reserved_unconfirmed',failureEvidence);
-   intentsFailed++;
+   // LV-019.B step 1.3a: an A-3 reserve_pending intent with no work is uncertain only until its deadline. At the
+   // deadline the fence atomically closes the window for creating work; Account still reporting the matching reserved
+   // status then lets the drain release, because Account's own admission check is the proof. An invalid clock stays on
+   // the uncertainty path and never fences. Before the deadline behavior is exactly as before: reschedule only.
+   const replayWindow=classifyA3ReplayWindow(row,now);
+   if(replayWindow!=='due'){
+    const deferred=await this.backend.recordReservedStatusUncertainty(witness,row.requestKey,statusSnapshot);
+    if(deferred==='unchanged'&&failureEvidence)await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,'reserved_unconfirmed',failureEvidence);
+    intentsFailed++;continue;
+   }
+   let fenced:{state:'release_pending';transitioned:boolean}|{state:'job_created';jobId:string};
+   try{fenced=await this.backend.claimExternalBillingRelease(row.accountId,row.requestKey,billing);}
+   catch(error){
+    if(!(error instanceof LedgerFault)||error.code!=='conflict')throw error;
+    // A blocked account (or an invalid admission guard) closes the A-3 row for review without
+    // blocking the owner or touching Account balance: the A2 sweep alerts on needs_review.
+    await this.backend.closeA3ReservationForReview(row.accountId,row.requestKey,billing,{reservationId:held.reservationId,state:'reserved',seconds:held.seconds});
+    intentsFailed++;continue;
+   }
+   if(fenced.state==='job_created'){intentsRecovered++;continue;}
+   // A concurrent drain already owns the single release for this intent: only the caller that
+   // performed the reserve_pending -> release_pending transition may contact Account.
+   if(!fenced.transitioned){intentsFailed++;continue;}
+   const refreshed=await this.backend.captureDirectObservation(witness,row.requestKey,'status'),freshSnapshot=copyDirectObservationSnapshot(refreshed);
+   if(!freshSnapshot){intentsFailed++;continue;}
+   try{
+    const result=await releaseAfter(freshSnapshot,'status_reserved');if(result==='recovered')intentsRecovered++;else intentsFailed++;
+   }catch(error){
+    if(!(error instanceof AccountBillingFault)||error.code!=='conflict')throw error;
+    // Account refused the release (inherited reservation or stored admission). Preserve the intent
+    // for review without a second release and without blocking the owner.
+    await this.backend.closeA3ReservationForReview(row.accountId,row.requestKey,billing,{reservationId:held.reservationId,state:'reserved',seconds:held.seconds});
+    intentsFailed++;
+   }
+   continue;
   }catch(error){
    // No response is not an ACK. If Firestore also fails after an ACK, the immutable
    // witness remains for independent reconciliation; a read-only seal status is still pending.

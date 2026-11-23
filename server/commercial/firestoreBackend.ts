@@ -385,6 +385,26 @@ export const UNKNOWN_REVIEW_WINDOW_MS=6*60*60*1000;
 /** Tolerance for a `quarantinedAtMs` written slightly ahead of the resolver's injected clock (clock skew between writers). */
 export const UNKNOWN_CLOCK_SKEW_MS=10*60*1000;
 /**
+ * LV-019.B step 1.3a: how long an A-3 `reserve_pending` intent may wait for a work
+ * creation before the drain closes it by releasing the Account reservation. The value
+ * is a starting point, adjustable with real data: a configuration decision, not a
+ * policy one. It only applies when Video has no work and Account still reports the
+ * matching `reserved` status.
+ */
+export const A3_REPLAY_WINDOW_MS=30*60*1000;
+/** Tolerance for an intent `createdAtMs` written slightly ahead of the drain's injected clock. */
+export const A3_CLOCK_SKEW_MS=10*60*1000;
+/**
+ * Pure A-3 clock classification. No I/O and no wall clock: the caller supplies `now`.
+ * `invalid` covers a missing, non-integer, negative or implausibly future `createdAtMs`,
+ * which is a counted failure that never fences; `due` is the deadline itself and later.
+ */
+export function classifyA3ReplayWindow(intent:{createdAtMs?:unknown},now:number,windowMs:number=A3_REPLAY_WINDOW_MS,skewMs:number=A3_CLOCK_SKEW_MS):'due'|'wait'|'invalid'{
+  const createdAtMs=intent.createdAtMs;
+  if(typeof createdAtMs!=='number'||!Number.isSafeInteger(createdAtMs)||createdAtMs<0||createdAtMs>now+skewMs)return 'invalid';
+  return createdAtMs<=now-windowMs?'due':'wait';
+}
+/**
  * Test-only override of the review window: no production caller passes it and no HTTP route can reach it. It may only
  * SHORTEN the real window, so it is validated as a safe integer in [this floor, UNKNOWN_REVIEW_WINDOW_MS]; a longer window
  * would delay a release the six-hour policy already allows.
@@ -939,6 +959,16 @@ export class FirestoreBackend {
   }
   /** Fence job creation in video Firestore before a separately authorized remote release. */
   async fenceExternalBillingRelease(accountId:string,requestKey:string,billing:ExternalVideoBilling):Promise<ExternalBillingReleaseFence>{
+    const claimed=await this.claimExternalBillingRelease(accountId,requestKey,billing);
+    return claimed.state==='job_created'?claimed:{state:'release_pending'};
+  }
+  /**
+   * LV-019.B step 1.3a: the same atomic reserve_pending -> release_pending transition as the fence, but it also
+   * reports whether THIS call performed the transition. Two concurrent drains therefore agree on which one owns the
+   * single release: the loser sees `transitioned:false` and must not contact Account again. Behavior is otherwise
+   * identical to `fenceExternalBillingRelease` (work check, blocked guard, admission guard).
+   */
+  async claimExternalBillingRelease(accountId:string,requestKey:string,billing:ExternalVideoBilling):Promise<{state:'release_pending';transitioned:boolean}|{state:'job_created';jobId:string}>{
     identifier(accountId);text(requestKey);if(!billing||typeof billing!=='object')throw new LedgerFault('invalid');
     const authorizedBilling=copyExternalBilling(billing);validExternalBilling(authorizedBilling);
     const key=hash([accountId,requestKey]),account=this.ref('accounts',accountId),intent=this.ref('billingIntents',key),request=this.ref('requests',key),guard=this.ref('billingGuards',accountId),intentGuard=this.ref('billingIntentAdmissionGuards',key);
@@ -948,10 +978,46 @@ export class FirestoreBackend {
       const row=this.billingIntent(d,accountId,requestKey,authorizedBilling);
       if(prior.exists){const jobId=await this.verifiedExternalJob(tx,prior,accountId,row.inputId,requestKey,row.operation,row.revision,authorizedBilling);if(row.jobId&&row.jobId!==jobId)throw new LedgerFault('invariant');return {state:'job_created',jobId};}
       if(row.state==='job_created'||row.jobId)throw new LedgerFault('invariant');
-      if(row.state==='release_pending'){externalIntentTransitionDue(d);return {state:'release_pending'};}
+      if(row.state==='release_pending'){externalIntentTransitionDue(d);return {state:'release_pending',transitioned:false};}
       if(row.state!=='reserve_pending')throw new LedgerFault('conflict');
       const nextAttemptAt=externalIntentTransitionDue(d);
-      tx.update(intent,{state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt});return {state:'release_pending'};
+      tx.update(intent,{state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt});return {state:'release_pending',transitioned:true};
+    });
+  }
+  /**
+   * LV-019.B step 1.3a: close an A-3 intent for review WITHOUT blocking the owner.
+   * The caller has already fenced the release window and proven that either the account
+   * is blocked or Account refused the release (inherited reservation or stored admission).
+   * No hold, no guard epoch and no balance movement is written: the A2 sweep alerts on
+   * `needs_review`. The observed tuple always comes from the caller's authorized billing, never
+   * from a caller-supplied status read; the incident also records WHERE that tuple came from, so an
+   * operator never mistakes the intent's expected tuple for a real Account read.
+   */
+  async closeA3ReservationForReview(accountId:string,requestKey:string,billing:ExternalVideoBilling,observed:ExternalBillingObservation,options?:{requireBlocked?:boolean}):Promise<ExternalBillingReviewResult|{state:'not_blocked'}>{
+    identifier(accountId);text(requestKey);validExternalBilling(billing);billing=copyExternalBilling(billing);
+    if(!observed||observed.reservationId!==billing.reservationId||observed.state!=='reserved'||!Number.isSafeInteger(observed.seconds)||observed.seconds!==billing.seconds)throw new LedgerFault('invalid');
+    const requireBlocked=options?.requireBlocked===true;
+    const key=hash([accountId,requestKey]),intent=this.ref('billingIntents',key),incident=this.ref('billingReviewIncidents',key),guard=this.ref('billingGuards',accountId);
+    return this.db.runTransaction(async tx=>{
+      const reads=requireBlocked?await tx.getAll(intent,incident,guard):await tx.getAll(intent,incident);
+      const d=reads[0],existing=reads[1],blocked=requireBlocked?reads[2]:null;if(!d.exists)throw new LedgerFault('not_found');
+      const row=this.billingIntent(d,accountId,requestKey,billing);
+      // A `requireBlocked` caller has NOT read Account status: its `observed` tuple is the EXPECTED tuple of the intent,
+      // not a real observation. Close for review only when the row is still reserve_pending AND the account is truly
+      // blocked, proven here in this same transaction. Every other null-evidence reason (a benign version race, an
+      // existing work request or marker, a foreign or expired lease, a missing input or identity, or a release already
+      // underway) returns `not_blocked` without writing, and the caller keeps today's stall behavior. The two other
+      // callers (the fence conflict and the Account release refusal) do not ask for the proof.
+      let blockedNow=false;if(requireBlocked){try{blockedNow=this.billingBlocked(blocked!,accountId);}catch{blockedNow=false;}}
+      if(requireBlocked&&(row.state!=='reserve_pending'||!blockedNow))return {state:'not_blocked' as const};
+      if(row.state==='job_created'||row.jobId)throw new LedgerFault('conflict');
+      if(row.state==='closed')return {state:'needs_review',reason:'direct_status_uncertain'};
+      const now=Date.now();
+      // `firstObservedProvenance` separates a real Account status read (the fence-conflict and Account-refusal callers) from the intent's expected tuple (the requireBlocked caller, which never read Account).
+      const firstObservedProvenance=requireBlocked?'expected_from_intent':'account_status';
+      if(!existing.exists)tx.create(incident,{accountId,intentId:key,identityKey:billing.identityKey,reservationId:billing.reservationId,expectedSeconds:billing.seconds,reason:'direct_status_uncertain',firstObserved:{...observed,atMs:now},firstObservedProvenance,createdAtMs:now,updatedAtMs:now});
+      if(row.state!=='needs_review')tx.update(intent,{state:'needs_review',reviewReason:'direct_status_uncertain',reviewIncidentId:key,updatedAtMs:now});
+      return {state:'needs_review',reason:'direct_status_uncertain'};
     });
   }
   /** Preserve an anomalous external observation without issuing a refund or capture. */

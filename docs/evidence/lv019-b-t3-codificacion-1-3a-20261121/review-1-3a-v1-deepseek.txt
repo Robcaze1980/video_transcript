@@ -1,0 +1,15 @@
+He leído el diff, el contrato (§3.4, §5.1, §6), el recibo y las dos pruebas. No repito lo correcto.
+
+**Hallazgos**
+
+1. **MEDIA — `throw` dentro del `catch` aborta la pasada entera.** En `firestoreAi.ts`, las dos llamadas a `closeA3ReservationForReview` viven dentro de bloques `catch` y **sin** `.catch(...)`, a diferencia del tercer sitio (que sí lo tiene). Secuencia: fila `reserve_pending` vencida → `claimExternalBillingRelease` lanza `conflict` (cuenta bloqueada) → en el `catch` se llama a `closeA3ReservationForReview`, que vuelve a leer la fila y lanza `LedgerFault('conflict')` si en esa ventana apareció `row.jobId`/`job_created` (o `not_found` si se borró). La excepción escapa del `catch` y **rechaza `drainExternalBilling` completo**: se pierden las filas restantes del pase. Corrección: envolver ambas llamadas en `try/catch` (o `.catch(()=>undefined)`) y caer al camino de `recordExternalBillingIntentStall`.
+
+2. **MEDIA — una fila `closed` se reescribe.** El guardia `row.state!=='reserve_pending'` del modo `requireBlocked` devuelve `not_blocked` **antes** de la rama `if(row.state==='closed')return {state:'needs_review'}`, que queda muerta en ese modo. Secuencia: el drenaje lee la fila `reserve_pending` (v1) y es vencida; otro drenaje la cierra (v2); la captura de evidencia falla por versión (null, carrera benigna); el guardia externo `row.state==='reserve_pending'&&'due'` pasa; dentro de la transacción la fila ya es `closed` → `not_blocked` → el drenaje escribe `recordExternalBillingIntentStall` (`attempts++`, `lastErrorCode`) **sobre una fila cerrada**. Viola «una fila `closed` no se reescribe». Corrección: evaluar `closed`/`job_created` antes del guardia `requireBlocked` y devolver `needs_review` (que el drenaje ya trata como `continue` sin stall).
+
+3. **MEDIA — observación fabricada en la incidencia.** En el modo `requireBlocked` se pasa `{reservationId:row.reservationId,state:'reserved',seconds:row.seconds}`: es la tupla **esperada** de la intención, nunca leída de Cuenta, y se persiste como `firstObserved:{...,atMs:now}` con `reason:'direct_status_uncertain'`. Un operador lee una observación «reserved» con hora que no ocurrió. Los otros dos llamadores sí pasan la lectura real (`held`). Corrección: marcar procedencia (`observed:false`/`source:'expected_intent'`) o no escribir `firstObserved` en este modo.
+
+4. **MEDIA (cobertura) — falta la caída entre cerca y liberación.** No hay caso que fuerce `transitioned:true` y luego falle `captureDirectObservation`/`releaseAfter`, dejando la fila en `release_pending`, y verifique que el pase siguiente la termina (y que un `release_pending` vencido nunca se cierra). El caso existente solo cubre `release_pending` + cuenta bloqueada.
+
+5. **BAJA — rama muerta/divergencia:** la rama `closed`→`needs_review` es inalcanzable para `requireBlocked` (ver 2); conviene unificarla.
+
+RESULTADO: FALLA

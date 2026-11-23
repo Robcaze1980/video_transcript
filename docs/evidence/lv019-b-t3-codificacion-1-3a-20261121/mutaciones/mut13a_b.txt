@@ -1,0 +1,6 @@
+close-state-proof-removed      unit=survived emulator=KILLED
+close-closed-row-rewritten     unit=survived emulator=KILLED
+close-job-conflict-removed     unit=survived emulator=KILLED
+final restore verified: True
+survivors: []
+DONE
