@@ -3,7 +3,7 @@ import {createServer} from 'node:http';
 import {accountHttp} from './http';
 import {validateAccountEnvironment,verifyDatabaseBoundary,validateAccountOidcAudience,trustedServiceClaims} from './runtime';
 import {AccountFault,type AccountStore} from './backend';
-async function api(test:(origin:string,calls:string[],details:Array<{method:string;args:unknown[]}>)=>Promise<void>){const calls:string[]=[],details:Array<{method:string;args:unknown[]}>=[],reserveCalls={value:0},store=new Proxy({}, {get:(_t,key)=>async(...args:unknown[])=>{calls.push(String(key));details.push({method:String(key),args});if(key==='reserveVideo')return {created:++reserveCalls.value===1,state:'reserved',seconds:60,account:{}};return {created:true,account:{},project:{}};}}) as AccountStore;const apiEmail='vistavo-files-api@vistavo-prod.iam.gserviceaccount.com',workerEmail='vistavo-runtime@vistavo-prod.iam.gserviceaccount.com',server=createServer((req,res)=>{void accountHttp(store,{verifyIdToken:async token=>{if(token==='revoked'||token==='disabled'||token==='expired'||token==='foreign')throw Error('denied');return {uid:token,email_verified:token!=='unverified'};}},'https://vistavo.app',{audience:'https://vistavo-account-api-test-1234567890-uc.a.run.app',allowedEmails:[apiEmail,workerEmail],reservationCaller:apiEmail,settlementCaller:workerEmail,verifier:{verifyIdToken:async(token,audience)=>{if(!['service','worker'].includes(token)||audience!=='https://vistavo-account-api-test-1234567890-uc.a.run.app')throw Error('denied');return {email:token==='service'?apiEmail:workerEmail,email_verified:true};}}})(req,res);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();if(!address||typeof address==='string')throw Error();try{await test('http://127.0.0.1:'+address.port,calls,details);}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}}
+async function api(test:(origin:string,calls:string[],details:Array<{method:string;args:unknown[]}>)=>Promise<void>){const calls:string[]=[],details:Array<{method:string;args:unknown[]}>=[],reserveCalls={value:0},store=new Proxy({}, {get:(_t,key)=>async(...args:unknown[])=>{calls.push(String(key));details.push({method:String(key),args});if(key==='reserveVideo')return {created:++reserveCalls.value===1,state:'reserved',seconds:60,account:{}};if(key==='unblockVideoBilling')return {unblocked:true,replayed:false,blocked:false};return {created:true,account:{},project:{}};}}) as AccountStore;const apiEmail='vistavo-files-api@vistavo-prod.iam.gserviceaccount.com',workerEmail='vistavo-runtime@vistavo-prod.iam.gserviceaccount.com',server=createServer((req,res)=>{void accountHttp(store,{verifyIdToken:async token=>{if(token==='revoked'||token==='disabled'||token==='expired'||token==='foreign')throw Error('denied');return {uid:token,email_verified:token!=='unverified'};}},'https://vistavo.app',{audience:'https://vistavo-account-api-test-1234567890-uc.a.run.app',allowedEmails:[apiEmail,workerEmail],reservationCaller:apiEmail,settlementCaller:workerEmail,verifier:{verifyIdToken:async(token,audience)=>{if(!['service','worker'].includes(token)||audience!=='https://vistavo-account-api-test-1234567890-uc.a.run.app')throw Error('denied');return {email:token==='service'?apiEmail:workerEmail,email_verified:true};}}})(req,res);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();if(!address||typeof address==='string')throw Error();try{await test('http://127.0.0.1:'+address.port,calls,details);}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}}
 describe('account transport trust boundary',()=>{
  it('permits the read-only resolution receipt only to the settlement identity',async()=>api(async(origin,calls,details)=>{
   const identityKey='a'.repeat(64),reservationId='00000000-0000-4000-8000-000000000001',path='/api/internal/video/reservations/'+reservationId+'/resolution',body={identityKey,seconds:7};
@@ -72,6 +72,30 @@ describe('account transport trust boundary',()=>{
   expect(calls).toEqual(['blockVideoBilling','videoBillingHold','sealVideoReservation','admitVideoCall','settleVideo']);
   expect(details[3].args).toEqual([identityKey,reservationId,60,jobId,attemptId,call.callKey,call.model,call.requestSha256]);
   expect(details[4].args).toEqual([identityKey,reservationId,'capture',60,{jobId,attemptId}]);
+ }));
+ it('opens the audited unblock only to the settlement caller with an exact body (LV-019.B 1.4b)',async()=>api(async(origin,calls,details)=>{
+  const identityKey='a'.repeat(64),incidentId='b'.repeat(64),reviewRef='review-ref-1',body={identityKey,incidentId,epoch:2,createdAtMs:1_800_000_000_000,reviewRef};
+  const post=(token:string,value:unknown,headers:Record<string,string>={})=>fetch(origin+'/api/internal/video/billing-holds/unblock',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...headers},body:JSON.stringify(value)});
+  expect((await post('good',body)).status).toBe(401);
+  expect((await post('service',body,{Origin:'https://evil.invalid'})).status).toBe(404);
+  // 4(b): the reservation caller is refused even with a perfectly valid body, and the store is never reached.
+  expect((await post('service',body)).status).toBe(403);
+  expect((await fetch(origin+'/api/internal/video/billing-holds/unblock',{headers:{Authorization:'Bearer worker'}})).status).toBe(404);
+  expect((await post('worker',{...body,extra:'x'})).status).toBe(400);
+  expect((await post('worker',{...body,identityKey:identityKey+'\n'})).status).toBe(400);
+  expect((await post('worker',{...body,incidentId:'bad'})).status).toBe(400);
+  for(const bad of [0,-1,1.5,'2',null])expect((await post('worker',{...body,epoch:bad})).status).toBe(400);
+  for(const bad of [-1,1.5,'0',null])expect((await post('worker',{...body,createdAtMs:bad})).status).toBe(400);
+  for(const bad of [undefined,'',null,'x'.repeat(201),'bad\nchar','bad\u0000char','bad\u001fchar','bad\u007fchar'])expect((await post('worker',{...body,reviewRef:bad})).status).toBe(400);
+  expect((await post('worker',body,{'Content-Type':'text/plain'})).status).toBe(415);
+  expect((await fetch(origin+'/api/internal/video/billing-holds/unblock?extra=1',{method:'POST',headers:{Authorization:'Bearer worker','Content-Type':'application/json'},body:JSON.stringify(body)})).status).toBe(400);
+  expect(calls).toEqual([]);
+  const ok=await post('worker',body);
+  expect(ok.status).toBe(200);
+  // 4(a): the response body is exactly the store receipt, not a reshaped one.
+  expect(await ok.json()).toEqual({unblocked:true,replayed:false,blocked:false});
+  expect(calls).toEqual(['unblockVideoBilling']);
+  expect(details[0].args).toEqual([identityKey,{incidentId,epoch:2,createdAtMs:1_800_000_000_000,reviewRef}]);
  }));
  it('accepts a partial capture and a release after admission only with exact fields and complete pairs (LV-019.B C2a)',async()=>api(async(origin,calls,details)=>{
   const identityKey='a'.repeat(64),reservationId='00000000-0000-4000-8000-000000000001',jobId='00000000-0000-4000-8000-000000000002',attemptId='00000000-0000-4000-8000-000000000003',path='/api/internal/video/reservations/'+reservationId+'/';

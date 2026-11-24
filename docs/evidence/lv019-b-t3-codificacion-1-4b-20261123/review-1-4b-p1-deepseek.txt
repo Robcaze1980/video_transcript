@@ -1,0 +1,15 @@
+He leído el contrato (§3.3), el test de emulador y los tests de HTTP/cliente. Hallazgos:
+
+**1 · MEDIA — El recibo `{unblocked:true}` no distingue "guarda borrada" de "un incidente revisado de varios".** Secuencia: A y B bloquean (guard `incidentCount=2`); el operador desbloquea A; el store devuelve `{unblocked:true,replayed:false}` y **deja la guarda** (`reviewedCount=1`); el cliente propaga lo mismo. Un llamador de Video (fase 3) que lea `unblocked:true` como "Cuenta confirmó apertura" escribe su `blocked:false` y la cuenta vuelve a mover saldo mientras Cuenta sigue bloqueada por B. Corrección: devolver el estado residual (`guardCleared`/`blocked`/`remaining`) y exigirlo en el cliente, o no devolver éxito mientras la guarda sobreviva.
+
+**2 · MEDIA — Invariante no probado: guarda con `reviewedCount>0` más un incidente nuevo.** Ningún test cubre "desbloquear A (`reviewedCount=1`), luego llega C". Si `blockVideoBilling` reescribe el documento de guarda en vez de fusionar, `reviewedCount` vuelve a 0 mientras `incidentCount` crece; el reintento de A es replay puro (`replayed:true`, sin incrementar), así que `reviewedCount` nunca alcanza `incidentCount`: **la guarda nunca se borra** (bloqueo permanente). Corrección: fijar el test (bloquear A, bloquear B, desbloquear A, bloquear C, desbloquear B y C → guarda borrada) y garantizar que `blockVideoBilling` conserva `reviewedCount`.
+
+**3 · MEDIA — La rama nueva del lector (`reviewed` + guarda presente) no está probada y `recorded:false` queda sobrecargado.** Secuencia: tras desbloquear A con B activo, `videoBillingHold(key,A)` ahora devuelve `{blocked:true,recorded:false}` (antes: invariant). `recorded:false` significa a la vez "no hay documento de incidente" y "incidente revisado"; un consumidor que lo lea como "sin incidente" libera. Corrección: asertar esa rama y/o exponer un campo distinto (`reviewed:true`).
+
+**4 · BAJA — Laxitud del lector.** `reviewed` sin `reviewedAtMs` pasa (corrupción aceptada); una guarda presente con `blocked:false` lanza invariant (500) en vez de `conflict`. Corrección: exigir `reviewedAtMs`; tratar la guarda malformada como `conflict`.
+
+**5 · BAJA — Test ciego en HTTP.** `http.test.ts` comprueba estado y argumentos del `/unblock` pero no el cuerpo de la respuesta 200 (la ruta podría devolver un payload erróneo y pasar en verde); tampoco cubre `/unblock` desde `reservationCaller` con cuerpo válido.
+
+No repetí lo correcto (contadores, epoch+createdAtMs, replay sin escrituras, 403/400 estrictos, borrado en vez de `blocked:false`).
+
+RESULTADO: FALLA

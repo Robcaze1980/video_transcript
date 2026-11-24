@@ -1,0 +1,119 @@
+Eres REVISOR independiente (T3). NO modifiques archivos ni ejecutes nada; solo lee (maximo 6 lecturas, solo docs y pruebas: TODO el codigo de produccion esta incluido abajo como diff y NO debes abrir los .ts de produccion del disco, otra copia puede estar siendo probada con mutaciones). Maximo 400 palabras. Hallazgos numerados con severidad ALTA/MEDIA/BAJA, cada uno con la secuencia concreta (estado inicial, eventos, resultado errado) y la correccion. No repitas lo correcto. Termina con UNA linea final: RESULTADO: PASS|FALLA|INCONCLUYENTE.
+CODIGO A REVISAR (paso 1.4b pieza 1, DESBLOQUEO AUDITADO DEL LADO CUENTA; DECIDE SI UNA CUENTA BLOQUEADA PUEDE VOLVER A MOVER SALDO): el diff abajo. Antes no existia ningun desbloqueo. La operacion nueva AccountStore.unblockVideoBilling(identityKey,{incidentId,epoch,createdAtMs,reviewRef}) corre en UNA transaccion, es idempotente por incidente (documento videoBillingUnblocks/<hash([accountId,incidentId,'unblock'])>), exige que el guard exista y este bloqueado y que epoch Y createdAtMs coincidan con los del guard actual (un desbloqueo antiguo no debe poder limpiar un bloqueo mas nuevo: al borrar y volver a bloquear, epoch vuelve a 1, por eso createdAtMs tambien cuenta), marca el incidente `reviewed`, cuenta `reviewedCount` en el guard y BORRA el guard solo cuando reviewedCount===incidentCount (nunca escribe blocked:false porque el lector billingHold lanza invariant ante esa forma). No mueve saldo ni reservas y no toma el candado del ejecutor. Ruta interna POST .../billing-holds/unblock solo para internal.settlementCaller, cuerpo estricto; cliente AccountBillingClient.unblock con validacion estricta del recibo. Ademas se relajo el lector videoBillingHold (ruta /status, solo lectura): un incidente `reviewed` con o sin guard devuelve {blocked,recorded:false} en vez de invariant. Contrato: docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md (v2, seccion 3.3). Pruebas: server/account/unblockAudited.emulator.mjs (6, con Cuenta real de emulador), server/account/http.test.ts y server/commercial/accountBillingClient.test.ts.
+BUSCA FALLOS REALES: (1) un desbloqueo que abra la cuenta cuando aun hay un incidente sin revisar (contador reviewedCount/incidentCount, incidentes concurrentes entre la lectura y la escritura, el mismo incidente desbloqueado dos veces, un incidente `reviewed` que vuelve a bloquearse); (2) epoch/createdAtMs: un desbloqueo viejo que limpie un bloqueo nuevo, o uno vigente rechazado; (3) idempotencia: la repeticion identica debe ser sin escrituras y la distinta `conflict`; (4) control de acceso y cuerpo estricto de la ruta HTTP (solo settlementCaller; los demas llamadores y el /status de solo lectura no deben cambiar), y la validacion de entrada de reviewRef/epoch/createdAtMs/identityKey/incidentId en las TRES capas (store, HTTP, cliente) sin que una capa permita lo que otra rechaza de forma peligrosa; (5) la relajacion de videoBillingHold: un estado que ahora pase y antes fallara cerrado sin necesidad, p. ej. `reviewed` con el guard AUSENTE o PRESENTE, estado desconocido; (6) pruebas que pasarian con el codigo roto y casos que faltan.
+ADJUDICADO COMO NO CAMBIAR (no lo reportes): (a) blockVideoBilling lanza invariant si el incidente ya existe y no esta `active`: un incidente revisado no se vuelve a bloquear con el mismo id; Video usara un id nuevo por cada ocurrencia (pieza 2); (b) la verificacion de reservas abiertas del dueno que menciona el diseno 3.3 fase 2 NO va aqui: este paso solo borra la guarda y no mueve saldo; la salida de esas reservas es la pieza 3; (c) la autenticacion del operador y el registro de auditoria de Video no van en esta pieza (pasos 1.4b pieza 2 y 3.5); (d) la prueba de concurrencia usa dos operaciones lanzadas juntas porque el emulador no permite inyectar una escritura entre la lectura y la escritura.
+
+=== DIFF DE PRODUCCION DE 1.4b PIEZA 1 ===
+diff --git a/server/account/backend.ts b/server/account/backend.ts
+index ef32f5b..6d6bfdc 100644
+--- a/server/account/backend.ts
++++ b/server/account/backend.ts
+@@ -21,6 +21,8 @@ const callKeyValid=(value:unknown):value is string=>typeof value==='string'&&val
+ const modelValid=(value:unknown):value is string=>value==='gemini-3.8-flash'||value==='gemini-3.8-flash-tts';
+ const modelMatchesKey=(callKey:string,model:string)=>callKey.startsWith('text-window:')?model==='gemini-3.8-flash':model==='gemini-3.8-flash-tts';
+ const digestValid=(value:unknown):value is string=>typeof value==='string'&&value.length===64&&/^[a-f0-9]{64}$/.test(value);
++// A durable reference to the evidence an operator reviewed: bounded to 200 characters and free of control characters.
++const reviewRefValid=(value:unknown):value is string=>typeof value==='string'&&/^[^\u0000-\u001f\u007f]{1,200}$/.test(value);
+ const callDocId=(callKey:string)=>hash(['provider-call-v2',callKey]);
+ function admission(value:unknown):VideoProviderAdmission{
+  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).sort().join(',')!=='attemptId,jobId')bad();
+@@ -210,8 +212,51 @@ export class AccountStore {
+    const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+    const [stored,guard,record]=await tx.getAll(this.root.collection('accounts').doc(accountId),this.root.collection('videoBillingGuards').doc(accountId),this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])));
+    accountRecord(stored,identityKey);const blocked=billingHold(guard,accountId,identityKey);
+-   if(record.exists&&(!blocked||record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||record.get('state')!=='active'||!integer(record.get('createdAtMs'))))invariant();
+-   return {blocked,recorded:record.exists};
++   if(!record.exists)return {blocked,recorded:false};
++   if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
++   // An audited unblock leaves the incident `reviewed` (terminal): it is no longer a reason for a hold, so it is not `recorded`
++   // as an open incident even though the document persists. Any other state is corruption.
++   const state=record.get('state');
++   if(state==='active'){if(!blocked)invariant();return {blocked,recorded:true};}
++   if(state==='reviewed'){if(record.get('reviewedAtMs')!==undefined&&!integer(record.get('reviewedAtMs')))invariant();return {blocked,recorded:false};}
++   invariant();
++  });
++ }
++ /**
++  * The audited reopening of a blocked account: a human decision, executed once per incident, that DELETES the guard
++  * (never writes `blocked:false`, which the `billingHold` reader above would reject as `invariant`). The caller must name
++  * the incident and the guard generation (`epoch` and `createdAtMs`), so an old unblock cannot clear a newer block.
++  * It never takes the drain lease and never moves balance or reservations. Repeating it is a replay without writes.
++  */
++ async unblockVideoBilling(identityKey:string,request:{incidentId:string;epoch:number;createdAtMs:number;reviewRef:string}){
++  if(!request||typeof request!=='object'||Array.isArray(request)||Object.keys(request).sort().join(',')!=='createdAtMs,epoch,incidentId,reviewRef')bad();
++  const {incidentId:incident,epoch,createdAtMs,reviewRef}=request;
++  incidentId(incident);if(!integer(epoch,1)||!integer(createdAtMs)||!reviewRefValid(reviewRef))bad();
++  const identityRef=this.identityFromKey(identityKey),time=this.now();
++  return this.db.runTransaction(async tx=>{
++   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
++   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
++   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
++   const accountRef=this.root.collection('accounts').doc(accountId),guardRef=this.root.collection('videoBillingGuards').doc(accountId),recordRef=this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])),unblockRef=this.root.collection('videoBillingUnblocks').doc(hash([accountId,incident,'unblock']));
++   const [stored,guard,record,unblock]=await tx.getAll(accountRef,guardRef,recordRef,unblockRef);accountRecord(stored,identityKey);
++   // A repeat of the same decision is a receipt; any different payload for the same incident is refused, and neither writes.
++   if(unblock.exists){
++    if(unblock.get('ownerAccountId')===accountId&&unblock.get('identityKey')===identityKey&&unblock.get('incidentId')===incident&&unblock.get('epoch')===epoch&&unblock.get('createdAtMs')===createdAtMs&&unblock.get('reviewRef')===reviewRef)return {unblocked:true as const,replayed:true as const};
++    throw new AccountFault('conflict');
++   }
++   const blocked=billingHold(guard,accountId,identityKey);
++   if(!blocked||guard.get('epoch')!==epoch||guard.get('createdAtMs')!==createdAtMs)throw new AccountFault('conflict');
++   if(!record.exists)throw new AccountFault('conflict');
++   if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
++   if(record.get('state')!=='active')throw new AccountFault('conflict');
++   // `incidentCount` incidents are known; each unblock adds one reviewed incident, and the guard survives until all are reviewed.
++   const incidentCount=guard.get('incidentCount') as number,reviewed=guard.get('reviewedCount')===undefined?0:guard.get('reviewedCount');
++   if(!integer(reviewed)||reviewed>=incidentCount)invariant();
++   const nextReviewed=reviewed+1;if(!integer(nextReviewed,1)||nextReviewed>incidentCount)invariant();
++   tx.create(unblockRef,{ownerAccountId:accountId,identityKey,incidentId:incident,epoch,createdAtMs,reviewRef,unblockedAtMs:time});
++   tx.update(recordRef,{state:'reviewed',reviewedAtMs:time});
++   if(nextReviewed===incidentCount)tx.delete(guardRef);else tx.update(guardRef,{reviewedCount:nextReviewed});
++   return {unblocked:true as const,replayed:false as const};
+   });
+  }
+  /** Atomically prevent a future reserve or return the existing reservation's receipt. */
+diff --git a/server/account/http.ts b/server/account/http.ts
+index dd169fc..9724c07 100644
+--- a/server/account/http.ts
++++ b/server/account/http.ts
+@@ -36,9 +36,15 @@ export function accountHttp(store:AccountStore,identity:IdentityVerifier,origin=
+      if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');const b=await json(req,['identityKey']);
+      if(caller.email!==internal.reservationCaller)throw new HttpFault(403,'forbidden');send(200,await store.videoBalance(b.identityKey as string));return;
+     }
+-    if(url.pathname==='/api/internal/video/billing-holds'||url.pathname==='/api/internal/video/billing-holds/status'){
++    if(url.pathname==='/api/internal/video/billing-holds'||url.pathname==='/api/internal/video/billing-holds/status'||url.pathname==='/api/internal/video/billing-holds/unblock'){
+      if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');
++     // A hold, its status and the audited unblock all belong to the settlement caller; only status is a read.
+      if(!url.pathname.endsWith('/status')&&caller.email!==internal.settlementCaller)throw new HttpFault(403,'forbidden');
++     if(url.pathname.endsWith('/unblock')){
++      const b=await json(req,['identityKey','incidentId','epoch','createdAtMs','reviewRef']);
++      if(typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey)||typeof b.incidentId!=='string'||!(uuid.test(b.incidentId)||/^[a-f0-9]{64}(?![\s\S])/.test(b.incidentId))||!Number.isSafeInteger(b.epoch)||(b.epoch as number)<1||!Number.isSafeInteger(b.createdAtMs)||(b.createdAtMs as number)<0||typeof b.reviewRef!=='string'||!/^[^\u0000-\u001f\u007f]{1,200}$/.test(b.reviewRef))throw new HttpFault(400,'invalid');
++      const result=await store.unblockVideoBilling(b.identityKey,{incidentId:b.incidentId as string,epoch:b.epoch as number,createdAtMs:b.createdAtMs as number,reviewRef:b.reviewRef as string});send(200,result);return;
++     }
+      const b=await json(req,['identityKey','incidentId']);
+      if(typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey)||typeof b.incidentId!=='string'||!(uuid.test(b.incidentId)||/^[a-f0-9]{64}(?![\s\S])/.test(b.incidentId)))throw new HttpFault(400,'invalid');
+      if(url.pathname.endsWith('/status')){send(200,await store.videoBillingHold(b.identityKey,b.incidentId));return;}
+diff --git a/server/commercial/accountBillingClient.ts b/server/commercial/accountBillingClient.ts
+index db670b9..de6e4e0 100644
+--- a/server/commercial/accountBillingClient.ts
++++ b/server/commercial/accountBillingClient.ts
+@@ -81,6 +81,20 @@ export class AccountBillingClient {
+   if(typeof row.blocked!=='boolean'||typeof row.recorded!=='boolean'||row.recorded&&!row.blocked)throw new AccountBillingFault('unavailable');
+   return {blocked:row.blocked,recorded:row.recorded};
+  }
++ /**
++  * The audited reopening of a blocked account: an operator names the incident and the guard generation (epoch + createdAtMs),
++  * and Account deletes the guard (never `blocked:false`). `reviewRef` is the durable reference to the reviewed evidence.
++  * A replay returns the same receipt with `replayed:true`.
++  */
++ async unblock(identityKey:string,request:{incidentId:string;epoch:number;createdAtMs:number;reviewRef:string}){
++  if(!hex64.test(identityKey)||!request||typeof request!=='object'||Array.isArray(request))throw new AccountBillingFault('invalid');
++  const {incidentId,epoch,createdAtMs,reviewRef}=request;
++  if(!incident(incidentId)||!Number.isSafeInteger(epoch)||epoch<1||!Number.isSafeInteger(createdAtMs)||createdAtMs<0||typeof reviewRef!=='string'||!/^[^\u0000-\u001f\u007f]{1,200}$/.test(reviewRef))throw new AccountBillingFault('invalid');
++  const value=await this.post('/api/internal/video/billing-holds/unblock',{identityKey,incidentId,epoch,createdAtMs,reviewRef});
++  if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountBillingFault('unavailable');const row=value as Record<string,unknown>;
++  if(row.unblocked!==true||typeof row.replayed!=='boolean')throw new AccountBillingFault('unavailable');
++  return {unblocked:true as const,replayed:row.replayed};
++ }
+  /** A 404 is ambiguous; only a matching Account tombstone closes an absent reservation. */
+  async seal(identityKey:string,reservationId:string,seconds:number):Promise<VideoReservationSeal>{
+   if(!validVideoTuple(identityKey,reservationId,seconds))throw new AccountBillingFault('invalid');

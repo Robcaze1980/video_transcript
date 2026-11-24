@@ -86,6 +86,27 @@ describe('Account API balance bridge',()=>{
   const corrupt=new AccountBillingClient(undefined,{request:async()=>({data:{blocked:false,recorded:true}})});
   await expect(corrupt.holdStatus(identityKey,incidentId)).rejects.toMatchObject({code:'unavailable'});
  });
+ it('requires an audited-unblock receipt and never sends a malformed request (LV-019.B 1.4b)',async()=>{
+  const incidentId='b'.repeat(64),request=vi.fn(async()=>({data:{unblocked:true,replayed:false,blocked:false}})),client=new AccountBillingClient(undefined,{request});
+  const valid={incidentId,epoch:2,createdAtMs:1_800_000_000_000,reviewRef:'review-ref-1'};
+  await expect(client.unblock('bad',valid)).rejects.toMatchObject({code:'invalid'});
+  await expect(client.unblock(identityKey,{...valid,incidentId:'nope'})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.unblock(identityKey,{...valid,epoch:0})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.unblock(identityKey,{...valid,createdAtMs:-1})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.unblock(identityKey,{...valid,reviewRef:''})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.unblock(identityKey,{...valid,reviewRef:'x'.repeat(201)})).rejects.toMatchObject({code:'invalid'});
+  await expect(client.unblock(identityKey,{...valid,reviewRef:'bad\nchar'})).rejects.toMatchObject({code:'invalid'});
+  for(const bad of ['bad\u0000char','bad\u001fchar','bad\u007fchar'])await expect(client.unblock(identityKey,{...valid,reviewRef:bad})).rejects.toMatchObject({code:'invalid'});
+  expect(request).not.toHaveBeenCalled();
+  await expect(client.unblock(identityKey,valid)).resolves.toEqual({unblocked:true,replayed:false,blocked:false});
+  expect(request).toHaveBeenLastCalledWith(expect.objectContaining({url:'https://vistavo-account-api-v5lc7z6dyq-uc.a.run.app/api/internal/video/billing-holds/unblock',method:'POST',data:{identityKey,...valid}}));
+  // `blocked` carries whether the guard survives: a replay of a multi-incident unblock returns blocked:true.
+  const replay=new AccountBillingClient(undefined,{request:async()=>({data:{unblocked:true,replayed:true,blocked:true}})});
+  await expect(replay.unblock(identityKey,valid)).resolves.toEqual({unblocked:true,replayed:true,blocked:true});
+  const reopened=new AccountBillingClient(undefined,{request:async()=>({data:{unblocked:true,replayed:true,blocked:false}})});
+  await expect(reopened.unblock(identityKey,valid)).resolves.toEqual({unblocked:true,replayed:true,blocked:false});
+  for(const data of [{unblocked:false,replayed:false,blocked:false},{unblocked:true,replayed:false},{unblocked:true,blocked:false},{unblocked:true,replayed:'no',blocked:false},{unblocked:true,replayed:false,blocked:'no'},{}])await expect(new AccountBillingClient(undefined,{request:async()=>({data})}).unblock(identityKey,valid)).rejects.toMatchObject({code:'unavailable'});
+ });
  it('requires a correlated tombstone receipt and preserves an already existing reservation for reconciliation',async()=>{
   const request=vi.fn(async()=>({data:{reservationId,seconds:60,state:'sealed',created:true}})),client=new AccountBillingClient(undefined,{request});
   await expect(client.seal(identityKey,reservationId,60)).resolves.toMatchObject({state:'sealed',created:true});

@@ -81,6 +81,21 @@ export class AccountBillingClient {
   if(typeof row.blocked!=='boolean'||typeof row.recorded!=='boolean'||row.recorded&&!row.blocked)throw new AccountBillingFault('unavailable');
   return {blocked:row.blocked,recorded:row.recorded};
  }
+ /**
+  * The audited reopening of a blocked account: an operator names the incident and the guard generation (epoch + createdAtMs),
+  * and Account deletes the guard (never `blocked:false`). `reviewRef` is the durable reference to the reviewed evidence.
+  * A replay returns the same receipt with `replayed:true`. `blocked` reports whether the guard SURVIVES after this call:
+  * with several incidents, reviewing one leaves the account closed, so `unblocked:true` never implies the account is open.
+  */
+ async unblock(identityKey:string,request:{incidentId:string;epoch:number;createdAtMs:number;reviewRef:string}){
+  if(!hex64.test(identityKey)||!request||typeof request!=='object'||Array.isArray(request))throw new AccountBillingFault('invalid');
+  const {incidentId,epoch,createdAtMs,reviewRef}=request;
+  if(!incident(incidentId)||!Number.isSafeInteger(epoch)||epoch<1||!Number.isSafeInteger(createdAtMs)||createdAtMs<0||typeof reviewRef!=='string'||!/^[^\u0000-\u001f\u007f]{1,200}$/.test(reviewRef))throw new AccountBillingFault('invalid');
+  const value=await this.post('/api/internal/video/billing-holds/unblock',{identityKey,incidentId,epoch,createdAtMs,reviewRef});
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountBillingFault('unavailable');const row=value as Record<string,unknown>;
+  if(row.unblocked!==true||typeof row.replayed!=='boolean'||typeof row.blocked!=='boolean')throw new AccountBillingFault('unavailable');
+  return {unblocked:true as const,replayed:row.replayed,blocked:row.blocked};
+ }
  /** A 404 is ambiguous; only a matching Account tombstone closes an absent reservation. */
  async seal(identityKey:string,reservationId:string,seconds:number):Promise<VideoReservationSeal>{
   if(!validVideoTuple(identityKey,reservationId,seconds))throw new AccountBillingFault('invalid');

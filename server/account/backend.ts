@@ -21,6 +21,8 @@ const callKeyValid=(value:unknown):value is string=>typeof value==='string'&&val
 const modelValid=(value:unknown):value is string=>value==='gemini-3.8-flash'||value==='gemini-3.8-flash-tts';
 const modelMatchesKey=(callKey:string,model:string)=>callKey.startsWith('text-window:')?model==='gemini-3.8-flash':model==='gemini-3.8-flash-tts';
 const digestValid=(value:unknown):value is string=>typeof value==='string'&&value.length===64&&/^[a-f0-9]{64}$/.test(value);
+// A durable reference to the evidence an operator reviewed: bounded to 200 characters and free of control characters.
+const reviewRefValid=(value:unknown):value is string=>typeof value==='string'&&/^[^\u0000-\u001f\u007f]{1,200}$/.test(value);
 const callDocId=(callKey:string)=>hash(['provider-call-v2',callKey]);
 function admission(value:unknown):VideoProviderAdmission{
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).sort().join(',')!=='attemptId,jobId')bad();
@@ -210,8 +212,53 @@ export class AccountStore {
    const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
    const [stored,guard,record]=await tx.getAll(this.root.collection('accounts').doc(accountId),this.root.collection('videoBillingGuards').doc(accountId),this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])));
    accountRecord(stored,identityKey);const blocked=billingHold(guard,accountId,identityKey);
-   if(record.exists&&(!blocked||record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||record.get('state')!=='active'||!integer(record.get('createdAtMs'))))invariant();
-   return {blocked,recorded:record.exists};
+   if(!record.exists)return {blocked,recorded:false};
+   if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
+   // `recorded` is only about THIS incident id: `recorded:true` means there is an ACTIVE incident with that id, so it must be
+   // read together with `blocked` to know whether the account is still closed. An audited unblock leaves the incident
+   // `reviewed` (terminal, so `recorded:false` even though the document persists); any other state is corruption.
+   const state=record.get('state');
+   if(state==='active'){if(!blocked)invariant();return {blocked,recorded:true};}
+   // This operation always writes `reviewedAtMs`: a reviewed incident without an integer timestamp is corruption.
+   if(state==='reviewed'){if(!integer(record.get('reviewedAtMs')))invariant();return {blocked,recorded:false};}
+   invariant();
+  });
+ }
+ /**
+  * The audited reopening of a blocked account: a human decision, executed once per incident, that DELETES the guard
+  * (never writes `blocked:false`, which the `billingHold` reader above would reject as `invariant`). The caller must name
+  * the incident and the guard generation (`epoch` and `createdAtMs`), so an old unblock cannot clear a newer block.
+  * It never takes the drain lease and never moves balance or reservations. Repeating it is a replay without writes.
+  */
+ async unblockVideoBilling(identityKey:string,request:{incidentId:string;epoch:number;createdAtMs:number;reviewRef:string}){
+  if(!request||typeof request!=='object'||Array.isArray(request)||Object.keys(request).sort().join(',')!=='createdAtMs,epoch,incidentId,reviewRef')bad();
+  const {incidentId:incident,epoch,createdAtMs,reviewRef}=request;
+  incidentId(incident);if(!integer(epoch,1)||!integer(createdAtMs)||!reviewRefValid(reviewRef))bad();
+  const identityRef=this.identityFromKey(identityKey),time=this.now();
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const accountRef=this.root.collection('accounts').doc(accountId),guardRef=this.root.collection('videoBillingGuards').doc(accountId),recordRef=this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])),unblockRef=this.root.collection('videoBillingUnblocks').doc(hash([accountId,incident,'unblock']));
+   const [stored,guard,record,unblock]=await tx.getAll(accountRef,guardRef,recordRef,unblockRef);accountRecord(stored,identityKey);
+   // A repeat of the same decision is a receipt; any different payload for the same incident is refused, and neither writes.
+   if(unblock.exists){
+    if(unblock.get('ownerAccountId')===accountId&&unblock.get('identityKey')===identityKey&&unblock.get('incidentId')===incident&&unblock.get('epoch')===epoch&&unblock.get('createdAtMs')===createdAtMs&&unblock.get('reviewRef')===reviewRef)return {unblocked:true as const,replayed:true as const,blocked:guard.exists};
+    throw new AccountFault('conflict');
+   }
+   const blocked=billingHold(guard,accountId,identityKey);
+   if(!blocked||guard.get('epoch')!==epoch||guard.get('createdAtMs')!==createdAtMs)throw new AccountFault('conflict');
+   if(!record.exists)throw new AccountFault('conflict');
+   if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
+   if(record.get('state')!=='active')throw new AccountFault('conflict');
+   // `incidentCount` incidents are known; each unblock adds one reviewed incident, and the guard survives until all are reviewed.
+   const incidentCount=guard.get('incidentCount') as number,reviewed=guard.get('reviewedCount')===undefined?0:guard.get('reviewedCount');
+   if(!integer(reviewed)||reviewed>=incidentCount)invariant();
+   const nextReviewed=reviewed+1;if(!integer(nextReviewed,1)||nextReviewed>incidentCount)invariant();
+   tx.create(unblockRef,{ownerAccountId:accountId,identityKey,incidentId:incident,epoch,createdAtMs,reviewRef,unblockedAtMs:time});
+   tx.update(recordRef,{state:'reviewed',reviewedAtMs:time});
+   if(nextReviewed===incidentCount)tx.delete(guardRef);else tx.update(guardRef,{reviewedCount:nextReviewed});
+   return {unblocked:true as const,replayed:false as const,blocked:nextReviewed!==incidentCount};
   });
  }
  /** Atomically prevent a future reserve or return the existing reservation's receipt. */

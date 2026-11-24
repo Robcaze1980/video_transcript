@@ -1,6 +1,6 @@
 # Paso 1.4b · Desbloqueo auditado y salida de una cuenta bloqueada (encargos preparados)
 
-**Estado (23 nov 2026): PREPARADOS; esperan el saldo de OpenRouter** (agotado, −US$0,13; recargar es decisión del dueño). Contrato: [diseño v2 del paso 1.4](../../specs/LV-019-B-bloqueos-y-cierres-diseno.md), secciones 3.3, 3.5 y 3.6.
+**Estado (23 nov 2026): pieza 1 CERTIFICADA en local ([recibo](RECIBO-pieza-1.md)); piezas 2 y 3 preparadas.** El dueño recargó US$10 y la pieza 1 se hizo con ese saldo; quedan ≈US$7,4. Contrato: [diseño v2 del paso 1.4](../../specs/LV-019-B-bloqueos-y-cierres-diseno.md), secciones 3.3, 3.5 y 3.6.
 
 El paso toca **Cuenta además de Video**, por eso se parte en tres encargos cortos que se lanzan **en este orden**, cada uno en un hilo nuevo desde el commit actual y certificado por Codex antes del siguiente:
 

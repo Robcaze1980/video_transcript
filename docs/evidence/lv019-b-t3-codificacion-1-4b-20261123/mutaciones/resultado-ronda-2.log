@@ -1,0 +1,53 @@
+final restore verified: True {'B': True, 'H': True, 'C': True}
+strict-keys-dropped                  KILLED by emulator
+replay-ignores-reviewRef             KILLED by emulator
+replay-ignores-epoch                 KILLED by emulator
+replay-ignores-createdAt             KILLED by emulator
+replay-conflict-becomes-replay       KILLED by emulator
+guard-epoch-ignored                  KILLED by emulator
+guard-createdAt-ignored              KILLED by emulator
+not-blocked-allowed                  SURVIVED
+record-missing-allowed               KILLED by emulator
+incident-state-not-checked           KILLED by emulator
+incident-state-conflict-to-replay    KILLED by emulator
+counter-always-deletes               KILLED by emulator
+counter-never-deletes                KILLED by emulator
+counter-not-incremented              KILLED by emulator
+incident-not-marked                  KILLED by emulator
+unblock-record-not-created           KILLED by emulator
+unblock-record-no-reviewRef          KILLED by emulator
+unblock-record-uses-wrong-time       KILLED by emulator
+reviewRef-no-length-limit            KILLED by emulator
+reviewRef-allows-control             SURVIVED
+reviewRef-allows-del                 KILLED by emulator
+epoch-min-zero                       KILLED by emulator
+identity-missing-not-fault           SURVIVED
+hold-reviewed-reports-recorded       KILLED by emulator
+hold-active-unblocked-allowed        SURVIVED
+hold-unknown-state-allowed           KILLED by emulator
+hold-reviewedAt-not-validated        KILLED by emulator
+hold-reviewedAt-optional             KILLED by emulator
+receipt-blocked-false-on-apply       KILLED by emulator
+receipt-blocked-true-on-apply        KILLED by emulator
+receipt-blocked-false-on-replay      KILLED by emulator
+receipt-blocked-true-on-replay       KILLED by emulator
+client-blocked-not-validated         KILLED by vitest
+client-blocked-hardcoded             KILLED by vitest
+http-unblock-any-internal-caller     KILLED by vitest
+http-unblock-open-to-all             KILLED by vitest
+http-unblock-body-loose              SURVIVED
+http-epoch-min-zero                  KILLED by vitest
+http-createdAt-negative              KILLED by vitest
+http-reviewRef-no-limit              KILLED by vitest
+http-reviewRef-no-type               KILLED by vitest
+http-identityKey-unchecked           KILLED by vitest
+http-epoch-not-safe-integer          KILLED by vitest
+http-result-not-sent                 KILLED by vitest
+client-unblocked-not-checked         SKIPPED (count 0)
+client-replayed-not-checked          SKIPPED (count 0)
+client-receipt-hardcoded             SKIPPED (count 0)
+client-epoch-min-zero                KILLED by vitest
+client-reviewRef-no-limit            KILLED by vitest
+client-wrong-path                    KILLED by vitest
+client-body-drops-reviewRef          KILLED by vitest
+survivors: ['not-blocked-allowed', 'reviewRef-allows-control', 'identity-missing-not-fault', 'hold-active-unblocked-allowed', 'http-unblock-body-loose']

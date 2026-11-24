@@ -1,0 +1,11 @@
+El diff es sólido en general; agoto mis lecturas y cierro el veredicto. RESULTADO: PASS
+
+Hallazgos (ninguno con riesgo de saldo):
+
+1. **BAJA** — Seguridad correcta: `unblock` es idempotente por incidente, exige guard bloqueado y coincide `epoch`+`createdAtMs`, y borra solo al `reviewedCount===incidentCount`. Un viejo no limpia un nuevo; un concurrente re-bloquea.
+
+2. **BAJA** — HTTP y cliente estrictos: solo `settlementCaller`; `/status` solo lee; `reviewRef`, `epoch`, `createdAtMs` e `incidentId` validados en las tres capas con reglas equivalentes.
+
+3. **BAJA** — Relajación de `videoBillingHold`: `reviewed` con guard ausente o presente → `{blocked:false,recorded:false}` sin invariant; cualquier otro estado distinto de `active` sigue fallando cerrado.
+
+4. **BAJA** — Cobertura de prueba: sin casos para `unblockRef` existente cuando un incidente `reviewed` vuelve a bloquearse (aunque está fuera por 1a); sin mutación `reviewedCount` distinta de `incidentCount`. Riesgo bajo.
