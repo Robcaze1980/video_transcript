@@ -1,10 +1,10 @@
-# LV-019.B · Voz · C0a · Hechos del proveedor, coste, idiomas, guardado y términos (20 nov 2026)
+# LV-019.B · Voz · C0a · Hechos del proveedor, costo, idiomas, guardado y términos (20 nov 2026)
 
 **Estado: hechos recogidos el 20 nov 2026; la voz sigue cerrada a clientes.** Esta nota responde las decisiones de voz del [plan integral](LV-019-B-plan-integral-20261120.md) y alimenta C2 (admisión y llamada) y C6 (retención y cumplimiento). No cambia código, nube ni saldo.
 
-**Cómo se obtuvieron las cifras.** Las páginas oficiales de Google se leyeron el 20 nov mediante lectores web delegados (no con una descarga propia de Codex) y cada cifra clave se contrastó con otra fuente: la propia página da el precio por 10 s de audio y coincide con 25 tokens/s × tarifa; las dos llamadas reales del 14 nov midieron exactamente 25,0 tokens/s (480 tokens en 19,2 s y 441 en 17,64 s; `outputs/vistavo-ai-cloud/provider-measurements.json`). **No se vio ninguna factura:** el coste es «tokens observados × tarifa publicada», no un cargo medido. La página de precios de Cloud Storage no se pudo leer desde aquí (devuelve solo el título); para el almacenamiento se usa la cifra del propio proyecto (13 nov) y se marca como no reconfirmada.
+**Cómo se obtuvieron las cifras.** Las páginas oficiales de Google se leyeron el 20 nov mediante lectores web delegados (no con una descarga propia de Codex) y cada cifra clave se contrastó con otra fuente: la propia página da el precio por 10 s de audio y coincide con 25 tokens/s × tarifa; las dos llamadas reales del 14 nov midieron exactamente 25,0 tokens/s (480 tokens en 19,2 s y 441 en 17,64 s; `outputs/vistavo-ai-cloud/provider-measurements.json`). **No se vio ninguna factura:** el costo es «tokens observados × tarifa publicada», no un cargo medido. La página de precios de Cloud Storage no se pudo leer desde aquí (devuelve solo el título); para el almacenamiento se usa la cifra del propio proyecto (13 nov) y se marca como no reconfirmada.
 
-## 1. Modelo y coste de generar la voz
+## 1. Modelo y costo de generar la voz
 
 El proyecto fija `gemini-3.8-flash-tts` (voces Kore y Charon). Tarifas del nivel de pago, USD por millón de tokens, según la [página de precios](https://aistudio.google.com/docs/pricing) (no muestra fecha de publicación; sí fechas de entrada en vigor):
 
@@ -44,13 +44,13 @@ La voz solo depende del **idioma destino** (se genera desde la traducción revis
 
 Salida: WAV de 24 kHz, mono, 16 bits (48.000 bytes/s ≈ **2,88 MB por minuto**; 28,8 MB por 10 minutos). La documentación no indica el máximo de texto ni de audio por solicitud, así que el diseño sigue troceando el texto en fragmentos (ya existente).
 
-## 4. Guardado del audio: opciones y coste
+## 4. Guardado del audio: opciones y costo
 
-El coste de guardar es casi nulo; lo que decide es privacidad y comodidad. Tarifa de referencia: Cloud Storage Standard regional ≈ US$0,020 por GiB-mes (estimación del proyecto del 13 nov, coherente con una copia archivada de 2022; **no reconfirmada en la página actual**). Almacenar 10 minutos de voz (28,8 MB):
+El costo de guardar es casi nulo; lo que decide es privacidad y comodidad. Tarifa de referencia: Cloud Storage Standard regional ≈ US$0,020 por GiB-mes (estimación del proyecto del 13 nov, coherente con una copia archivada de 2022; **no reconfirmada en la página actual**). Almacenar 10 minutos de voz (28,8 MB):
 
-| Opción | Cuánto tiempo | Coste de guardar 10 min | Ventajas | Inconvenientes |
+| Opción | Cuánto tiempo | Costo de guardar 10 min | Ventajas | Inconvenientes |
 |---|---|---|---|---|
-| 24 horas | 1 día | ≈ US$0,00002 | Mínima exposición | El cliente debe bajarlo ya; si pierde el archivo, hay que regenerar (y volver a cobrar o absorber el coste) |
+| 24 horas | 1 día | ≈ US$0,00002 | Mínima exposición | El cliente debe bajarlo ya; si pierde el archivo, hay que regenerar (y volver a cobrar o absorber el costo) |
 | 7 días | una semana | ≈ US$0,00013 | Poca exposición, margen razonable | Se pierde al cabo de una semana |
 | **30 días** | un mes | ≈ US$0,00054 | Cómodo, cubre revisiones y reenvíos | Más datos privados guardados |
 | 90 días | tres meses | ≈ US$0,0016 | Seguimiento de proyectos largos | Más exposición sin ventaja clara |
@@ -68,6 +68,6 @@ Según los [términos adicionales de la API de Gemini](https://aistudio.google.c
 - **Borrado:** los términos no ofrecen un mecanismo para pedir el borrado de esos registros. **No se puede prometer al cliente que el proveedor borre lo enviado;** sí que Vistavo borra sus propias copias.
 - Quedan por leer los documentos que gobiernan el tratamiento de datos de pago (adenda de tratamiento de datos) antes de activar la voz.
 
-## 6. Medición real del coste (autorizada por el dueño el 20 nov)
+## 6. Medición real del costo (autorizada por el dueño el 20 nov)
 
 No se hicieron llamadas nuevas: **no hay clave de Gemini disponible en esta PC** (no existe `%LOCALAPPDATA%\LinguistVision\.env`) y la clave de producción vive solo en Secret Manager para el worker, que no se toca (no hay despliegue). Como medida real se usan las dos llamadas de voz del 14 nov (25,0 tokens/s) y la tarifa publicada. La autorización de gasto queda vigente (tope de US$5 para la prueba online con saldo real) para medir cuando exista una vía legítima (clave local colocada por el dueño en el archivo privado, o la prueba en línea) y el efecto en factura solo se confirma mirando el informe de facturación de Google Cloud.

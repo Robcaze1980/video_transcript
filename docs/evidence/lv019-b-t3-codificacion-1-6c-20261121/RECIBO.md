@@ -38,4 +38,4 @@ Adjudicación de Codex: se aceptaron la pausa en grupo empatado, el estado exact
 
 ## Gasto
 
-Saldo de OpenRouter medido: US$24,95 tras la recarga del 21 nov; US$12,07 el 22 nov a las 12:32, con hasta tres hilos de T3 a la vez y las revisiones de 1.6c y 1.4a incluidas. El coste propio de 1.6c no se puede aislar con la API del proveedor.
+Saldo de OpenRouter medido: US$24,95 tras la recarga del 21 nov; US$12,07 el 22 nov a las 12:32, con hasta tres hilos de T3 a la vez y las revisiones de 1.6c y 1.4a incluidas. El costo propio de 1.6c no se puede aislar con la API del proveedor.

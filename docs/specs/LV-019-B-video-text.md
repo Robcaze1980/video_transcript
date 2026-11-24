@@ -86,7 +86,7 @@ El límite de 64 KiB para el borrador no habilita por sí solo la voz: la candid
 1. Enlazar la experiencia de cuenta y el flujo de video por la misma sesión Firebase y el mismo ID token, enviándolo por dos rutas del mismo origen a sus APIs respectivas. Cada servicio vuelve a verificar el token revocado y deriva su propio propietario desde `uid`; el navegador no elige `accountId`.
 2. Añadir al área de cuenta la carga, estado, cancelación, revisión y descarga usando el contrato privado ya existente de archivos/IA. Mantener la cuenta financiera y los proyectos de texto/SRT en `vistavo-live`; no replicar el ledger en `(default)`.
 3. Hacer que la integración quede desactivada por defecto en Hosting y no mostrar las unidades `test-unit` como precio o saldo. Se puede validar en emulador/candidata con fixtures sintéticas y negativos de otro usuario.
-4. La tarifa y la regla de redondeo/reserva ya fueron decididas por Rob y están arriba. Antes de uso de clientes, integrar la reserva real, captura/liberación idempotente y conciliación de UNKNOWN; definir y validar los límites y pares de idioma, y verificar los costes del proveedor/Cloud dentro de la autorización de conexión.
+4. La tarifa y la regla de redondeo/reserva ya fueron decididas por Rob y están arriba. Antes de uso de clientes, integrar la reserva real, captura/liberación idempotente y conciliación de UNKNOWN; definir y validar los límites y pares de idioma, y verificar los costos del proveedor/Cloud dentro de la autorización de conexión.
 5. Rob autorizó conectar y publicar el recorrido de video si solo procesa con saldo real suficiente. Esta autorización no permite inventar crédito ni habilitar compras/PayPal; no crear Cloud SQL. No se ha hecho todavía ningún despliegue en esta actualización.
 
 ## Aceptación para el puente local
@@ -96,7 +96,7 @@ El límite de 64 KiB para el borrador no habilita por sí solo la voz: la candid
 - Reintento idempotente conserva el mismo trabajo; estado `unknown` bloquea duplicados hasta reconciliar; cancelación y borrado retiran acceso y purgan objetos según el contrato existente.
 - Sin token, con token revocado/no verificado, origen extraño, propietario ajeno o artefacto vencido, la solicitud falla cerrada.
 - Las rutas de cuenta y de archivos permanecen separadas; no hay acceso nuevo de una identidad al Firestore ajeno.
-- Se muestra el precio antes de cada opción; no se habilitan compras. Publicación y procesamiento requieren completar los criterios de producto, coste, seguridad y verificación aplicables.
+- Se muestra el precio antes de cada opción; no se habilitan compras. Publicación y procesamiento requieren completar los criterios de producto, costo, seguridad y verificación aplicables.
 
 ## Revisión independiente
 

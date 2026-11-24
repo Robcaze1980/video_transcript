@@ -15,7 +15,7 @@ Vía: T3 local (`~/.t3/bin/t3.cmd`, instancia `linguistvision-openrouter`), prom
 
 | Hallazgo | Decisión |
 | --- | --- |
-| Barrido colgado de la pasada de mantenimiento puede morir en silencio o arrastrar archivos/IA (DeepSeek A1, GLM A3) | **Adoptado.** Sub-manejador aislado con `try/catch` que no propaga, presupuesto de tiempo propio, idempotente, latido por pasada y alerta de frescura. Segundo Scheduler descartado por ahora (coste y cuota no medidos). |
+| Barrido colgado de la pasada de mantenimiento puede morir en silencio o arrastrar archivos/IA (DeepSeek A1, GLM A3) | **Adoptado.** Sub-manejador aislado con `try/catch` que no propaga, presupuesto de tiempo propio, idempotente, latido por pasada y alerta de frescura. Segundo Scheduler descartado por ahora (costo y cuota no medidos). |
 | Desplegar cambia la imagen completa; probar antes (DeepSeek A2, GLM A5) | **Adoptado** como revisión etiquetada sin tráfico, prueba de humo de archivos/IA, promover con el barrido apagado. «3001» es el procedimiento del piloto local, no de Cloud Run; se aplicó la idea, no el nombre. Un barrido con 0 filas solo prueba el cableado: declarado. |
 | La métrica por registros no es la fuente de verdad; probar la entrega (DeepSeek A3, GLM A4) | **Adoptado.** Prueba E2E con entrada de registro de prueba marcada **antes** de desplegar el código, alerta «sin datos» y spam. |
 | Reversión concreta y verificable (GLM A1, DeepSeek A5) | **Adoptado** como regla 5 y paso de cierre de A4. |
@@ -32,17 +32,17 @@ Vía: T3 local (`~/.t3/bin/t3.cmd`, instancia `linguistvision-openrouter`), prom
 
 | GLM Flash | DeepSeek |
 | --- | --- |
-| [PASS](reply-r2-glm.txt): seis ALTA previas resueltas; deja abiertas, sin bloquear, que las bases vacías no validan la conciliación, que el coste de voz es estimación y que las políticas de voz son del dueño | [PASS](reply-r2-deepseek.txt) con tres MEDIA y dos BAJA |
+| [PASS](reply-r2-glm.txt): seis ALTA previas resueltas; deja abiertas, sin bloquear, que las bases vacías no validan la conciliación, que el costo de voz es estimación y que las políticas de voz son del dueño | [PASS](reply-r2-deepseek.txt) con tres MEDIA y dos BAJA |
 
 ### Adjudicación de la ronda 2
 
 | Hallazgo | Decisión |
 | --- | --- |
 | Operador: `all` no equivale a «sin exposición»; falta prueba E2E y de revocación (DeepSeek 1, 5) | **Adoptado:** redacción corregida y pruebas de aceptación, rechazo y revocación desde la PC del dueño antes de cerrar A5. |
-| Índice sin uso y alerta de frescura con cola vacía (DeepSeek 2) | **Aclarado:** el latido mide que el barrido corrió, no el contenido de las colas; ninguna alerta depende del modo `billing`. El índice queda creado y sin uso hasta que ese modo exista (0 documentos, sin coste de almacenamiento apreciable). |
+| Índice sin uso y alerta de frescura con cola vacía (DeepSeek 2) | **Aclarado:** el latido mide que el barrido corrió, no el contenido de las colas; ninguna alerta depende del modo `billing`. El índice queda creado y sin uso hasta que ese modo exista (0 documentos, sin costo de almacenamiento apreciable). |
 | C1 bloqueada sin fecha por B1 (DeepSeek 3) | **Adoptado:** B1 es la siguiente tarea local y no depende del dueño. |
 | A4 con 0 filas solo prueba cableado (DeepSeek 4) | Ya declarado; la lógica la prueban el emulador y las mutaciones. |
-| Conciliación sin datos reales (GLM 7); coste y políticas de voz abiertos (GLM 8, 9); auditoría de IAM y latencia de «sin datos» (GLM 10, 11) | **Aceptados como límites**; los dos primeros son decisiones o mediciones pendientes, los demás ya están en las reglas de ejecución. |
+| Conciliación sin datos reales (GLM 7); costo y políticas de voz abiertos (GLM 8, 9); auditoría de IAM y latencia de «sin datos» (GLM 10, 11) | **Aceptados como límites**; los dos primeros son decisiones o mediciones pendientes, los demás ya están en las reglas de ejecución. |
 
 ## Clasificación
 
@@ -50,11 +50,11 @@ Ronda 1: FALLA en 3 de 4 respuestas, con hallazgos reales que cambiaron el plan.
 
 ## Ronda 3 (decisiones del dueño del 20 nov por la tarde; [prompt](prompt-r3.txt))
 
-Delta revisado: puerta G0 (no desplegar nada hasta que la voz esté lista), política «no se cobra si fallamos», coste de voz (US$0,0135/min hasta fin de 2026 y US$0,027/min desde 2027), almacenamiento y retención del audio. Los datos personales del dueño no se enviaron.
+Delta revisado: puerta G0 (no desplegar nada hasta que la voz esté lista), política «no se cobra si fallamos», costo de voz (US$0,0135/min hasta fin de 2026 y US$0,027/min desde 2027), almacenamiento y retención del audio. Los datos personales del dueño no se enviaron.
 
 | GLM Flash | DeepSeek |
 | --- | --- |
-| [PASS](reply-r3-glm.txt): costes y almacenamiento coherentes; G0 no es circular si G6 es puerta de apertura al público; avisa de `UNKNOWN` sin plazo, cancelación del cliente y «entrega verificada» sin definir | [FALLA](reply-r3-deepseek.txt): «lista» sin criterio de salida (ALTA) y `UNKNOWN` que retiene saldo sin fin (ALTA); números coherentes |
+| [PASS](reply-r3-glm.txt): costos y almacenamiento coherentes; G0 no es circular si G6 es puerta de apertura al público; avisa de `UNKNOWN` sin plazo, cancelación del cliente y «entrega verificada» sin definir | [FALLA](reply-r3-deepseek.txt): «lista» sin criterio de salida (ALTA) y `UNKNOWN` que retiene saldo sin fin (ALTA); números coherentes |
 
 ### Adjudicación de la ronda 3
 
@@ -65,6 +65,6 @@ Delta revisado: puerta G0 (no desplegar nada hasta que la voz esté lista), pol�
 | Cancelación del cliente (GLM 4, DeepSeek 4) | **Parcial:** antes de enviar se libera todo; después de enviar queda abierta como decisión del dueño. |
 | «Entrega verificada» sin definir (GLM 5) | **Adoptado** en C2 (respuesta con audio, WAV válido, duración, hash del texto, objeto con generación y recibo, acceso del propietario). |
 | Retención con regla automática (GLM 7) | **Adoptado con matiz:** se aplica con la purga por lotes con marcadores del pipeline de IA, no con ciclo de vida de bucket, que permitiría resucitar escrituras tardías. |
-| Coste 2027 (GLM 8), impuestos y comisiones (DeepSeek 5), tokens de entrada (GLM 6) | Anotados en la nota C0a; los tokens de entrada sí se facturan (US$0,50/1M) y ya están contados como una centésima de centavo por minuto. |
+| Costo 2027 (GLM 8), impuestos y comisiones (DeepSeek 5), tokens de entrada (GLM 6) | Anotados en la nota C0a; los tokens de entrada sí se facturan (US$0,50/1M) y ya están contados como una centésima de centavo por minuto. |
 
 Clasificación: GLM PASS; DeepSeek FALLA con hallazgos reales ya incorporados. No se pidió una ronda 4: las correcciones son las que los revisores propusieron y se vuelven a revisar al implementar C2 y C3.

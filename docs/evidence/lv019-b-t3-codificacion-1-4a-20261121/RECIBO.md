@@ -34,4 +34,4 @@
 
 ## Gasto
 
-Saldo de OpenRouter medido: US$24,95 tras la recarga del 21 nov; US$9,26 a las 13:55 del 22 nov, con hasta tres hilos de T3 a la vez y las revisiones de 1.6c y 1.4a incluidas. El coste propio de 1.4a no se puede aislar con la API del proveedor.
+Saldo de OpenRouter medido: US$24,95 tras la recarga del 21 nov; US$9,26 a las 13:55 del 22 nov, con hasta tres hilos de T3 a la vez y las revisiones de 1.6c y 1.4a incluidas. El costo propio de 1.4a no se puede aislar con la API del proveedor.

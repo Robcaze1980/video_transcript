@@ -18,7 +18,7 @@ Vía: T3 local (`~/.t3/bin/t3.cmd`, instancia `linguistvision-openrouter`), prom
 | K = N y asientos de libro (GLM A4, DeepSeek A2); invariantes (GLM A7, DeepSeek A5) | **Adoptado:** `capturedSeconds` solo con 1 ≤ K < N, K = N inválido, tipos de asiento distintos, lista de invariantes. |
 | «Sin admisión almacenada, ignorar la suministrada» (GLM A2, DeepSeek A3) | **Adoptado en parte:** la barrera `first` ya hace de comprobación cruzada (`:332`), no se purga la admisión, y la respuesta incluye `admitted`. |
 | `unknown_expired` sin cota (GLM A3, DeepSeek A6) | **Adoptado:** edad mínima y cuenta por cuenta. |
-| Carrera entre sellado y respuesta tardía (GLM B1, DeepSeek B1) | **Adoptado:** el sellado es el único escritor; subcobro acotado a un fragmento en vuelo, coste asumido por Vistavo. |
+| Carrera entre sellado y respuesta tardía (GLM B1, DeepSeek B1) | **Adoptado:** el sellado es el único escritor; subcobro acotado a un fragmento en vuelo, costo asumido por Vistavo. |
 | K ambiguo (GLM B2, DeepSeek B2) | **Adoptado** con una elección: suma exacta y un solo `ceil` al final (DeepSeek) frente a redondeo por fragmento (GLM); se eligió lo primero por no cobrar de más. |
 | Ampliar la tupla rompe filas antiguas y versiones mixtas (GLM B3, DeepSeek B3) | **Adoptado:** `settlementProtocol`, Cuenta primero, falla cerrado por lista exacta de campos, prueba de drenado mixto. |
 | `needs_review` retiene saldo y cupo (GLM B4, DeepSeek B4) | **Adoptado:** entra en el plazo máximo del plan (C3). |
