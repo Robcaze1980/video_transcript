@@ -111,7 +111,7 @@ export function renderTimedSubtitlesMp4(options: TimedSubtitleExport): Promise<B
     if (!Number.isFinite(duration) || duration <= 0 || !width || !height) throw new Error('Missing source video metadata.');
     // El canvas del llamador puede tener ya un contexto opaco: la grabación en
     // tiempo real lo abre con `alpha: false`. Un overlay PNG opaco taparía el
-    // vídeo con un fondo negro, así que aquí se pinta siempre en un canvas
+    // video con un fondo negro, así que aquí se pinta siempre en un canvas
     // propio con transparencia.
     const overlayCanvas = document.createElement('canvas');
     overlayCanvas.width = width;

@@ -258,7 +258,7 @@ export const recordVideoWithSubtitles = async (
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : '';
-      // Repetir no arregla estos casos: el navegador no puede grabar el vídeo.
+      // Repetir no arregla estos casos: el navegador no puede grabar el video.
       if (/blocked video playback|does not support|cannot record a supported/i.test(message)) {
         break;
       }
