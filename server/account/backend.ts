@@ -34,7 +34,9 @@ function voiceRequest<T extends VoiceOriginRequest>(scope:string,request:T,withC
  const descriptors=Object.getOwnPropertyDescriptors(request);
  if(Reflect.ownKeys(descriptors).length!==names.length||!names.every(name=>Object.hasOwn(descriptors,name)&&'value' in descriptors[name]))bad();
  const body=Object.fromEntries(names.map(name=>[name,descriptors[name].value])) as T;
- id(body.videoAccountId);id(body.intentId);id(body.reserveAttemptId);id(body.reservationId);
+ id(body.videoAccountId);id(body.reservationId);
+ // C1 derives the intent digest and uses the reservation ID as its voice reserve attempt.
+ if(!digestValid(body.intentId)||body.reserveAttemptId!==body.reservationId)bad();
  return body;
 }
 function snapshotVersion(snapshot:DocumentSnapshot,field:'createTime'|'updateTime'){

@@ -1,5 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {expect,it,vi} from 'vitest';
+import {expect,it} from 'vitest';
 import {AccountStore} from './backend';
 
 type Row=Record<string,unknown>;
@@ -24,7 +24,8 @@ function fixture(){
  const A=randomUUID(),B=randomUUID(),videoA=randomUUID(),videoB=randomUUID();
  const identityKey=AccountStore.identityKey(uid),identityPath='identities/'+identityKey;
  const bindingPath='videoVoiceBindings/'+hash([scope,identityKey]);
- const requestA={identityKey,videoAccountId:videoA,intentId:randomUUID(),reserveAttemptId:randomUUID(),reservationId:randomUUID(),seconds:3};
+ const reservationId=randomUUID();
+ const requestA={identityKey,videoAccountId:videoA,intentId:hash([videoA,'test-voice-request']),reserveAttemptId:reservationId,reservationId,seconds:3};
  const callA={jobId:randomUUID(),attemptId:randomUUID(),callKey:'voice-chunk:0000',model:'gemini-3.8-flash-tts',requestSha256:'a'.repeat(64)};
  const claimPath=(intentId=requestA.intentId)=>'videoVoiceOriginClaims/'+hash([scope,intentId]);
  const originPath=(intentId=requestA.intentId)=>'videoVoiceReservationOrigins/'+hash([scope,intentId]);
@@ -78,7 +79,7 @@ function fixture(){
  }};
  const data=(path:string)=>rows.get(path)!.data,version=(path:string)=>'42:'+rows.get(path)!.updated;
  const owner=(accountId:string)=>put(identityPath,{uid,accountId});
- const reservationPath=(accountId:string,reservationId=requestA.reservationId)=>'videoReservations/'+hash([accountId,reservationId]);
+ const reservationPath=(accountId:string,reservationId:string=requestA.reservationId)=>'videoReservations/'+hash([accountId,reservationId]);
  const grantPath=(intentId:string)=>'videoVoiceIntentGrants/'+hash([scope,intentId]);
  for(const accountId of [A,B]){
   put('accounts/'+accountId,{identityKey,schemaVersion:1,unit:'video_seconds',credited:30,available:30,reserved:0,
@@ -172,25 +173,98 @@ function source(f:ReturnType<typeof fixture>) {
   f.arrangeGrant(f.A,r);
   return r;
 }
-it('characterizes actual C1 rejection before Account reads or writes',async()=>{
- const f=fixture(),r=source(f),before=f.snapshot(),t=f.transactions();
- await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'invalid'});
- expect(f.transactions()).toBe(t);
- expect(f.snapshot()).toEqual(before);
-});
 it('accepts the real C1 reviewed voice evidence tuple when the exact Account grant is already present',async()=>{
- const f=fixture(),r=source(f);
- await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,r)).resolves.toMatchObject({state:'reserved',created:true});
+  const f=fixture(),r=source(f);
+  const otherAccount=f.data('accounts/'+f.B);
+
+  const response=await f.store.reserveVideoWithVoiceOrigin(f.scope,r);
+  expect(response).toMatchObject({state:'reserved',created:true,seconds:r.seconds});
+  expect(response.originRef).toEqual(expect.any(String));
+  expect(f.data(f.reservationPath(f.A,r.reservationId))).toMatchObject({
+    reservationId:r.reservationId,seconds:r.seconds,admissionProtocol:3,originRef:response.originRef,
+  });
+  expect(f.data(f.originPath(r.intentId))).toMatchObject(r);
+  expect(f.data('accounts/'+f.A)).toMatchObject({available:27,reserved:3});
+  expect(f.data('accounts/'+f.B)).toEqual(otherAccount);
+  const after=f.snapshot();
+  expect([...after.keys()].filter(path=>path.startsWith('ledgerEntries/'))).toHaveLength(1);
+
+  await expect(f.makeStore().reserveVideoWithVoiceOrigin(f.scope,r)).resolves.toMatchObject({
+    state:'reserved',created:false,originRef:response.originRef,
+  });
+  expect(f.snapshot()).toEqual(after);
 });
+
+it.each([
+  ['UUID form',randomUUID()],
+  ['truncated digest','a'.repeat(63)],
+  ['uppercase hex','A'.repeat(64)],
+  ['trailing newline','a'.repeat(64)+'\n'],
+])('rejects an intention in %s before any Account transaction',async(_label,intentId)=>{
+  const f=fixture(),r={...source(f),intentId};
+  const before=f.snapshot(),txCount=f.transactions();
+  await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'invalid'});
+  expect(f.transactions()).toBe(txCount);
+  expect(f.snapshot()).toEqual(before);
+});
+
+it('rejects a well-formed digest for a different intention without using the existing C1 grant',async()=>{
+  const f=fixture(),r=source(f);
+  const differentIntent={...r,intentId:digest([r.videoAccountId,'different-test-request-key'])};
+  const before=f.snapshot();
+  await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,differentIntent)).rejects.toMatchObject({code:'conflict'});
+  expect(f.snapshot()).toEqual(before);
+});
+
 it('the C1 issuer rejects a different voice reserve attempt for the same reservation',()=>{
- const s=voiceFixture(fixture());
- expect(()=>createReviewedVoiceReserveAttempt(randomUUID(),s.witness,s.versions,s.binding,key,timestamp())).toThrow();
+  const s=voiceFixture(fixture());
+  expect(()=>createReviewedVoiceReserveAttempt(randomUUID(),s.witness,s.versions,s.binding,key,timestamp())).toThrow();
 });
-it('characterizes v3 acceptance of unrelated UUID attempt and reservation when the synthetic grant agrees',async()=>{
- const f=fixture();
- expect(f.requestA.reserveAttemptId).not.toBe(f.requestA.reservationId);
- const r=await f.issue();
- expect(r.originRef).toBeTruthy();
- expect(f.data(f.reservationPath(f.A)).state).toEqual('reserved');
- expect(f.data('accounts/'+f.B).available).toBe(30);
+
+it('rejects unrelated UUID reserve attempt and reservation IDs even when the stored grant agrees',async()=>{
+  const f=fixture();
+  const r={...source(f),reserveAttemptId:randomUUID()};
+  f.arrangeGrant(f.A,r);
+  const before=f.snapshot(),txCount=f.transactions();
+
+  await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'invalid'});
+  expect(f.transactions()).toBe(txCount);
+  expect(f.snapshot()).toEqual(before);
+});
+
+it.each([
+  ['a different UUID',false],
+  ['the same UUID value',true],
+])('pins the provider attempt independently when it has %s',async(_label,sameUUID)=>{
+  const f=fixture(),r=source(f);
+  const {originRef}=await f.store.reserveVideoWithVoiceOrigin(f.scope,r);
+  const attemptId=sameUUID?r.reservationId:f.callA.attemptId;
+  const call={...r,...f.callA,attemptId,originRef:originRef!};
+  const before=f.snapshot(),txCount=f.transactions();
+
+  await expect(f.store.admitVideoCallWithVoiceOrigin(f.scope,{...call,reserveAttemptId:randomUUID()}))
+    .rejects.toMatchObject({code:'invalid'});
+  await expect(f.store.admitVideoCallWithVoiceOrigin(f.scope,{...call,attemptId:r.intentId}))
+    .rejects.toMatchObject({code:'invalid'});
+  expect(f.transactions()).toBe(txCount);
+  expect(f.snapshot()).toEqual(before);
+
+  await expect(f.store.admitVideoCallWithVoiceOrigin(f.scope,call)).resolves.toMatchObject({
+    attemptId:call.attemptId,reservationId:r.reservationId,originRef,created:true,receiptOnly:false,
+  });
+  expect(f.data(f.reservationPath(f.A,r.reservationId)).providerAdmission).toMatchObject({
+    jobId:call.jobId,attemptId:call.attemptId,
+  });
+  const after=f.snapshot();
+  for (const [path,row] of before) {
+    if (path.startsWith('accounts/')||path.startsWith('ledgerEntries/')) expect(after.get(path)).toEqual(row);
+  }
+  expect([...after.keys()].filter(path=>path.startsWith('ledgerEntries/'))).toHaveLength(1);
+
+  await expect(f.makeStore().admitVideoCallWithVoiceOrigin(f.scope,call)).resolves.toMatchObject({
+    attemptId:call.attemptId,created:false,receiptOnly:true,
+  });
+  await expect(f.store.admitVideoCallWithVoiceOrigin(f.scope,{...call,attemptId:randomUUID()}))
+    .rejects.toMatchObject({code:'conflict'});
+  expect(f.snapshot()).toEqual(after);
 });

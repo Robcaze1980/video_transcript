@@ -24,7 +24,8 @@ function fixture(){
  const A=randomUUID(),B=randomUUID(),videoA=randomUUID(),videoB=randomUUID();
  const identityKey=AccountStore.identityKey(uid),identityPath='identities/'+identityKey;
  const bindingPath='videoVoiceBindings/'+hash([scope,identityKey]);
- const requestA={identityKey,videoAccountId:videoA,intentId:randomUUID(),reserveAttemptId:randomUUID(),reservationId:randomUUID(),seconds:3};
+ const reservationId=randomUUID();
+ const requestA={identityKey,videoAccountId:videoA,intentId:hash([videoA,'test-voice-request']),reserveAttemptId:reservationId,reservationId,seconds:3};
  const callA={jobId:randomUUID(),attemptId:randomUUID(),callKey:'voice-chunk:0000',model:'gemini-3.8-flash-tts',requestSha256:'a'.repeat(64)};
  const claimPath=(intentId=requestA.intentId)=>'videoVoiceOriginClaims/'+hash([scope,intentId]);
  const originPath=(intentId=requestA.intentId)=>'videoVoiceReservationOrigins/'+hash([scope,intentId]);
@@ -128,7 +129,7 @@ it('fails closed without the trusted binding and grant, and leaves the legacy re
  expect(f.snapshot()).toEqual(withLegacy);
  f.drop(f.grantPath(f.requestA.intentId));
  const bindingOnly=f.snapshot();
- await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,{...f.requestA,reservationId:randomUUID()})).rejects.toMatchObject({code:'conflict'});
+ await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,f.requestA)).rejects.toMatchObject({code:'conflict'});
  expect(f.snapshot()).toEqual(bindingOnly);
 });
 
@@ -144,7 +145,10 @@ it('creates one Account-issued origin with the reservation and returns the same 
  expect([...state.keys()].filter(key=>key.startsWith('ledgerEntries/'))).toHaveLength(1);
  expect(f.data('accounts/'+f.A)).toMatchObject({available:27,reserved:3,active:1,consumed:0});
  await expect(f.makeStore().reserveVideoWithVoiceOrigin(f.scope,f.requestA)).resolves.toMatchObject({created:false,originRef:input.originRef});
- await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,{...f.requestA,reserveAttemptId:randomUUID()})).rejects.toMatchObject({code:'conflict'});
+ const unrelatedReservation=randomUUID();
+ await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,{...f.requestA,
+  reserveAttemptId:unrelatedReservation,reservationId:unrelatedReservation,
+ })).rejects.toMatchObject({code:'conflict'});
  await expect(f.store.reserveVideo(f.requestA.identityKey,f.requestA.reservationId,f.requestA.seconds)).rejects.toMatchObject({code:'conflict'});
  const {identityKey,reservationId,seconds,jobId,attemptId,callKey,model,requestSha256}=input;
  await expect(f.store.admitVideoCall(identityKey,reservationId,seconds,jobId,attemptId,callKey,model,requestSha256)).rejects.toMatchObject({code:'conflict'});
@@ -155,7 +159,7 @@ it('creates one Account-issued origin with the reservation and returns the same 
 it('rejects a foreign or missing origin and leaves both owners and their reservations untouched',async()=>{
  const f=fixture(),a=await f.issue();
  f.owner(f.B);
- const requestB={...f.requestA,videoAccountId:f.videoB,intentId:randomUUID(),reserveAttemptId:randomUUID()};
+ const requestB={...f.requestA,videoAccountId:f.videoB,intentId:hash([f.videoB,'test-voice-request'])};
  f.arrangeGrant(f.B,requestB);
  const b=await f.store.reserveVideoWithVoiceOrigin(f.scope,requestB);
  const before=f.snapshot();
@@ -206,7 +210,8 @@ it('rejects identity ABA and binding ABA even when they return to the original c
  const afterIdentityAba=f.snapshot();
  await expect(f.store.admitVideoCallWithVoiceOrigin(f.scope,input)).rejects.toMatchObject({code:'conflict'});
  expect(f.snapshot()).toEqual(afterIdentityAba);
- const newer={...f.requestA,intentId:randomUUID(),reserveAttemptId:randomUUID(),reservationId:randomUUID()};
+ const reservationId=randomUUID();
+ const newer={...f.requestA,intentId:hash([f.requestA.videoAccountId,'later-test-voice-request']),reserveAttemptId:reservationId,reservationId};
  f.arrangeGrant(f.A,newer);
  const result=await f.store.reserveVideoWithVoiceOrigin(f.scope,newer);
  const binding=f.data(f.bindingPath);
