@@ -1874,3 +1874,7 @@ El diagnóstico posterior del puerto preservó un primer intento FALLA por una r
 Se subió el corte de trabajo a GitHub en la rama `codex/vistavo-checkpoint-20261125` (primer commit `668a36d`), con evidencia sintética portable, el borrador incompleto identificado y el estado pendiente. La rama es un respaldo de trabajo, no una publicación del procesamiento.
 
 Para la fase de voz se preservó el informe de GLM como borrador no aceptado y se preparó un encargo C1 más acotado, sin enviarlo ni integrar código. El borrador proponía una reserva nueva antes de confirmar Cuenta; el seguimiento quedó sin respuesta por HTTP 402. [Adjudicación](docs/reviews/LV-019-B-voz-c1-borrador-adjudicacion-2026-11-25.md).
+
+## 2026-11-25 · LV-019.B · Prevención de consumo repetido de T3
+
+Verificamos los 127.557.451 tokens de entrada reportados en dos turnos de voz, con 98,9 % de lectura de caché y un turno parcial. Se detectaron 496 comandos y 271 fallos. Las revisiones estáticas pasan a una consulta de texto por revisor con evidencia reunida localmente. El respaldo conserva los modelos y la clave de Vistavo vinculados y pasó cuatro pruebas con el proveedor simulado. La verificación de esta sesión tuvo cero nuevas solicitudes al proveedor. [Consumo y procedimiento](docs/reviews/LV-019-B-consumo-t3-2026-11-25.md).
