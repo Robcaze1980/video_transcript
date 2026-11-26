@@ -6,7 +6,7 @@
  * It never writes: the root it receives has no write surface.
  */
 import type {DocumentReference} from 'firebase-admin/firestore';
-import {PENDING_SOURCES,readPendingReport,type DefaultPendingKind} from './billingPendingReport';
+import {PENDING_SOURCES,readPendingReport,type PendingKind} from './billingPendingReport';
 import {readScheduleInventory,type ScheduleInventory} from './billingScheduleInventory';
 import {READABLE_COLLECTIONS,type ReadOnlyRoot} from './billingReadOnlyRoot';
 
@@ -14,7 +14,7 @@ export interface KindCounts{total:number;byState:Record<string,number>;needsRevi
 export interface QueueCounts{
   generatedAtMs:number;
   /** Total documents per queue collection (count aggregation, so not an exact snapshot while writers are active). */sizes:Record<string,number>;
-  report:{total:number;byKind:Record<DefaultPendingKind,KindCounts>;oldestAgeMs:number|null;/** `none` = no (or an unrecognised) error code. */byLastErrorCode:Record<string,number>};
+  report:{total:number;byKind:Record<PendingKind,KindCounts>;oldestAgeMs:number|null;/** `none` = no (or an unrecognised) error code. */byLastErrorCode:Record<string,number>};
   inventory:ScheduleInventory;
 }
 
@@ -25,10 +25,9 @@ export async function summarizeQueues(root:ReadOnlyRoot,nowMs:number):Promise<Qu
   // The readers are typed on a Firestore reference; the facade offers exactly the reads they perform.
   const reference=root as unknown as DocumentReference;
   const report=await readPendingReport(reference,nowMs);
-  const byKind=Object.fromEntries(PENDING_SOURCES.map(source=>[source.kind,{total:0,byState:{},needsReview:0,malformed:0,unknownAge:0,oldestAgeMs:null}])) as Record<DefaultPendingKind,KindCounts>;
+  const byKind=Object.fromEntries(PENDING_SOURCES.map(source=>[source.kind,{total:0,byState:{},needsReview:0,malformed:0,unknownAge:0,oldestAgeMs:null}])) as Record<PendingKind,KindCounts>;
   const byLastErrorCode:Record<string,number>={};
   for(const row of report.rows){
-    if(row.kind==='voice_reserve_conflict')continue;
     const kind=byKind[row.kind];kind.total++;kind.byState[row.state]=(kind.byState[row.state]??0)+1;
     if(row.attention==='needs_review')kind.needsReview++;if(row.attention==='malformed')kind.malformed++;if(row.attention==='unknown_age')kind.unknownAge++;
     if(row.ageMs!==null&&(kind.oldestAgeMs===null||row.ageMs>kind.oldestAgeMs))kind.oldestAgeMs=row.ageMs;

@@ -7,10 +7,8 @@
  * Design: docs/specs/LV-019-B-conciliacion-fase2-barrido-diseno.md
  */
 import type {DocumentReference,DocumentSnapshot} from 'firebase-admin/firestore';
-import {isLocalVoiceFixtureTarget,isMarkedLocalVoiceRoot,LOCAL_VOICE_CONFLICTS} from './localVoiceFixture';
 
-export type DefaultPendingKind='intent'|'terminal_recovery'|'hold'|'outbox'|'job_unknown'|'guard';
-export type PendingKind=DefaultPendingKind|'voice_reserve_conflict';
+export type PendingKind='intent'|'terminal_recovery'|'hold'|'outbox'|'job_unknown'|'guard';
 export type PendingAttention='needs_review'|'malformed'|'unknown_age'|'pending';
 
 /** `terminalStates` lets the opt-in audit tell a finished row from an unexpected one; null = audit not supported (jobs have too many valid states). */
@@ -28,7 +26,7 @@ export const PENDING_SOURCES:readonly PendingSource[]=Object.freeze([
 
 export interface PendingRow{kind:PendingKind;id:string;state:string;createdAtMs:number|null;nextAttemptAt:number|null;attempts:number|null;lastErrorCode:string|null;accountId:string|null;malformed:boolean}
 export interface ReportRow extends PendingRow{ageMs:number|null;attention:PendingAttention}
-export interface PendingReport{generatedAtMs:number;total:number;byKind:Record<DefaultPendingKind,number>&Partial<Record<'voice_reserve_conflict',number>>;oldest:ReportRow|null;attention:ReportRow[];rows:ReportRow[]}
+export interface PendingReport{generatedAtMs:number;total:number;byKind:Record<PendingKind,number>;oldest:ReportRow|null;attention:ReportRow[];rows:ReportRow[]}
 
 const nonNegativeInteger=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -44,10 +42,6 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
   const nextAttemptAt=nonNegativeInteger(d.nextAttemptAt)?d.nextAttemptAt:null;
   const attempts=nonNegativeInteger(d.attempts)?d.attempts:null;
   const lastErrorCode=typeof d.lastErrorCode==='string'&&errorCode.test(d.lastErrorCode)?d.lastErrorCode:null;
-  if(kind==='voice_reserve_conflict'){
-    return {kind,id,state:'needs_review',createdAtMs,nextAttemptAt:null,attempts:null,lastErrorCode:'conflict',accountId:null,
-      malformed:d.protocol!==1||state!=='needs_review'||createdAtMs===null||lastErrorCode!=='conflict'};
-  }
   const accountId=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null;
   const malformed=!data||typeof data!=='object'||!state||(present(d.createdAtMs)&&createdAtMs===null)||(present(d.nextAttemptAt)&&nextAttemptAt===null)||(present(d.attempts)&&attempts===null)||
     (present(d.lastErrorCode)&&lastErrorCode===null)||(present(d.accountId)&&accountId===null);
@@ -72,7 +66,7 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
   return {kind,id,state,createdAtMs,nextAttemptAt,attempts,lastErrorCode,accountId,malformed};
 }
 
-const kindOrder:Record<PendingKind,number>={intent:0,terminal_recovery:1,hold:2,outbox:3,job_unknown:4,guard:5,voice_reserve_conflict:6};
+const kindOrder:Record<PendingKind,number>={intent:0,terminal_recovery:1,hold:2,outbox:3,job_unknown:4,guard:5};
 function attentionOf(row:PendingRow):PendingAttention{
   if(row.malformed)return 'malformed';
   if(row.state==='needs_review'||row.state.startsWith('blocked:'))return 'needs_review';
@@ -91,8 +85,8 @@ export function buildPendingReport(input:readonly PendingRow[],nowMs:number):Pen
     if(a.kind!==b.kind)return kindOrder[a.kind]-kindOrder[b.kind];
     return a.id<b.id?-1:a.id>b.id?1:0;
   });
-  const byKind:PendingReport['byKind']={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0,guard:0};
-  for(const row of rows)byKind[row.kind]=(byKind[row.kind]??0)+1;
+  const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0,guard:0};
+  for(const row of rows)byKind[row.kind]++;
   return {generatedAtMs:nowMs,total:rows.length,byKind,oldest:rows.find(row=>row.createdAtMs!==null)??null,attention:rows.filter(row=>row.attention!=='pending'),rows};
 }
 
@@ -104,16 +98,11 @@ export function buildPendingReport(input:readonly PendingRow[],nowMs:number):Pen
  * query. `audit:true` closes that gap at the cost of reading every document of the audited collections: anything that
  * is neither a listed non-terminal state nor a known terminal one becomes a malformed row. Run it rarely.
  */
-export async function readPendingReport(root:DocumentReference,nowMs:number,options:{pageSize?:number;audit?:boolean;includeLocalVoiceConflicts?:true}={}):Promise<PendingReport>{
+export async function readPendingReport(root:DocumentReference,nowMs:number,options:{pageSize?:number;audit?:boolean}={}):Promise<PendingReport>{
   const pageSize=options.pageSize??200;
   if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500)throw new RangeError('invalid page size');
-  let sources=PENDING_SOURCES;
-  if(options.includeLocalVoiceConflicts===true){
-    if(!isLocalVoiceFixtureTarget(root.firestore,root)||!isMarkedLocalVoiceRoot(await root.get()))throw new RangeError('invalid local voice fixture');
-    sources=[...sources,{kind:'voice_reserve_conflict',collection:LOCAL_VOICE_CONFLICTS,states:['needs_review'],terminalStates:null}];
-  }
   const rows:PendingRow[]=[];
-  for(const source of sources){
+  for(const source of PENDING_SOURCES){
     const audit=options.audit===true&&source.terminalStates!==null;
     const terminal=new Set(source.terminalStates??[]),listed=new Set(source.states),filter=source.filter;
     // A filtered source (the guard) has no `state`: one equality on one field, paged by document id, in both modes.

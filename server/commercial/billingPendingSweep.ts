@@ -11,12 +11,12 @@
  */
 import type {DocumentReference,Firestore} from 'firebase-admin/firestore';
 import {clearResolvedAlerts,raisePendingAlerts,raiseSweepAlert,type AlertPolicy,type ClearResult} from './billingPendingAlerts';
-import {readPendingReport,type PendingReport} from './billingPendingReport';
+import {readPendingReport,type PendingKind} from './billingPendingReport';
 
 export type SweepStage='read'|'raise'|'clear'|'review'|'alert';
 export interface SweepOptions{audit?:boolean;pageSize?:number;policy?:AlertPolicy}
 export interface SweepSummary extends ClearResult{
-  ok:boolean;generatedAtMs:number;reported:number;byKind:PendingReport['byKind'];attention:number;created:number;seen:number;failures:SweepStage[];
+  ok:boolean;generatedAtMs:number;reported:number;byKind:Record<PendingKind,number>;attention:number;created:number;seen:number;failures:SweepStage[];
 }
 /** Carries only codes, a stage and the partial counts, never the underlying message (which could contain private detail). */
 export class SweepError extends Error{
@@ -39,7 +39,7 @@ export async function runPendingSweep(db:Firestore,root:DocumentReference,nowMs:
   try{report=await readPendingReport(root,nowMs,{pageSize,audit:options.audit});}
   catch{
     const alerted=await alertWith('sweep_failed');
-    const byKind:PendingReport['byKind']={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0,guard:0};
+    const byKind:Record<PendingKind,number>={intent:0,terminal_recovery:0,hold:0,outbox:0,job_unknown:0,guard:0};
     throw new SweepError('sweep_failed','read',alerted,{ok:false,generatedAtMs:nowMs,reported:0,byKind,attention:0,created:0,seen:0,...zero(),failures:alerted?['read']:['read','alert']});
   }
 

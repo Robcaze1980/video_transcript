@@ -8,7 +8,6 @@
 import {createHash} from 'node:crypto';
 import type {DocumentReference,DocumentSnapshot,Firestore} from 'firebase-admin/firestore';
 import {PENDING_SOURCES,buildPendingReport,normalizePending,type PendingKind,type PendingReport,type ReportRow} from './billingPendingReport';
-import {isLocalVoiceFixtureTarget,isMarkedLocalVoiceRoot} from './localVoiceFixture';
 
 export const ALERT_COLLECTION='billingPendingAlerts';
 /** Page size used when walking open alerts (a paging bound, not a policy). */
@@ -49,18 +48,15 @@ function openAlertState(snap:{exists:boolean;id:string;data():unknown}):'open'|'
 }
 /** One transaction per alert: under concurrency exactly one writer creates it, the others count a sighting. */
 async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKind;rowId:string;state:string;reason:AlertReason;accountId:string|null},nowMs:number):Promise<'created'|'seen'>{
-  const localVoice=fields.kind==='voice_reserve_conflict';
-  if(localVoice&&!isLocalVoiceFixtureTarget(db,root))throw new Error('Invalid local voice fixture');
   const key=alertKey(fields.kind,fields.rowId,fields.state,fields.reason),ref=root.collection(ALERT_COLLECTION).doc(key);
   return db.runTransaction(async tx=>{
-    if(localVoice&&!isMarkedLocalVoiceRoot(await tx.get(root)))throw new Error('Invalid local voice fixture');
     const snap=await tx.get(ref);
     if(!snap.exists){
-      tx.create(ref,{alertKey:key,...fields,accountId:localVoice?null:fields.accountId,status:'open',seenCount:1,firstSeenAtMs:nowMs,lastSeenAtMs:nowMs});
+      tx.create(ref,{alertKey:key,...fields,status:'open',seenCount:1,firstSeenAtMs:nowMs,lastSeenAtMs:nowMs});
       return 'created' as const;
     }
     const data=snap.data() as Record<string,unknown>|undefined;
-    if(!validAlertShape(data,key)||localVoice&&data?.accountId!==null)throw new Error('Corrupt alert document');
+    if(!validAlertShape(data,key))throw new Error('Corrupt alert document');
     const base={seenCount:(data!.seenCount as number)+1,lastSeenAtMs:Math.max(nowMs,data!.lastSeenAtMs as number)};
     // A cleared or superseded alert whose exact condition comes back reopens WITH its history. A dispositioned one
     // (a human already decided this exact situation) only counts the sighting and keeps its status.
@@ -122,7 +118,7 @@ export async function clearResolvedAlerts(db:Firestore,root:DocumentReference,re
     for(const doc of page.docs){
       const alert=doc.data() as Record<string,unknown>,kind=alert.kind as AlertKind,rowId=alert.rowId,state=alert.state,reason=alert.reason;
       if(typeof rowId!=='string'||typeof state!=='string'||typeof reason!=='string'||doc.id!==alertKey(kind,rowId,state,reason as AlertReason)||!validAlertShape(alert,doc.id)){out.corrupt++;continue;}
-      if(kind==='sweep'||kind==='voice_reserve_conflict'){out.kept++;continue;}
+      if(kind==='sweep'){out.kept++;continue;}
       const current=reported.get(kind+' '+rowId);
       if(current){
         const now=reasonFor(current,threshold);
