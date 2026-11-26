@@ -25,6 +25,7 @@
 import {createHash} from 'node:crypto';
 import {FieldValue,type DocumentReference,type DocumentSnapshot,type Firestore,type Transaction} from 'firebase-admin/firestore';
 import {ALERT_COLLECTION,alertIdentity} from './billingPendingAlerts';
+import {hasInvalidGuardReference} from './billingPendingReport';
 import {accountHoldId,legacyHoldId} from './billingHoldIdentity';
 import type {AccountBillingClient} from './accountBillingClient';
 
@@ -110,6 +111,7 @@ function cleanRequest(request:unknown):Clean{
 export function blockedState(epoch:number,createdAtMs:number,incidentKey:string):string{return 'blocked:'+epoch+':'+createdAtMs+':'+incidentKey;}
 /** The guard generation, with the declared legacy rule: no `epoch` is epoch 1, but no `createdAtMs` cannot be named. */
 function generation(doc:DocumentSnapshot):{epoch:number;createdAtMs:number;updatedAtMs:number}{
+  if(hasInvalidGuardReference(doc.data()??{}))throw new UnblockFault('corrupt');
   const stored=doc.get('epoch'),createdAtMs=doc.get('createdAtMs'),updatedAtMs=doc.get('updatedAtMs');
   if(stored!==undefined&&(!whole(stored,1)))throw new UnblockFault('corrupt');
   if(!whole(createdAtMs)||!whole(updatedAtMs))throw new UnblockFault('corrupt');
