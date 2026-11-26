@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'vitest';
 import {createHash} from 'node:crypto';
+import {AccountStore} from '../account/backend.ts';
 import {alertIdentity,alertKey,raisePendingAlerts,clearResolvedAlerts,ALERT_COLLECTION} from './billingPendingAlerts.ts';
 import {readPendingReport,buildPendingReport} from './billingPendingReport.ts';
 import {recordDisposition} from './billingPendingAudit.ts';
@@ -88,7 +89,7 @@ async function unblockFixture(guard) {
   const deps={db,root:s.root,accountBilling:{unblock:async(...args)=>{calls.push(args);throw Error('synthetic stop at Account port');},
       unblockReceipt:async()=>{throw Error('unexpected receipt consultation');}}};
   const request={incidentId:incident,alertKey:key,epoch:1,createdAtMs:5,updatedAtMs:6,accountEpoch:1,accountCreatedAtMs:5,evidenceRef:'fixture-proof'};
-  return {s,row,calls,request,deps,unblock:()=>unblockBillingAccount(deps,accountId,request,actor,30)};
+  return {s,row,calls,request,deps,uid,idKey,holdId,unblock:()=>unblockBillingAccount(deps,accountId,request,actor,30)};
 }
 
 test('identical incident references look normal to the report but block the transaction before Account',async()=>{
@@ -328,5 +329,97 @@ for(const alteration of ['different evidence','restored evidence','intact']){
       if(alteration==='restored evidence')assert.deepEqual(f.s.store.get(requestPath),original);
       assert.deepEqual(observed,{outcome:'conflict',guard:true,alert:'open',reviewed:false,done:0,mutations:1,reads:1});
     }
+  });
+}
+
+function accountForDirectAck(f) {
+  const accountOwner='20000000-0000-4000-8000-000000000001';
+  const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const billing={ownerAccountId:accountOwner,identityKey:f.idKey};
+  const generation={epoch:f.request.accountEpoch,createdAtMs:f.request.accountCreatedAtMs};
+  const accountIncident={...billing,incidentId:f.holdId,createdAtMs:6,state:'active'};
+  const incidentDoc=hash([accountOwner,f.holdId]),receiptDoc=hash([accountOwner,f.holdId,'unblock']);
+  const remote=stub({
+    accounts:{[accountOwner]:{identityKey:f.idKey,schemaVersion:1,unit:'video_seconds',credited:20,available:17,
+      reserved:3,consumed:0,active:1,activeProjectCount:0,createdAtMs:1}},
+    identities:{[f.idKey]:{uid:f.uid,accountId:accountOwner}},
+    videoBillingGuards:{[accountOwner]:{...billing,...generation,blocked:true,incidentCount:1,updatedAtMs:6}},
+    videoBillingIncidents:{[incidentDoc]:accountIncident},
+    videoReservations:{synthetic:{...billing,reservationId:'30000000-0000-4000-8000-000000000001',seconds:3,state:'reserved'}},
+    ledgerEntries:{synthetic:{ownerAccountId:accountOwner,createdAtMs:2,seconds:3,kind:'video_reserve'}},
+  });
+  const db={async runTransaction(run){
+    const deletes=[];
+    const value=await remote.db.runTransaction(tx=>run({...tx,delete:ref=>deletes.push(ref.path)}));
+    for(const path of deletes)remote.store.delete(path);
+    return value;
+  }};
+  const account=new AccountStore(db,remote.root,()=>40);
+  const before=structuredClone(remote.store),accepted=structuredClone(before);
+  accepted.delete('videoBillingGuards/'+accountOwner);
+  accepted.set('videoBillingIncidents/'+incidentDoc,{...accountIncident,state:'reviewed',reviewedAtMs:40});
+  accepted.set('videoBillingUnblocks/'+receiptDoc,{...billing,...generation,incidentId:f.holdId,
+    reviewRef:f.request.evidenceRef,unblockedAtMs:40});
+  return {account,remote,before,accepted};
+}
+
+for(const path of ['initial','resumed pending'])for(const scenario of ['different evidence','restored evidence','intact']){
+  test('direct unblock ACK checks the audited request for '+path+': '+scenario,async()=>{
+    const f=await unblockFixture({});
+    const {account,remote,before,accepted}=accountForDirectAck(f);
+    const calls=[];
+    if(path==='resumed pending'){
+      // Leave a Video request without delivering the first POST to Account.
+      await assert.rejects(f.unblock,error=>error.stage==='account');
+      assert.deepEqual(remote.store,before);
+    }
+    f.deps.accountBilling.unblockReceipt=async(...args)=>{
+      calls.push('receipt');
+      const receipt=await account.videoBillingUnblockReceipt(...args);
+      assert.equal(receipt.state,'pending');
+      return receipt;
+    };
+    let requestPath,original,requestAtReply;
+    f.deps.accountBilling.unblock=async(...args)=>{
+      calls.push('unblock');
+      const ack=await account.unblockVideoBilling(...args);
+      assert.deepEqual(ack,{unblocked:true,replayed:false,blocked:false});
+      // Account has committed its own decision BEFORE the response reaches Video.
+      assert.deepEqual(remote.store,accepted);
+      [requestPath,original]=[...f.s.store].find(([key,doc])=>key.startsWith(UNBLOCK_AUDIT_COLLECTION+'/')&&doc.action==='unblock_requested');
+      assert.equal(original.evidenceRef,f.request.evidenceRef);
+      if(scenario!=='intact'){
+        // Synthetic privileged overwrite, after the POST's commit and before delivery of its ACK.
+        f.s.store.set(requestPath,{...original,evidenceRef:'synthetic altered evidence'});
+        if(scenario==='restored evidence'){
+          f.s.store.set(requestPath,structuredClone(original));
+          assert.deepEqual(f.s.store.get(requestPath),original);
+          assert.notStrictEqual(f.s.store.get(requestPath),original);
+        }
+      }
+      requestAtReply=structuredClone(f.s.store.get(requestPath));
+      return ack;
+    };
+    const outcome=await f.unblock().then(value=>value.videoBlocked?'partial':'closed',error=>error.code??error.name);
+    const expectedCalls=path==='initial'?['unblock']:['receipt','unblock'];
+    assert.deepEqual(calls,expectedCalls);
+    assert.deepEqual(remote.store,accepted,'The one Account decision, balance, reservation and ledger are unchanged after receipt delivery');
+    assert.deepEqual(f.s.store.get(requestPath),requestAtReply);
+    const done=[...f.s.store].filter(([key,doc])=>key.startsWith(UNBLOCK_AUDIT_COLLECTION+'/')&&doc.action==='unblocked');
+    const observed={
+      outcome,guard:f.s.store.has('billingGuards/'+accountId),alert:f.s.store.get(ALERT_COLLECTION+'/'+f.request.alertKey).status,
+      reviewed:f.s.store.get('billingReviewIncidents/'+incident).reviewedAtMs!=null,done:done.length,
+      doneEvidence:done[0]?.[1].evidenceRef??null,requestedEvidence:requestAtReply.evidenceRef,
+    };
+    if(scenario==='intact'){
+      assert.deepEqual(observed,{outcome:'closed',guard:false,alert:'dispositioned',reviewed:true,done:1,
+        doneEvidence:original.evidenceRef,requestedEvidence:original.evidenceRef});
+      const after=structuredClone(f.s.store);
+      assert.equal((await f.unblock()).replayed,true);
+      assert.deepEqual(f.s.store,after);
+      assert.deepEqual(calls,expectedCalls);
+      assert.deepEqual(remote.store,accepted);
+    }else assert.deepEqual(observed,{outcome:'conflict',guard:true,alert:'open',reviewed:false,done:0,
+      doneEvidence:null,requestedEvidence:requestAtReply.evidenceRef});
   });
 }
