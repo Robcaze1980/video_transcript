@@ -1,0 +1,24 @@
+# LV-019.B C2 · adaptador para un fragmento sintético
+
+La candidata parte de 66db197 e incorpora los dos archivos del puente de memoria de 238e7d9. El fragmento único se prepara a partir de una traducción revisada y capturada en el AccountStore sintético. El receptor guarda los bytes en memoria.
+
+La lectura de Video comprueba titular, intención, reclamo, trabajo, revisión, clasificación de saldo, fuente y el ACK de reserva. La versión original del marcador sale del intento C1 v2 y se contrasta con el mismo documento actual. Cuenta utiliza otra raíz debajo de la raíz UUID de Video en el mismo cliente de Firestore Emulator. El adaptador comprueba el UID, su identidad y titular en esa raíz, la reserva de voz por la duración del video, y la captura de texto independiente por la misma duración. Los IDs internos de titular y los IDs de los trabajos pueden diferir. El vector positivo usa tres segundos.
+
+El permiso local solo se recuerda para una reserva nueva observada directamente por el AccountStore del arnés que terminó con trabajo C1. Las dos lecturas usan transacciones de solo lectura. Tras la respuesta de Cuenta, la segunda verifica también el recibo persistido, la cerca de la primera llamada y la versión de la reserva. La huella del historial del puente compara ambas lecturas sin incluir los bytes. El estado de admisión y el receptor no liquidan la reserva y el camino deja las colas, el trabajo, los movimientos y los artefactos de Video intactos.
+
+## Alcance de la prueba
+
+- La puerta exige el entorno de prueba, los indicadores explícitos del ejecutor, el cliente demo de loopback y la raíz sintética marcada. Un servicio de revisión asociado a otra raíz queda rechazado antes de consultar o reservar.
+- La prueba de dos receptores usa dos diarios y un AccountStore compartido. Si ambos alcanzan Cuenta, el protocolo de admisión solo permite una admisión nueva para la reserva y el fragmento. Un recibo exacto repetido es de solo lectura. La prueba también comprueba el rechazo de otro arnés que carece de la reserva observada.
+- El permiso del arnés, la copia local del ACK y los bytes se pierden al cerrar el proceso. Un fallo tras registrar la admisión puede dejar permiso duradero en Cuenta sin entrega. El flujo conserva esa incertidumbre y excluye reenvíos. La recuperación o reclamo entre proyectos de nube y las pruebas de IAM quedan pendientes. Los cambios de un escritor privilegiado capaz de reconstruir todo el historial quedan fuera del modelo de confianza.
+- El ejecutor agrega ocho casos C2 focales. Cubren recepción exacta, carrera, identidad ajena, cuerpo distinto, falta de permiso local, ACK C1 ausente, cambio y restauración del marcador o de la identidad de Cuenta, respuesta de admisión perdida y puerta cerrada durante la admisión. Se pueden congelar con Node 24 mediante `node scripts/runReviewedTranslationEmulator.mjs --prepare --voice-c2`.
+
+La voz sigue apagada. El adaptador queda en las pruebas locales. Las rutas, el trabajador, el proveedor, el almacenamiento de audio y la recuperación C3 quedan pendientes.
+
+## Resultado inicial y ajuste de la fixture
+
+La corrida `run-6d1d3f25-803d-406d-9da2-cb6e244840da` con Node 24.22.3 terminó con 7/8 casos aprobados, ocho limpiezas verificadas y el guard de red activo. El primer caso llegó a `sent` y falló en el siguiente paso al recibir `rejected` donde esperaba `unknown`. El primer intento, con Node 24.13.0, había sido detenido por identidad distinta antes de arrancar la fixture. Se conserva la corrida completa en `outputs` en la copia original y se copian sus recibos en la nueva copia.
+
+El contrato exige impedir una segunda admisión y entrega. La etiqueta de repetición no estaba fijada. El adaptador descubre la admisión durable mediante una lectura del emulador y rechaza la repetición antes de llamar otra vez a AccountStore. El ajuste se limita a la fixture. Mantiene la expectativa inicial de `sent`, compara evidencia y bytes, comprueba una sola admisión nueva y verifica las versiones de reserva, recibo y cerca, el saldo de las dos cuentas y los movimientos. Un control independiente llama explícitamente a AccountStore con la misma tupla y comprueba `receiptOnly` sin escrituras.
+
+Una revisión independiente contrastó que `rejected` tras el éxito es coherente con el contrato local y verificó que el nuevo control distingue la lectura de AccountStore de una segunda admisión. La nueva corrida terminó **8/8**, con ocho limpiezas, guard activo y hashes de entrada sin cambios. El TAP SHA-256 `8bf2dd63d29616d1d556dd9ceea90f8bc77d78491d148556e6d8c58160207066` y `result.json` SHA-256 `4c952c576a618540fc9f6282625fcc5339133da32e590766a5485150a3cb9b7e` están en `outputs/lv019-b-review-runs/run-78c436be-2aab-4976-9f65-1d7598ef146e/`, fuera de Git. La recepción comprobó bytes de solicitud canónica en memoria, no audio. Volver a abrir un resultado ya entregado de forma amigable queda pendiente de diseño y comprobación.

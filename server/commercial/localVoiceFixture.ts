@@ -5,6 +5,11 @@ export const LOCAL_VOICE_PROJECT = 'demo-vistavo-ledger';
 export const LOCAL_VOICE_CONFLICTS = 'localVoiceReserveConflicts';
 export const localVoiceRequestUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\s\S])/i;
 
+export function isLocalVoiceC2FixtureTarget(db:Firestore,root:DocumentReference):boolean {
+  return process.env.LV_REVIEW_CONTRACT==='1'&&process.env.LV_VOICE_C2_FIXTURE==='1'&&
+    process.env.LV_VOICE_C2_MEMORY_TEST==='1'&&isLocalVoiceFixtureTarget(db,root);
+}
+
 export function isLocalVoiceFixtureTarget(db:Firestore|undefined,root:DocumentReference):boolean {
   if(process.env.NODE_ENV!=='test'||process.env.LV_VOICE_C1_FIXTURE!=='1'||
     process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8185'||!db||root.firestore!==db)return false;

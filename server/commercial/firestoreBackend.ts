@@ -5,7 +5,7 @@ export type {ExternalVideoBilling,TerminalRecoveryDocumentVersion} from './billi
 import {ReviewedTranslationFault,type FirestoreReviewedTranslation,type ReviewedTranslationPrincipal} from './firestoreReviewedTranslation';
 import {createReviewedVoiceMarker,validateReviewedVoiceMarker,validateReviewedVoiceMarkerReplay,ReviewedVoiceMarkerFault,type ReviewedVoiceMarker} from './reviewedVoiceMarker';
 import {videoReservationId} from './videoReservationId';
-import {isLocalVoiceFixtureTarget,isMarkedLocalVoiceRoot,LOCAL_VOICE_CONFLICTS,LOCAL_VOICE_PROJECT,LOCAL_VOICE_ROOT_PURPOSE,localVoiceRequestUuid} from './localVoiceFixture';
+import {isLocalVoiceC2FixtureTarget,isLocalVoiceFixtureTarget,isMarkedLocalVoiceRoot,LOCAL_VOICE_CONFLICTS,LOCAL_VOICE_PROJECT,LOCAL_VOICE_ROOT_PURPOSE,localVoiceRequestUuid} from './localVoiceFixture';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {accountHoldId,holdId,legacyHoldId,type HoldGeneration} from './billingHoldIdentity';
@@ -19,6 +19,8 @@ import {validateDigitalSilenceProof,digitalSilenceProofHash} from './digitalSile
 import {validResolution,UNKNOWN_RESOLUTION_MIN_AGE_MS,type ResolutionKind,type VideoResolution} from '../account/settlementContract';
 import {RESERVE_ATTEMPT_DOCUMENTS,RESERVE_ATTEMPT_PROFILE_V1,ReserveAttemptEvidenceFault,createReviewedVoiceReserveAttempt,matchesReviewedVoiceReserveAck,matchesReviewedVoiceReserveSource,verifyReviewedVoiceReserveReplay,prepareReserveAttemptInTransaction,recordReserveAckInTransaction,stageReserveAck,type ReserveAck,type ReserveAttemptDocumentName,type ReserveAttemptEvidence,type ReserveAttemptEvidenceV1,type ReserveAttemptEvidenceV2,type ReserveAttemptWitnessV1} from './reserveAttemptEvidence';
 import {RESERVE_ATTEMPT_IMMUTABLE_DOCUMENTS,reserveAttemptVersions,reserveAttemptWindowChanged,type ReserveAttemptWindowDocuments} from './reserveAttemptWindow';
+import {prepareVerifiedReviewedVoiceRead} from './reserveAttemptEvidence';
+import type {SyntheticC1Read} from './reviewedVoiceFragment.memory';
 
 // Server-only persistence for the cloud candidate; the public application remains separate.
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -762,6 +764,82 @@ export class FirestoreBackend {
       rethrowLocalVoiceMarkerError(error);
     }
   }
+  usesLocalVoiceFragmentFixture(root:DocumentReference,service:FirestoreReviewedTranslation):boolean {
+    return isLocalVoiceC2FixtureTarget(this.db,this.root)&&this.root.isEqual(root)&&service.usesLocalVoiceFixture(root,this);
+  }
+
+  /** Internal, read-only C2 fixture port. The caller supplies the test transaction. */
+  async readLocalVoiceFragmentSource(tx:Transaction,root:DocumentReference,service:FirestoreReviewedTranslation,
+    principal:ReviewedTranslationPrincipal,jobId:string,operation:string){
+    if(!this.usesLocalVoiceFragmentFixture(root,service))return null;
+    identifier(jobId);
+    const {accountId,uid}=principal;
+    if(!await verifiedUidAccountInTransaction(tx,this.root,accountId,uid))return null;
+    const jobDoc=await tx.get(this.ref('jobs',jobId)),job=jobDoc.data() as Job|undefined;
+    if(!job||job.accountId!==accountId||job.operation!==operation||
+      (operation!=='narration:en:male'&&operation!=='narration:en:female')||
+      job.state!=='queued'||job.attemptId!==null||job.leaseUntil!==null||job.invocationPhase!==null||
+      job.unknownAttemptId!==null||job.snapshot!==null||!job.externalBilling||job.revision===null||
+      !localVoiceRequestUuid.test(job.requestKey)||job.requestKey!==job.requestKey.toLowerCase())return null;
+    const {requestKey,inputId,revision}=job,billing=job.externalBilling;
+    validExternalBilling(billing);
+    const witness=intentWitness(accountId,inputId,requestKey,operation,revision,billing);
+    const {intentId,identityKey,reservationId,seconds}=witness;
+    const [account,guard,intent,origin,request,jobMarker,intentGuard,outbox,billingOutbox,terminal,nack,conflict]=await tx.getAll(
+      this.ref('accounts',accountId),this.ref('billingGuards',accountId),this.ref('billingIntents',intentId),
+      this.ref('billingIntentWitnesses',intentId),this.ref('requests',intentId),this.ref('billingIntentJobMarkers',intentId),
+      this.ref('billingIntentAdmissionGuards',intentId),this.ref('outbox',jobId),this.ref('billingOutbox',jobId),
+      this.ref('movements','terminal:'+jobId),this.ref('localVoiceReserveNacks',reservationId),this.ref(LOCAL_VOICE_CONFLICTS,reservationId));
+    if(!account.exists||account.get('aiPilot')!==true||account.get('simulationOnly')!==true||identityKey!==hash(['firebase',uid])||
+      this.billingBlocked(guard,accountId)||!validClearIntentAdmissionGuard(intentGuard,intentId)||
+      outbox.exists||billingOutbox.exists||terminal.exists||nack.exists||conflict.exists)return null;
+    const row=this.billingIntent(intent,accountId,requestKey,billing);
+    if(row.state!=='job_created'||row.jobId!==jobId||row.inputId!==inputId||row.revision!==revision||row.operation!==operation||
+      intent.get('localVoiceAttemptId')!==reservationId||intent.get('nextAttemptAt')!==LOCAL_VOICE_INTENT_NOT_DUE||
+      !validStoredIntentWitness(origin,witness)||!sameIntentWitness(jobMarker.data(),witness)||
+      jobMarker.get('jobId')!==jobId||jobMarker.get('historyProtocol')!==1||
+      await this.verifiedExternalJob(tx,request,accountId,inputId,requestKey,operation,revision,billing)!==jobId||
+      await this.jobAccounting(tx,jobId,job)!=='account_seconds')return null;
+    const claim=await this.readLocalRequestKeyClaim(tx,accountId,requestKey,'voice','billingIntents',true);
+    if(claim?.data.anchorCollection!=='billingIntents'||claim.data.anchorId!==intentId)return null;
+    this.localRequestClaimLink(claim,intent,request);
+    const storedSource=validateReviewedVoiceMarker(job.reviewedVoice,accountId,requestKey,operation);
+    if(storedSource.textJobId===jobId)return null;
+    const source=await service.voiceBindingInTransaction(tx,principal,inputId,storedSource.textJobId,revision);
+    const expected=validateReviewedVoiceMarkerReplay(job.reviewedVoice,source,accountId,requestKey,operation);
+    const reserveRefs=this.reserveAttemptRefs(reservationId);
+    const sealId=intentTerminalKey(intentId,'seal'),releaseId=intentTerminalKey(intentId,'release');
+    const [marker,prepared,ack,textJob,classification,...terminalHistory]=await tx.getAll(
+      this.ref('reviewedVoiceMarkers',expected.markerId),reserveRefs.prepared,reserveRefs.ack,
+      this.ref('jobs',source.textJobId),this.ref('jobAccounting',jobId),
+      ...[sealId,releaseId].flatMap(id=>[this.ref('billingIntentTerminalWitnesses',id),this.ref('billingIntentTerminalRecovery',id)]));
+    validateReviewedVoiceMarkerReplay(marker.data(),source,accountId,requestKey,operation);
+    const attempt=prepareVerifiedReviewedVoiceRead(prepared.data(),ack.data(),source,requestKey,operation,terminalDocumentVersion(marker));
+    const textBilling=textJob.get('externalBilling') as ExternalVideoBilling|undefined;
+    if(terminalHistory.some(doc=>doc.exists)||!attempt||!sameIntentWitness(attempt.witness,witness)||!source.versions.external||!textBilling||
+      textBilling.identityKey!==identityKey||textBilling.reservationId===reservationId||textBilling.seconds!==seconds||
+      job.price!==seconds||job.snapshotSha256!==source.voiceTextSha256||job.inputSha256!==source.inputSha256||
+      job.inputStorage?.generation!==source.inputGeneration||job.inputStorage.sha256!==source.inputSha256)return null;
+    validExternalBilling(textBilling);
+    const {principalIdentity:identity,account:sourceAccount,input,project,review,receipt}=source.versions;
+    const pins={identity,account:sourceAccount,input,project,review,receipt,
+      marker:terminalDocumentVersion(marker),attempt:terminalDocumentVersion(prepared),reserveAck:terminalDocumentVersion(ack),
+      voiceJob:terminalDocumentVersion(jobDoc),origin:terminalDocumentVersion(origin),intent:terminalDocumentVersion(intent),
+      request:terminalDocumentVersion(request),jobMarker:terminalDocumentVersion(jobMarker)};
+    const commit=ack.createTime;
+    // Under the fixture's trusted C1 writer the job and ACK are one commit.
+    // External or privileged writers are outside this proof.
+    if(!commit||![ack,jobDoc,jobMarker,request,classification].every(doc=>doc.createTime?.isEqual(commit)&&doc.updateTime?.isEqual(commit))||
+      !prepared.createTime?.isEqual(prepared.updateTime!)||!Object.values(pins).every(pin=>pin?.exists))return null;
+    const reviewedSource={textJobId:expected.textJobId,reviewId:expected.reviewId,receiptId:expected.receiptId,
+      bindingHash:expected.bindingHash,payloadSha256:expected.payloadSha256,voiceTextSha256:expected.voiceTextSha256};
+    const reserveAck={attemptId:attempt.attemptId,identityKey,reservationId,seconds,state:'reserved',source:'reserve_ack'} as const;
+    const videoHistorySha256=hash([source.versions,...[guard,intentGuard,claim.doc,classification].map(terminalDocumentVersion)]);
+    return {accountId,inputId,jobId,operation,identityKey,reservationId,seconds,revision,reviewedSource,reserveAck,
+      originalMarkerVersion:attempt.voice.markerVersion,versions:pins as SyntheticC1Read['versions'],
+      canonicalEvidence:source.canonicalEvidence,textBilling,videoHistorySha256};
+  }
+
   private localVoiceNackProof(witness:ExternalBillingIntentWitness,prepared:DocumentSnapshot){
     const preparedVersion=terminalDocumentVersion(prepared);
     if(!preparedVersion?.exists||preparedVersion.createTime!==preparedVersion.updateTime)return null;

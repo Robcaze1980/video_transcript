@@ -169,6 +169,11 @@ export class FirestoreReviewedTranslation {
     private readonly objects: Pick<CloudObjects, 'read'>,
   ) {}
 
+  /** Used only by the local voice fixture to reject mixed-root service wiring. */
+  usesLocalVoiceFixture(root:DocumentReference,backend:FirestoreBackend):boolean {
+    return root.firestore===this.db&&root.isEqual(this.root)&&backend===this.backend;
+  }
+
   private ref(collection: string, id: string) { return this.root.collection(collection).doc(id); }
 
   private async authorize(tx: Transaction, principal: ReviewedTranslationPrincipal, inputId: string, jobId: string): Promise<AuthorizedSource> {

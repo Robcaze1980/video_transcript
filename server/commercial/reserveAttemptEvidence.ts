@@ -284,12 +284,17 @@ export function matchesReviewedVoiceReserveAck(prepared:ReserveAttemptEvidenceV2
 /** A replay may disclose existing work only after reading both durable records. */
 export function verifyReviewedVoiceReserveReplay(prepared:unknown, ack:unknown, binding:ReviewedVoiceBinding,
   requestKey:string, operation:string, markerVersion:unknown):boolean {
+  return prepareVerifiedReviewedVoiceRead(prepared,ack,binding,requestKey,operation,markerVersion)!==null;
+}
+
+export function prepareVerifiedReviewedVoiceRead(prepared:unknown, ack:unknown, binding:ReviewedVoiceBinding,
+  requestKey:string, operation:string, markerVersion:unknown):ReserveAttemptEvidenceV2|null {
   try {
     const attempt = copyAttempt(prepared);
     return attempt.version === 2 && attempt.witness.operation === operation &&
-      matchesReviewedVoiceReserveSource(attempt,binding,requestKey,markerVersion) && equalObservation(ack,attempt);
+      matchesReviewedVoiceReserveSource(attempt,binding,requestKey,markerVersion) && equalObservation(ack,attempt) ? attempt : null;
   } catch {
-    return false;
+    return null;
   }
 }
 function refs(root:DocumentReference, attemptId:string) {

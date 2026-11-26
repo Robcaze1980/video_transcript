@@ -6,6 +6,7 @@
 //   node scripts/runReviewedTranslationEmulator.mjs --prepare
 //   node scripts/runReviewedTranslationEmulator.mjs --run <generated-manifest>
 // Add --voice-c1 to both commands to include the C1 reservation fixtures.
+// Add --voice-c2 to both commands to run only the C2 fragment fixture cases.
 // --prepare writes only a manifest of hashes; --run creates a new isolated
 // profile/log directory and starts the fixture. No directory is deleted here.
 import { createHash, randomUUID } from 'node:crypto';
@@ -19,8 +20,9 @@ import { fileURLToPath } from 'node:url';
 
 const project = 'demo-vistavo-ledger';
 const host = '127.0.0.1:8185';
-const voiceC1 = process.argv.at(-1) === '--voice-c1';
-const expectedTests = voiceC1 ? 74 : 28;
+const voiceC2 = process.argv.at(-1) === '--voice-c2';
+const voiceC1 = voiceC2 || process.argv.at(-1) === '--voice-c1';
+const expectedTests = voiceC2 ? 8 : voiceC1 ? 74 : 28;
 const guardFile = 'scripts/reviewEmulatorNetworkGuard.cjs';
 const fixtureFile = 'server/commercial/firestoreReviewedTranslation.emulator.mjs';
 const tracked = Object.freeze([
@@ -38,6 +40,8 @@ const tracked = Object.freeze([
   'server/commercial/billingPendingAlerts.ts',
   'server/commercial/localVoiceFixture.ts',
   'server/commercial/localVoiceConflictReview.ts',
+  'server/commercial/reviewedVoiceFragment.memory.ts',
+  'server/commercial/reviewedVoiceFragment.localFixture.ts',
   'server/account/backend.ts',
   'server/account/settlementContract.ts',
   fixtureFile,
@@ -187,6 +191,7 @@ if (args.length === 1 && args[0] === '--prepare') {
     NODE_ENV: 'test', FIRESTORE_EMULATOR_HOST: host, GOOGLE_CLOUD_PROJECT: project,
     GCLOUD_PROJECT: project, METADATA_SERVER_DETECTION: 'none', LV_REVIEW_CONTRACT: '1',
     ...(voiceC1 ? { LV_VOICE_C1_FIXTURE: '1' } : {}),
+    ...(voiceC2 ? { LV_VOICE_C2_FIXTURE: '1', LV_VOICE_C2_MEMORY_TEST: '1' } : {}),
   };
   if ('HOME' in env || 'CODEX_HOME' in env || 'NODE_OPTIONS' in env || 'GOOGLE_APPLICATION_CREDENTIALS' in env) fail('Unexpected child environment');
   writeFileSync(path.join(run, 'manifest.json'), manifestText, { flag: 'wx' });
@@ -240,5 +245,5 @@ if (args.length === 1 && args[0] === '--prepare') {
   process.stdout.write(`Synthetic review fixture: ${pass ? 'PASS' : 'FAIL'}; evidence: ${run}\n`);
   if (!pass) process.exitCode = 1;
 } else {
-  fail('Use --prepare or --run <task-manifest>, optionally with --voice-c1; the fixture was not started');
+  fail('Use --prepare or --run <task-manifest>, optionally with --voice-c1 or --voice-c2; the fixture was not started');
 }

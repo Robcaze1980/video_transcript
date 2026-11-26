@@ -2,7 +2,7 @@
 // launcher after preparing and checking its frozen manifest.
 // This file does not authenticate HTTP requests or prove production IAM behavior.
 import assert from 'node:assert/strict';
-import { after, afterEach, before, test } from 'node:test';
+import { after, afterEach, before, test as nodeTest } from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
@@ -14,6 +14,7 @@ import { AccountBillingClient } from './accountBillingClient.ts';
 import { ALERT_COLLECTION, clearResolvedAlerts, raisePendingAlerts } from './billingPendingAlerts.ts';
 import { readPendingReport } from './billingPendingReport.ts';
 import { LOCAL_VOICE_CONFLICT_ALERTS, readLocalVoiceConflictReport, raiseLocalVoiceConflictAlerts } from './localVoiceConflictReview.ts';
+import { createReviewedVoiceFragmentLocalFixture, localVoiceC2AccountRoot } from './reviewedVoiceFragment.localFixture.ts';
 import { AccountFault, AccountStore } from '../account/backend.ts';
 import { AI_CATALOG_VERSION, AI_STORAGE_LIMIT, AI_TEXT_WINDOW_MS } from './aiContracts.ts';
 import { cloudDiagnosticError, withCloudDiagnostics } from './cloudDiagnostics.ts';
@@ -27,7 +28,11 @@ const host = '127.0.0.1:8185';
 const project = 'demo-vistavo-ledger';
 const testCollection = 'vistavo_review_contract_synthetic';
 const voiceC1 = process.env.LV_VOICE_C1_FIXTURE === '1';
-const testCount = voiceC1 ? 74 : 28;
+const voiceC2 = process.env.LV_VOICE_C2_FIXTURE === '1';
+const testCount = voiceC2 ? 8 : voiceC1 ? 74 : 28;
+const test = (name,...args) => {
+  if (voiceC2 === name.startsWith('C2 ')) nodeTest(name,...args);
+};
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const contexts = [];
 let verifiedCleanups = 0;
@@ -35,6 +40,11 @@ const ref = (c, collection, id) => c.root.collection(collection).doc(id);
 
 function assertSafeEnvironment() {
   assert.equal(process.env.NODE_ENV, 'test', 'NODE_ENV must be test');
+  if (voiceC2) {
+    assert.equal(process.env.LV_VOICE_C1_FIXTURE, '1');
+    assert.equal(process.env.LV_VOICE_C2_FIXTURE, '1');
+    assert.equal(process.env.LV_VOICE_C2_MEMORY_TEST, '1');
+  }
   assert.equal(process.env.LV_REVIEW_CONTRACT, '1', 'Explicit synthetic review test required');
   assert.equal(process.env.FIRESTORE_EMULATOR_HOST, host, 'No native cloud fallback');
   assert.equal(process.env.METADATA_SERVER_DETECTION, 'none', 'Metadata discovery must be disabled');
@@ -172,7 +182,7 @@ after(() => {
 });
 
 async function fundSyntheticAccounts(c, credited) {
-  const store = new AccountStore(c.db, ref(c, 'syntheticAccountStores', randomUUID()));
+  const store = new AccountStore(c.db, voiceC2 ? localVoiceC2AccountRoot(c.root) : ref(c, 'syntheticAccountStores', randomUUID()));
   for (const uid of [c.uid, c.foreignPrincipal.uid]) {
     const {account} = await store.bootstrap(uid);
     await store.root.collection('accounts').doc(account.id).update({credited, available:credited});
@@ -2086,5 +2096,208 @@ if (voiceC1) {
     const [owner,other] = await f.balances();
     assert.deepEqual([owner.available,owner.reserved,owner.consumed],[14,6,0]);
     assert.deepEqual([other.available,other.reserved,other.consumed],[20,0,0]);
+  });
+}
+
+if (voiceC2) {
+  async function fragmentFixture() {
+    const c = await fixture({durationSeconds:2.0004, externalTextCredits:20});
+    const saved = await c.service.saveReview(c.principal,{
+      inputId:c.input, jobId:c.jobId, expectedRevision:1, requestKey:randomUUID(), edits:c.edits,
+    });
+    const adapter=createReviewedVoiceFragmentLocalFixture(c.root,c.backend,c.service);
+    const operation='narration:en:male',requestKey=randomUUID();
+    const jobId=await adapter.reserve(c.principal,c.input,saved.committedRevision,requestKey,operation);
+    assert.notEqual(c.jobId,jobId);
+    const job=await ref(c,'jobs',jobId).get(),{identityKey,reservationId,seconds}=job.get('externalBilling');
+    const body=JSON.stringify({contents:[{parts:[{text:narrationChunks(c.expectedTxt)[0],
+      speech_metadata:{style:VOICE_NARRATION_STYLE}}]}],
+      generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{voice:'Charon'}}}});
+    const input=Object.freeze({principal:c.principal,jobId,operation,model:VOICE_MODEL,callKey:'voice-chunk:0000',body});
+    const store=c.accountStore;
+    const balances=()=>Promise.all([identityKey,AccountStore.identityKey(c.foreignPrincipal.uid)].map(key=>store.videoBalance(key)));
+    const ledger=async()=> (await store.root.collection('ledgerEntries').orderBy('__name__').get()).docs.map(d=>d.data());
+    const videoState=async()=> ({billing:await financialState(c),job:(await job.ref.get()).data(),
+      voiceArtifacts:(await ref(c,'artifacts',jobId).get()).exists});
+    const before={balances:await balances(),ledger:await ledger(),video:await videoState()};
+    const marker=ref(c,'reviewedVoiceMarkers',job.get('reviewedVoice.markerId'));
+    const ack=ref(c,'billingReserveAckObservations',reservationId);
+    const source=await store.videoReservation(identityKey,c.textBilling.reservationId);
+    assert.equal(source.state,'captured');
+    assert.equal(source.seconds,seconds);
+    assert.equal(seconds,3);
+    assert.deepEqual(before.balances.map(a=>[a.available,a.consumed,a.reserved]),[[14,3,3],[20,0,0]]);
+    const accountOwnerId=(await store.me(c.uid)).id;
+    assert.notEqual(accountOwnerId,c.account);
+    const reservation=store.root.collection('videoReservations').doc(sha(JSON.stringify([accountOwnerId,reservationId])));
+    return {c,adapter,input,store,marker,ack,identityKey,reservation,reservationId,seconds,before,balances,ledger,videoState,
+      receiver:adapter.receiver()};
+  }
+
+  async function withAdmissionObservation(f,run,after=async reply=>reply) {
+    const original=AccountStore.prototype.admitVideoCall;
+    let attempts=0,created=0;
+    AccountStore.prototype.admitVideoCall=async function(...args) {
+      assert.ok(this.root.isEqual(f.store.root));
+      attempts++;
+      const reply=await original.apply(this,args);
+      if(reply.created)created++;
+      return after(reply);
+    };
+    try { return await run(() => ({attempts,created})); }
+    finally { AccountStore.prototype.admitVideoCall=original; }
+  }
+
+  async function sameFragmentBalances(f,admissions) {
+    assert.deepEqual(await f.balances(),f.before.balances);
+    assert.deepEqual(await f.ledger(),f.before.ledger);
+    assert.deepEqual(await f.videoState(),f.before.video);
+    assert.equal((await f.reservation.collection('providerCalls').get()).size,admissions);
+    assert.equal((await f.reservation.collection('providerCallFences').get()).size,admissions);
+    assert.equal(f.c.outbound.length,0);
+  }
+
+  test('C2 receives exact reviewed bytes after one new durable Account admission',async()=>{
+    const f=await fragmentFixture(),{jobId,principal,body}=f.input;
+    const accountEvidence=async callKey=>{
+      const docs=await f.c.db.getAll(f.reservation,
+        f.reservation.collection('providerCalls').doc(sha(JSON.stringify(['provider-call-v2',callKey]))),
+        f.reservation.collection('providerCallFences').doc('first'));
+      assert.ok(docs.every(doc=>doc.exists));
+      return docs.map(doc=>({data:doc.data(),createTime:doc.createTime,updateTime:doc.updateTime}));
+    };
+    await withAdmissionObservation(f,async counts=>{
+      assert.equal(await f.receiver.send(f.input),'sent');
+      const observed=f.receiver.inspectForTest(jobId,principal);
+      assert.deepEqual(observed.bytes,Buffer.from(body,'utf8'));
+      assert.equal(observed.before.textJobId,f.c.jobId);
+      assert.deepEqual(observed.receipt,{...observed.call,created:true,receiptOnly:false});
+      const {reservationId,seconds,attemptId,callKey,model,requestSha256}=observed.call;
+      const original=await accountEvidence(callKey);
+      // The concrete adapter rereads durable Account evidence and rejects an
+      // already admitted fragment before a replay can call AccountStore.
+      assert.equal(await f.receiver.send(f.input),'rejected');
+      assert.equal(await f.adapter.receiver().send(f.input),'rejected');
+      assert.equal(await f.receiver.send({...f.input,principal:f.c.foreignPrincipal}),'rejected');
+      assert.deepEqual(counts(),{attempts:1,created:1});
+      assert.equal(f.receiver.inspectForTest(jobId,f.c.foreignPrincipal),undefined);
+      assert.deepEqual(f.receiver.inspectForTest(jobId,principal),observed);
+      assert.deepEqual(await accountEvidence(callKey),original);
+      await sameFragmentBalances(f,1);
+
+      // A separate direct AccountStore replay is a control for its receipt
+      // contract, and never enters the memory receiver.
+      const replay=await f.store.admitVideoCall(f.identityKey,reservationId,seconds,jobId,attemptId,callKey,model,requestSha256);
+      assert.deepEqual(replay,{...observed.call,created:false,receiptOnly:true});
+      assert.deepEqual(counts(),{attempts:2,created:1});
+      assert.deepEqual(await accountEvidence(callKey),original);
+      assert.deepEqual(f.receiver.inspectForTest(jobId,principal),observed);
+      await sameFragmentBalances(f,1);
+    });
+  });
+
+  test('C2 two independent receivers share one durable winning Account admission',async()=>{
+    const f=await fragmentFixture(),other=f.adapter.receiver();
+    await withAdmissionObservation(f,async counts=>{
+      const results=await Promise.all([f.receiver.send(f.input),other.send(f.input)]);
+      assert.equal(results.filter(result=>result==='sent').length,1);
+      assert.equal([f.receiver,other].filter(r=>r.inspectForTest(f.input.jobId,f.input.principal)?.bytes).length,1);
+      assert.equal(counts().created,1);
+      assert.ok(counts().attempts>=1&&counts().attempts<=2);
+    });
+    await sameFragmentBalances(f,1);
+  });
+
+  test('C2 rejects foreign UID, wrong body, and an adapter without its own reserve ticket',async()=>{
+    const f=await fragmentFixture(),{c,input}=f;
+    const unbound=createReviewedVoiceFragmentLocalFixture(c.root,c.backend,c.service).receiver();
+    await withAdmissionObservation(f,async counts=>{
+      for(const attempt of [
+        f.receiver.send({...input,principal:c.foreignPrincipal}),
+        f.receiver.send({...input,body:input.body.replace('Charon','Kore')}),
+        unbound.send(input),
+      ])assert.equal(await attempt,'rejected');
+      assert.deepEqual(counts(),{attempts:0,created:0});
+    });
+    assert.equal(f.receiver.inspectForTest(input.jobId,c.foreignPrincipal),undefined);
+    await sameFragmentBalances(f,0);
+  });
+
+  test('C2 rejects a missing durable C1 ACK before Account admission',async()=>{
+    const f=await fragmentFixture();
+    await f.ack.delete();
+    await withAdmissionObservation(f,async counts=>{
+      assert.equal(await f.receiver.send(f.input),'rejected');
+      assert.deepEqual(counts(),{attempts:0,created:0});
+    });
+    assert.equal(f.receiver.inspectForTest(f.input.jobId,f.input.principal),undefined);
+    await sameFragmentBalances(f,0);
+  });
+
+  test('C2 preserves a new admission but suppresses delivery after C1 marker ABA',async()=>{
+    const f=await fragmentFixture(),before=(await f.marker.get()).data();
+    await withAdmissionObservation(f,async counts=>{
+      assert.equal(await f.receiver.send(f.input),'unknown');
+      assert.equal(await f.receiver.send(f.input),'rejected');
+      assert.deepEqual(counts(),{attempts:1,created:1});
+    },async reply=>{
+      await f.marker.update({revision:999});
+      await f.marker.set(before);
+      return reply;
+    });
+    const retained=f.receiver.inspectForTest(f.input.jobId,f.input.principal);
+    assert.equal(retained.receipt.created,true);
+    assert.equal(retained.bytes,undefined);
+    assert.deepEqual((await f.marker.get()).data(),before);
+    await sameFragmentBalances(f,1);
+  });
+
+  test('C2 loses a fresh Account response without a second admission or memory delivery',async()=>{
+    const f=await fragmentFixture();
+    await withAdmissionObservation(f,async counts=>{
+      assert.equal(await f.receiver.send(f.input),'unknown');
+      assert.equal(await f.adapter.receiver().send(f.input),'rejected');
+      assert.deepEqual(counts(),{attempts:1,created:1});
+    },async()=>{throw Error('synthetic_lost_admission_reply');});
+    const retained=f.receiver.inspectForTest(f.input.jobId,f.input.principal);
+    assert.equal(retained.receipt,undefined);
+    assert.equal(retained.bytes,undefined);
+    await sameFragmentBalances(f,1);
+  });
+
+  test('C2 closes the gate during admission and retains the fresh receipt without bytes',async()=>{
+    const f=await fragmentFixture();
+    try {
+      await withAdmissionObservation(f,async counts=>{
+        assert.equal(await f.receiver.send(f.input),'unknown');
+        assert.equal(await f.adapter.receiver().send(f.input),'rejected');
+        assert.deepEqual(counts(),{attempts:1,created:1});
+      },async reply=>{
+        delete process.env.LV_VOICE_C2_FIXTURE;
+        return reply;
+      });
+    } finally { process.env.LV_VOICE_C2_FIXTURE='1'; }
+    const retained=f.receiver.inspectForTest(f.input.jobId,f.input.principal);
+    assert.equal(retained.receipt.created,true);
+    assert.equal(retained.bytes,undefined);
+    await sameFragmentBalances(f,1);
+  });
+
+  test('C2 preserves admission but suppresses delivery after the Account owner mapping changes and is restored',async()=>{
+    const f=await fragmentFixture(),identity=f.store.root.collection('identities').doc(f.identityKey);
+    const owner=(await identity.get()).data(),foreign=(await f.store.me(f.c.foreignPrincipal.uid)).id;
+    await withAdmissionObservation(f,async counts=>{
+      assert.equal(await f.receiver.send(f.input),'unknown');
+      assert.deepEqual(counts(),{attempts:1,created:1});
+    },async reply=>{
+      await identity.update({accountId:foreign});
+      await identity.set(owner);
+      return reply;
+    });
+    const retained=f.receiver.inspectForTest(f.input.jobId,f.input.principal);
+    assert.equal(retained.receipt.created,true);
+    assert.equal(retained.bytes,undefined);
+    assert.deepEqual((await identity.get()).data(),owner);
+    await sameFragmentBalances(f,1);
   });
 }
