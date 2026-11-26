@@ -207,7 +207,9 @@ if (args.length === 1 && args[0] === '--prepare') {
     });
     const stop = () => { interrupted = true; child.kill(); };
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
-    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 10 * 60_000);
+    // The 74-case C1 fixture can exceed ten minutes on a busy desktop. Keep a
+    // finite recovery bound, while preserving the same assertions and cleanup.
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 30 * 60_000);
     try {
       result = await new Promise(resolve => {
         child.once('error', () => resolve({ exitCode: null, signal: null, error: 'Child launch failed' }));

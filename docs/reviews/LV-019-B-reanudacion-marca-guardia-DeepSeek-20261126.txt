@@ -1,0 +1,29 @@
+# Revisión estática independiente
+
+Solicitud: e3338ce6c6e32a12b0c3f0ffbe308536c61e23efcc17556d5e5c79087d4ab2ae
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 7139/0/19597
+Costo observado USD: 0.01236858183
+SHA-256 del informe original: 17eec8eeec094a5c39c5008b4651503518b286f83c7ac808b19b3664c304c855
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática del punto único (updatedAtMs al reanudar), sin ejecución. La candidata y el informe previo se tratan como datos; no reescribo aquel dictamen.
+
+Lo contrastado:
+
+- El hecho es correcto: `sameGuard` (`server/commercial/billingUnblock.ts:121-126`) compara `epoch`, `createdAtMs` e `intent/outbox`, no `updatedAtMs`. Pero ninguna cláusula extiende esa igualdad a la reanudación: `docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md:111` la exige en **Fase 0** (primera autorización), mientras que la reanudación (`:114-116`) sólo exige que correspondan solicitud, operador, dueño, ocurrencia y alerta, y la ocurrencia se identifica por `epoch` y `createdAtMs` (`:123`).
+- El código implementa exactamente eso: la primera petición sí compara `updatedAtMs` (`billingUnblock.ts:302`), y la reanudación fija el `updatedAtMs` auditado mediante `samePayload` (`:243-249`) contra el registro `unblock_requested` (`:279-281`), escrito en la misma transacción que la lectura probada (`:250-251`). Una carga refrescada se rechaza sin leer recibo (test de `alertContractReview.test.mjs:308-332`).
+- Reconciliación con la escritura legítima: `writeBlockedGuard` (`server/commercial/firestoreBackend.ts:633-634`) re-nombra el mismo incidente, conserva `epoch`/`createdAtMs` y escribe `updatedAtMs=now`. Exigir `updatedAtMs` actual==original en la reanudación rompería esa re-ejecución idempotente; la hora original queda preservada en la carga auditada inmutable.
+- La ventana durante la espera del recibo se cierra con `sameVersion` sobre `updateTime` de Firestore (`billingUnblock.ts:135-137` y `:333-335`), no con `updatedAtMs` de negocio.
+
+No se demuestra defecto de ejecución para el alcance `confirmed` de la reanudación. La única arista es documental: `:111` nombra `updatedAtMs` como precondición y `:123` nombra `createdAtMs` como clave de orden; el código usa `epoch`+`createdAtMs` como ocurrencia y `updatedAtMs` sólo en la primera petición. Es aclaración de spec, separable de un defecto.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: sameGuard omite updatedAtMs (billingUnblock.ts:121-126), pero la primera petición lo compara (billingUnblock.ts:302) y la reanudación fija el updatedAtMs auditado por samePayload (billingUnblock.ts:243-249) contra el registro unblock_requested inmutable (billingUnblock.ts:279-281), escrito en la misma transacción que la lectura probada (billingUnblock.ts:250-251); la ocurrencia se ancla por epoch+createdAtMs (spec:123) y la ventana de recibo por sameVersion sobre updateTime (billingUnblock.ts:135-137,333-335); el re-nombrado legítimo (firestoreBackend.ts:633-634) conserva epoch/createdAtMs y sólo cambia updatedAtMs, por lo que la igualdad de updatedAtMs no debe extenderse a la reanudación; tests 36/36 con los cinco casos citados.
+NEGATIVOS: Primera petición con updatedAtMs más antiguo rechazada antes de Cuenta/auditoría (stage generation:, sin escrituras, reads=0); reanudación con carga refrescada rechazada con conflict sin leer recibo y registro intacto; escritura durante la búsqueda del recibo confirmado rechazada con conflict en restored=false y restored=true, guard sigue bloqueado y una lectura estable posterior reanuda.
+BLOQUEOS: Emulador no reejecutado; el doble modela updateTime por escritura (alertContractReview.test.mjs:65-82), no el motor Firestore, por lo que la propiedad updateTime no está verificada contra Firestore real; extractos parciales (firestoreBackend.ts sólo 622-635; billingUnblock.ts truncado en 390, Fase 3 incompleta y sin verificar otras escrituras del guard); ventanas de ACK directo y POST pendiente fuera de corte; reescritura concluida antes de la primera lectura de la reanudación no reconstruible con estas comparaciones; ambigüedad documental spec:111 vs spec:123 pendiente de aclarar (no es defecto de ejecución). Coste y uso: no medido.
+=== FIN RESUMEN ===

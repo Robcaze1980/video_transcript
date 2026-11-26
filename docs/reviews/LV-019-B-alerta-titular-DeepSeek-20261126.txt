@@ -1,0 +1,57 @@
+# Revisión estática independiente
+
+Solicitud: aca1f724124e871c9c05999ce549ebd94748b9c27f51b556c172292abb81f861
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: FALLA
+Tokens entrada/cache/salida: 23521/0/58206
+Costo observado USD: 0.0396736164
+SHA-256 del informe original: 1e91705816027d90961d0de45a039ed9eff14f0b2a60bb116fa03ab66ebb7922
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática independiente sobre el paquete. Trato los fragmentos citados como datos y no ejecuto nada.
+
+**Hallazgos / defectos concretos**
+
+- **`server/commercial/billingPendingAlerts.ts:137`** — `db.getAll(...refs,{fieldMask:[]})`. La firma de `firebase-admin/firestore` para `getAll` es `getAll(...documentRefs: DocumentReference[]): Promise<DocumentSnapshot[]>`; no admite `fieldMask`. Es un defecto de tipo/runtime: el objeto `{fieldMask:[]}` se trataría como una `DocumentReference` o el typecheck fallaría. Impacto: el sondeo de `terminal_poll` no puede completarse; `raisePendingAlerts` acumula el fallo y lanza `AggregateError`, de modo que las alertas de sondeo terminal no se levantan. El log de tipos vacío con SHA `e3b0…` no prueba el código de salida; queda pendiente confirmar el typecheck real.
+- **`server/commercial/billingPendingAlerts.ts:63-69`** — `validAlertShape` solo comprueba `typeof data.kind==='string'` y no restringe `kind` a `AlertKind` ni `reason` a `AlertReason`. Una alerta con `kind:'foo'` o `reason:'foo'` y `alertKey` coherente pasa `alertIdentity`. Impacto: se expone en lista/detalle; `clearResolvedAlerts` la deja `kept` por `source` inexistente (`billingPendingAlerts.ts:220`) en vez de `corrupt`; `recordDisposition` la rechaza como corrupta. El barrido no la contabiliza como corrupta.
+- **`server/commercial/billingPendingReport.ts:68`** — En la rama `guard`, `const guardAccount=accountId===id?accountId:null;` no valida que `id`/`accountId` sea UUID, a diferencia de la rama general en `billingPendingReport.ts:52`. Impacto: una guarda con dueño no UUID y `accountId` coincidente se considera válida, genera alerta atribuida y luego `unblockBillingAccount` la rechaza por UUID, dejando la alerta sin ruta de desbloqueo.
+- **`server/commercial/billingUnblock.ts:122`** — `sameGuard` exige `intent!==outbox`. Si `lastIncidentId` y `lastOutboxIncidentId` nombran el mismo incidente, `normalizePending` la considera válida con prioridad outbox, pero el desbloqueo la rechaza como conflicto. Es un defecto condicionado a que exista ese estado; no hay prueba en el paquete.
+- **`server/commercial/billingUnblock.ts:126-127`** — `sameOpenAlert` no comprueba `identity.reason`. Una alerta `malformed` con el mismo `state` puede autorizar el desbloqueo. Si el contrato exige que una guarda malformed no se desbloquee, falta control. Prueba pendiente.
+- **`server/commercial/billingPendingAlerts.ts:122-126`** — `raisePendingAlerts` usa las filas del reporte sin releer la fila fuente dentro de la transacción. Si el reporte queda antiguo antes de `raiseOne`, puede crear una alerta para una condición ya inexistente. `clearResolvedAlerts` puede no limpiarla si la fila sigue reportada sin motivo (`reason===null`) o si no hay sucesor abierto. Impacto: alerta obsoleta abierta. Es un límite conocido del diseño; falta prueba de carrera reporte→raise.
+- **`server/commercial/billingPendingAlerts.ts:234`** — `clearResolvedAlerts` consulta `where('status','==','open')`. Una alerta corrupta con `status:['open']` no se selecciona y el barrido ordinario no la cuenta como corrupta. La fixture lo confirma (`corrupt=0` para array status). Impacto: corrupción invisible salvo reavistamiento o lectura directa. No hay inventario exhaustivo.
+
+**Alcance comprobado**
+
+- El paquete incluye hashes de checkpoint para `billingPendingAlerts.ts` (`b0a370…`), `billingPendingReport.ts` (`c5e9e1…`), `billingPendingSweep.ts` (`f78dca…`), `billingSweepSection.ts` (`54cf39…`), `billingPendingAudit.ts` (`19b15d…`), `billingOperatorHttp.ts` (`684727…`) y `billingUnblock.ts` (`0745f3…`).
+- La fixture A3 `firestoreA3Exit.emulator.mjs` SHA `7e2d9a…` es idéntica al checkpoint y reporta 5/5 en emulador, `complete=true`, `pass=true`, `cleanups=true`, 2 instancias del guard, sin denegaciones, inventarios antes/después iguales.
+- El checkpoint unitario reporta 5 suites y 123 tests pasados. El log de tipos está vacío (`e3b0…`); por sí solo no prueba salida 0.
+- `billingSweepSection.test.ts:261-267` afirma el conjunto exacto de cuatro módulos: `billingPendingAlerts.ts`, `billingPendingReport.ts`, `billingPendingSweep.ts`, `billingSweepSection.ts`, todos dentro de `server/commercial`.
+- La fixture cubre: guarda con cuenta desajustada que levanta alerta no atribuida y preserva alertas auditadas; owner fence que rechaza alerta con cuenta ajena hasta que una fuente malformed permite retirar el hint; `status` array y `accountId` mapa que se exponen sin contar/limpiar; `status` array escrito tras la consulta de cierre que cuenta como corrupción, no como carrera.
+
+**Negativos conservados**
+
+- `validAlertAccount` rechaza alerta `guard` con `accountId` distinto de `rowId` y no nulo (`billingPendingAlerts.ts:60-62`). La fixture D-4 confirma `alertIdentity` nulo y rechazo `corrupt` antes de llamar a Cuenta.
+- `dropAccountHint` solo aplica a `intent|guard`, `reason==='malformed'`, `fields.accountId===null` y `data.accountId` string (`billingPendingAlerts.ts:99-100`). No repone el hint después; la prueba en `firestoreBlocksA.test.ts:229-249` lo confirma.
+- `clearResolvedAlerts` relee alerta y fila dentro de la transacción para terminal/sucesor (`billingPendingAlerts.ts:206-217`, `223-229`); el array status escrito tras la consulta se cuenta `corrupt`, no `raced` (fixture test 5).
+- `billingOperatorHttp.ts:49-55` omite `accountId` en la proyección pública; lista/detalle no exponen el hint de cuenta. La lista solo acepta cursor `after` validado (`billingOperatorHttp.ts:94-119`).
+- `billingUnblock.ts` verifica identidad de alerta antes de llamar a Cuenta; la fixture test 2 asegura que no hay llamada a Cuenta con alerta corrupta.
+- La fixture A3 asegura ausencia de cambios en saldos, guardas, ledger, movimientos y outbox de hold.
+
+**Límites y pendientes**
+
+- No se incluye la implementación completa de Cuenta ni la ruta posterior de desbloqueo; no se puede reauditar el protocolo de recuperación ni toda la ruta de Cuenta (`billingPendingReport.ts:162-246` omitido).
+- Índices de nube, IAM, admisión histórica y regresión completa requieren evidencia independiente.
+- El log de tipos vacío no permite confirmar el typecheck; el defecto de `getAll` con `fieldMask` queda pendiente de confirmación.
+- Los 5/5 de la fixture no son un nuevo resultado de regresión sobre el checkpoint: se ejecutaron en copia adaptada que registra recibos válidos antes de inyectar B. El diff se conserva aparte.
+- Los 123/123 unitarios son un recibo reportado, no una reejecución independiente en este corte.
+- Faltan pruebas para: guarda con dueño no UUID, alerta con `kind`/`reason` desconocidos, `sameGuard` con ambas referencias iguales, desbloqueo con alerta `malformed`, y reporte antiguo antes de `raiseOne`.
+- No se muestra la definición de `counters` en `billingPendingSweep.ts`; no se puede verificar que la copia parcial de `ClearResult` incluya todas las claves.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: billingPendingAlerts.ts:137 usa db.getAll(...refs,{fieldMask:[]}) fuera de la firma de firebase-admin/firestore; billingPendingAlerts.ts:63-69 no valida kind/reason contra AlertKind/AlertReason; billingPendingReport.ts:68 omite validación UUID en guard; billingUnblock.ts:122 exige intent!==outbox; billingUnblock.ts:126-127 no exige reason; billingPendingAlerts.ts:122-126 no relee fila fuente; billingPendingAlerts.ts:234 no selecciona status array. La fixture A3 5/5 y los 123 tests unitarios son recibos del paquete, no reejecución independiente.
+NEGATIVOS: owner fence guard accountId en billingPendingAlerts.ts:60-62; retiro de hint solo intent|guard malformed con accountId null en billingPendingAlerts.ts:99-100; relectura en transacción en billingPendingAlerts.ts:206-217 y 223-229; lista/detalle sin accountId en billingOperatorHttp.ts:49-55; rechazo corrupto antes de Cuenta en billingUnblock.ts; fixture A3 sin cambios de saldo/guardas/ledger/movimientos.
+BLOQUEOS: falta typecheck real con log no vacío; falta prueba de terminal_poll con getAll real; faltan pruebas de kind/reason desconocidos, guard no UUID, sameGuard con referencias iguales, unblock con alerta malformed y reporte antiguo antes de raiseOne; no se aporta implementación completa de Cuenta ni regresión financiera.
+=== FIN RESUMEN ===

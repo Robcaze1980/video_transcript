@@ -1,0 +1,24 @@
+# Revisión estática independiente
+
+Solicitud: c04a0f5ad7debdc65b39f3ef5386b562a88ec40282349bbfea33cecab92d0a81
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: FALLA
+Tokens entrada/cache/salida: 12829/0/33061
+Costo observado USD: 0.0215433405
+SHA-256 del informe original: 4e6d341c54142b75b817f4fb8725bec658630bfd7e85c2e25ca9ecea68b2d5cc
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+El cambio focal añade `await recheck(tx)` en la transacción final del camino `confirmed` (`server/commercial/billingUnblock.ts:383-386`). Esa comprobación contrasta `sameVersion(observed.requested, requested)` y `sameVersion(observed.guard, guard)` (`:339`), por lo que detecta escrituras o restauraciones de la solicitud durable durante la consulta de recibo. Las unitarias `alertContractReview.test.mjs:294-332` y el emulador `alertContractFocus.emulator.mjs:383-435` cubren evidencia distinta, restaurada e intacta; los negativos devuelven `conflict` y no dejan escrituras de Video. El replay sano no repite consulta ni mutación.
+
+Sin embargo, hay un defecto contractual en la validación de guardia usada por ese mismo `recheck`. `sameGuard` (`server/commercial/billingUnblock.ts:120-125`) comprueba `epoch` y `createdAtMs`, pero omite `updatedAtMs` contra `clean.updatedAtMs`, aunque `generation` lo devuelve (`:113-118`) y el contrato 111 exige “la misma época y `updatedAtMs` que nombra el operador”. `recheck` invoca `sameGuard` en `:334`, de modo que la nueva comprobación final del camino `confirmed` hereda esa omisión. Si el `updatedAtMs` de la guardia cambia sin alterar `epoch`, `createdAtMs`, `lastIncidentId`/`lastOutboxIncidentId`, la reanudación podría aceptar una guardia que ya no corresponde a la nombrada por el operador. No hay control negativo que altere solo `updatedAtMs` de la guardia y espere `conflict`.
+
+Los caminos de ACK directo y de mutación posterior a `pending` no reejecutan la comparación de versión de la solicitud en la transacción final no confirmada (`:388-390`), pero quedan fuera del alcance focal de recuperación `confirmed`; el camino `pending` sí hace `recheck` antes de mutar Cuenta (`:353`). Los límites ya declarados siguen vigentes: no se simula concurrencia/IAM de Firestore, no hay atomicidad entre bases y una reescritura anterior a la primera lectura de la reanudación no es detectable retrospectivamente.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: El cambio focal en server/commercial/billingUnblock.ts:383-386 añade recheck en la transacción final confirmed y las pruebas 294-332 / 383-435 acreditan detección de escritura y restauración de la solicitud con conflicto y sin mutación. No obstante, sameGuard en server/commercial/billingUnblock.ts:124 omite comparar updatedAtMs contra clean.updatedAtMs, pese a que generation lo devuelve en :113-118 y el contrato 111 lo exige; recheck lo usa en :334.
+NEGATIVOS: Los controles de evidencia distinta, restaurada e intacta pasan y conservan recibo/estado de Cuenta; el replay sano no repite POST. Falta control negativo con cambio solo de updatedAtMs de la guardia manteniendo epoch, createdAtMs e intent/outbox; ese caso podría aceptarse y bloquear PASS.
+BLOQUEOS: Defecto contractual en la validación de guardia del camino confirmed. Pendiente además, fuera del alcance focal, la no simulación de concurrencia/IAM de Firestore y la imposibilidad de detectar reescrituras previas a la primera lectura de la reanudación.
+=== FIN RESUMEN ===

@@ -1,0 +1,51 @@
+# Revisión estática independiente
+
+Solicitud: 726a4c76893e9bd2dff1844b11c2e852b389f661f3f43357961188a438bb1529
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 9384/0/22244
+Costo observado USD: 0.002125486836
+SHA-256 del informe original: c1205f2bed707ec73d3eb35610d223e23286c720036e56a12bd56b22eeb5694a
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+## Alcance examinado
+
+- Diseño íntegro: `docs/reviews/LV-019-B-c2-admision-titular-generacion-20261126.md` (citado completo, tratado como dato).
+- Modelo ejecutable: `server/commercial/reviewedVoiceFragment.ownerGeneration.model.mjs:1-161` @ 05a11be (citado completo).
+- Diagnóstico base: `server/account/backend.ts:354-371,384-398` @ 4d5b034 y `server/commercial/reviewedVoiceFragment.memory.test.ts:280-336` @ 4d5b034 (fragmentos citados).
+- No examinable: `docs/specs/LV-019-B-admision-video-devolucion-vencida.md:19,21`, `docs/specs/LV-019-B-progreso-concurrente-saldo.md:21,24,30` y `docs/evidence/lv019-b-c2-owner-handoff-diagnostic-20261126/README.md` (referenciados, fuera del paquete; números de línea incotejables).
+
+Verifiqué estáticamente las 7 pruebas del modelo contra `admit` (líneas 41-66): cada una produce el resultado declarado por inspección (con conflictos en las rutas 46-50, 52-54, 57, 60, 61 y sin mutaciones en los negativos). La corrida real 7/7 y los SHA-256 citados (TAP `1373e6…`, rojo `33fe2f…`/`df9c85…`/`d3a551…`) no son reproducibles sin herramientas: no medido.
+
+## Hallazgos concretos
+
+1. **model.mjs:9-13 y 46-54 — faltan protocolo y propósito.** El diseño exige origen con "Protocolo versionado y propósito" y paso 1 exige cotejar la versión. Los scopes del modelo no llevan `admissionProtocol` ni campo de propósito y `admit` no puede rechazar por ellos. Efecto: una regresión que omita el cerrojo de protocolo sería indetectable por este modelo; cobertura menor que la prometida por el diseño.
+2. **model.mjs:82 — control negativo vacío.** `{...requestA,ownerAccountId:scopeB.owner}` inyecta un campo que `admit` (41-66) nunca lee; el control no puede fallar ante ninguna lógica alternativa dentro del modelo. El vector real de 4d5b034 (selección por UID vigente) sí queda cubierto estructuralmente: no existe UID en el modelo, la selección usa `reserveKey(origin.owner,…)` (51) y la prueba 81-83 lo ejercita; la línea 82 es solo documental.
+3. **model.mjs:51-54 — ramas negativas sin prueba.** `!reservation` (origen presente, reserva ausente en el espacio del dueño) y `reservation.originRef!==origin.ref` (reserva que apunta a otro origen) no tienen caso de prueba; el test 4 (114) borra el origen, no la reserva, y la recreación (101-105) solo toca `generation`.
+4. **Falta el positivo de reemisión.** Tras ABA (92-99) o recreación, no hay prueba de que un origen/reserva reemitidos con generación avanzada admitan correctamente, pese a que el diseño afirma que la recreación obtiene nueva generación válida. Solo se demuestra el rechazo del origen viejo; no se descarta sobre-bloqueo legítimo.
+5. **Recuperación tras revocación sin ruta modelada.** El diseño promete lectura de recibos históricos "para conciliación autenticada" y recuperación ante ACK perdido "con autorización de lectura y la misma clave". En el modelo la única lectura es `admit` (59-60), precedida de la exigencia de vínculo vivo (46-50); tras `handoff` o revocación ningún mecanismo recupera el recibo, y la conciliación autenticada no tiene diseño en el paquete.
+6. **docs/reviews/…md §Contrapruebas — sobredeclaración "dos raíces".** El modelo es un único estado combinado (20-33) sin tienda de Video ni fronteras de commit independientes por raíz; `handoff` (35-37) muta la referencia directamente. Coherente con lo declarado pendiente, pero la frase exagera la representación.
+7. **model.mjs:156 — cierre terminal simplificado.** Solo `state:'released'`; la marca durable separada del backend real (tombstone en backend.ts:361-364 @4d5b034, `sealedReservation`) no tiene equivalente ni control diferenciado en el modelo.
+8. **Estado del negativo original en 05a11be no registrado.** La evidencia documenta el rojo en 4d5b034 y el verde del modelo; no hay medición de que `reviewedVoiceFragment.memory.test.ts:280-336` siga rojo en 05a11be (se infiere por commit solo de diseño/modelo, no medido).
+
+## Verificaciones positivas del modelo (confirmadas por lectura)
+
+- Selección de titular exclusivamente desde el origen (44-54); el UID no interviene. Con vínculo movido a B y reserva B compatible por UUID/identidad/segundos (77-80), la admisión A queda en conflicto sin escrituras (81). Este es el control nuclear y es genuino.
+- Ambas generaciones cotejadas: vínculo (49-50) y reserva (54). ABA y recreación rechazadas (test 2, 3).
+- Emisor ajeno por namespace (46, prueba 109), referencia ajena y de otra intención (83, 110, 127), revocación y ausencia de origen sin reconstrucción (111-115).
+- Replay exacto solo con misma huella (60); huella discordante, intento distinto e intención cruzada en conflicto sin escrituras (125-127); ordinal válido nuevo admitido bajo cerca única del intento (129-131).
+- Hold y cierre bloquean ordinal nuevo; el replay exacto permanece legible (59-60 antes de 61; test 7). Movimientos vacíos y saldos intactos en todos los desenlaces (133-134, 146, 160). IDs internos distintos afirmados (120).
+
+## No comprobable aquí
+
+- Carreras no reproducidas por el modelo secuencial: lectura-lectura concurrente (admisión y traspaso leen el vínculo viejo a la vez), releo de Video tras el commit de Cuenta, ACK perdido concurrente con traspaso, dos reconciliadores, escritor legacy intercalado, reinicio entre pasos, fronteras de commit de dos raíces reales. Solo se cubren los dos órdenes secuenciales (tests 1 y 6), como declara el documento.
+- Atomicidad Firestore, autenticación de servicio, operaciones entre proyectos, cambio real de AccountStore (el paquete no contiene código de backend modificado), escritores autorizados y retención del contador de generaciones, guardia en el commit de Video, clasificación D2.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Diseño y modelo 7/7 coherentes con el vector demostrado en 4d5b034: selección de titular solo desde el origen emitido por Cuenta (model.mjs:44-54), doble generación vínculo/reserva (49-50,54), replay exacto únicamente con misma huella (60), cerca por intento (55-57), hold/cierre bloquean ordinal nuevo sin tocar el recibo histórico (59-61, test 7), cero movimientos y saldos intactos en todos los desenlaces; con reserva B compatible y vínculo movido, la admisión A se deniega sin escrituras (test 1, líneas 76-83). Corridas y SHA-256 citados no reproducibles estáticamente: no medido. Coste: no medido.
+NEGATIVOS: Preservados y genuinos: B compatible tras cambio de vínculo sin escrituras; emisor ajeno; referencia ajena y de otra intención; ABA; recreación; revocación; legado sin origen; huella discordante en el mismo ordinal; intento distinto; hold y cierre terminal con replay legible; admitir-primero/traspaso-después preserva solo el recibo histórico. Faltantes: inyección de ownerAccountId es control vacío (model.mjs:82, campo nunca leído); ramas !reservation y reservation.originRef≠origin.ref sin prueba (51-54); sin protocolo/propósito en el origen (9-13,46-54) pese a exigencia del diseño; sin positivo de reemisión tras ABA/recreación; sin ruta de conciliación autenticada para recibo tras revocación; cierre terminal solo como 'released' (156), sin tombstone diferenciado.
+BLOQUEOS: Sin cambio de AccountStore en el paquete (implementación pendiente); orden durable del traspaso entre bases sin decidir (dueños y prueba por acordar, coste de disponibilidad declarado); inventario de escritores legacy ausente; carreras en AccountStore/Firestore Emulator en ambos órdenes, autenticación de servicio, operaciones entre proyectos, guardia de devolución vencida al commit de Video, pre/postimágenes certificadas para D2, escritores y retención del contador de generaciones, conciliación autenticada, caída y reinicio por commit: todos pendientes y declarados. Estado del negativo original en 05a11be no medido; specs citadas y README de evidencia fuera del paquete. Este PASS no aprueba implementación, emulador, IAM, despliegue ni política comercial.
+=== FIN RESUMEN ===
