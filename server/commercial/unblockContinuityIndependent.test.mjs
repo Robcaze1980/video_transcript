@@ -356,3 +356,187 @@ test('retained dispatch blocks a stale pending lookup even after the request and
   assert.deepEqual(calls,['receipt','POST']);
   assert.deepEqual(f.s.store,local);
 });
+
+test('only one of two fresh coordinators with pending receipts claims the dispatch',async()=>{
+  const f=await unblockFixture({}),{account,remote,before,accepted}=accountForDirectAck(f);
+  const probes=[Promise.withResolvers(),Promise.withResolvers()];
+  const continueClaim=[Promise.withResolvers(),Promise.withResolvers()];
+  const entered=Promise.withResolvers(),deliver=Promise.withResolvers();
+  let queries=0,posts=0;
+  f.deps.accountBilling.unblockReceipt=async(...args)=>{
+    const index=queries++;
+    const receipt=await account.videoBillingUnblockReceipt(...args);
+    assert.equal(receipt.state,'pending');
+    probes[index].resolve();
+    await continueClaim[index].promise;
+    return receipt;
+  };
+  f.deps.accountBilling.unblock=async(...args)=>{
+    assert.equal(++posts,1);
+    entered.resolve();
+    await deliver.promise;
+    return account.unblockVideoBilling(...args);
+  };
+  const outcome=()=>f.unblock().then(result=>result.videoBlocked?'partial':'closed',error=>error.code);
+  const first=outcome();
+  try{
+    await Promise.race([probes[0].promise,first.then(()=>{throw Error('first coordinator did not observe pending');})]);
+    const second=outcome();
+    await Promise.race([probes[1].promise,second.then(()=>{throw Error('second coordinator did not observe pending');})]);
+    assert.equal(proofPaths(f).length,0);
+    continueClaim[0].resolve();
+    await Promise.race([entered.promise,first.then(()=>{throw Error('first coordinator did not claim the dispatch');})]);
+    const claimed=structuredClone(f.s.store);
+    assert.equal(proofPaths(f).length,2);
+    continueClaim[1].resolve();
+    assert.equal(await second,'conflict');
+    assert.deepEqual(f.s.store,claimed);
+    assert.deepEqual(remote.store,before);
+  }finally{
+    for(const gate of continueClaim)gate.resolve();
+    deliver.resolve();
+  }
+  assert.equal(await first,'closed');
+  assert.equal((await f.unblock()).replayed,true);
+  assert.deepEqual({queries,posts},{queries:2,posts:1});
+  assert.deepEqual(remote.store,accepted);
+});
+
+test('a committed local claim with lost commit acknowledgement strands a never-sent POST for reconciliation',async()=>{
+  const f=await unblockFixture({}),{account,remote,before}=accountForDirectAck(f),calls=[];
+  const transact=f.deps.db.runTransaction;
+  let injected=false;
+  f.deps.db.runTransaction=async fn=>{
+    const result=await transact(fn);
+    if(!injected&&proofPaths(f).length===2){
+      injected=true;
+      throw Error('synthetic lost acknowledgement of the Video claim commit');
+    }
+    return result;
+  };
+  f.deps.accountBilling.unblockReceipt=async(...args)=>{
+    const receipt=await account.videoBillingUnblockReceipt(...args);
+    calls.push(receipt.state);
+    return receipt;
+  };
+  f.deps.accountBilling.unblock=async(...args)=>{
+    calls.push('POST');
+    return account.unblockVideoBilling(...args);
+  };
+  await assert.rejects(f.unblock,/lost acknowledgement of the Video claim commit/);
+  const claimed=structuredClone(f.s.store);
+  assert.equal(injected,true);
+  assert.equal(proofPaths(f).length,2);
+  assert.equal(claimed.get(ALERT_COLLECTION+'/'+f.request.alertKey).status,'open');
+
+  await assert.rejects(f.unblock,{code:'conflict'});
+  assert.deepEqual(calls,['pending','pending']);
+  assert.deepEqual(f.s.store,claimed);
+  assert.deepEqual(remote.store,before);
+});
+
+test('a new Account incident can make the first POST refuse and leave a corrected generation unable to dispatch',async()=>{
+  const f=await unblockFixture({}),{account,remote}=accountForDirectAck(f),calls=[];
+  let accountWithRival;
+  f.deps.accountBilling.unblockReceipt=async(...args)=>{
+    const receipt=await account.videoBillingUnblockReceipt(...args);
+    calls.push(receipt.state);
+    return receipt;
+  };
+  f.deps.accountBilling.unblock=async(...args)=>{
+    calls.push('POST');
+    // This account-side transaction commits after the Video authorization has been claimed.
+    if(!accountWithRival){
+      await account.blockVideoBilling(f.idKey,'2'.repeat(64));
+      accountWithRival=structuredClone(remote.store);
+    }
+    return account.unblockVideoBilling(...args);
+  };
+
+  await assert.rejects(f.unblock,error=>error.stage==='account'&&error.cause?.code==='conflict');
+  assert.deepEqual(remote.store,accountWithRival,'the refused POST writes no receipt');
+  const guard=[...remote.store].find(([key])=>key.startsWith('videoBillingGuards/'))[1];
+  assert.equal(guard.incidentCount,2);
+  assert.equal(guard.epoch,f.request.accountEpoch+1);
+  const claimed=structuredClone(f.s.store);
+  f.request.accountEpoch=guard.epoch;
+  const rivalReview=await account.unblockVideoBilling(f.idKey,{incidentId:'2'.repeat(64),epoch:guard.epoch,
+    createdAtMs:guard.createdAtMs,reviewRef:'fixture-other-incident'});
+  assert.equal(rivalReview.blocked,true,'only the original incident still needs a decision');
+  const accountWithoutRival=structuredClone(remote.store);
+
+  await assert.rejects(f.unblock,{code:'conflict'});
+  assert.deepEqual(calls,['pending','POST','pending']);
+  assert.deepEqual(f.s.store,claimed);
+  assert.deepEqual(remote.store,accountWithoutRival);
+});
+
+test('outside the retention guarantee, losing all three proofs while the first POST is in flight allows a second POST',async()=>{
+  const f=await unblockFixture({}),{account,remote,before,accepted}=accountForDirectAck(f);
+  const entered=Promise.withResolvers(),deliver=Promise.withResolvers(),calls=[],acks=[];
+  f.deps.accountBilling.unblockReceipt=async(...args)=>{
+    const receipt=await account.videoBillingUnblockReceipt(...args);
+    calls.push(receipt.state);
+    return receipt;
+  };
+  let posts=0;
+  f.deps.accountBilling.unblock=async(...args)=>{
+    const attempt=++posts;
+    calls.push('POST '+attempt);
+    if(attempt===1){
+      entered.resolve();
+      await deliver.promise;
+    }
+    const ack=await account.unblockVideoBilling(...args);
+    acks.push([attempt,ack.replayed]);
+    return ack;
+  };
+
+  const first=f.unblock().then(()=> 'closed',error=>error.code);
+  try{
+    await Promise.race([entered.promise,first.then(()=>{throw Error('first POST did not reach the barrier');})]);
+    assert.equal(proofPaths(f).length,2);
+    const request=[...f.s.store].find(([key,row])=>key.startsWith(UNBLOCK_AUDIT_COLLECTION+'/')&&row.action==='unblock_requested')[0];
+    // Requires loss or a privileged writer outside the protocol, not an ordinary retry.
+    for(const key of [request,...proofPaths(f)])f.s.store.delete(key);
+    assert.equal(f.s.store.has(cutPath),true);
+    assert.deepEqual(remote.store,before);
+    assert.equal((await f.unblock()).videoBlocked,false);
+    assert.deepEqual(calls,['pending','POST 1','pending','POST 2']);
+    assert.deepEqual(acks,[[2,false]]);
+  }finally{deliver.resolve();}
+  assert.equal(await first,'conflict');
+  assert.deepEqual(acks,[[2,false],[1,true]]);
+  assert.deepEqual(remote.store,accepted,'Account commits one receipt and keeps the funds, reservation and ledger unchanged');
+});
+
+test('a legacy partial close with a confirmed Account receipt remains blocked without continuity proof',async()=>{
+  const f=await unblockFixture({}),{account,remote}=accountForDirectAck(f),calls=[];
+  const rival='3'.repeat(64);
+  await account.blockVideoBilling(f.idKey,rival);
+  f.request.accountEpoch++;
+  f.deps.accountBilling.unblockReceipt=async(...args)=>{
+    const receipt=await account.videoBillingUnblockReceipt(...args);
+    calls.push(receipt.state);
+    return receipt;
+  };
+  f.deps.accountBilling.unblock=async(...args)=>{
+    calls.push('POST');
+    return account.unblockVideoBilling(...args);
+  };
+
+  const partial=await f.unblock();
+  assert.equal(partial.accountBlocked,true);
+  assert.equal(partial.videoBlocked,true);
+  for(const key of proofPaths(f))f.s.store.delete(key);
+  const legacy=structuredClone(f.s.store);
+  const other=await account.unblockVideoBilling(f.idKey,{incidentId:rival,epoch:f.request.accountEpoch,
+    createdAtMs:f.request.accountCreatedAtMs,reviewRef:'fixture-rival-proof'});
+  assert.equal(other.blocked,false);
+  const unheld=structuredClone(remote.store);
+
+  await assert.rejects(f.unblock,{code:'conflict'});
+  assert.deepEqual(calls,['pending','POST','confirmed']);
+  assert.deepEqual(f.s.store,legacy);
+  assert.deepEqual(remote.store,unheld);
+});
