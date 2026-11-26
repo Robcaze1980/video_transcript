@@ -6,7 +6,7 @@ import {AccountStore} from '../account/backend.ts';
 import {alertIdentity,alertKey,raisePendingAlerts,clearResolvedAlerts,ALERT_COLLECTION} from './billingPendingAlerts.ts';
 import {readPendingReport,buildPendingReport} from './billingPendingReport.ts';
 import {recordDisposition} from './billingPendingAudit.ts';
-import {unblockBillingAccount,videoHoldId,UNBLOCK_AUDIT_COLLECTION} from './billingUnblock.ts';
+import {unblockBillingAccount,videoHoldId,UNBLOCK_AUDIT_COLLECTION,UNBLOCK_CONTINUITY_COLLECTION,UNBLOCK_WRITER_CUT_ID} from './billingUnblock.ts';
 import {stub} from './billingFirestoreStub.ts';
 
 const accountId='10000000-0000-4000-8000-000000000001', incident='1'.repeat(64), actor='fixture-operator';
@@ -51,13 +51,14 @@ test('a pre-existing guard alert with matching non-UUID row and non-null hint mu
   assert.equal(a.identity(),null);
 });
 
-async function unblockFixture(guard) {
+async function unblockFixture(guard,{withCut=true}={}) {
   const uid='synthetic-operator-target',idKey=createHash('sha256').update(JSON.stringify(['firebase',uid])).digest('hex');
   const base={blocked:true,accountId,epoch:1,createdAtMs:5,updatedAtMs:6,lastIncidentId:incident};
   const kind=guard.lastOutboxIncidentId===incident?'outbox':'intent';
   const incidentCollection=kind==='outbox'?'billingOutboxReviewIncidents':'billingReviewIncidents';
   const holdId=videoHoldId(kind,incident,1,5);
-  const s=stub({billingGuards:{[accountId]:{...base,...guard}},identities:{[idKey]:{uid,accountId}},
+  const cut=withCut?{[UNBLOCK_CONTINUITY_COLLECTION]:{[UNBLOCK_WRITER_CUT_ID]:{v:1,purpose:'unblock-writer-cut'}}}:{};
+  const s=stub({...cut,billingGuards:{[accountId]:{...base,...guard}},identities:{[idKey]:{uid,accountId}},
     [incidentCollection]:{[incident]:{accountId,state:'needs_review'}},
     billingHoldOutbox:{[holdId]:{accountId,epoch:1,createdAtMs:5,state:'applied'}}});
   const report=await readPendingReport(s.root,25),row=report.rows.find(x=>x.kind==='guard');
@@ -66,8 +67,8 @@ async function unblockFixture(guard) {
   // Model createTime independently of updateTime. A write before the first
   // read must still advance the version, even if its contents are restored.
   const times=new Map();
-  let next=0;
-  const stamp=revision=>({revision,isEqual:other=>other?.revision===revision});
+  let next=0,commitTime;
+  const stamp=revision=>({seconds:1,nanoseconds:revision,isEqual:other=>other?.seconds===1&&other.nanoseconds===revision});
   for(const path of s.store.keys()){
     const time=stamp(++next);
     times.set(path,{createTime:time,updateTime:time});
@@ -75,7 +76,7 @@ async function unblockFixture(guard) {
   const set=s.store.set.bind(s.store),drop=s.store.delete.bind(s.store);
   Object.defineProperties(s.store,{
     set:{value:(path,data)=>{
-      const updateTime=stamp(++next),createTime=times.get(path)?.createTime??updateTime;
+      const updateTime=commitTime??stamp(++next),createTime=times.get(path)?.createTime??updateTime;
       times.set(path,{createTime,updateTime});
       return set(path,data);
     }},
@@ -84,17 +85,24 @@ async function unblockFixture(guard) {
   const withVersion=(snap,ref)=>({...snap,ref,...times.get(ref.path)});
   const db={async runTransaction(fn) {
     const edits=[];
-    const result=await s.db.runTransaction(tx=>fn({...tx,
-      get:async ref=>ref.path?{...await tx.get(ref),ref}:ref.get(),
-      getAll:async(...refs)=>Promise.all(refs.map(async ref=>withVersion(await tx.get(ref),ref))),
-      set:(ref,value)=>edits.push(()=>s.store.set(ref.path,structuredClone(value))),
-      delete:ref=>edits.push(()=>s.store.delete(ref.path)),
-    }));
-    for(const edit of edits)edit();
-    return result;
+    try{
+      const result=await s.db.runTransaction(async tx=>{
+        const value=await fn({...tx,
+          get:async ref=>ref.path?{...await tx.get(ref),ref}:ref.get(),
+          getAll:async(...refs)=>Promise.all(refs.map(async ref=>withVersion(await tx.get(ref),ref))),
+          set:(ref,data)=>edits.push(()=>s.store.set(ref.path,structuredClone(data))),
+          delete:ref=>edits.push(()=>s.store.delete(ref.path)),
+        });
+        // Model one timestamp for the commit. Confirm the Firestore metadata before integration.
+        commitTime=stamp(++next);
+        return value;
+      });
+      for(const edit of edits)edit();
+      return result;
+    }finally{commitTime=undefined;}
   }};
   const deps={db,root:s.root,accountBilling:{unblock:async(...args)=>{calls.push(args);throw Error('synthetic stop at Account port');},
-      unblockReceipt:async()=>{throw Error('unexpected receipt consultation');}}};
+      unblockReceipt:async()=>({state:'pending'})}};
   const request={incidentId:incident,alertKey:key,epoch:1,createdAtMs:5,updatedAtMs:6,accountEpoch:1,accountCreatedAtMs:5,evidenceRef:'fixture-proof'};
   return {s,row,calls,request,deps,uid,idKey,holdId,unblock:()=>unblockBillingAccount(deps,accountId,request,actor,30)};
 }
@@ -227,15 +235,16 @@ for(const [name,change] of [
     assert.deepEqual([reads,mutations],[1,0]);assert.equal(f.s.store.get('billingGuards/'+accountId).blocked,true);
   });
 }
-test('explicit pending receipt with intact authorization permits one conditional call using the new Account generation',async()=>{
+test('explicit pending receipt cannot use a new Account generation to repeat a claimed dispatch',async()=>{
   const f=await unblockFixture({});await assert.rejects(f.unblock,error=>error.stage==='account');
   f.request.accountEpoch=2;
   let reads=0,mutations=0;
   f.deps.accountBilling.unblockReceipt=async()=>{reads++;return {state:'pending'};};
-  f.deps.accountBilling.unblock=async(_owner,request)=>{mutations++;assert.equal(request.epoch,2);return {replayed:false,blocked:false};};
-  assert.equal((await f.unblock()).videoBlocked,false);
-  assert.equal((await f.unblock()).replayed,true);
-  assert.deepEqual([reads,mutations],[1,1]);
+  f.deps.accountBilling.unblock=async()=>{mutations++;throw Error('unexpected second dispatch');};
+  const before=structuredClone(f.s.store);
+  await assert.rejects(f.unblock,{code:'conflict'});
+  assert.deepEqual([reads,mutations],[1,0]);
+  assert.deepEqual(f.s.store,before);
 });
 for(const changed of [false,true]){
   test('partial confirmed receipt with rival checks live authority, changed='+changed,async()=>{
@@ -274,8 +283,8 @@ test('late pending response cannot send after another coordinator finishes from 
   assert.equal((await f.unblock()).replayed,true);
   assert.deepEqual(f.s.store,afterClosure);assert.deepEqual([reads,mutations],[2,0]);
 });
-test('read failure on local authority after a pending receipt cannot call the mutating port',async()=>{
-  const f=await unblockFixture({});await assert.rejects(f.unblock,error=>error.stage==='account');
+test('read failure on fresh local authority after a pending receipt cannot call the mutating port',async()=>{
+  const f=await unblockFixture({});
   const before=structuredClone(f.s.store);
   let reads=0,calls=0;
   f.deps.accountBilling.unblock=async()=>{calls++;throw Error('unexpected mutation');};
@@ -370,16 +379,11 @@ function accountForDirectAck(f) {
   return {account,remote,before,accepted};
 }
 
-for(const path of ['initial','resumed pending'])for(const scenario of ['different evidence','restored evidence','intact']){
-  test('direct unblock ACK checks the audited request for '+path+': '+scenario,async()=>{
+for(const scenario of ['different evidence','restored evidence','intact']){
+  test('direct unblock ACK checks the audited request for initial: '+scenario,async()=>{
     const f=await unblockFixture({});
-    const {account,remote,before,accepted}=accountForDirectAck(f);
+    const {account,remote,accepted}=accountForDirectAck(f);
     const calls=[];
-    if(path==='resumed pending'){
-      // Leave a Video request without delivering the first POST to Account.
-      await assert.rejects(f.unblock,error=>error.stage==='account');
-      assert.deepEqual(remote.store,before);
-    }
     f.deps.accountBilling.unblockReceipt=async(...args)=>{
       calls.push('receipt');
       const receipt=await account.videoBillingUnblockReceipt(...args);
@@ -408,7 +412,7 @@ for(const path of ['initial','resumed pending'])for(const scenario of ['differen
       return ack;
     };
     const outcome=await f.unblock().then(value=>value.videoBlocked?'partial':'closed',error=>error.code??error.name);
-    const expectedCalls=path==='initial'?['unblock']:['receipt','unblock'];
+    const expectedCalls=['receipt','unblock'];
     assert.deepEqual(calls,expectedCalls);
     assert.deepEqual(remote.store,accepted,'The one Account decision, balance, reservation and ledger are unchanged after receipt delivery');
     assert.deepEqual(f.s.store.get(requestPath),requestAtReply);
@@ -453,9 +457,10 @@ for(const scenario of ['different plan','restored evidence']){
     let intercepted=false,mutations=0,before;
     f.deps.db.runTransaction=async run=>{
       const result=await originalRun(run);
-      if(!intercepted){
+      const audit=[...f.s.store].find(([key,doc])=>key.startsWith(UNBLOCK_AUDIT_COLLECTION+'/')&&doc.action==='unblock_requested');
+      if(!intercepted&&audit){
         intercepted=true;
-        const [path,original]=[...f.s.store].find(([key,doc])=>key.startsWith(UNBLOCK_AUDIT_COLLECTION+'/')&&doc.action==='unblock_requested');
+        const [path,original]=audit;
         if(scenario==='different plan')f.s.store.set(path,{...original,planned:[]});
         else{
           f.s.store.set(path,{...original,evidenceRef:'synthetic altered evidence before any point read'});
@@ -491,6 +496,6 @@ test('an intact audit recovers a committed Account decision by receipt after ACK
   assert.deepEqual([recovered.accountBlocked,recovered.videoBlocked],[false,false]);
   assert.equal(f.s.store.has('billingGuards/'+accountId),false);
   assert.equal((await f.unblock()).replayed,true);
-  assert.deepEqual(calls,['unblock','receipt']);
+  assert.deepEqual(calls,['receipt','unblock','receipt']);
   assert.deepEqual(remote.store,accepted);
 });
