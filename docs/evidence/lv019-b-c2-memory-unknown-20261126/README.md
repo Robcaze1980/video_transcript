@@ -1,0 +1,9 @@
+# LV-019.B · Incertidumbre del puente de voz C2
+
+**Candidata local sobre `542a758`; no está habilitada para clientes.** DeepSeek señaló que, si se pierde la respuesta de admisión, un reintento exacto del mismo receptor podía devolver `rejected` aunque el primer intento permaneciera incierto. Una unidad reprodujo ese caso (**40/41**). Otros tres controles reprodujeron la misma clasificación después de recibir un acuse sin entregar bytes: fallo de relectura, puerta del entorno restaurada y flag de memoria restaurado.
+
+El ajuste conserva la huella de la solicitud exacta con el principal en el diario local. Si una lectura posterior no permite una nueva admisión, el mismo principal y solicitud permanecen en `unknown` mientras no haya bytes entregados. Una puerta cerrada devuelve `disabled`; un principal o cuerpo distinto se rechaza. No se admite otra llamada ni se entregan bytes por el reintento. La prueba posterior a `sent` conserva su comportamiento anterior. El diario es solo memoria: este resultado no acredita recuperación tras reinicio.
+
+La candidata pasó **100/100** unitarias de cuatro suites y tipos. Incluye controles de Cuenta: misma clave con distinto hash rechaza; repetición exacta solo lee el recibo; un fragmento distinto del mismo intento puede tener su propia admisión. Video sigue verificando qué fragmento pertenece al texto revisado. El AccountStore y el adaptador Firestore no cambiaron. La ejecución en Firestore Emulator y la revisión dual de esta corrección siguen pendientes.
+
+Los registros locales ignorados por Git están en `outputs/lv019-b-c2-memory-receipt-unknown-20261126/`: rojo focal SHA-256 `dfdcd0054ef7c3576ce5cea6bb3176f31eda30e21ba3dcc029d98a194607b4a2`; verde SHA-256 `6435df4a16bf3d86eecf5d259528a967b77d0359baf4c11872da4209ed508dad`. El ensayo usa datos sintéticos; no hay proveedor, audio, almacenamiento durable, saldo real ni despliegue.

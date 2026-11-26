@@ -2148,24 +2148,25 @@ if (voiceC2) {
     finally { AccountStore.prototype.admitVideoCall=original; }
   }
 
-  async function sameFragmentBalances(f,admissions) {
+  async function sameFragmentBalances(f,admissions,fences=admissions) {
     assert.deepEqual(await f.balances(),f.before.balances);
     assert.deepEqual(await f.ledger(),f.before.ledger);
     assert.deepEqual(await f.videoState(),f.before.video);
     assert.equal((await f.reservation.collection('providerCalls').get()).size,admissions);
-    assert.equal((await f.reservation.collection('providerCallFences').get()).size,admissions);
+    assert.equal((await f.reservation.collection('providerCallFences').get()).size,fences);
     assert.equal(f.c.outbound.length,0);
+  }
+
+  async function c2AccountEvidence(f,callKey) {
+    const docs=await f.c.db.getAll(f.reservation,
+      f.reservation.collection('providerCalls').doc(sha(JSON.stringify(['provider-call-v2',callKey]))),
+      f.reservation.collection('providerCallFences').doc('first'));
+    assert.ok(docs.every(doc=>doc.exists));
+    return docs.map(doc=>({data:doc.data(),createTime:doc.createTime,updateTime:doc.updateTime}));
   }
 
   test('C2 receives exact reviewed bytes after one new durable Account admission',async()=>{
     const f=await fragmentFixture(),{jobId,principal,body}=f.input;
-    const accountEvidence=async callKey=>{
-      const docs=await f.c.db.getAll(f.reservation,
-        f.reservation.collection('providerCalls').doc(sha(JSON.stringify(['provider-call-v2',callKey]))),
-        f.reservation.collection('providerCallFences').doc('first'));
-      assert.ok(docs.every(doc=>doc.exists));
-      return docs.map(doc=>({data:doc.data(),createTime:doc.createTime,updateTime:doc.updateTime}));
-    };
     await withAdmissionObservation(f,async counts=>{
       assert.equal(await f.receiver.send(f.input),'sent');
       const observed=f.receiver.inspectForTest(jobId,principal);
@@ -2173,7 +2174,7 @@ if (voiceC2) {
       assert.equal(observed.before.textJobId,f.c.jobId);
       assert.deepEqual(observed.receipt,{...observed.call,created:true,receiptOnly:false});
       const {reservationId,seconds,attemptId,callKey,model,requestSha256}=observed.call;
-      const original=await accountEvidence(callKey);
+      const original=await c2AccountEvidence(f,callKey);
       // The concrete adapter rereads durable Account evidence and rejects an
       // already admitted fragment before a replay can call AccountStore.
       assert.equal(await f.receiver.send(f.input),'rejected');
@@ -2182,7 +2183,7 @@ if (voiceC2) {
       assert.deepEqual(counts(),{attempts:1,created:1});
       assert.equal(f.receiver.inspectForTest(jobId,f.c.foreignPrincipal),undefined);
       assert.deepEqual(f.receiver.inspectForTest(jobId,principal),observed);
-      assert.deepEqual(await accountEvidence(callKey),original);
+      assert.deepEqual(await c2AccountEvidence(f,callKey),original);
       await sameFragmentBalances(f,1);
 
       // A separate direct AccountStore replay is a control for its receipt
@@ -2190,9 +2191,26 @@ if (voiceC2) {
       const replay=await f.store.admitVideoCall(f.identityKey,reservationId,seconds,jobId,attemptId,callKey,model,requestSha256);
       assert.deepEqual(replay,{...observed.call,created:false,receiptOnly:true});
       assert.deepEqual(counts(),{attempts:2,created:1});
-      assert.deepEqual(await accountEvidence(callKey),original);
+      assert.deepEqual(await c2AccountEvidence(f,callKey),original);
       assert.deepEqual(f.receiver.inspectForTest(jobId,principal),observed);
       await sameFragmentBalances(f,1);
+
+      // Call AccountStore directly to characterize its per-ordinal contract.
+      // This does not pass a second ordinal to the one-fragment C2 receiver.
+      const otherHash=sha('synthetic second voice fragment');
+      assert.notEqual(otherHash,requestSha256);
+      await assert.rejects(f.store.admitVideoCall(f.identityKey,reservationId,seconds,jobId,attemptId,callKey,model,otherHash),
+        {code:'conflict'});
+      assert.deepEqual(counts(),{attempts:3,created:1});
+      assert.deepEqual(await c2AccountEvidence(f,callKey),original);
+      await sameFragmentBalances(f,1);
+      const callKey1='voice-chunk:0001';
+      const next=await f.store.admitVideoCall(f.identityKey,reservationId,seconds,jobId,attemptId,callKey1,model,otherHash);
+      assert.deepEqual(next,{...observed.call,callKey:callKey1,requestSha256:otherHash,created:true,receiptOnly:false});
+      assert.deepEqual(counts(),{attempts:4,created:2});
+      assert.deepEqual(await c2AccountEvidence(f,callKey),original);
+      assert.deepEqual(f.receiver.inspectForTest(jobId,principal),observed);
+      await sameFragmentBalances(f,2,1);
     });
   });
 
@@ -2215,6 +2233,7 @@ if (voiceC2) {
       for(const attempt of [
         f.receiver.send({...input,principal:c.foreignPrincipal}),
         f.receiver.send({...input,body:input.body.replace('Charon','Kore')}),
+        f.receiver.send({...input,callKey:'voice-chunk:0001'}),
         unbound.send(input),
       ])assert.equal(await attempt,'rejected');
       assert.deepEqual(counts(),{attempts:0,created:0});
@@ -2236,9 +2255,10 @@ if (voiceC2) {
 
   test('C2 preserves a new admission but suppresses delivery after C1 marker ABA',async()=>{
     const f=await fragmentFixture(),before=(await f.marker.get()).data();
+    let repeated;
     await withAdmissionObservation(f,async counts=>{
       assert.equal(await f.receiver.send(f.input),'unknown');
-      assert.equal(await f.receiver.send(f.input),'rejected');
+      repeated=await f.receiver.send(f.input);
       assert.deepEqual(counts(),{attempts:1,created:1});
     },async reply=>{
       await f.marker.update({revision:999});
@@ -2250,19 +2270,30 @@ if (voiceC2) {
     assert.equal(retained.bytes,undefined);
     assert.deepEqual((await f.marker.get()).data(),before);
     await sameFragmentBalances(f,1);
+    assert.equal(repeated,'unknown');
   });
 
   test('C2 loses a fresh Account response without a second admission or memory delivery',async()=>{
     const f=await fragmentFixture();
+    let repeated;
     await withAdmissionObservation(f,async counts=>{
       assert.equal(await f.receiver.send(f.input),'unknown');
+      const retained=f.receiver.inspectForTest(f.input.jobId,f.input.principal);
+      const committed=await c2AccountEvidence(f,retained.call.callKey);
+      repeated=await f.receiver.send(f.input);
       assert.equal(await f.adapter.receiver().send(f.input),'rejected');
+      assert.equal(await f.receiver.send({...f.input,principal:f.c.foreignPrincipal}),'rejected');
+      assert.equal(await f.receiver.send({...f.input,body:f.input.body+' '}),'rejected');
+      assert.equal(f.receiver.inspectForTest(f.input.jobId,f.c.foreignPrincipal),undefined);
+      assert.deepEqual(f.receiver.inspectForTest(f.input.jobId,f.input.principal),retained);
+      assert.deepEqual(await c2AccountEvidence(f,retained.call.callKey),committed);
       assert.deepEqual(counts(),{attempts:1,created:1});
     },async()=>{throw Error('synthetic_lost_admission_reply');});
     const retained=f.receiver.inspectForTest(f.input.jobId,f.input.principal);
     assert.equal(retained.receipt,undefined);
     assert.equal(retained.bytes,undefined);
     await sameFragmentBalances(f,1);
+    assert.equal(repeated,'unknown');
   });
 
   test('C2 closes the gate during admission and retains the fresh receipt without bytes',async()=>{
@@ -2280,7 +2311,18 @@ if (voiceC2) {
     const retained=f.receiver.inspectForTest(f.input.jobId,f.input.principal);
     assert.equal(retained.receipt.created,true);
     assert.equal(retained.bytes,undefined);
+    const committed=await c2AccountEvidence(f,retained.call.callKey);
+    const repeated=await withAdmissionObservation(f,async counts=>{
+      const outcome=await f.receiver.send(f.input);
+      assert.equal(await f.adapter.receiver().send(f.input),'rejected');
+      assert.equal(await f.receiver.send({...f.input,principal:f.c.foreignPrincipal}),'rejected');
+      assert.deepEqual(counts(),{attempts:0,created:0});
+      return outcome;
+    });
+    assert.deepEqual(f.receiver.inspectForTest(f.input.jobId,f.input.principal),retained);
+    assert.deepEqual(await c2AccountEvidence(f,retained.call.callKey),committed);
     await sameFragmentBalances(f,1);
+    assert.equal(repeated,'unknown');
   });
 
   test('C2 preserves admission but suppresses delivery after the Account owner mapping changes and is restored',async()=>{

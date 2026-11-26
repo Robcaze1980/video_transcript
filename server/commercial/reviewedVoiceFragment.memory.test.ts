@@ -93,6 +93,10 @@ describe('reviewed voice fragment memory bridge',()=>{
     inspect()?.bytes?.fill(0);
     expect(inspect()?.bytes).toEqual(Buffer.from(request.body,'utf8'));
     expect(await bridge.send(request)).toBe('unknown');
+    readVerifiedC1.mockResolvedValueOnce(null);
+    expect(await bridge.send(request)).toBe('rejected');
+    expect(inspect()?.receipt).toEqual({...call,created:true,receiptOnly:false});
+    expect(inspect()?.bytes).toEqual(Buffer.from(request.body,'utf8'));
     expect(await bridge.send({...request,principal:{...request.principal,uid:'synthetic-other'}})).toBe('rejected');
     expect(admitForTest).toHaveBeenCalledTimes(1);
   });
@@ -213,6 +217,42 @@ describe('reviewed voice fragment memory bridge',()=>{
     else expect(f.inspect()?.receipt).toBeUndefined();
   });
 
+  it('keeps the same request uncertain when a lost admission has closed the first-read gate',async()=>{
+    let committed=0;
+    const f=fixture({admitForTest:async ()=>{
+      committed++;
+      throw Error('synthetic loss after admission');
+    }});
+    // Mirrors the adapter's initial read: an already admitted reservation is
+    // ineligible for a new attempt, even when its original reply was lost.
+    f.readVerifiedC1.mockImplementation(async (_request,admitted)=>committed&&!admitted?null:f.proof);
+    expect(await f.bridge.send(f.request)).toBe('unknown');
+    const retained=f.inspect();
+    expect(retained?.receipt).toBeUndefined();
+    expect(retained?.bytes).toBeUndefined();
+    const repeated=await f.bridge.send(f.request);
+    const foreign={...f.request.principal,uid:'synthetic-foreign-voice-owner'};
+    expect(await f.bridge.send({...f.request,principal:foreign})).toBe('rejected');
+    expect(await f.bridge.send({...f.request,body:f.request.body+' '})).toBe('rejected');
+    expect(await f.bridge.send({...f.request,model:f.request.model+'-different'})).toBe('rejected');
+    const otherOperation=f.request.operation==='narration:en:male'?'narration:en:female':'narration:en:male';
+    expect(await f.bridge.send({...f.request,operation:otherOperation})).toBe('rejected');
+    expect(f.bridge.inspectForTest(f.request.jobId,foreign)).toBeUndefined();
+    expect(f.inspect()).toEqual(retained);
+    expect(f.admitForTest).toHaveBeenCalledTimes(1);
+    expect(committed).toBe(1);
+    expect(repeated).toBe('unknown');
+    f.readVerifiedC1.mockRejectedValueOnce(Error('synthetic replay read unavailable'));
+    expect(await f.bridge.send(f.request)).toBe('unknown');
+    expect(f.inspect()).toEqual(retained);
+    const reads=f.readVerifiedC1.mock.calls.length;
+    vi.stubEnv('LV_VOICE_C2_MEMORY_TEST','');
+    expect(await f.bridge.send(f.request)).toBe('disabled');
+    expect(f.readVerifiedC1).toHaveBeenCalledTimes(reads);
+    expect(f.admitForTest).toHaveBeenCalledTimes(1);
+    expect(f.inspect()).toBeUndefined();
+  });
+
   it('fences competing sends before the admission returns',async()=>{
     let release!:()=>void;
     const paused=new Promise<void>(resolve=>{release=resolve;});
@@ -248,8 +288,15 @@ describe('reviewed voice fragment memory bridge',()=>{
     expect(retained?.before).not.toHaveProperty('body');
     expect(retained?.before).not.toHaveProperty('canonicalEvidence');
     expect(retained?.bytes).toBeUndefined();
-    expect(await f.bridge.send(f.request)).toBe('unknown');
+    f.readVerifiedC1.mockResolvedValue(null);
+    const replay=await f.bridge.send(f.request);
+    const foreign={...f.request.principal,uid:'synthetic-foreign-after-receipt'};
+    expect(await f.bridge.send({...f.request,principal:foreign})).toBe('rejected');
+    expect(await f.bridge.send({...f.request,body:f.request.body+' '})).toBe('rejected');
+    expect(f.bridge.inspectForTest(f.request.jobId,foreign)).toBeUndefined();
+    expect(f.inspect()).toEqual(retained);
     expect(f.admitForTest).toHaveBeenCalledTimes(1);
+    expect(replay).toBe('unknown');
   });
 
   it.each(['NODE_ENV','LV_VOICE_C2_MEMORY_TEST'])('does not deliver if %s is switched off after admission',async flag=>{
@@ -262,11 +309,17 @@ describe('reviewed voice fragment memory bridge',()=>{
     expect(await f.bridge.send(f.request)).toBe('unknown');
     expect(f.inspect()).toBeUndefined();
     expect(f.readVerifiedC1).toHaveBeenCalledTimes(1);
+    expect(await f.bridge.send(f.request)).toBe('disabled');
+    expect(f.readVerifiedC1).toHaveBeenCalledTimes(1);
     vi.stubEnv(flag,flag==='NODE_ENV'?'test':'1');
-    expect(f.inspect()?.receipt).toMatchObject({created:true});
-    expect(f.inspect()?.bytes).toBeUndefined();
-    expect(await f.bridge.send(f.request)).toBe('unknown');
+    const retained=f.inspect();
+    expect(retained?.receipt).toMatchObject({created:true,receiptOnly:false});
+    expect(retained?.bytes).toBeUndefined();
+    f.readVerifiedC1.mockResolvedValue(null);
+    const replay=await f.bridge.send(f.request);
+    expect(f.inspect()).toEqual(retained);
     expect(f.admitForTest).toHaveBeenCalledTimes(1);
+    expect(replay).toBe('unknown');
   });
 
   it('does not deliver if the fixture is switched off during the second read',async()=>{

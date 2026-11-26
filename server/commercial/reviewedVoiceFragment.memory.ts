@@ -52,6 +52,7 @@ type Call = SyntheticFragmentCall;
 type Admission = Call & Readonly<{created:boolean;receiptOnly:boolean}>;
 type JournalEntry = {
   principal:SyntheticFragmentRequest['principal'];
+  requestFingerprint:string;
   before:NonNullable<ReturnType<typeof capture>>['evidence'];
   call:Call;
   receipt?:Admission;bytes?:Buffer;
@@ -151,18 +152,23 @@ export function createReviewedVoiceFragmentMemoryBridge(ports:Ports) {
     let request;
     try{request=copyRequest(input);}catch{return 'rejected';}
     if(!request)return 'rejected';
+    const requestFingerprint=digest(request);
     let original;
     try{original=capture(request,await ports.readVerifiedC1(request));}
-    catch{return 'rejected';}
-    if(!original)return 'rejected';
+    catch{original=null;}
     if(!enabled())return 'disabled';
-    if(journal.has(request.jobId)||reservations.has(original.reservationId))return 'unknown';
+    const previous=journal.get(request.jobId);
+    if(previous&&previous.requestFingerprint!==requestFingerprint)return 'rejected';
+    // An admission may be recorded without a verified delivery. Keep the
+    // exact request uncertain until bytes have been delivered.
+    if(!original)return previous&&!previous.bytes?'unknown':'rejected';
+    if(previous||reservations.has(original.reservationId))return 'unknown';
 
     const call=Object.freeze({
       jobId:request.jobId,attemptId:randomUUID(),reservationId:original.reservationId,seconds:original.seconds,
       callKey:fragment,model:original.call.model,requestSha256:original.call.requestSha256,
     });
-    const entry:JournalEntry={principal:request.principal,before:original.evidence,call};
+    const entry:JournalEntry={principal:request.principal,requestFingerprint,before:original.evidence,call};
     journal.set(request.jobId,entry);
     reservations.add(original.reservationId);
     try{
