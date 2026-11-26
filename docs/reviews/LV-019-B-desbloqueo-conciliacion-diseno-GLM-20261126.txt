@@ -1,0 +1,69 @@
+# Revisión estática independiente
+
+Solicitud: 84311801946dc516d8cb9c97bd83cb968da0a85d18953a62d787b29d441c252f
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 18933/0/45875
+Costo observado USD: 0.0255196755
+SHA-256 del informe original: 325ae06cc5b1c9a2693d31fc42d3eec27c9f04fdc1cd1fe17aa8981a9b037cc7
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# Revisión estática dual · LV-019.B · Conciliación de un desbloqueo incierto (dictamen GLM)
+
+## Alcance y método
+
+Revisión estática de una sola consulta, sin herramientas, sin re-ejecutar el TAP y sin recalcular hashes: la tabla de huellas, los conteos y el TAP declarado (14/14, títulos coincidentes con los 14 `test()` del modelo, solo módulos `node:*`) se tratan como datos. Coherencia interna observada: `contract.model.mjs` es el único par con hash idéntico Git/Windows, consistente con que la corrida usó bytes iguales al blob; los demás pares difieren solo por finales de línea, como explica el paquete. El corte `35460dd` agrega borrador + modelo + recibo; el §3.3 sigue vigente y el protocolo nuevo no está implementado ni activado. Esta es una de las dos revisiones exigidas; la del segundo revisor es entregable separado.
+
+## Dictamen 1 · Seguridad — PASS (ámbito: diseño y modelo serial; no certifica producción)
+
+**Qué sostiene la garantía.** El diseño concentra toda decisión mutante del ciclo (inscripción, conciliación, despacho, recibo) en una única transacción de Cuenta anclada por la clave versionada (borrador §«Una transacción de decisión», pasos 1–4; §«Carreras y recuperación»: «exigen un único punto serializable en Cuenta compartido por ambos métodos y por todos los mutadores»). El cerco y la autorización del sucesor ocurren en el mismo commit (paso 3), el recibo es inmutable y de carga exacta (pasos 2 y 4), y un registro o POST tardío queda rechazado una vez cercado. El modelo lo implementa con copia/commit serial (`transaction`, `register`, `reconcile`, `dispatch`) y lo demuestra en secuencias seriales explícitas:
+
+- Ambos órdenes del POST viejo: caso 2 (confirma antes del cerco → la conciliación lee el recibo exacto, sin inscripción de sucesor) y casos 3/4 (cerco gana antes/después del sucesor; POST tardío sin efecto; replay devuelve recibo). Precondición alcanzable: incertidumbre de ACK con el POST en vuelo o retenido; el rechazo proviene del estado del intento, no de `pending`, del 409 genérico ni del tiempo (la tabla del borrador: «El rechazo no aporta autoridad»).
+- Commit local sin envío ni inscripción: caso 1 (ancla vacía verificada → cerco del ID inicial no inscrito + sucesor; registro tardío y POST tardío rechazados).
+- ACK de registro perdido: caso 10; ACK de cerco perdido y operadores rivales: caso 6 (misma decisión por clave; segunda propuesta con otra clave u otra carga rechazada; sin segundo sucesor).
+- 409 genuino: caso 5 (generación corregida tras resolver el rival progresa vía cerco+sucesor); movimiento posterior → cadena nueva, caso 7 (`stale`/`superseded` explícitos, sin restaurar autoridad por replay antiguo).
+- Separación de identidad: operador no autorizado, otro titular, evidencia, ocurrencia y versión de identidad (caso 8); ancla ausente frente a ancla vacía y tentativa inicial no acreditada (caso 9); guard recreado con la misma época pero otra creación rechazado por encarnación (caso 11, método `receiptStatus`); registro de intento faltante (caso 12); incidente revisado sin recibo (caso 13); recibo discordante (caso 14). «ABA»/identificador de cuenta distinto no está representado por separado: `owner`+`identityVersion` lo sustituyen simbólicamente (laguna de cobertura menor).
+
+**Controles negativos conservados.** El arnés `refused()` verifica igualdad profunda del estado tras cada rechazo; `oneDecision()` acota `mutations===1` con economía intacta — transporte repetido sin segundo efecto (replays de `dispatch` devuelven recibo sin escritura, casos 3/4/6; replay de `reconcile` estable en la decisión, caso 6; replay de `register` sin escritura). La retracción manual del recibo (caso 13) y su corrupción (caso 14) son controles negativos deliberados, no rutas del diseño.
+
+**Qué rompería la garantía (condiciones, no defectos demostrados).** (i) Un mutador anterior vivo: `unblockVideoBilling` (backend.ts, extracto 227–293; el borrador lo señala en backend.ts#L263) carece de ancla, intento y cerco, y el borrador admite que «una instancia antigua con credenciales válidas … puede saltarse un cerco» — la garantía queda condicionada a retirar/conciliar escritores viejos antes de enrolar incidentes. (ii) Violación de retención: podar ancla/cercos/historial dentro de la ventana de exposición destruye la autoridad del replay (caso 12) y la trazabilidad. (iii) El mecanismo que acredita la historia de Video ante Cuenta y separa permisos de lectura/conciliación/despacho está sin definir (borrador §«Autoridades y registros»: «Hay que definir cómo acredita esa historia…»); el modelo lo sustituye por una atestación constante verificada en bloque. (iv) La serialización real (contención, abortos, aislamiento de transacciones Firestore) no está probada: solo secuencias seriales.
+
+## Dictamen 2 · Disponibilidad — PASS (ámbito: diseño y modelo); el software actual no ofrece estos caminos
+
+**Caminos modelados.** Commit local sin POST (caso 1), 409 por época nueva con generación corregida tras resolver impedimentos (caso 5), ACK de registro perdido (caso 10), ACK de conciliación perdido (caso 6), y movimiento de generación posterior resuelto por cadena nueva (caso 7). Todos requieren: historia intacta, operador autorizado disponible y generación estable «el tiempo suficiente»; el borrador declara expresamente que no garantiza disponibilidad con evidencia rota o incidentes entrantes continuos — bloqueo legítimo, no defecto.
+
+**Regresión §3.3 vs bloqueo legítimo.** El §3.3 vigente admite reanudación `pending` con generación corregida. En el software base, la lectura de recibo `pending` existe en Cuenta (backend.ts, extracto 227–293), pero la compuerta de Video exige `'fresh' in opened` para actuar sobre `pending` (billingUnblock.ts, extracto 373–445, ≈:404-405) y no hay vía visible que aplique una generación corregida del operador a un reclamo existente; el 409 se mapea a `conflict` genérico sin autoridad (accountBillingClient.ts:46). Es la divergencia demostrada por la auditoría previa (unblockContinuityIndependent.test.mjs:405 y :438, citada como dato). Este corte no la repara ni la agrava: el borrador sustituye esa reanudación por conciliación+cerco, decisión que «deben aprobarse juntas». En el software de hoy, la única recuperación ordinaria es el recibo `confirmed` sin otra mutación (billingUnblock.ts ≈:397-400 con `videoBillingUnblockReceipt`); todo lo demás queda en `conflict` hasta conciliación — y la conciliación no existe todavía.
+
+**Legado.** Ancla ausente o legada no tiene camino ni en el diseño nuevo (caso 9; «No aplicar ese camino a un ancla ausente, a un intento arbitrario ni al legado»): guardias previas al corte y casos pendiente/parcial sin constancias quedan en revisión indefinida hasta diseñar la «adopción verificable» por grupo; el marcador de `708c414` no acredita lo contrario (el borrador lo dice). Parcial con recibo confirmado conserva replay en el código actual (billingUnblock.ts, extracto 328–370).
+
+## Condiciones de integración (requisitos, no implementados aquí)
+
+- **AccountStore/contrato:** crear el ancla versionada (v2, vacía permitida) dentro de la transacción de alta del incidente (delta sobre backend.ts:186–205, que hoy solo crea guard+incidente); registro, conciliación, despacho y lectura de recibo compartiendo esa única transacción y el cerco; recibo inmutable (hoy ya `tx.create` sin updates, backend.ts extracto 227–293).
+- **HTTP y autenticación:** nuevas rutas de inscripción/conciliación bajo la verificación de llamante de http.ts:43 (`settlementCaller`); la autoridad del operador debe resolverse en servidor, nunca del cuerpo; separar permisos de lectura, conciliación y despacho (abierto en el borrador).
+- **Video:** transporte y relectura del ID de intento/ocurrencia, elección de ejecutor transaccional (paso 4) y cierre (paso 5) no están modelados; las constancias de continuidad actuales (billingUnblock.ts:122–172) deben extenderse al flujo nuevo.
+- **Pruebas Firestore faltantes por garantía:** concurrencia real (conciliación vs inscripción, conciliación vs POST, dos conciliaciones — el modelo solo serializa); reintento/ACK perdido inyectado en ambas puntas; despliegue mixto (ruta vieja contra incidente enrolado debe fallar; verificar lector/mutador desplegado antes de enrolar); adopción de guardias previas al corte y el marcador `guardBornAfterWriterCut` en casos adoptados; restauración/copias/rotación de principal; retención durante la ventana de exposición; multi-incidencia (ancla por incidente con guard compartido y `reviewedCount`); regresión final y revisión dual.
+- **Fuera de alcance declarado:** atomicidad entre Video y Cuenta, despacho único en Video, cancelación de paquetes, IAM.
+
+## Hallazgos (con clasificación)
+
+1. **Dependencia de diseño (seguridad):** el mecanismo de acreditación de la historia de Video y la separación de permisos están sin definir (borrador §«Autoridades»); el modelo lo presume (premisa explícita). Bloqueante para implementar, no invalida el diseño.
+2. **Defecto preexistente del software, no reparado por este corte (disponibilidad):** sin camino de conciliación, un reclamo con POST de resultado desconocido o un 409 deja `conflict` permanente (billingUnblock.ts ≈:404-405; accountBillingClient.ts:46; demostrado por la auditoría incluida).
+3. **Hipótesis operativa (seguridad/disponibilidad):** bypass por instancia antigua si sobrevive un escritor previo al enrolamiento (backend.ts:227–293; borrador §«Corte»).
+4. **Lagunas de cobertura del modelo (menores, ningún fallo):** no se varían `scope`/`incident`/`originalAudit` del ancla por el lado del ancla (la verificación de `transaction` es por igualdad profunda con la prueba canónica); no se prueba `register` con ID distinto del acreditado ni `dispatch` invocado por el operador; no hay ciclo de vida de un incidente nuevo con ancla creada en alta (`addRival`/`resolveRival` son controles que saltan `transaction`); identidad «ABA» no separada.
+
+Trazado los 14 casos, no encontré contradicción interna ni orden enumerado en el borrador que el modelo no cubra serialmente; los rechazos preservan estado y ninguna repetición produce segundo efecto.
+
+## Huecos de esta revisión
+
+Hashes y conteos no recalculados; TAP no re-ejecutado ni leído byte a byte; helpers no transcritos (`freshRecord`, `accountRows`, `unresolvedRows`, `videoHoldId`, `billingHold`, `blockedState`, `alertIdentity`, construcción de `clean`/`payload`, fase 3 completa y código fuera de los extractos) pueden contener condiciones indispensables no evaluadas; especificaciones completas, backlog y MASTERPLAN no leídos; no se verificó serialización real de AccountStore, Firestore, HTTP, IAM ni atomicidad entre bases.
+
+Coste y uso: no medido (revisión estática, una consulta, sin herramientas ni accesos a servicios).
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Modelo contract.model.mjs 14/14 (TAP declarado, no re-ejecutado) con órdenes duales seriales en casos 2–4 y 10, recuperación por conciliación en 1, 5, 6 y 7, cerco/autoridad en 8–9 e integridad de registros/recibo en 11–14; extractos backend.ts:186–205/227–293, http.ts:39–55, accountBillingClient.ts:35–50/84–113 y billingUnblock.ts:122–172/328–370/373–445/472–503 coherentes con el borrador (LV-019-B-desbloqueo-conciliacion-intento.md:1–37) y con §3.3 (LV-019-B-bloqueos-y-cierres-diseno.md:97–124); dictámenes: seguridad PASS y disponibilidad PASS, ambos limitados a diseño y modelo serial.
+NEGATIVOS: `refused()` verifica conservación de estado en cada rechazo; casos 3/4 (POST viejo tardío antes/después del sucesor sin efecto), 6 (segunda propuesta de sucesor y clave distinta rechazadas), 8 (operador no autorizado, otro titular/evidencia/ocurrencia/versión de identidad), 9 (ancla ausente/v1 e intento no acreditado), 11 (guard recreado con misma época), 12 (registro de intento faltante), 13 (revisado sin recibo), 14 (recibo discordante); `oneDecision()` acota mutations=1, distinguiendo repetición de transporte de segundo efecto.
+BLOQUEOS: mecanismo para acreditar la historia de Video ante Cuenta y separar permisos lectura/conciliación/despacho sin definir (borrador §Autoridades); escritor anterior sin ancla/cerco puede saltarse el cerco (backend.ts:227–293; borrador §Corte) — garantizar solo tras retirar/conciliar y verificar el despliegue; sin pruebas Firestore de concurrencia, reintentos, restauración, despliegue mixto, retención ni regresión (el modelo es serial); regresión §3.3 vigente en el software (billingUnblock.ts ≈404-405 exige 'fresh' para pending; accountBillingClient.ts:46 409 genérico) sin conciliación implementada y sujeta a aprobación conjunta; inventario legado (guardia previa al corte, pendiente/parcial sin constancias) sin adopción definida → revisión indefinida por diseño; hashes, TAP y helpers no transcritos no verificados en esta revisión.
+=== FIN RESUMEN ===
