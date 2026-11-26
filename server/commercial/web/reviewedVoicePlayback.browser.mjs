@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
-import {mkdir,readFile,realpath,rm,unlink,writeFile} from 'node:fs/promises';
+import {lstat,mkdir,readFile,realpath,rm,unlink,writeFile} from 'node:fs/promises';
 import {isAbsolute,join,relative,resolve,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
@@ -156,9 +156,10 @@ const browser=spawn(browserIdentity.path,['--headless=new','--no-first-run','--d
   '--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules=MAP * ~NOTFOUND',
   '--mute-audio','--remote-debugging-pipe','--user-data-dir='+profile,'about:blank'],
   {cwd:root,env:sandboxEnv,windowsHide:true,stdio:['ignore','ignore','pipe','pipe','pipe']});
-const exited=new Promise(resolve=>{browser.once('exit',resolve);browser.once('error',resolve);});
+const closed=new Promise(resolve=>browser.once('close',resolve));
 const chromeStderr=captureChromeStderr(browser.stderr),cdp=cdpPipe(browser);
 const exceptions=[],external=[],playback=[];
+let playbackResult;
 try{
   const version=await cdp.send('Browser.getVersion');
   assertHeadlessBrowserProduct(version);
@@ -248,20 +249,30 @@ try{
   assert.equal(await evaluate(JSON.stringify(playingUrls)+'.every(url=>window.fixtureRevocations.includes(url))'),true);
   assert.deepEqual(external,[]);
   assert.deepEqual(exceptions,[]);
-  const result={result:'PASS',browser:version.product,browserSha256:browserIdentity.sha256,viewport:390,network:'CDP blocks HTTP(S) and WS(S), all API responses in memory',
+  playbackResult={browser:version.product,browserSha256:browserIdentity.sha256,viewport:390,network:'CDP blocks HTTP(S) and WS(S), all API responses in memory',
     reviewedRevision:evidence.revision,voiceTextSha256:evidence.review.voiceSha256,providerCalls:sent,
     playback,tamperedWavRejected:true,verifiedDownloadBytes:true,noGenerationInClient:true,signOutRevokedUrls:true,externalRequests:external.length};
-  await writeFile(join(root,'browser-result.json'),JSON.stringify(result,null,2)+'\n');
-  console.log(JSON.stringify({root,...result}));
 }catch(error){
   await writeFile(join(root,'browser-failure.json'),JSON.stringify({error:String(error),stderr:chromeStderr.snapshot()},null,2)+'\n');
   throw error;
 }finally{
-  if(browser.exitCode===null){browser.kill();await exited;}
-  const workspace=await realpath(resolve('outputs')),actual=await realpath(root),actualProfile=await realpath(profile);
-  const inside=relative(workspace,actual);
-  assert.ok(inside.startsWith('lv019-b-voice-playback-')&&!isAbsolute(inside)&&!inside.includes(sep));
-  assert.equal(relative(actual,actualProfile),'chrome-profile');
-  await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:200});
-  await unlink(page);
+  try{
+    if(browser.exitCode===null&&browser.signalCode===null)browser.kill();
+    await closed;
+    const workspace=await realpath(resolve('outputs')),actual=await realpath(root),actualProfile=await realpath(profile);
+    const inside=relative(workspace,actual);
+    assert.ok(inside.startsWith('lv019-b-voice-playback-')&&!isAbsolute(inside)&&!inside.includes(sep));
+    assert.equal(relative(actual,actualProfile),'chrome-profile');
+    await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:200});
+    await unlink(page);
+    await assert.rejects(lstat(profile),{code:'ENOENT'});
+    await assert.rejects(lstat(page),{code:'ENOENT'});
+  }catch(error){
+    await writeFile(join(root,'cleanup-failure.json'),JSON.stringify({error:String(error),stderr:chromeStderr.snapshot()},null,2)+'\n');
+    throw error;
+  }
 }
+
+const result={result:'PASS',...playbackResult,browserClosed:true,temporaryFilesRemoved:true};
+await writeFile(join(root,'browser-result.json'),JSON.stringify(result,null,2)+'\n');
+console.log(JSON.stringify({root,...result}));
