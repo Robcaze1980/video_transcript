@@ -1,10 +1,12 @@
 import { Buffer } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import type { DocumentReference, Firestore } from 'firebase-admin/firestore';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createReviewedVoiceFragmentMemoryBridge, type SyntheticC1Read, type SyntheticFragmentRequest } from './reviewedVoiceFragment.memory';
 import { validateReviewedVoiceCall } from './reviewedVoiceCanonical';
 import { encodeTextBundle } from './pipelineTextCodec';
+import { isLocalVoiceC2FixtureTarget } from './localVoiceFixture';
 
 const vectors=JSON.parse(readFileSync(new URL('./reviewedVoiceCanonical.vectors.json',import.meta.url),'utf8')).vectors;
 const vector=vectors.find((entry:{calls:unknown[]})=>entry.calls.length===1);
@@ -251,6 +253,38 @@ describe('reviewed voice fragment memory bridge',()=>{
     expect(f.readVerifiedC1).toHaveBeenCalledTimes(reads);
     expect(f.admitForTest).toHaveBeenCalledTimes(1);
     expect(f.inspect()).toBeUndefined();
+  });
+
+  it.each(['LV_VOICE_C1_FIXTURE','LV_VOICE_C2_FIXTURE'])('keeps the replay uncertain without reaching Firestore while %s is off',async flag=>{
+    vi.stubEnv('FIRESTORE_EMULATOR_HOST','127.0.0.1:8185');
+    vi.stubEnv('LV_REVIEW_CONTRACT','1');
+    vi.stubEnv('LV_VOICE_C1_FIXTURE','1');
+    vi.stubEnv('LV_VOICE_C2_FIXTURE','1');
+    const db={projectId:'demo-vistavo-ledger',databaseId:'(default)',
+      _settings:{servicePath:'127.0.0.1',port:8185,ssl:false}} as unknown as Firestore;
+    const root={firestore:db,id:randomUUID(),parent:{path:'vistavo_review_contract_synthetic'}} as unknown as DocumentReference;
+    const f=fixture(),loadC1=vi.fn<Ports['readVerifiedC1']>(async (_request,admitted)=>{
+      if(admitted)throw Error('synthetic second read unavailable');
+      return f.proof;
+    });
+    f.readVerifiedC1.mockImplementation(async (request,admitted)=>{
+      if(!isLocalVoiceC2FixtureTarget(db,root))return null;
+      return loadC1(request,admitted);
+    });
+    expect(await f.bridge.send(f.request)).toBe('unknown');
+    const retained=f.inspect();
+    expect(retained?.receipt).toMatchObject({created:true,receiptOnly:false});
+    expect(retained?.bytes).toBeUndefined();
+    expect(loadC1).toHaveBeenCalledTimes(2);
+    vi.stubEnv(flag,'0');
+    expect(await f.bridge.send(f.request)).toBe('unknown');
+    const foreign={...f.request.principal,uid:'synthetic-foreign-with-adapter-off'};
+    expect(await f.bridge.send({...f.request,principal:foreign})).toBe('rejected');
+    expect(await f.bridge.send({...f.request,body:f.request.body+' '})).toBe('rejected');
+    expect(f.bridge.inspectForTest(f.request.jobId,foreign)).toBeUndefined();
+    expect(loadC1).toHaveBeenCalledTimes(2);
+    expect(f.admitForTest).toHaveBeenCalledTimes(1);
+    expect(f.inspect()).toEqual(retained);
   });
 
   it('fences competing sends before the admission returns',async()=>{

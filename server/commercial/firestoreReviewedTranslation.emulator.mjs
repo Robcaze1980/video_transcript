@@ -29,9 +29,11 @@ const project = 'demo-vistavo-ledger';
 const testCollection = 'vistavo_review_contract_synthetic';
 const voiceC1 = process.env.LV_VOICE_C1_FIXTURE === '1';
 const voiceC2 = process.env.LV_VOICE_C2_FIXTURE === '1';
-const testCount = voiceC2 ? 8 : voiceC1 ? 74 : 28;
+const voiceC2Gates = process.env.LV_VOICE_C2_GATE_FOCAL === '1';
+const gateReplayCase = 'C2 closes the gate during admission and retains the fresh receipt without bytes';
+const testCount = voiceC2Gates ? 1 : voiceC2 ? 8 : voiceC1 ? 74 : 28;
 const test = (name,...args) => {
-  if (voiceC2 === name.startsWith('C2 ')) nodeTest(name,...args);
+  if (voiceC2 === name.startsWith('C2 ') && (!voiceC2Gates || name === gateReplayCase)) nodeTest(name,...args);
 };
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const contexts = [];
@@ -40,6 +42,7 @@ const ref = (c, collection, id) => c.root.collection(collection).doc(id);
 
 function assertSafeEnvironment() {
   assert.equal(process.env.NODE_ENV, 'test', 'NODE_ENV must be test');
+  if (voiceC2Gates) assert.equal(voiceC2, true);
   if (voiceC2) {
     assert.equal(process.env.LV_VOICE_C1_FIXTURE, '1');
     assert.equal(process.env.LV_VOICE_C2_FIXTURE, '1');
@@ -2296,7 +2299,7 @@ if (voiceC2) {
     assert.equal(repeated,'unknown');
   });
 
-  test('C2 closes the gate during admission and retains the fresh receipt without bytes',async()=>{
+  test(gateReplayCase,async()=>{
     const f=await fragmentFixture();
     try {
       await withAdmissionObservation(f,async counts=>{
@@ -2316,6 +2319,28 @@ if (voiceC2) {
       const outcome=await f.receiver.send(f.input);
       assert.equal(await f.adapter.receiver().send(f.input),'rejected');
       assert.equal(await f.receiver.send({...f.input,principal:f.c.foreignPrincipal}),'rejected');
+      const originalTransaction=f.c.db.runTransaction;
+      let transactions=0;
+      f.c.db.runTransaction=()=>{
+        transactions++;
+        throw Error('C2 adapter must not transact while its gate is off');
+      };
+      try {
+        for(const flag of ['LV_VOICE_C1_FIXTURE','LV_VOICE_C2_FIXTURE']){
+          const original=process.env[flag];
+          try {
+            delete process.env[flag];
+            assert.equal(await f.receiver.send(f.input),'unknown');
+            assert.equal(await f.adapter.receiver().send(f.input),'rejected');
+            assert.equal(await f.receiver.send({...f.input,principal:f.c.foreignPrincipal}),'rejected');
+            assert.equal(await f.receiver.send({...f.input,body:f.input.body+' '}),'rejected');
+          } finally {
+            if(original===undefined)delete process.env[flag];
+            else process.env[flag]=original;
+          }
+        }
+      } finally { f.c.db.runTransaction=originalTransaction; }
+      assert.equal(transactions,0);
       assert.deepEqual(counts(),{attempts:0,created:0});
       return outcome;
     });
