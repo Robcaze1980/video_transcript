@@ -1870,3 +1870,5 @@ GLM y DeepSeek revisaron la recuperación del desbloqueo y dejaron abierta una p
 T3 recibió HTTP 402 y una revisión repitió operaciones con consumo parcial elevado. Se documentaron los contadores y la instrucción que permanece en cola en [consumo T3](docs/reviews/LV-019-B-consumo-t3-2026-11-25.md); el importe real no se midió. La corrección de Cuenta quedó incompleta, se guardó como parche de evidencia y no se integró. No hubo despliegue, cambios de nube o de permisos.
 
 El diagnóstico posterior del puerto preservó un primer intento FALLA por una ruta de perfil incorrecta. Con el lanzador corregido y una copia que adapta exclusivamente la condición del puerto de prueba, el archivo afectado pasó 41/41; se guardaron ambos resultados. Es un diagnóstico acotado y no sustituye la batería completa de la versión final.
+
+Se subió el corte de trabajo a GitHub en la rama `codex/vistavo-checkpoint-20261125` (primer commit `668a36d`), con evidencia sintética portable, el borrador incompleto identificado y el estado pendiente. La rama es un respaldo de trabajo, no una publicación del procesamiento.
