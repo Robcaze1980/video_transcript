@@ -1,0 +1,57 @@
+# Revisión estática independiente
+
+Solicitud: f08a7ec4bf15ad5dfa38bc3441e99e7cc9d2a8a1900775798e9290d6abb10cc5
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 4500/0/31289
+Costo observado USD: 0.016156305
+SHA-256 del informe original: 9760a3ba167ae1fffc5881902e07079758d93bdabd69db4bebb62803bfb2938e
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# Revisión GLM · Frescura documental del checkpoint (4cb0cf0, candidata `5d949a0`)
+
+**Método.** Revisión estática, sin herramientas. Los fragmentos citados se tratan como datos; los cinco archivos de evidencia por referencia y el código solo se conocen por la caracterización del paquete. El resultado es un PASS focal: acredita únicamente la coherencia de las frases activas revisadas, no los gates restantes.
+
+## Contraste 1 — Reanudación y confirmación (spec:116)
+
+- `docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md:116` conserva los tres elementos exigidos: el cotejo estricto inicial («La solicitud conserva el `updatedAtMs` que el operador comprobó en la primera autorización»), la carga auditada («La reanudación exige la carga auditada original y la misma ocurrencia») y el control de versión acotado al consumo del recibo confirmado («compara además las versiones de guardia y solicitud observadas durante esa reanudación antes de cerrar Video»).
+- Los límites de cierre («no reconstruye cambios anteriores a su primera lectura ni implica atomicidad entre bases») coinciden exactamente con los límites declarados del contraste 36/36 en memoria.
+- El FALLA histórico se preserva en `bitacora.md:1958` («DeepSeek dio FALLA por la comparación de `updatedAtMs`; tras el contraste independiente 36/36, aceptó que la comparación estricta corresponde a la primera autorización…») con alcance parcial explícito. Ninguna declaración activa (MASTERPLAN.md:23/52, backlog.md:20, gantt.md:13, HANDOFF.md:12) convierte esa aceptación parcial en cierre de batería: todas mantienen pendientes la batería financiera y las ventanas de ACK directo.
+- **Ambigüedad, no defecto demostrado:** dentro del fragmento 116, la existencia de otras rutas de ACK solo está implícita en el condicional «cuando se consume un recibo confirmado»; el paquete no incluye las líneas circundantes de la especificación, por lo que no puedo confirmar una mención explícita del ACK directo. El alcance de candidata aislada no se etiqueta en la especificación, sino en los documentos de estado, donde sí aparece.
+
+## Contraste 2 — Encabezado del backlog
+
+- `backlog.md:17` asigna el 10/10 y los dos INCONCLUYENTES a «una candidata **anterior**» y el 482/6/5 a «otra instantánea **anterior**», y deriva el seguimiento «abajo». `HANDOFF.md:11` replica la estructura y remite a la fila siguiente para `5d949a0`, cerrando con «la regresión del último corte no está cerrada». Leyendo solo el encabezado, los antecedentes quedan asignados al corte anterior. La bitácora se respeta como cronología; no detecté reescritura de entradas históricas en los fragmentos.
+
+## Contraste 3 — Devolución vencida vs. meta
+
+- `MASTERPLAN.md:14` ya codifica la separación pedida: trabajo admitido termina y se liquida «cuando las comprobaciones financieras lo permiten»; «una devolución puede quedar pendiente mientras exista un bloqueo adicional»; videos nuevos detenidos solo del dueño identificado; reparación no impedida; saldo no devuelto dos veces. La línea 26 de la especificación de devolución vencida, tal como la caracteriza el encargo (trabajo anterior procesable; un hold adicional puede impedir la liquidación ordinaria hasta su resolución), es subconjunto coherente de esa meta. `backlog.md:22` mantiene el requisito «Sin implementar» con 2 rojos y nombra lo que falta («procedencia histórica y reparación bajo hold»); `bitacora.md:1962` y el informe de `aecd5aa` niegan atribuir devoluciones por la mera existencia de una alerta. **Límite:** el texto literal de la línea 26 no está en el paquete; el cotejo es indirecto.
+
+## Contraste 4 — Coherencia de las dos descripciones activas del guard
+
+- `specs:133` (nuevo) declara la fuente guard en `PENDING_SOURCES` con consulta `billingGuards` con `blocked == true`, coherente con `billingPendingReport.ts:24–25` del reporte del checkpoint; el texto viejo («no lee `billingGuards`… no es derivable hoy») quedó reemplazado sin restos visibles en los fragmentos.
+- `specs:17` (nuevo) coincide con los hechos de código caracterizados: `blocked:false` con dueño correcto → no bloqueado; dueño distinto o no booleano → `invariant`; guard ausente → falso (`firestoreBackend.ts:584–587`). La ausencia queda cubierta en conjunto por :133 («un identificador con forma válida no demuestra que exista»). La fixture `billingUnblock.emulator.mjs:465` (booleano falso y campo ausente) es un control negativo vigente que **apoya** la descripción, no la contradice.
+- **Brechas de completitud (ambigüedades):** :17 no enuncia el resultado de guard o campo ausentes; :133 no describe qué ocurre en la ruta del reporte ante un guard presente con dueño distinto (¿`invariant` de :17 o filtrado previo?) — «evitan atribuir un titular dudoso» cubre referencias malformadas/dudosas, no un dueño determinadamente ajeno. Sin el código, esto no se resuelve; no es contradicción entre las dos frases.
+
+## Consistencia cruzada
+
+- 165/165 + 9/9 aparecen idénticos en MASTERPLAN.md:23/52, backlog.md:20, gantt.md:13, HANDOFF.md:12 y bitacora.md:1958; las cifras reemplazadas del Gantt (123/123, 5/5) no reaparecen en ningún fragmento activo suministrado.
+- Suite-74 (50/74 por plazo) y batería financiera sin recibo constan como abiertos en todas las declaraciones; la ampliación 10→30 minutos no se reclama como resultado en ningún sitio. D2 abierto (gantt.md:13) coincide con la evidencia.
+- C2: MASTERPLAN.md:25 y HANDOFF.md:15 coinciden con la evidencia (24/24, 12/12, negativo original rojo en `497144e`, sin proveedor ni audio). Varianza trivial de nombre: «AccountStore» (HANDOFF.md:15) vs. «Cuenta de C2» (bitacora.md:1962) para el mismo recorrido.
+- **Riesgo de redacción:** «revisiones focales conciliadas» (gantt.md:13, MASTERPLAN.md:52) resume una aceptación parcial; el matiz solo se preserva en MASTERPLAN.md:23, backlog.md:20 y bitacora.md:1958. Asimismo, en MASTERPLAN.md:23 el antecedente de «repetidas por coordinación» podría leerse sobre ambos números, cuando la evidencia identifica la repetición independiente con el 9/9 en emulador.
+
+## Defectos candidatos, ajuste mínimo y qué falta
+
+- **Puntero por verificar (único defecto candidato concreto):** `backlog.md:19` (texto nuevo) dice «el seguimiento de las revisiones de sondeo figura en el punto siguiente», pero el punto siguiente visible (`backlog.md:20`) trata la reanudación, y el seguimiento del sondeo visible (dos historias → misma alerta; pista de dueño dañada → B) está en `backlog.md:22`. Si existe un punto 21 omitido con ese seguimiento, el puntero es correcto; si no, está desviado. Al no poder confirmarlo con el paquete, lo clasifico como posible ambigüedad y no como error demostrado.
+- **Ajuste documental más pequeño:** si se confirma que no hay punto intermedio, reescribir `backlog.md:19` para nombrar el punto que contiene el seguimiento del sondeo. Ajuste opcional equivalente de una cláusula: en `specs:17`, añadir «un guard o su campo ausentes se leen como no bloqueado», alineando con `firestoreBackend.ts:584–587` y la fixture `billingUnblock.emulator.mjs:465`; opcionalmente calificar «conciliadas» como «conciliadas en la marca de reanudación» en gantt.md:13 y MASTERPLAN.md:52. Ninguno oculta un fallo.
+- **Sin contradicciones demostradas entre declaraciones activas.** No hallé referencias activas obsoletas en los fragmentos suministrados; un barrido completo del árbol no era posible.
+- **Falta por comprobar:** contenido literal de sondeo:32, «Pruebas en memoria», README:30–32, C2:7–15, informe de `aecd5aa` y línea 26 de la especificación de devolución vencida; existencia del punto 21 del backlog; interacción dueño-ajeno/reporte en código; y todos los gates abiertos (recibo financiero, decisión de integración, ventanas de ACK directo, repetición de la suite 74 con recibo final, D2, durabilidad/proveedor/almacenamiento real, procedencia histórica y reparación bajo hold).
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: MASTERPLAN.md:23-25,52 · backlog.md:17,19-20,22 · gantt.md:13 · HANDOFF.md:11-12,15,22 · bitacora.md:1958,1962 · docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md:17,116,133 — todas coinciden con la evidencia del corte (5d949a0: 165/165 + 9/9 con inventarios y limpieza; 36/36 en memoria con FALLA histórico preservado; batería financiera sin recibo final; suite-74 agotada en 50/74; C2: 12/12 y 24/24 con negativo original rojo en 497144e; aecd5aa: 7 verdes, 2 rojos, 91/91, D2 abierto) y con las transiciones del diff (gantt 123/123+5/5 → 165/165+9/9; spec:133 «no lee billingGuards» → fuente guard en billingPendingReport.ts:24-25; spec:17 exigencia blocked===true → semántica con blocked:false admitido).
+NEGATIVOS: sin contradicción demostrada entre declaraciones activas; los controles negativos pertinentes permanecen rojos y preservados: FALLA de DeepSeek por updatedAtMs en bitacora.md:1958 con aceptación limitada a la primera autorización (36/36 solo en memoria, sin atomicidad entre almacenes ni continuidad previa), 2 criterios rojos y negativos en memoria de aecd5aa/backlog.md:22 (intención y trabajo nuevos de A siguen entrando; la alerta por sí sola no atribuye), negativo original de C2 rojo en HANDOFF.md:15 (497144e), suite-74 sin acreditar (MASTERPLAN.md:24) y batería financiera de 5d949a0 sin recibo final; control negativo vigente a favor de spec:17: fixture billingUnblock.emulator.mjs:465 (booleano falso y campo ausente → no bloqueado), coherente con firestoreBackend.ts:584-587 según caracterización.
+BLOQUEOS: dentro del alcance, los archivos de evidencia por referencia (sondeo:32, reanudación «Pruebas en memoria», README:30-32, C2 adaptador:7-15, informe aecd5aa) y la línea 26 de la especificación de devolución vencida se verificaron solo por caracterización, no por texto literal; sin barrido completo del árbol contra restos obsoletos (123/123, 5/5, «no lee billingGuards»); código no inspeccionable (firestoreBackend.ts:584-587, billingPendingReport.ts:24-25, billingUnblock.emulator.mjs:465), por lo que quedan abiertas la conducta ante guard con dueño ajeno en la ruta del reporte y la mención explícita de otras rutas de ACK en la especificación; existencia de un punto 21 del backlog sin confirmar, que decide si el puntero «el punto siguiente» de backlog.md:19 hacia el seguimiento del sondeo es correcto; fuera de este PASS focal: recibo financiero, decisión de integración, ventanas de ACK directo, repetición de la suite 74, D2, durabilidad, proveedor y almacenamiento real.
+=== FIN RESUMEN ===
