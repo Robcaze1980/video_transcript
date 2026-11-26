@@ -17,6 +17,34 @@ function integer(n:unknown,min=0):n is number{return Number.isSafeInteger(n)&&Nu
 function incidentId(value:string){if(typeof value!=='string'||!(uuid.test(value)||value.length===64&&/^[a-f0-9]{64}$/.test(value)))bad();return value;}
 export type VideoProviderAdmission={jobId:string;attemptId:string};
 type VideoCallIdentity=VideoProviderAdmission&{callKey:string;model:string;requestSha256:string};
+type VoiceOriginRequest={
+ identityKey:string;videoAccountId:string;intentId:string;reserveAttemptId:string;reservationId:string;seconds:number;
+};
+type VoiceOriginCall=VoiceOriginRequest&VideoCallIdentity&{originRef:string};
+type VoiceOriginPin={originRef:string;bindingGeneration:string;reservationGeneration:string};
+const voiceOriginProtocol=3,voiceOriginPurpose='reviewed_voice_fragment';
+const voiceRequestKeys=['identityKey','videoAccountId','intentId','reserveAttemptId','reservationId','seconds'];
+const voiceCallKeys=['originRef','jobId','attemptId','callKey','model','requestSha256'];
+function voiceRequest<T extends VoiceOriginRequest>(scope:string,request:T,withCall:boolean):T{
+ // This Account-only path stays closed outside local tests. No route supplies a scope.
+ if(process.env.NODE_ENV!=='test')throw new AccountFault('conflict');
+ if(typeof scope!=='string'||!scope.length||scope.length>63||/[^a-z0-9-]/.test(scope))bad();
+ if(!request||typeof request!=='object'||Object.getPrototypeOf(request)!==Object.prototype)bad();
+ const names=withCall?[...voiceRequestKeys,...voiceCallKeys]:voiceRequestKeys;
+ const descriptors=Object.getOwnPropertyDescriptors(request);
+ if(Reflect.ownKeys(descriptors).length!==names.length||!names.every(name=>Object.hasOwn(descriptors,name)&&'value' in descriptors[name]))bad();
+ const body=Object.fromEntries(names.map(name=>[name,descriptors[name].value])) as T;
+ id(body.videoAccountId);id(body.intentId);id(body.reserveAttemptId);id(body.reservationId);
+ return body;
+}
+function snapshotVersion(snapshot:DocumentSnapshot,field:'createTime'|'updateTime'){
+ const time=snapshot[field];
+ if(!time||!Number.isSafeInteger(time.seconds)||!integer(time.nanoseconds)||time.nanoseconds>=1_000_000_000)invariant();
+ return time!.seconds+':'+time!.nanoseconds;
+}
+function fieldsMatch(doc:DocumentSnapshot,expected:Record<string,unknown>){
+ return doc.exists&&Object.entries(expected).every(([field,value])=>doc.get(field)===value);
+}
 const callKeyValid=(value:unknown):value is string=>typeof value==='string'&&value.length===16&&/^(text-window|voice-chunk):\d{4}$/.test(value)&&Number(value.slice(-4))<1000;
 const modelValid=(value:unknown):value is string=>value==='gemini-3.8-flash'||value==='gemini-3.8-flash-tts';
 const modelMatchesKey=(callKey:string,model:string)=>callKey.startsWith('text-window:')?model==='gemini-3.8-flash':model==='gemini-3.8-flash-tts';
@@ -62,12 +90,18 @@ function firstCall(admitted:ReturnType<typeof storedAdmission>):VideoCallIdentit
  if(!callKeyValid(value.firstCallKey)||!modelValid(value.firstModel)||!modelMatchesKey(value.firstCallKey as string,value.firstModel as string)||!digestValid(value.firstRequestSha256))invariant();
  return {jobId:value.jobId,attemptId:value.attemptId,callKey:value.firstCallKey as string,model:value.firstModel as string,requestSha256:value.firstRequestSha256 as string};
 }
-function storedCall(doc:DocumentSnapshot,accountId:string,identityKey:string,reservationId:string,seconds:number):VideoCallIdentity{
+function storedCall(doc:DocumentSnapshot,accountId:string,identityKey:string,reservationId:string,seconds:number,pin?:VoiceOriginPin):VideoCallIdentity{
  const value=doc.data();
- if(!doc.exists||!value||value.admissionProtocol!==2||value.ownerAccountId!==accountId||value.identityKey!==identityKey||value.reservationId!==reservationId||value.seconds!==seconds||!integer(value.admittedAtMs)||typeof value.jobId!=='string'||!uuid.test(value.jobId)||typeof value.attemptId!=='string'||!uuid.test(value.attemptId)||!callKeyValid(value.callKey)||!modelValid(value.model)||!modelMatchesKey(value.callKey,value.model)||!digestValid(value.requestSha256))invariant();
+ if(!doc.exists||!value||value.admissionProtocol!==(pin?voiceOriginProtocol:2)||(pin&&!fieldsMatch(doc,pin))||value.ownerAccountId!==accountId||value.identityKey!==identityKey||value.reservationId!==reservationId||value.seconds!==seconds||!integer(value.admittedAtMs)||typeof value.jobId!=='string'||!uuid.test(value.jobId)||typeof value.attemptId!=='string'||!uuid.test(value.attemptId)||!callKeyValid(value.callKey)||!modelValid(value.model)||!modelMatchesKey(value.callKey,value.model)||!digestValid(value.requestSha256))invariant();
  return value as VideoCallIdentity;
 }
 function sameCall(a:VideoCallIdentity,b:VideoCallIdentity){return a.jobId===b.jobId&&a.attemptId===b.attemptId&&a.callKey===b.callKey&&a.model===b.model&&a.requestSha256===b.requestSha256;}
+function storedVoiceOrdinals(reservation:DocumentSnapshot,hasFirst:boolean,callKey:string,hasReceipt:boolean):number[]{
+ const value=reservation.get('voiceCallOrdinals'),ordinal=Number(callKey.slice(-4));
+ if(!Array.isArray(value)||value.length>1000||(value.length>0)!==hasFirst||
+    !value.every((n,i)=>integer(n)&&n<1000&&(i===0||value[i-1]<n))||value.includes(ordinal)!==hasReceipt)invariant();
+ return value;
+}
 function sealedReservation(doc:DocumentSnapshot,accountId:string,identityKey:string,reservationId:string,seconds:number){
  if(!doc.exists)return false;
  if(doc.get('ownerAccountId')!==accountId||doc.get('identityKey')!==identityKey||doc.get('reservationId')!==reservationId||doc.get('state')!=='sealed'||!integer(doc.get('seconds'),1)||!integer(doc.get('createdAtMs')))invariant();
@@ -315,51 +349,122 @@ export class AccountStore {
    return {state:'sealed' as const,reservationId,seconds,created:true};
   });
  }
+ /**
+  * Internal Account-only cut. An authenticated Video scope and separately verified binding and
+  * intent must already exist in Account. There is no writer or transport for those grants here.
+  */
+ async reserveVideoWithVoiceOrigin(scope:string,input:VoiceOriginRequest){
+  const request=voiceRequest(scope,input,false);
+  return this.reserveVideoTransaction(request.identityKey,request.reservationId,request.seconds,{scope,request});
+ }
+ private async readVoiceAuthority(tx:Transaction,identity:DocumentSnapshot,currentAccountId:string,scope:string,request:VoiceOriginRequest,requiredOrigin?:string){
+  const {identityKey,videoAccountId,intentId,reserveAttemptId,reservationId,seconds}=request;
+  const bindingRef=this.root.collection('videoVoiceBindings').doc(hash([scope,identityKey]));
+  const intentKey=hash([scope,intentId]);
+  const intentRef=this.root.collection('videoVoiceIntentGrants').doc(intentKey);
+  const claimRef=this.root.collection('videoVoiceOriginClaims').doc(intentKey);
+  const originRef=this.root.collection('videoVoiceReservationOrigins').doc(intentKey);
+  const [binding,intent,claim,origin]=await tx.getAll(bindingRef,intentRef,claimRef,originRef);
+  const claimOrigin=claim.get('originRef');
+  if(claim.exists!==origin.exists||
+     (claim.exists&&(typeof claimOrigin!=='string'||!uuid.test(claimOrigin)||origin.get('originRef')!==claimOrigin))||
+     (requiredOrigin!==undefined&&claimOrigin!==requiredOrigin))throw new AccountFault('conflict');
+  const ownerAccountId=origin.exists?origin.get('ownerAccountId'):currentAccountId;
+  const bindingGeneration=binding.get('generation');
+  if(ownerAccountId!==currentAccountId||typeof bindingGeneration!=='string'||!uuid.test(bindingGeneration)||
+     !fieldsMatch(binding,{v:1,state:'active',scope,identityKey,ownerAccountId,videoAccountId,identityVersion:snapshotVersion(identity,'updateTime')}))throw new AccountFault('conflict');
+  const bindingVersion=snapshotVersion(binding,'updateTime');
+  const grant={v:1,purpose:voiceOriginPurpose,scope,identityKey,ownerAccountId,videoAccountId,intentId,reserveAttemptId,reservationId,seconds,bindingGeneration,bindingVersion};
+  if(!fieldsMatch(intent,grant))throw new AccountFault('conflict');
+  return {claimRef,originRef,claim,origin,ownerAccountId,fields:{...grant,intentVersion:snapshotVersion(intent,'updateTime')}};
+ }
+ private verifyVoiceOrigin(voice:Awaited<ReturnType<AccountStore['readVoiceAuthority']>>,stored:DocumentSnapshot,reservation:DocumentSnapshot):VoiceOriginPin{
+  const {origin,claim,fields}=voice;
+  const originRef=claim.get('originRef'),reservationGeneration=origin.get('reservationGeneration');
+  if(!origin.exists||!reservation.exists||typeof originRef!=='string'||
+     typeof reservationGeneration!=='string'||!uuid.test(reservationGeneration)||
+     !fieldsMatch(origin,{...fields,originRef,reservationGeneration,accountVersion:snapshotVersion(stored,'createTime')})||
+     !fieldsMatch(reservation,{admissionProtocol:voiceOriginProtocol,originRef,reservationGeneration,bindingGeneration:fields.bindingGeneration}))throw new AccountFault('conflict');
+  // These three creates are issued together below. Check the original insertion, including
+  // restoration of an identical payload under the same path, independently of later updates.
+  const issued=snapshotVersion(origin,'createTime');
+  if(snapshotVersion(claim,'createTime')!==issued||snapshotVersion(reservation,'createTime')!==issued||
+     snapshotVersion(origin,'updateTime')!==issued||snapshotVersion(claim,'updateTime')!==issued)throw new AccountFault('conflict');
+  return {originRef,reservationGeneration,bindingGeneration:fields.bindingGeneration};
+ }
  /** Reserve the verified source video's duration exactly once before provider dispatch. */
  async reserveVideo(identityKey:string,reservationId:string,seconds:number){
+  return this.reserveVideoTransaction(identityKey,reservationId,seconds);
+ }
+ private async reserveVideoTransaction(identityKey:string,reservationId:string,seconds:number,originRequest?:{scope:string;request:VoiceOriginRequest}){
   id(reservationId);if(!integer(seconds,1)||seconds>600)bad();
   const identityRef=this.identityFromKey(identityKey),time=this.now();
+  const originCandidate=originRequest?{originRef:randomUUID(),reservationGeneration:randomUUID()}:undefined;
   return this.db.runTransaction(async tx=>{
    const identity=await tx.get(identityRef);
    if(!identity.exists)throw new AccountFault('account_not_provisioned');
    if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
-   const accountId=identity.get('accountId');
-   if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const currentAccountId=identity.get('accountId');
+   if(typeof currentAccountId!=='string'||!uuid.test(currentAccountId))invariant();
+   const voice=originRequest&&await this.readVoiceAuthority(tx,identity,currentAccountId,originRequest.scope,originRequest.request);
+   const accountId=voice?.ownerAccountId??currentAccountId;
    const accountRef=this.root.collection('accounts').doc(accountId),reservationIdHash=hash([accountId,reservationId]);
    const reservationRef=this.root.collection('videoReservations').doc(reservationIdHash),tombRef=this.root.collection('videoReservationTombstones').doc(reservationIdHash),guardRef=this.root.collection('videoBillingGuards').doc(accountId);
    const [stored,reservation,tomb,guard]=await tx.getAll(accountRef,reservationRef,tombRef,guardRef);
    const current=accountRecord(stored,identityKey),blocked=billingHold(guard,accountId,identityKey),sealed=sealedReservation(tomb,accountId,identityKey,reservationId,seconds);
    if(reservation.exists&&sealed)invariant();
+   const pin=voice?.claim.exists?this.verifyVoiceOrigin(voice,stored,reservation):undefined;
    if(reservation.exists){
+    if((voice&&!pin)||(!voice&&reservation.get('admissionProtocol')===voiceOriginProtocol))throw new AccountFault('conflict');
     if(reservation.get('ownerAccountId')!==accountId||reservation.get('identityKey')!==identityKey||reservation.get('reservationId')!==reservationId||reservation.get('seconds')!==seconds)throw new AccountFault('conflict');
     if(!integer(reservation.get('seconds'),1)||!['reserved','captured','released'].includes(reservation.get('state')))invariant();
     if(reservation.get('state')!=='reserved')throw new AccountFault('conflict');
-    return {created:false,state:reservation.get('state'),seconds,account:view(accountId,current)};
+    return {created:false,state:reservation.get('state'),seconds,account:view(accountId,current),...(pin?{originRef:pin.originRef}:{})};
    }
    if(sealed||blocked)throw new AccountFault('conflict');
    if(current.active>=maxActiveVideoReservations)throw new AccountFault('quota');
    if(current.available<seconds)throw new AccountFault('insufficient');
    const next={...current,available:current.available-seconds,reserved:current.reserved+seconds,active:current.active+1};
    if(![next.available,next.reserved,next.active].every(Number.isSafeInteger)||next.active<1)invariant();
+   const issued=voice&&originCandidate?{...originCandidate,bindingGeneration:voice.fields.bindingGeneration}:undefined;
+   if(voice&&issued){
+    tx.create(voice.originRef,
+      {...voice.fields,...issued,accountVersion:snapshotVersion(stored,'createTime')});
+    tx.create(voice.claimRef,{originRef:issued.originRef});
+   }
    tx.update(accountRef,next);
-    tx.create(reservationRef,{ownerAccountId:accountId,identityKey,reservationId,seconds,state:'reserved',admissionProtocol:2,createdAtMs:time,updatedAtMs:time});
+   tx.create(reservationRef,{ownerAccountId:accountId,identityKey,reservationId,seconds,state:'reserved',
+    admissionProtocol:issued?voiceOriginProtocol:2,createdAtMs:time,updatedAtMs:time,...(issued?{...issued,voiceCallOrdinals:[]}: {})});
    tx.create(this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,'reserve'])),{ownerAccountId:accountId,createdAtMs:time,seconds,kind:'video_reserve'});
-   return {created:true,state:'reserved' as const,seconds,account:view(accountId,next)};
+   return {created:true,state:'reserved' as const,seconds,account:view(accountId,next),...(issued?{originRef:issued.originRef}:{})};
   });
  }
  /** Retained only to reject old clients; a job-wide admission can bypass a later hold. */
  async admitVideoProvider(_identityKey:string,_reservationId:string,_seconds:number,_jobId:string,_attemptId:string):Promise<{reservationId:string;seconds:number;jobId:string;attemptId:string;created:boolean;receiptOnly:boolean}>{
   throw new AccountFault('conflict');
  }
+ /** Account-only admission. The proposed tuple must match the origin stored by Account. */
+ async admitVideoCallWithVoiceOrigin(scope:string,input:VoiceOriginCall){
+  const request=voiceRequest(scope,input,true);
+  id(request.originRef);
+  if(!callKeyValid(request.callKey)||!request.callKey.startsWith('voice-chunk:')||request.model!=='gemini-3.8-flash-tts')bad();
+  return this.admitVideoCallTransaction(request.identityKey,request.reservationId,request.seconds,
+   request.jobId,request.attemptId,request.callKey,request.model,request.requestSha256,{scope,request});
+ }
  /** Each provider call needs its own durable admission; an exact replay is only a receipt. */
  async admitVideoCall(identityKey:string,reservationId:string,seconds:number,jobId:string,attemptId:string,callKey:string,model:string,requestSha256:string){
+  return this.admitVideoCallTransaction(identityKey,reservationId,seconds,jobId,attemptId,callKey,model,requestSha256);
+ }
+ private async admitVideoCallTransaction(identityKey:string,reservationId:string,seconds:number,jobId:string,attemptId:string,callKey:string,model:string,requestSha256:string,originRequest?:{scope:string;request:VoiceOriginCall}){
   id(reservationId);if(!integer(seconds,1)||seconds>600||!callKeyValid(callKey)||!modelValid(model)||!digestValid(requestSha256))bad();
   const key:VideoCallIdentity={...admission({jobId,attemptId}),callKey,model,requestSha256};
   const identityRef=this.identityFromKey(identityKey),time=this.now();
   return this.db.runTransaction(async tx=>{
    const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
    if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
-   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const currentAccountId=identity.get('accountId');if(typeof currentAccountId!=='string'||!uuid.test(currentAccountId))invariant();
+   const voice=originRequest&&await this.readVoiceAuthority(tx,identity,currentAccountId,originRequest.scope,originRequest.request,originRequest.request.originRef);
+   const accountId=voice?.ownerAccountId??currentAccountId;
    const reservationKey=hash([accountId,reservationId]),reservationRef=this.root.collection('videoReservations').doc(reservationKey),calls=reservationRef.collection('providerCalls'),callRef=calls.doc(callDocId(callKey)),fenceRef=reservationRef.collection('providerCallFences').doc('first');
    const [stored,reservation,tomb,guard,call,fence]=await tx.getAll(this.root.collection('accounts').doc(accountId),reservationRef,this.root.collection('videoReservationTombstones').doc(reservationKey),this.root.collection('videoBillingGuards').doc(accountId),callRef,fenceRef);
    accountRecord(stored,identityKey);const blocked=billingHold(guard,accountId,identityKey),sealed=sealedReservation(tomb,accountId,identityKey,reservationId,seconds);
@@ -369,31 +474,40 @@ export class AccountStore {
    if(reservation.get('seconds')!==seconds)throw new AccountFault('conflict');
    const state=reservation.get('state');if(!['reserved','captured','released'].includes(state))invariant();
    // A missing version does not prove that an older worker never contacted the provider.
-   if(reservation.get('admissionProtocol')!==2)throw new AccountFault('conflict');
+   if(reservation.get('admissionProtocol')!==(voice?voiceOriginProtocol:2))throw new AccountFault('conflict');
+   const pin=voice&&this.verifyVoiceOrigin(voice,stored,reservation);
+   const originReceipt=pin?{originRef:pin.originRef}:{};
    const previous=storedAdmission(reservation),capturedWith=reservation.get('captureAdmission');
+   const ordinals=pin?storedVoiceOrdinals(reservation,previous!==null,callKey,call.exists):undefined;
    if(capturedWith!==undefined&&(state!=='captured'||!previous))invariant();
    if(previous){
     if(!sameAdmission(previous,key))throw new AccountFault('conflict');
     if(state==='released'&&!sameAdmission(reservation.get('releaseAdmission'),previous))invariant();
     if(state==='captured'&&!sameAdmission(capturedWith,key))invariant();
     const first=firstCall(previous),firstRef=calls.doc(callDocId(first.callKey)),firstReceipt=firstRef.path===callRef.path?call:await tx.get(firstRef);
-    if(!sameCall(storedCall(fence,accountId,identityKey,reservationId,seconds),first)||fence.get('admittedAtMs')!==previous.admittedAtMs)invariant();
-    if(!sameCall(storedCall(firstReceipt,accountId,identityKey,reservationId,seconds),first)||firstReceipt.get('admittedAtMs')!==previous.admittedAtMs)invariant();
+    if(ordinals&&!ordinals.includes(Number(first.callKey.slice(-4))))invariant();
+    if(!sameCall(storedCall(fence,accountId,identityKey,reservationId,seconds,pin),first)||fence.get('admittedAtMs')!==previous.admittedAtMs)invariant();
+    if(!sameCall(storedCall(firstReceipt,accountId,identityKey,reservationId,seconds,pin),first)||firstReceipt.get('admittedAtMs')!==previous.admittedAtMs)invariant();
     if(first.callKey.split(':')[0]!==callKey.split(':')[0]||first.model!==model)throw new AccountFault('conflict');
    }else if(call.exists||fence.exists)invariant();
    if(call.exists){
-    if(!sameCall(storedCall(call,accountId,identityKey,reservationId,seconds),key))throw new AccountFault('conflict');
-    return {reservationId,seconds,...key,created:false,receiptOnly:true};
+    if(!sameCall(storedCall(call,accountId,identityKey,reservationId,seconds,pin),key))throw new AccountFault('conflict');
+    return {reservationId,seconds,...key,...originReceipt,created:false,receiptOnly:true};
    }
    if(state!=='reserved'||blocked)throw new AccountFault('conflict');
    if(!modelMatchesKey(callKey,model))throw new AccountFault('conflict');
    if(!integer(time))invariant();
-   tx.create(callRef,{admissionProtocol:2,ownerAccountId:accountId,identityKey,reservationId,seconds,...key,admittedAtMs:time});
-   if(!previous){
-    tx.create(fenceRef,{admissionProtocol:2,ownerAccountId:accountId,identityKey,reservationId,seconds,...key,admittedAtMs:time});
-    tx.update(reservationRef,{providerAdmission:{jobId,attemptId,firstCallKey:callKey,firstModel:model,firstRequestSha256:requestSha256,admittedAtMs:time},updatedAtMs:time});
+   const receipt={admissionProtocol:pin?voiceOriginProtocol:2,ownerAccountId:accountId,identityKey,reservationId,seconds,...key,...pin,admittedAtMs:time};
+   tx.create(callRef,receipt);
+   if(!previous)tx.create(fenceRef,receipt);
+   if(!previous||ordinals){
+    // An ordinal already recorded on this generation cannot be admitted again if only
+    // its receipt disappears. Its reservation index and receipt are written together.
+    const ordinalUpdate=ordinals?{voiceCallOrdinals:[...ordinals,Number(callKey.slice(-4))].sort((a,b)=>a-b)}:{};
+    const firstUpdate=previous?{}:{providerAdmission:{jobId,attemptId,firstCallKey:callKey,firstModel:model,firstRequestSha256:requestSha256,admittedAtMs:time}};
+    tx.update(reservationRef,{...firstUpdate,...ordinalUpdate,updatedAtMs:time});
    }
-   return {reservationId,seconds,...key,created:true,receiptOnly:false};
+   return {reservationId,seconds,...key,...originReceipt,created:true,receiptOnly:false};
   });
  }
  /**
@@ -419,6 +533,8 @@ export class AccountStore {
    if(!['reserved','captured','released'].includes(state))invariant();
    if(seconds!==expectedSeconds)throw new AccountFault('conflict');
      const previous=storedAdmission(reservation),capturedWith=reservation.get('captureAdmission'),protocol=reservation.get('admissionProtocol');
+     // Voice-origin settlement stays closed until its own authorization protocol exists.
+     if(protocol===voiceOriginProtocol)throw new AccountFault('conflict');
      if(protocol!==undefined&&protocol!==1&&protocol!==2)invariant();
      if(protocol===2){
       const calls=reservationRef.collection('providerCalls');
