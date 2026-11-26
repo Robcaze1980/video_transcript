@@ -2,6 +2,8 @@ import {createHash,randomUUID} from 'node:crypto';
 import {Firestore,Timestamp,type DocumentReference,type Transaction} from 'firebase-admin/firestore';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {AI_CATALOG_VERSION} from './aiContracts';
+import {AccountBillingClient} from './accountBillingClient';
+import {AccountStore} from '../account/backend';
 import {FirestoreBackend,A3_REPLAY_WINDOW_MS,type DirectObservationSnapshot} from './firestoreBackend';
 
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -45,6 +47,10 @@ function fixture(enabled=true){
     };
     const tx={get:async(doc:DocumentReference)=>get(doc),getAll:async(...refs:DocumentReference[])=>refs.map(get),
       create:(doc:DocumentReference,row:Data)=>{if(entries.has(doc.path))throw Error('already exists');writes.push({doc,row});},
+      set:(doc:DocumentReference,patch:Data,options:{merge:true})=>{
+        if(options.merge!==true)throw Error('only merge is supported in this fixture');
+        writes.push({doc,row:{...entries.get(doc.path)?.row,...patch}});
+      },
       update:(doc:DocumentReference,patch:Data)=>{const row=entries.get(doc.path)?.row;if(!row)throw Error('not found');writes.push({doc,row:{...row,...patch}});}};
     const result=await fn(tx as unknown as Transaction);
     for(const write of writes)put(write.doc,write.row);
@@ -122,5 +128,136 @@ describe('local A3 fence writer evidence',()=>{
     expect(()=>new FirestoreBackend(wrong,wrong.doc(c.root.path),opts)).toThrow();
     vi.stubEnv('NODE_ENV','production');
     expect(()=>new FirestoreBackend(c.db,c.root,opts)).toThrow();
+  });
+});
+
+// These counterexamples ask exactly what a reader of the v1 protocol can observe after a real writer call.
+// The storage is the in-memory fixture above. The synthetic mutations model missing history, not client authority.
+describe('what remains visible after the A3 writer commits',()=>{
+  it('an intervening creation and deletion leaves the entire visible snapshot unchanged',async()=>{
+    const c=fixture(),late=await c.start(),winner=await c.start();
+    expect(await c.claim(winner)).toEqual({state:'release_pending',transitioned:true});
+    const currentVersions=async()=>{
+      const read=await c.backend.captureDirectObservation(c.witness,c.requestKey,'status');
+      expect(read).not.toBeNull();
+      return read!.versions;
+    };
+    const cleanVersions=await currentVersions(),before=new Map(c.entries);
+    expect(cleanVersions.guard).toEqual({exists:false});
+    const guard=c.ref('billingGuards',c.witness.accountId);
+    c.put(guard,{accountId:c.witness.accountId,blocked:true,epoch:1,createdAtMs:NOW});
+    expect(c.entries.get(guard.path)?.row.blocked).toBe(true);
+    expect(c.entries.delete(guard.path)).toBe(true);
+    expect(await currentVersions()).toEqual(cleanVersions);
+    expect(c.entries).toEqual(before); // includes both starts, the genuine receipt and metadata for the intent
+    expect(await c.backend.recordReservedStatusUncertainty(c.witness,c.requestKey,late)).toBe('needs_review');
+    const reviews=[...c.entries.keys()].filter(path=>path.includes('/billingIntentObservationIncidents/'));
+    expect(reviews).toHaveLength(1);
+    expect(await c.backend.recordReservedStatusUncertainty(c.witness,c.requestKey,late)).toBe('needs_review');
+    expect([...c.entries.keys()].filter(path=>path.includes('/billingIntentObservationIncidents/'))).toEqual(reviews);
+    expect([...c.entries.keys()].some(path=>path.includes('/billingIntentDispatchClaims/'))).toBe(false);
+  });
+
+  it('changing and restoring the intent advances its own version while preserving all v1 writer evidence',async()=>{
+    const c=fixture(),read=await c.start();
+    await c.claim(read);
+    const committed=c.entries.get(c.intent.path)!,receipt=c.entries.get(c.receipt.path)!;
+    const after=await c.backend.captureDirectObservation(c.witness,c.requestKey,'status');
+    const versionAtFence=after!.versions.intent;
+    expect(versionAtFence.exists).toBe(true);
+    const intendedRow={...c.intentData,...receipt.row.writes.updateIntent.fields};
+    expect(committed.row).toEqual(intendedRow);
+    c.put(c.intent,{...committed.row,nextAttemptAt:15_000});
+    c.put(c.intent,committed.row);
+    const current=await c.backend.captureDirectObservation(c.witness,c.requestKey,'status');
+    expect(c.entries.get(c.intent.path)?.row).toEqual(intendedRow);
+    expect(c.entries.get(c.intent.path)?.created.isEqual(committed.created)).toBe(true);
+    expect(current!.versions.intent).not.toEqual(versionAtFence);
+    expect(c.entries.get(c.receipt.path)).toBe(receipt);
+    expect(receipt.row.beforeVersions.intent).toEqual(read.versions.intent);
+    // Only the test took the post-commit reading. The receipt's versioned input is the preimage.
+    expect(Object.keys(receipt.row.writes.updateIntent).sort()).toEqual(['fields','path']);
+    expect(await c.claim(read)).toEqual({state:'release_pending',transitioned:false});
+  });
+
+  it('AccountStore checks the live owner but the returned status cannot distinguish a reverted change of owner',async()=>{
+    const video=fixture(),account=fixture(false); // independent transactional adapters; no network
+    const remoteRoot=account.db.collection('synthetic_account_postimage').doc(randomUUID());
+    const store=new AccountStore(account.db,remoteRoot);
+    const {identityKey,reservationId}=video.billing,owner=randomUUID(),other=randomUUID();
+    const foreignVideoOwner=randomUUID(),foreignUid=randomUUID(),foreignIdentity=digest(['firebase',foreignUid]);
+    const foreignVideoAccount=video.ref('accounts',foreignVideoOwner);
+    video.put(foreignVideoAccount,{active:0});
+    video.put(video.ref('identities',foreignIdentity),{uid:foreignUid,accountId:foreignVideoOwner});
+    account.put(remoteRoot.collection('identities').doc(foreignIdentity),{uid:foreignUid,accountId:other});
+    const foreignBefore=video.entries.get(foreignVideoAccount.path);
+    const uid=video.entries.get(video.ref('identities',identityKey).path)!.row.uid;
+    const identity=remoteRoot.collection('identities').doc(identityKey);
+    const reservation=remoteRoot.collection('videoReservations').doc(digest([owner,reservationId]));
+    account.put(identity,{uid,accountId:owner});
+    account.put(reservation,{ownerAccountId:owner,identityKey,reservationId,state:'reserved',seconds:2});
+    const late=await video.start(),winner=await video.start();
+    const readStatus=()=>store.videoReservation(identityKey,reservationId);
+    const observed=await readStatus();expect(observed).toEqual(video.observed);
+    const winnerReturn=await readStatus();
+    if(winnerReturn.state!=='reserved')throw Error('expected an actual reserved status');
+    expect(await video.claim(winner,{...winnerReturn,state:winnerReturn.state})).toEqual({state:'release_pending',transitioned:true});
+    const videoBefore=new Map(video.entries),originalOwner=account.entries.get(identity.path)!;
+    account.put(identity,{uid,accountId:other});
+    await expect(readStatus()).rejects.toMatchObject({code:'not_found'});
+    account.put(identity,originalOwner.row);
+    const current=await readStatus();
+    expect(current).toEqual(observed);
+    expect(Object.keys(current).sort()).toEqual(['reservationId','seconds','state']);
+    expect(account.entries.get(identity.path)!.updated.isEqual(originalOwner.updated)).toBe(false);
+    expect(video.entries).toEqual(videoBefore);
+    expect(await video.backend.recordReservedStatusUncertainty(video.witness,video.requestKey,late)).toBe('needs_review');
+    expect(account.entries.get(reservation.path)?.row.state).toBe('reserved');
+    expect(account.commits).toEqual([]); // both status reads and the not-found branch are read-only
+    expect(video.entries.get(foreignVideoAccount.path)).toBe(foreignBefore);
+    expect(video.entries.has(video.ref('billingGuards',foreignVideoOwner).path)).toBe(false);
+  });
+
+  it('a different validated status can be lost without changing any durable evidence for that attempt',async()=>{
+    const c=fixture();
+    const seconds=[3,2];
+    const calls:string[]=[];
+    const client=new AccountBillingClient(undefined,{request:async request=>{
+      const path=new URL(request.url).pathname;
+      expect(path).toBe('/api/internal/video/reservations/'+c.billing.reservationId+'/status');
+      expect(request.data).toEqual({identityKey:c.billing.identityKey});
+      calls.push(path);
+      return {data:{reservationId:c.billing.reservationId,state:'reserved',seconds:seconds.shift()}};
+    }});
+    const late=await c.start(),beforeDelivery=new Map(c.entries);
+    const returned=await client.status(c.billing.identityKey,c.billing.reservationId);
+    expect(returned.seconds).toBe(3);expect(late.witness.seconds).toBe(2);
+    // Model process loss after status validation, before its caller receives and journals these bytes.
+    expect(c.entries).toEqual(beforeDelivery);
+    const winner=await c.start(),winnerReturn=await client.status(c.billing.identityKey,c.billing.reservationId);
+    if(winnerReturn.state!=='reserved')throw Error('expected a reserved response');
+    await c.claim(winner,{...winnerReturn,state:winnerReturn.state});
+    const receipt=c.entries.get(c.receipt.path)!.row;
+    expect(receipt.statusAttemptId).toBe(winner.attemptId);
+    expect(receipt.returnedStatus.seconds).toBe(2);
+    const issued=c.entries.get(c.ref('billingA3StatusAttempts',late.attemptId).path)!.row;
+    expect(issued.expectedSeconds).toBe(2);expect(issued).not.toHaveProperty('returnedStatus');
+    expect(calls).toHaveLength(2);expect(seconds).toEqual([]);
+  });
+
+  it('the winner persists its return but a lost late return remains unobserved across restart',async()=>{
+    const c=fixture(),late=await c.start(),winner=await c.start();
+    expect(late.versions).toEqual(winner.versions);expect(late.attemptId).not.toBe(winner.attemptId);
+    await c.claim(winner);
+    const oldAttempt=c.entries.get(c.ref('billingA3StatusAttempts',late.attemptId).path)!.row;
+    expect(Object.keys(oldAttempt).sort()).toEqual(['expectedReservationId','expectedSeconds','fixtureNonce','kind','namespace','protocol','snapshot']);
+    expect(oldAttempt.snapshot).toEqual(late);
+    const evidence=c.entries.get(c.receipt.path)!.row;
+    expect(evidence.statusAttemptId).toBe(winner.attemptId);expect(evidence.returnedStatus).toEqual(c.observed);
+    const restart=new FirestoreBackend(c.db,c.root,{a3FenceReceiptFixtureNonce:c.nonce});
+    const retry=await restart.claimExternalBillingRelease(c.witness.accountId,c.requestKey,c.billing);
+    expect(retry).toEqual({state:'release_pending',transitioned:false});
+    expect(c.entries.get(c.ref('billingA3StatusAttempts',late.attemptId).path)!.row).toEqual(oldAttempt);
+    expect(c.commits).toHaveLength(3); // two request records and the one winning transaction
   });
 });
