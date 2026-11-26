@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 const project = 'demo-vistavo-ledger';
 const host = '127.0.0.1:8185';
 const voiceC1 = process.argv.at(-1) === '--voice-c1';
-const expectedTests = voiceC1 ? 72 : 28;
+const expectedTests = voiceC1 ? 74 : 28;
 const guardFile = 'scripts/reviewEmulatorNetworkGuard.cjs';
 const fixtureFile = 'server/commercial/firestoreReviewedTranslation.emulator.mjs';
 const tracked = Object.freeze([

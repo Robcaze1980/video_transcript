@@ -1,5 +1,5 @@
 import {ReviewedTranslationFault,type FirestoreReviewedTranslation,type ReviewedTranslationPrincipal} from './firestoreReviewedTranslation';
-import {createReviewedVoiceMarker,validateReviewedVoiceMarkerReplay,ReviewedVoiceMarkerFault,type ReviewedVoiceMarker} from './reviewedVoiceMarker';
+import {createReviewedVoiceMarker,validateReviewedVoiceMarker,validateReviewedVoiceMarkerReplay,ReviewedVoiceMarkerFault,type ReviewedVoiceMarker} from './reviewedVoiceMarker';
 import {videoReservationId} from './videoReservationId';
 import {isLocalVoiceFixtureTarget,isMarkedLocalVoiceRoot,LOCAL_VOICE_CONFLICTS,LOCAL_VOICE_PROJECT,LOCAL_VOICE_ROOT_PURPOSE,localVoiceRequestUuid} from './localVoiceFixture';
 import { createHash, randomUUID } from 'node:crypto';
@@ -909,10 +909,18 @@ export class FirestoreBackend {
       if(row.inputId!==witness.inputId||row.operation!==witness.operation||row.revision!==witness.revision||row.jobId!==undefined)return null;
       const claim=await this.readLocalRequestKeyClaim(tx,accountId,requestKey,'voice','billingIntents',true);
       this.localRequestClaimLink(claim,intent);
+      // The current identity alone cannot attribute a conflict to a voice attempt
+      // whose marker was replaced or restored after preparation.
+      const voice=attempt.voice;
+      if(typeof voice?.markerId!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(voice.markerId)||voice.markerVersion?.exists!==true)return null;
+      const storedMarker=await tx.get(this.ref('reviewedVoiceMarkers',voice.markerId));
+      if(!sameTerminalDocumentVersion(storedMarker,voice.markerVersion))return null;
+      const marker=validateReviewedVoiceMarker(storedMarker.data(),accountId,requestKey,witness.operation);
+      if(marker.markerId!==voice.markerId||marker.fingerprint!==voice.markerFingerprint)return null;
       return intent;
     }catch(error){
       // A legitimate ACK can still be kept unverified when attribution fails.
-      if(error instanceof LedgerFault)return null;
+      if(error instanceof LedgerFault||error instanceof ReviewedVoiceMarkerFault)return null;
       throw error;
     }
   }
