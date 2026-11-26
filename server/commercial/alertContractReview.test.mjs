@@ -291,6 +291,70 @@ test('partial receipt cannot certify a historical request that already names a d
   assert.equal(calls,1);assert.deepEqual(f.s.store,before);
 });
 
+test('guard clock rejects a first request with an older updatedAtMs before Account or audit',async()=>{
+  const f=await unblockFixture({}),path='billingGuards/'+accountId;
+  f.s.store.set(path,{...f.s.store.get(path),updatedAtMs:f.request.updatedAtMs+1});
+  let reads=0;
+  f.deps.accountBilling.unblockReceipt=async()=>{reads++;throw Error('unexpected receipt read');};
+  const before=structuredClone(f.s.store);
+  await assert.rejects(f.unblock,error=>error.code==='conflict'&&error.stage.startsWith('generation:'));
+  assert.deepEqual(f.s.store,before);
+  assert.equal(f.calls.length,0);assert.equal(reads,0);
+});
+
+for(const response of ['confirmed','pending']){
+  test('guard clock resumes an unchanged occurrence after a benign write before '+response,async()=>{
+    const f=await unblockFixture({}),guardPath='billingGuards/'+accountId;
+    let sends=0,reads=0;
+    f.deps.accountBilling.unblock=async()=>{
+      if(++sends===1)throw Error('synthetic initial response lost');
+      assert.equal(response,'pending');return {replayed:false,blocked:false};
+    };
+    await assert.rejects(f.unblock,error=>error.stage==='account');
+    const requestPath=[...f.s.store.keys()].find(key=>key.startsWith(UNBLOCK_AUDIT_COLLECTION+'/'));
+    const original=structuredClone(f.s.store.get(requestPath));
+    const newerUpdatedAtMs=f.request.updatedAtMs+1;
+    // This is the field change of the real writer when it names the same incident again.
+    f.s.store.set(guardPath,{...f.s.store.get(guardPath),updatedAtMs:newerUpdatedAtMs});
+    f.deps.accountBilling.unblockReceipt=async()=>{
+      reads++;
+      return response==='confirmed'?{state:response,epoch:1,createdAtMs:5,blocked:false}:{state:response};
+    };
+    await assert.rejects(()=>unblockBillingAccount(f.deps,accountId,{...f.request,updatedAtMs:newerUpdatedAtMs},actor,30),{code:'conflict'});
+    assert.equal(reads,0,'a refreshed payload cannot replace the audit record');
+    assert.equal((await f.unblock()).videoBlocked,false);
+    assert.deepEqual(f.s.store.get(requestPath),original);
+    assert.equal(f.s.store.has(guardPath),false);
+    assert.equal((await f.unblock()).replayed,true);
+    assert.deepEqual([reads,sends],[1,response==='confirmed'?1:2]);
+  });
+}
+
+for(const restore of [false,true]){
+  test('guard clock refuses a write during the confirmed receipt lookup, restored='+restore,async()=>{
+    const f=await unblockFixture({}),guardPath='billingGuards/'+accountId;
+    let sends=0,reads=0;
+    f.deps.accountBilling.unblock=async()=>{sends++;throw Error('synthetic initial response lost');};
+    await assert.rejects(f.unblock,error=>error.stage==='account');
+    const before=structuredClone(f.s.store.get(guardPath));
+    let afterMutation;
+    f.deps.accountBilling.unblockReceipt=async()=>{
+      if(++reads===1){
+        f.s.store.set(guardPath,{...before,updatedAtMs:before.updatedAtMs+1});
+        if(restore)f.s.store.set(guardPath,structuredClone(before));
+        afterMutation=structuredClone(f.s.store);
+      }
+      return {state:'confirmed',epoch:1,createdAtMs:5,blocked:false};
+    };
+    await assert.rejects(f.unblock,{code:'conflict'});
+    assert.deepEqual(f.s.store,afterMutation);
+    assert.equal(f.s.store.get(guardPath).blocked,true);
+    assert.deepEqual([reads,sends],[1,1]);
+    assert.equal((await f.unblock()).videoBlocked,false,'a later stable read resumes the original request');
+    assert.deepEqual([reads,sends],[2,1]);
+  });
+}
+
 for(const alteration of ['different evidence','restored evidence','intact']){
   test('confirmed nonpartial receipt checks the request at final commit: '+alteration,async()=>{
     const f=await unblockFixture({});
