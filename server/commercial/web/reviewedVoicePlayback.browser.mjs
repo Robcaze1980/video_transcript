@@ -17,6 +17,7 @@ import {assertHeadlessBrowserProduct,readPinnedBrowserIdentity} from './reviewBr
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 const mime='audio/wav';
 const fileName='narration-en.wav';
+const browserCloseTimeoutMs=5_000;
 const vectorFile=new URL('../reviewedVoiceCanonical.vectors.json',import.meta.url);
 const {vectors}=JSON.parse(await readFile(vectorFile,'utf8'));
 const vector=vectors.find(item=>item.name==='unicode-two-cues');
@@ -158,6 +159,27 @@ const browser=spawn(browserIdentity.path,['--headless=new','--no-first-run','--d
   {cwd:root,env:sandboxEnv,windowsHide:true,stdio:['ignore','ignore','pipe','pipe','pipe']});
 const closed=new Promise(resolve=>browser.once('close',resolve));
 const chromeStderr=captureChromeStderr(browser.stderr),cdp=cdpPipe(browser);
+
+async function stopBrowser(){
+  let timeout;
+  try{
+    if(browser.exitCode===null&&browser.signalCode===null)browser.kill();
+    await Promise.race([
+      closed,
+      new Promise((_,reject)=>{
+        timeout=setTimeout(()=>reject(Error('Synthetic Chromium did not close within '+browserCloseTimeoutMs+' ms')),browserCloseTimeoutMs);
+      }),
+    ]);
+  }catch(error){
+    // Chromium could still hold the profile. Let the harness exit and leave it for inspection.
+    browser.unref();
+    for(const pipe of browser.stdio)pipe?.destroy();
+    throw error;
+  }finally{
+    clearTimeout(timeout);
+  }
+}
+
 const exceptions=[],external=[],playback=[];
 let playbackResult;
 try{
@@ -257,8 +279,7 @@ try{
   throw error;
 }finally{
   try{
-    if(browser.exitCode===null&&browser.signalCode===null)browser.kill();
-    await closed;
+    await stopBrowser();
     const workspace=await realpath(resolve('outputs')),actual=await realpath(root),actualProfile=await realpath(profile);
     const inside=relative(workspace,actual);
     assert.ok(inside.startsWith('lv019-b-voice-playback-')&&!isAbsolute(inside)&&!inside.includes(sep));
