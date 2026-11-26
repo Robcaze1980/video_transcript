@@ -30,9 +30,10 @@ const copy=data=>JSON.parse(JSON.stringify(data));
 const contexts=[];let created=0,cleaned=0;
 
 function assertSafeEnvironment(){
-  if(!process.env.LV_REVIEW_CONTRACT)process.env.LV_REVIEW_CONTRACT='1';
-  if(!process.env.METADATA_SERVER_DETECTION)process.env.METADATA_SERVER_DETECTION='none';
   assert.equal(process.env.NODE_ENV,'test');assert.equal(process.env.FIRESTORE_EMULATOR_HOST,host);
+  assert.equal(process.env.LV_REVIEW_CONTRACT,'1');assert.equal(process.env.LV_FINANCIAL_REGRESSION,'1');
+  assert.equal(process.env.GOOGLE_CLOUD_PROJECT,project);assert.equal(process.env.GCLOUD_PROJECT,project);
+  assert.equal(process.env.METADATA_SERVER_DETECTION,'none');
   for(const key of ['GOOGLE_APPLICATION_CREDENTIALS','K_SERVICE','K_JOB','FUNCTION_TARGET','GAE_ENV','GEMINI_API_KEY','OPENROUTER_API_KEY'])assert.equal(process.env[key],undefined,`Unexpected ${key}`);
 }
 function assertSafeClient(c){
@@ -51,7 +52,7 @@ afterEach(async()=>{
     }finally{await c.db.terminate();}
   }
 });
-after(()=>{console.log(`Synthetic alert contract cleanup total: ${cleaned}/${created}`);assert.equal(cleaned,created);assert.equal(created,9);});
+after(()=>{console.log(`Synthetic alert contract cleanup total: ${cleaned}/${created}`);assert.equal(cleaned,created);assert.equal(created,16);});
 
 const accountStatus={invalid:400,not_found:404,account_not_provisioned:404,conflict:409,deleted:410,quota:429,insufficient:402,invariant:503,too_early:409,forbidden:403};
 class LocalAccountTransport{
@@ -182,8 +183,9 @@ async function blockedAccount(scope,options={}){
  * The INTENT-kind twin of `blockedAccount`: a captured reservation whose review row is written by the real
  * `recordExternalBillingReview` (the guard names `lastIncidentId`, the hold is named after that generation).
  */
-async function blockedIntentAccount(scope){
+async function blockedIntentAccount(scope,{reserveAccount=false}={}){
   const c=await fixture(scope),requestKey=randomUUID(),reservationId=randomUUID(),data={provider:'account_seconds',identityKey:c.identity,reservationId,seconds:2};
+  if(reserveAccount)assert.equal((await c.store.reserveVideo(c.identity,reservationId,data.seconds)).created,true);
   await c.backend.beginExternalBillingIntent(c.account,c.input,requestKey,'translation:en',1,data);
   await c.backend.recordExternalBillingReview(c.account,requestKey,data,{reservationId,state:'captured',seconds:2});
   const guard=(await guardOf(c).get()).data();
@@ -433,3 +435,156 @@ for(const alteration of ['different evidence','restored evidence','intact']){
     }
   });
 }
+
+
+async function directAckFixture(scope){
+  const b=await blockedIntentAccount(scope,{reserveAccount:true}),c=b.c,p=await request(c,b);
+  const requestedId=unblockAuditId(b.incident,'unblock_requested',p.epoch,p.createdAtMs);
+  const requested=ref(c.root,UNBLOCK_AUDIT_COLLECTION,requestedId);
+  const start=c.transport.bodies.length,accountBefore=await signatures(c.accountRoot);
+  const owner=ref(c.accountRoot,'accounts',c.accountOwner);
+  const reservation=ref(c.accountRoot,'videoReservations',sha(JSON.stringify([c.accountOwner,b.reservationId])));
+  const economicBefore=(await c.db.getAll(owner,reservation)).map(doc=>doc.data());
+  assert.deepEqual(
+    [economicBefore[0].credited,economicBefore[0].available,economicBefore[0].reserved,economicBefore[0].consumed,economicBefore[0].active],
+    [40,38,2,0,1],
+  );
+  assert.deepEqual([economicBefore[1].reservationId,economicBefore[1].seconds,economicBefore[1].state],[b.reservationId,2,'reserved']);
+  assert.equal((await c.accountRoot.collection('ledgerEntries').get()).docs.filter(doc=>doc.get('kind')==='video_reserve').length,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).empty,true);
+
+  async function assertAccountDecision(){
+    const receiptId=sha(JSON.stringify([c.accountOwner,b.hold,'unblock']));
+    const receipts=await c.accountRoot.collection('videoBillingUnblocks').get();
+    assert.deepEqual(receipts.docs.map(doc=>doc.id),[receiptId]);
+    const receipt=await realReceipt(b,p);
+    assert.deepEqual(receipt,{state:'confirmed',incidentId:b.hold,reviewRef:p.evidenceRef,
+      epoch:p.accountEpoch,createdAtMs:p.accountCreatedAtMs,blocked:false});
+    assert.equal(await accountGuard(c),null);
+    const account=await signatures(c.accountRoot);
+    const changed=[...new Set([...Object.keys(accountBefore),...Object.keys(account)])]
+      .filter(key=>accountBefore[key]!==account[key]).sort();
+    assert.deepEqual(changed,[
+      ref(c.accountRoot,'videoBillingGuards',c.accountOwner).path,
+      ref(c.accountRoot,'videoBillingIncidents',sha(JSON.stringify([c.accountOwner,b.hold]))).path,
+      ref(c.accountRoot,'videoBillingUnblocks',receiptId).path,
+    ].sort(),'Only the guard, its incident and the single receipt may change');
+    assert.deepEqual((await c.db.getAll(owner,reservation)).map(doc=>doc.data()),economicBefore);
+    return account;
+  }
+  return {b,c,p,requested,start,accountBefore,assertAccountDecision};
+}
+
+async function assertDirectAckVideo(f,closed){
+  const {b,c,p,requested}=f;
+  const [review,intent,alert,guard,reopening]=await c.db.getAll(
+    ref(c.root,'billingReviewIncidents',b.incident),ref(c.root,'billingIntents',b.incident),
+    ref(c.root,ALERT_COLLECTION,b.alertKey),guardOf(c),ref(c.root,'billingReleaseReopenings',c.account),
+  );
+  assert.equal(review.exists,true);
+  assert.equal(review.get('state'),closed?'reviewed':undefined);
+  assert.equal(intent.get('state'),closed?'reserve_pending':'needs_review');
+  assert.equal(alert.get('status'),closed?'dispositioned':'open');
+  assert.equal(guard.exists,!closed);
+  assert.equal(reopening.exists,closed);
+  if(closed){
+    const id=unblockAuditId(b.incident,'unblocked',p.epoch,p.createdAtMs),done=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,id).get();
+    assert.deepEqual(await auditActions(c),['unblock_requested','unblocked']);
+    assert.equal(done.get('evidenceRef'),p.evidenceRef);
+    assert.equal((await requested.get()).get('evidenceRef'),p.evidenceRef);
+    assert.equal(done.get('accountEpoch'),p.accountEpoch);
+    assert.equal(done.get('accountCreatedAtMs'),p.accountCreatedAtMs);
+    assert.equal(alert.get('dispositionAuditId'),id);
+  }else{
+    assert.equal(guard.get('blocked'),true);
+    assert.equal(review.get('reviewedAtMs'),undefined);
+    assert.deepEqual(await auditActions(c),['unblock_requested']);
+  }
+}
+
+for(const route of ['fresh','pending']) for(const alteration of ['altered','restored','intact']){
+  test('alert contract '+route+' direct ACK with '+alteration+' audit',timeLimit,async()=>{
+    const f=await directAckFixture('direct-ack-'+route+'-'+alteration),{b,c,p,requested,start}=f;
+    const send=c.accountBilling.unblock.bind(c.accountBilling),read=c.accountBilling.unblockReceipt.bind(c.accountBilling);
+    if(route==='pending'){
+      c.accountBilling.unblock=async()=>{throw Error('synthetic failure before delivering the first POST');};
+      await assert.rejects(()=>perform(b,p),error=>error instanceof UnblockFault&&error.stage==='account');
+      assert.deepEqual(paths(c,start),[]);
+      assert.deepEqual(await signatures(c.accountRoot),f.accountBefore);
+      assert.equal((await realReceipt(b,p)).state,'pending');
+      await assertDirectAckVideo(f,false);
+    }
+    const receiptStates=[];
+    c.accountBilling.unblockReceipt=async(...args)=>{
+      const receipt=await read(...args);
+      receiptStates.push(receipt.state);
+      return receipt;
+    };
+    let beforeClose,accountAtAck,auditAtAck;
+    c.accountBilling.unblock=async(...args)=>{
+      const response=await send(...args);
+      assert.deepEqual([response.unblocked,response.replayed,response.blocked],[true,false,false]);
+      accountAtAck=await f.assertAccountDecision();
+      const original=await requested.get();
+      assert.equal(original.get('evidenceRef'),p.evidenceRef);
+      assert.equal(original.createTime.isEqual(original.updateTime),true);
+      if(alteration!=='intact'){
+        // Privileged writes to the same request after the Account commit and before Video consumes the response.
+        await requested.update({evidenceRef:'synthetic alternative evidence'});
+        if(alteration==='restored')await requested.update({evidenceRef:original.get('evidenceRef')});
+      }
+      auditAtAck=await requested.get();
+      assert.equal(original.createTime.isEqual(auditAtAck.createTime),true);
+      assert.equal(original.updateTime.isEqual(auditAtAck.updateTime),alteration==='intact');
+      if(alteration==='restored')assert.deepEqual(auditAtAck.data(),original.data());
+      beforeClose=await signatures(c.root);
+      return response;
+    };
+
+    const expectedCalls=route==='pending'?[receiptPath,unblockPath]:[unblockPath];
+    const expectedReceipts=route==='pending'?['pending']:[];
+    if(alteration==='intact'){
+      assert.equal((await perform(b,p)).videoBlocked,false);
+      await assertDirectAckVideo(f,true);
+      const complete=await signatures(c.root);
+      assert.equal((await perform(b,p)).replayed,true);
+      assert.deepEqual(await signatures(c.root),complete);
+    }else{
+      await assert.rejects(()=>perform(b,p),{code:'conflict'});
+      await assertDirectAckVideo(f,false);
+      assert.deepEqual(await signatures(c.root),beforeClose);
+      assert.deepEqual((await requested.get()).data(),auditAtAck.data());
+      await assert.rejects(()=>perform(b,p),{code:'conflict'});
+      assert.deepEqual(await signatures(c.root),beforeClose);
+      if(alteration==='restored'){expectedCalls.push(receiptPath);expectedReceipts.push('confirmed');}
+    }
+    assert.deepEqual(paths(c,start),expectedCalls);
+    assert.deepEqual(receiptStates,expectedReceipts);
+    assert.deepEqual(await f.assertAccountDecision(),accountAtAck);
+  });
+}
+
+test('alert contract lost direct ACK with intact audit recovers the one Account decision',timeLimit,async()=>{
+  const f=await directAckFixture('direct-ack-lost-intact'),{b,c,p,requested,start}=f;
+  const send=c.accountBilling.unblock.bind(c.accountBilling);
+  c.accountBilling.unblock=async(...args)=>{
+    const response=await send(...args);
+    assert.deepEqual([response.unblocked,response.replayed,response.blocked],[true,false,false]);
+    throw Error('synthetic ACK delivery failure after Account commit');
+  };
+  await assert.rejects(()=>perform(b,p),error=>error instanceof UnblockFault&&error.stage==='account');
+  await assertDirectAckVideo(f,false);
+  assert.deepEqual(paths(c,start),[unblockPath]);
+  const account=await f.assertAccountDecision(),audit=await requested.get();
+  assert.equal(audit.createTime.isEqual(audit.updateTime),true);
+
+  const recovered=await perform(b,p);
+  assert.deepEqual([recovered.accountBlocked,recovered.videoBlocked],[false,false]);
+  await assertDirectAckVideo(f,true);
+  const closed=await signatures(c.root);
+  assert.equal((await perform(b,p)).replayed,true);
+  assert.deepEqual(await signatures(c.root),closed);
+  assert.equal(audit.updateTime.isEqual((await requested.get()).updateTime),true);
+  assert.deepEqual(paths(c,start),[unblockPath,receiptPath]);
+  assert.deepEqual(await f.assertAccountDecision(),account);
+});
