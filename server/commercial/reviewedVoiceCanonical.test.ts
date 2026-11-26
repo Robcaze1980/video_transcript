@@ -72,6 +72,35 @@ describe('reviewed voice fixed vectors', () => {
   });
 });
 
+describe('C2 single-fragment receiver in memory', () => {
+  it('receives the exact UTF-8 bytes only after validating the first reviewed fragment', () => {
+    const vector = vectors[0];
+    const expected = vector.calls[0];
+    const received: Buffer[] = [];
+    // This receiver probes only the canonical byte boundary. It cannot authorize an admission.
+    const receive = (candidate: unknown) => {
+      const verified = validateReviewedVoiceCall(candidate);
+      expect(verified.chunkCount).toBe(1);
+      expect(verified.callKey).toBe('voice-chunk:0000');
+      received.push(Buffer.from(verified.body, 'utf8'));
+      return verified.requestSha256;
+    };
+    const good = request(vector);
+    for (const altered of [
+      { ...good, body: JSON.stringify(JSON.parse(good.body), null, 2) },
+      { ...good, body: good.body.replace('Kore', 'Charon') },
+      { ...good, model: 'other-model' },
+      { ...good, callKey: 'voice-chunk:0001' },
+    ]) {
+      expect(() => receive(altered)).toThrow(ReviewedVoiceCanonicalError);
+    }
+    expect(received).toHaveLength(0);
+    expect(receive(good)).toBe(expected.requestSha256);
+    expect(received).toEqual([Buffer.from(expected.body, 'utf8')]);
+    expect(createHash('sha256').update(received[0]!).digest('hex')).toBe(expected.requestSha256);
+  });
+});
+
 describe('canonical binding failures', () => {
   it.each([
     ['account', (x: any) => { x.evidence.accountId = '44444444-4444-4444-8444-444444444444'; }],

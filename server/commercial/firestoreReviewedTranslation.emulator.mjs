@@ -24,7 +24,8 @@ const host = '127.0.0.1:8185';
 const project = 'demo-vistavo-ledger';
 const testCollection = 'vistavo_review_contract_synthetic';
 const voiceC1 = process.env.LV_VOICE_C1_FIXTURE === '1';
-const testCount = voiceC1 ? 60 : 28;
+const voiceC2Preparation = voiceC1 && process.env.LV_VOICE_C2_PREPARATION === '1';
+const testCount = voiceC1 ? 60 + Number(voiceC2Preparation) : 28;
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const contexts = [];
 let verifiedCleanups = 0;
@@ -1118,6 +1119,78 @@ if (voiceC1) {
     const voiceJobs = async () => (await c.root.collection('jobs').get()).docs.filter(doc => doc.get('operation').startsWith('narration:'));
     const acks = () => c.root.collection('billingReserveAckObservations').get();
     return {c, store, calls, request, balances, voiceJobs, acks, revision:saved.committedRevision, setResponseHook: hook => { responseHook = hook; }};
+  }
+
+  if (voiceC2Preparation) {
+    test('C2 preparation: Account records one admission for a genuine C1 fixture reservation', async () => {
+      const f = await voiceFixture();
+      const key = randomUUID();
+      const jobId = await f.request(key);
+      assert.equal(f.calls.length, 1);
+      const {identityKey, reservationId, seconds} = f.calls[0];
+      const job = await ref(f.c, 'jobs', jobId).get();
+      const [binding, acks, balancesBefore, ledgerBefore] = await Promise.all([
+        voiceBinding(f.c), f.acks(), f.balances(), f.store.root.collection('ledgerEntries').get(),
+      ]);
+      assert.equal(acks.size, 1);
+      const ack = acks.docs[0];
+      const prepared = await ref(f.c, 'billingReserveAttempts', reservationId).get();
+      assert.equal(prepared.get('version'), 2);
+      assert.deepEqual(
+        ['attemptId', 'state', 'source', 'identityKey', 'reservationId', 'seconds'].map(field => ack.get(field)),
+        [reservationId, 'reserved', 'reserve_ack', identityKey, reservationId, seconds],
+      );
+      assert.equal(job.get('accountId'), binding.accountId);
+      assert.equal(binding.identityKey, identityKey);
+      assert.equal(binding.billableSeconds, seconds);
+      assert.deepEqual(job.get('externalBilling'), {provider:'account_seconds', identityKey, reservationId, seconds});
+
+      const reviewed = JSON.parse(binding.canonicalEvidence.review.payload).cues.map(cue => cue.en).join('\n') + '\n';
+      const fragments = narrationChunks(reviewed);
+      assert.equal(fragments.length, 1);
+      const serialized = JSON.stringify({
+        contents:[{parts:[{text:fragments[0],speech_metadata:{style:VOICE_NARRATION_STYLE}}]}],
+        generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{voice:'Charon'}}},
+      });
+      const call = validateReviewedVoiceCall({
+        evidence:binding.canonicalEvidence, operation:'narration:en:male', model:VOICE_MODEL,
+        callKey:'voice-chunk:0000', body:serialized,
+      });
+      assert.equal(call.requestSha256, sha(Buffer.from(serialized, 'utf8')));
+
+      // Probe Account's existing primitive only. This synthetic worker attempt is
+      // not a C2 send permit, and no receiver, worker or provider runs here.
+      const attemptId = randomUUID();
+      const admit = () => f.store.admitVideoCall(
+        identityKey, reservationId, seconds, jobId, attemptId, call.callKey, call.model, call.requestSha256,
+      );
+      const receipts = await Promise.all([admit(), admit()]);
+      assert.deepEqual(receipts.map(({created}) => created).sort(), [false, true]);
+      for (const receipt of receipts) {
+        assert.deepEqual(receipt, {
+          reservationId, seconds, jobId, attemptId, callKey:call.callKey, model:call.model,
+          requestSha256:call.requestSha256, created:receipt.created, receiptOnly:!receipt.created,
+        });
+      }
+      const reservations = await f.store.root.collection('videoReservations').get();
+      assert.equal(reservations.size, 1);
+      assert.equal(reservations.docs[0].get('state'), 'reserved');
+      assert.equal((await reservations.docs[0].ref.collection('providerCalls').get()).size, 1);
+      assert.deepEqual(await f.balances(), balancesBefore);
+      assert.deepEqual((await f.store.root.collection('ledgerEntries').get()).docs.map(doc => doc.id), ledgerBefore.docs.map(doc => doc.id));
+      assert.equal((await f.c.root.collection('billingOutbox').doc(jobId).get()).exists, false);
+      assert.equal((await ref(f.c, 'outbox', jobId).get()).exists, false);
+      assert.equal((await ref(f.c, 'artifacts', jobId).get()).get('state'), 'pending');
+      assert.equal(f.calls.length, 1);
+    });
+
+    // Enable these only when the C2 seam validates durable C1 evidence and
+    // completes both the preparation and confirmation reads around Account.
+    test.todo('C2 sends exact canonical bytes once to the memory receiver after a fresh verified admission');
+    test.todo('C2 rejects foreign or revoked UID, missing C1 ACK and inconsistent reservation or source before Account');
+    test.todo('C2 rejects a changed body, voice, model or ordinal before Account and the receiver');
+    test.todo('C2 retains an exact admission receipt and sends nothing after change, restore or recreation of the marker, review or identity');
+    test.todo('C2 preserves uncertainty and suppresses sends on receipt-only, lost ACK, replay and concurrent loser');
   }
 
   function requestWithDiagnostics(fixture, requestKey, logs) {
