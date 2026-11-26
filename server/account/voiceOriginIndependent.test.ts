@@ -268,3 +268,59 @@ it.each([
     .rejects.toMatchObject({code:'conflict'});
   expect(f.snapshot()).toEqual(after);
 });
+
+it.each(['reserve UUID pair','Video account','seconds','namespace'] as const)(
+  'independent audit rejects a well-formed C1 tuple with changed %s at both Account operations',
+  async dimension=>{
+    const f=fixture(),r=source(f);
+    const authorized=await f.store.reserveVideoWithVoiceOrigin(f.scope,r);
+    const scope=dimension==='namespace'?'other-video':f.scope;
+    const otherId=randomUUID(), changed={...r};
+    if(dimension==='reserve UUID pair'){
+      changed.reservationId=otherId;
+      changed.reserveAttemptId=otherId;
+    }
+    if(dimension==='Video account')changed.videoAccountId=f.videoB;
+    if(dimension==='seconds')changed.seconds++;
+    const before=f.snapshot();
+    await expect(f.store.reserveVideoWithVoiceOrigin(scope,changed)).rejects.toMatchObject({code:'conflict'});
+    await expect(f.store.admitVideoCallWithVoiceOrigin(scope,{...changed,...f.callA,originRef:authorized.originRef!}))
+      .rejects.toMatchObject({code:'conflict'});
+    expect(f.snapshot()).toEqual(before);
+  }
+);
+
+it('independent audit keeps a C1 grant generation pinned after a missing response and identical grant recreation',async()=>{
+  const f=fixture(),r=source(f);
+  const result=await f.store.reserveVideoWithVoiceOrigin(f.scope,r),call={...r,...f.callA,originRef:result.originRef!};
+  await f.store.admitVideoCallWithVoiceOrigin(f.scope,call);
+  const path=f.grantPath(r.intentId),original=structuredClone(f.data(path));
+  f.drop(path);
+  f.put(path,original);
+  const before=f.snapshot(),restarted=f.makeStore();
+  await expect(restarted.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'conflict'});
+  await expect(restarted.admitVideoCallWithVoiceOrigin(f.scope,call)).rejects.toMatchObject({code:'conflict'});
+  expect(f.snapshot()).toEqual(before);
+});
+
+it('independent audit preserves the first job and provider attempt across authorized voice ordinals',async()=>{
+  const f=fixture(),r=source(f),result=await f.store.reserveVideoWithVoiceOrigin(f.scope,r);
+  const first={...r,...f.callA,originRef:result.originRef!},initial=f.snapshot();
+  await f.store.admitVideoCallWithVoiceOrigin(f.scope,first);
+  const next={...first,callKey:'voice-chunk:0001',requestSha256:'3'.repeat(64)};
+  const afterFirst=f.snapshot();
+  for(const changed of [{attemptId:r.reservationId},{jobId:randomUUID()}]){
+    await expect(f.makeStore().admitVideoCallWithVoiceOrigin(f.scope,{...next,...changed})).rejects.toMatchObject({code:'conflict'});
+    expect(f.snapshot()).toEqual(afterFirst);
+  }
+  await expect(f.store.admitVideoCallWithVoiceOrigin(f.scope,next)).resolves.toMatchObject({created:true,receiptOnly:false});
+  const after=f.snapshot();
+  await expect(f.makeStore().admitVideoCallWithVoiceOrigin(f.scope,next)).resolves.toMatchObject({created:false,receiptOnly:true});
+  await expect(f.makeStore().admitVideoCallWithVoiceOrigin(f.scope,{...next,requestSha256:first.requestSha256}))
+    .rejects.toMatchObject({code:'conflict'});
+  expect(f.snapshot()).toEqual(after);
+  expect([...after.keys()].filter(path=>path.includes('/providerCalls/'))).toHaveLength(2);
+  for(const [path,value] of initial){
+    if(path.startsWith('ledgerEntries/')||path.startsWith('accounts/'))expect(after.get(path)).toEqual(value);
+  }
+});
