@@ -1,0 +1,20 @@
+Revisión estática sobre los fragmentos dados; no hay repo completo ni ejecución.
+
+1) POST único: `reserveReviewedVoiceLocally` llama a `reserveInEmulator` una sola vez (firestoreBackend.ts:799) y no reintenta ante `LocalVoiceReserveUnknown` (502-505, 799, 805). Pero no se ve el llamador externo ni si otra capa reintenta; queda INCONCLUYENTE a nivel global.
+
+2) Marcador corrupto: antes de reservar, `createReviewedVoiceMarker`/`validateReviewedVoiceMarkerReplay` (898-900) lanzan `ReviewedVoiceMarkerFault`; `rethrowLocalVoiceMarkerError` (507-510) lo convierte en `conflict`. Después del ACK, el `catch` de 808-812 intenta `recordReserveAck` antes de reenviar el error. Correcto si el commit del ACK funciona; si `recordReserveAck` devuelve `unknown` (809-810), el ACK no queda persistido localmente y se lanza `LocalVoiceReserveUnknown`. No se pierde la noción de incertidumbre, pero no se conserva evidencia local.
+
+3) Defecto concreto: `settleExternalBillingIntent` devuelve `true` si el intent ya está en `insufficient` (firestoreBackend.ts:1439), sin comprobar `localVoiceAttemptId` ni `attemptId`. Eso puede saltarse `readCommittedLocalVoiceNack` (801-802) y clasificar insuficiencia sin la relectura estricta exigida. La relectura en sí (815-836) es `readOnly`, correlaciona intento, claim, fuente y no mueve saldo; pero el cortocircuito previo rompe la garantía.
+
+4) Voz/texto simultáneos: el claim comprueba `mode` (731, 1162, 1899) y debería impedirlo dentro del fixture. Fuera del fixture, `readLocalRequestKeyClaim` puede devolver `null` (720-723); no hay prueba de cobertura real.
+
+5) Aislamiento: depende de `localVoiceFixtureTarget` (703-705) y del comentario 776-779. No hay evidencia de ausencia de ruta productiva en el paquete; INCONCLUYENTE.
+
+Faltan: carrera real, IAM/GCS, teléfono, regresión financiera completa (6 fallos previos no validados), pruebas de llamadores productivos. No apruebo backend ni pagos.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: firestoreBackend.ts:1439 permite cortocircuito sin `attemptId`; 801-802 puede omitir la relectura; 808-812 preserva ACK solo si el commit local funciona.
+NEGATIVOS: no hay prueba de IAM/GCS, teléfono real, carrera real ni regresión financiera completa; el fixture no demuestra ausencia de ruta productiva.
+BLOQUEOS: falta repo completo/llamadores; sin ellos no se puede validar el no-reintento global ni la ausencia de proveedor productivo.
+=== FIN RESUMEN ===

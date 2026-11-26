@@ -1,0 +1,36 @@
+LV-019.B — revisión estática de diseño de admisión, GLM por respaldo OpenRouter
+Fecha: 2026-11-26; borrador enviado antes de los ajustes posteriores.
+Modelo solicitado: ~z-ai/glm-flash-latest; servido: z-ai/glm-5.3-flash.
+Generación: gen-1795713438-AtljDNgikuIQDEVRJpVi.
+Entrada 8739; caché 0; salida 11620 tokens; costo observado US$0.0056397132.
+Resultado de diseño, no implementación ni autorización para abrir procesamiento.
+
+**Hallazgos concretos**
+
+1. **Tensión hold↔liquidación (ya admitido).** `server/account/backend.ts:458`: con guard de hold activo, `settleVideo` lanza `'conflict'` para capture/release de reservas en `reserved` (y `:454` bloquea release tras capture parcial). La aceptación 5 (`spec:43`) exige que un trabajo ya admitido "termine y liquidar", y `spec:24` dice que las devoluciones permitidas por contrato continúan. Si `billingHold()` (definición no suministrada) es bloqueo total, la aceptación 5 es insatisfacible tal como está escrita. El spec debe tipar qué holds permiten liquidar trabajos admitidos y demostrarlo en `billingHold`.
+
+2. **Cercado generacional ausente en el escritor visible.** `backend.ts:417` verifica `ownerAccountId`/`identityKey`/`seconds` pero ninguna generación de cuenta ni de reserva. En A→B→A con cuenta/identidad recreada con el mismo id, un settle posterior pasa sin prueba de vigencia. El propio spec (`:17-19`, `:33`, `:48`) exige que escritores antiguos respeten la generación o sean retirados: el único escritor mostrado no la comprueba, así que la condición de habilitación no se cumple con el código visible.
+
+3. **Referencia colgante.** `spec:29` remite al "paso 3.5", que no existe en el documento (los pasos van 1–5). La autorización del operador queda sin definición localizable.
+
+4. **Ventana de admisión si la atribución falla.** `spec:7/11/19`: solo la atribución demostrada bloquea; con atribución fallida o pendiente, la fila y la alerta persisten pero pueden iniciarse vídeos nuevos de la cuenta afectada. Frente al requisito incondicional de Rob, esto es una decisión de diseño que debe elevarse explícitamente (el spec la admite pero no la marca como decisión de Rob ni cuantifica la ventana).
+
+5. **Doble fuente de verdad para reabrir entrada.** `spec:11/35` usa un contador de incidencias; `billingUnblock.ts:147-157/385-386` usa enumeración de filas rivales. El spec no exige reconciliarlos: un contador desfasado (fila creada sin incremento, baja doble) abriría la entrada con rivales vivos. Debe exigirse enumeración verificada además del contador, o derivar el contador de la enumeración.
+
+6. **Cuadra como negativos (datos, no suposición):** no reenvío ante observación incierta (`spec:30`, aceptación 6); rivales retienen guard sin escritura (`billingUnblock.ts:293-294, 339-342`); sello/tombstone impide efecto tardío del settle (`backend.ts:413-416`); replays de settle idempotentes (`backend.ts:428-453`); el spec no da por existentes la operación bajo hold, el recibo histórico ni el recibo económico (`spec:31` "aún no existe", `spec:30/34` "sigue por diseñar", "dependencias").
+
+**Fragmentos que faltan por comprobar**
+
+- Contrato citado `LV-019-B-bloqueos-y-cierres-diseno.md` §§3.3–3.6 (`spec:3`).
+- `server/commercial/firestoreBackend.ts` y `firestoreAi.ts` (`spec:23/25`): frontera de admisión, lectura del guard en la transacción de reserva, `prepareExternalReserveAttempt`.
+- Resto de `backend.ts`: creación de reserva, admission de proveedor, sello, consulta de resolución, `billingHold`, `identityFromKey`, campos de generación.
+- `billingUnblock.ts` 1–134, 160–279, 310–377, 406+: autenticación/permisos del operador, `blockedState`, `generation`, cuerpo de `incidentOf`, interacción con holds de Cuenta.
+- Consumidor de `billingReleaseReopenings` (escrito en `billingUnblock.ts:346/403`; su lectura para reabrir entrada no aparece).
+- Generador de alerta `needs_review/max_age` y marcador privado de ocurrencias (`spec:9`).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: espec LV-019-B (propuesta) + backend.ts:403-470 + billingUnblock.ts:135-157,159,280-309,331-350,378-405; defectos en backend.ts:417/454/458 y spec:7/11/29/35; sin atribución de las garantías centrales (admisión, ocurrencias, holds, operación bajo hold) por fragmentos ausentes.
+NEGATIVOS: no reenvío ante incertidumbre (spec:30); rivales retienen guard (billingUnblock:293-294,341); sello impide efecto tardío (backend:413-416); sin atribución no hay guard atribuible (spec:7); rechazo de clave con otros datos y principal de solo lectura quedan como pruebas exigidas sin código que las sustente.
+BLOQUEOS: faltan contrato §§3.3–3.6, firestoreBackend.ts, firestoreAi.ts, resto de backend.ts (billingHold, creación/sello/resolución, generaciones), billingUnblock 1-134/160-279/310-377/406+, consumidor de billingReleaseReopenings, alerta max_age y marcador de ocurrencias; la operación de Cuenta bajo hold no existe (declarada en spec:31).
+=== FIN RESUMEN ===

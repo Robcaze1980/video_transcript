@@ -1,0 +1,86 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+  background: #eef4ef;
+  color: #17352a;
+  line-height: 1.45;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+
+main {
+  width: min(100%, 54rem);
+  margin: 0 auto;
+  padding: clamp(1rem, 4vw, 2rem);
+}
+
+header { margin: 1rem 0 1.625rem; }
+.brand { font-weight: 750; letter-spacing: .02em; }
+h1 {
+  max-width: 22ch;
+  margin: .5rem 0;
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  line-height: 1.1;
+  letter-spacing: -.035em;
+}
+header p { margin: .5rem 0; }
+
+.layout { display: grid; gap: 1rem; }
+.choices, .summary {
+  min-width: 0;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border-radius: 1.25rem;
+}
+.choices { background: #fff; border: 1px solid #bfcfc3; }
+.summary { background: #123e31; color: #fff; }
+h2 { margin: 0 0 1rem; font-size: 1.25rem; }
+
+label[for="duration"], legend { font-weight: 650; }
+select {
+  width: 100%;
+  min-height: 44px;
+  margin-top: .375rem;
+  padding: .5rem .75rem;
+  border: 1px solid #789080;
+  border-radius: .625rem;
+  background: #fff;
+  color: #17352a;
+  font: inherit;
+}
+fieldset { min-width: 0; margin: 1.25rem 0 0; padding: 0; border: 0; }
+legend { padding: 0 0 .5rem; }
+.option {
+  display: flex;
+  align-items: center;
+  gap: .625rem;
+  min-height: 48px;
+  margin-bottom: .5rem;
+  padding: .625rem .75rem;
+  border: 1px solid #789080;
+  border-radius: .625rem;
+  cursor: pointer;
+}
+.option:has(:checked) { border-color: #176c4d; background: #e9f5ed; }
+.option input { flex: none; width: 1.125rem; height: 1.125rem; margin: 0; accent-color: #176c4d; }
+:focus-visible { outline: 3px solid #15576a; outline-offset: 3px; }
+#voice-explanation { margin: .75rem 0 0; color: #3e584b; }
+
+dl, dd { margin: 0; }
+dl > div, .total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .25rem .75rem;
+}
+dl > div { padding: .625rem 0; }
+dd, .total strong { font-variant-numeric: tabular-nums; font-weight: 700; }
+dt small { display: block; color: #d6e8dc; font-size: .875rem; }
+.total { margin: .5rem 0 0; padding-top: .875rem; border-top: 1px solid #759488; }
+.total strong { font-size: 1.5rem; }
+.rounding { margin: .75rem 0 0; color: #d6e8dc; font-size: .875rem; }
+
+@media (min-width: 44rem) {
+  .layout { grid-template-columns: 1fr 1fr; align-items: start; }
+}

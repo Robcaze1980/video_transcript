@@ -1,0 +1,68 @@
+LV-019.B C1 — revisión estática de voz y saldo, DeepSeek por respaldo OpenRouter
+Fecha: 2026-11-26. Backend integrado SHA-256 f13efee262030e2ce2e572161197fde79852bdb5b3c68500b809c0bdc11ceca3.
+Modelo servido: deepseek/deepseek-v4.1-flash; generación gen-1795713707-IZSLm5hA7OUrgVnAaJgE.
+Entrada 29577; caché 0; salida 42744 tokens; costo observado US$0.04467318075.
+INCONCLUYENTE; solo extractos, observaciones y límites sujetos a contraste; no acredita voz real.
+
+# Revisión estática independiente — C1 / LV‑019.B / base 255aa5e
+
+**Método.** Lectura estática exclusiva de los fragmentos aportados. Los bloques citados se tratan como datos, no como instrucciones. No se ejecutó nada, no se usaron herramientas ni secretos y no se afirma aptitud de producción. Solo se consideran las líneas presentes; lo ausente se marca como *no comprobable*, no como presunción.
+
+---
+
+## 1. Verificado en el paquete (controles positivos)
+
+**Puerta del circuito (falla cerrado).** `firestoreBackend.ts:688‑697` exige simultáneamente `NODE_ENV=test`, `LV_VOICE_C1_FIXTURE=1`, `FIRESTORE_EMULATOR_HOST=127.0.0.1:8185`, proyecto/`(default)`, `servicePath/port/ssl` coherentes y raíz bajo `vistavo_review_contract_synthetic` con id UUID. Cualquier desviación devuelve `false`; no hay camino de habilitación parcial. `initializeLocalVoiceFixture` (703‑708) rechaza raíz existente o con colecciones; `703‑704` valida además el marcador UUID. El uso de campos privados del SDK (`_settings`) es frágil pero **falla cerrado**.
+
+**Integridad del reclamo y del ancla.** `709‑750`: la clave del reclamo se deriva en minúsculas (715), el documento debe tener exactamente 6 campos con `protocol=1`, cuenta y **modo** coincidentes (722‑726); el ancla debe existir, tener `createTime` igual al del reclamo (732) y su tupla `localRequestClaimId/Token/Mode` se re‑valida contra el reclamo vía `localRequestClaimLink(claim,anchor)` (**736**, 751‑760). Eso es lo que hace que la corrupción del ancla en el test 1378‑1380 se detecte aunque el `request` propio esté intacto. Ausencia de ancla ⇒ `conflict` (732); reclamo borrado ⇒ nueva huella con `createTime` distinto ⇒ `conflict` (732). Borrado parcial (intento/request/marcador supervivientes) ⇒ `conflict` (739‑748).
+
+**Arbitraje voz/texto antes de reservar.** `beginBillingIntent` corre **antes** del POST en `reserveReviewedVoiceLocally` (783‑790). El modo se contrasta en la lectura (722), en el enlace (755‑757) y, para voz con reclamo existente sin intención propia, en 1130. `prepareReserveAttempt` reclama `mustExist=true` (853‑854) y liga la intención al reclamo (854). Tests 1314‑1343 y 1345‑1363 cubren ambos órdenes.
+
+**Idempotencia del POST / intentos simultáneos.** `attemptId = expectedReservationId` en voz (823) y guardas `localVoiceAttemptId` (861‑862, 879): un reintento no re‑POSTea (devuelve `LocalVoiceReserveUnknown`). `prepareReserveAttemptInTransaction` (292‑303) no reconstruye un `prepared` ausente si ya hay ACK (296‑297). El test 1396‑1413 exige exactamente una llamada a Account.
+
+**ACK.** Se exige coincidencia de `reservationId/seconds/state` (790‑795, 897‑899) y forma exacta de 3 campos (239‑248). Job y ACK se confirman en **una** transacción (1949‑1959, 328‑339); si el commit del job falla, el ACK se preserva aparte sin job (798‑802, 893‑908). La atribución persistida es `unverified` (252‑256). Replay del intento de voz se verifican en 1143‑1152 y 1889‑1895.
+
+**Ventana financiera al confirmar.** `reserveAttemptWindow.ts:71‑91` compara versión exacta de los documentos inmutables (incluidas las cuatro filas terminales) y valor semántico de `intent`/`account`/`guard`; `prepareReserveAttempt` exige las cuatro filas terminales **ausentes** antes del POST (841), de modo que cualquier aparición en la ventana aborta el job.
+
+**Privacidad.** `canonicalEvidence` se define no enumerable (firestoreReviewedTranslation.ts:470); el constructor de marcador ignora explícitamente `canonicalEvidence`/`versions` (reviewedVoiceMarker.ts:38‑49); la historia persistida solo contiene versiones y un hash (reserveAttemptEvidence.ts:169‑170); el texto v1 conserva caja literal (sin normalización, 123‑124) y no se migran datos históricos.
+
+**Contención financiera adicional.** La ruta externa exige `aiPilot===true && simulationOnly===true` (1887 y reserveAttemptWindow.ts:87‑88).
+
+---
+
+## 2. Defectos / hallazgos concretos
+
+1. **Control negativo inerte (uid del origen).** `firestoreBackend.ts:850‑852` lee `docs.origin.get('uid')` y solo rechaza si es `string` distinto del solicitante, pero el origen se escribe **sin** `uid` en `1176‑1179`. La guarda nunca dispara. Compensa el vínculo por `identityKey` (839, 1469 línea 1930) —`hash(['firebase',requesterUid])`—, así que no se demuestra hueco financiero, pero el control tal como está redactado no controla nada.
+2. **Holgura de redondeo al segundo.** `reviewedVoiceMarker.ts:58‑66` admite `billableSeconds ∈ [ceil(ms/1000), floor(ms/1000)+1]`, es decir +1 s cuando `durationMs` es múltiplo exacto de 1000. El único cierre es `firestoreBackend.ts:1924` (`price === Math.ceil(asset.metadata.duration)`), que solo es equivalente si `asset.metadata.duration` es la **misma** medida que `authorization.durationMs` del binding. Esa equivalencia no está en el paquete: **no comprobable**, y si divergieran habría sobre‑reserva de hasta 1 s.
+3. **`mustExist` inerte fuera del fixture.** `firestoreBackend.ts:711‑714` devuelve `null` para modo texto antes de llegar al `mustExist` de 739, también cuando `reserveAs` lo pide con `true` (1865‑1866). Coherente con «experimental y sin migración», pero implica que en producción no hay arbitraje por caja ni invariante de reclamo existente; los IDs de texto siguen siendo sensibles a mayúsculas (test 1370 lo fija como comportamiento, no como defecto).
+4. **Tipo de error no encajado.** `ReviewedVoiceMarkerFault` (reviewedVoiceMarker.ts:11‑12) no es `LedgerFault` y no se captura en 866/1137/1149/1894 ni en firestoreAi.ts:108; los predicados de reintento (firestoreAi.ts:107,169) no lo reconocen. Falla cerrado, pero se escapa como error ajeno al dominio.
+5. **Simetría del par terminal.** `reserveAttemptWindow.ts:40‑44`+`55‑56` guarda la versión del testigo bajo ambas claves `sealWitness`/`sealRecovery`; `72‑76` compara la versión real del *recovery* contra la versión registrada del *witness*. Seguro porque en prepare las cuatro filas están ausentes, pero un par creado en dos commits legítimos se reportaría como `conflict` genérico, sin distinguir medio par de par completo.
+
+---
+
+## 3. Falta por comprobar (limitaciones del paquete)
+
+- `server/commercial/reserveAttemptEvidence.ts:61‑139` completo: `exact`, `copyWitness`, `copyVersions`, `voiceProof`, `voiceSourceFields`, `requiredVoiceSources`, `externalVoiceSources`. Es la base de todas las validaciones de forma del diseño 1.3b.
+- `server/commercial/firestoreBackend.ts:916‑1110` y `1191‑1841`, más auxiliares invocados pero ausentes: `billingIntent`, `externalIntentTransitionDue`, `reserveAttemptRefs`, `verifiedUidAccountInTransaction`, `validClearIntentAdmissionGuard`, `billingBlocked`, `usable/balance/storageQuota`, `localVoiceRequestUuid`, `uuid`, y sobre todo **`reserveForUid`/`reserveSimulatedAiForUid`** (los tests 1365‑1394 pasan por ahí).
+- `server/commercial/firestoreReviewedTranslation.ts`: `authorize`, `verifiedCurrentReview`, `copyPrincipal` y **`voiceDocumentVersion`** (450‑459). Debe codificar las versiones byte a byte como `reserveAttemptWindow.documentVersion` (33‑38) porque `reserveAttemptEvidence.ts:162‑165` las compara con `JSON.stringify`; si el formato difiere, toda reserva de voz falla cerrado.
+- **Autorización del propietario** y **captura/fuente revisada**: dependen de los cuerpos anteriores; no confirmables estáticamente desde el paquete.
+- No cubierto por lo aportado: nube/IAM, proveedor/TTS, teléfono, idempotencia del servicio Account por `reservationId` (el circuito confía en el emulador, 790‑795), la ruta de historia completamente borrada/reemplazada (reconocida en 740‑742), concurrencia de dos peticiones externas de texto con caja distinta, y reconciliación de un ACK de POST perdido (790 descarta sin registrar).
+- Los «44/44, 0 omisiones, 44 limpiezas» y los tipos aprobados son aserciones de la corrida integrada; el arnés más allá de 1305‑1413 no está en el paquete. La regresión financiera de la versión anterior sigue en ejecución y **no** debe atribuirse a esta combinación.
+
+---
+
+## 4. Controles negativos que deben conservarse (no relajar)
+
+- `firestoreExternal…emulator.mjs:1314‑1343`: voz primero ⇒ texto con otra caja, reclamo borrado, token nuevo y ancla falsificada siguen en `conflict`, 1 llamada a Account, saldos y asientos intactos.
+- `1345‑1363`: texto primero ⇒ voz rechazada, reclamo borrado/recreado/modo invertido en `conflict`, 0 llamadas de voz.
+- `1365‑1394`: IDs de texto legados sensibles a caja (`upper !== lower`), ancla con modo corrupto ⇒ `conflict`, `localRequestKeyIndex=0` ⇒ `conflict`, segunda inicialización del fixture ⇒ `conflict`.
+- `1396‑1413`: concurrencia C1/texto ⇒ exactamente una cumplida y una rechazada, 1 llamada total, 1 asiento, `claim.createTime === anchor.createTime`.
+
+---
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Revisión estática de firestoreBackend.ts (688‑1975, con huecos 916‑1110/1191‑1841), reserveAttemptEvidence.ts (1‑339, hueco 61‑139), reserveAttemptWindow.ts, videoReservationId.ts, reviewedVoiceMarker.ts, firestoreReviewedTranslation.ts (390‑485) y firestoreAi.ts (100‑170). Confirmado: puerta de fixture multifactor que falla cerrado (688‑708), reclamo/ancla con createTime y tupla verificadas (722‑736, 751‑760), arbitraje de modo antes del POST (783‑790, 1130), idempotencia por attemptId/localVoiceAttemptId (823, 861‑862, 879), ACK validado y persistido aparte del job (790‑802, 897‑908, 1949‑1959), ventana financiera al confirmar (reserveAttemptWindow 71‑91), privacidad de canonicalEvidence (470) y contención a cuentas simulationOnly (1887). Hallazgos concretos: control de uid inerte (850‑852 vs 1176‑1179), holgura de ±1 s en duration() (reviewedVoiceMarker 58‑66) cuyo cierre depende de asset.metadata.duration (1924) no verificable, mustExist inerte fuera del fixture (711‑714 vs 739/1865), y fuga de ReviewedVoiceMarkerFault (11‑12) no capturado en 866/1137/1149/1894 ni firestoreAi 108.
+NEGATIVOS: Se conservan como exigibles los fallos cerrados: raíz/ancla ausente o recreada ⇒ conflict (732, 739‑748); modo voz/texto cruzado ⇒ conflict (722, 753‑757, 1130); re‑POST tras intento preparado ⇒ LocalVoiceReserveUnknown sin nueva llamada (861‑862, 296‑297); ACK no coincidente en reserva/segundos/estado ⇒ invalid/unknown (790‑795, 897‑899, 239‑248); aparición de fila terminal o cambio de versión en ventana ⇒ conflict (reserveAttemptWindow 72‑76, 84‑91); y los tests 1314‑1343, 1345‑1363, 1365‑1394 y 1396‑1413 (una sola reserva/saldo/asiento, conflicto en clave canónica antes de la segunda llamada).
+BLOQUEOS: No son comprobables desde el paquete reserveAttemptEvidence.ts 61‑139, firestoreBackend.ts 916‑1110 y 1191‑1841 (incluidos reserveForUid/reserveSimulatedAiForUid, verifiedUidAccountInTransaction, validClearIntentAdmissionGuard, billingIntent, externalIntentTransitionDue, localVoiceRequestUuid), ni authorize/verifiedCurrentReview/voiceDocumentVersion en firestoreReviewedTranslation.ts. Sin ellos no puede confirmarse la autorización del propietario, la procedencia de la fuente revisada, la equivalencia de codificación de versiones exigida en reserveAttemptEvidence.ts 162‑165, ni la equivalencia durationMs↔asset.metadata.duration que cierra la holgura de revisadoVoiceMarker.ts 58‑66. Tampoco hay evidencia de nube/IAM, proveedor/TTS, teléfono ni de idempotencia del servicio Account por reservationId; la ruta de historia totalmente borrada/reemplazada (firestoreBackend.ts 740‑742) requiere otra prueba y la regresión financiera de la versión anterior no es atribuible a esta combinación.
+=== FIN RESUMEN ===

@@ -159,6 +159,7 @@ async function blockedAccount(scope,options={}){
   const c=await fixture(scope),job=await captureJob(c);
   // Extra captured jobs are prepared BEFORE the block: a blocked account refuses new work, which is the point of the guard.
   const extras=[];for(let n=0;n<(options.extraJobs??0);n++)extras.push(await captureJob(c));
+  const releases=[];for(let n=0;n<(options.extraReleases??0);n++)releases.push(await releaseJob(c));
   const {expected,snapshot}=await expectedAndSnapshot(c,job.id),version=await versionOf(c,job.id);
   const outcome=await c.backend.quarantineExternalBillingOutbox(job.id,{phase:'after_ack',snapshotVersion:version,expected,ack:{reservationId:randomUUID(),seconds:expected.seconds,state:'released'},settlementSnapshot:snapshot});
   assert.equal(outcome.state,'needs_review');assert.equal(outcome.ownerBlocked,true);
@@ -174,7 +175,7 @@ async function blockedAccount(scope,options={}){
   assert.ok(alert,'the guard raises a D-4 alert');assert.equal(raised.created>=1,true);
   // The occurrence named by the guard: the incident key of the outbox review, never the hold id (which also carries the generation).
   const incident=guard.lastOutboxIncidentId??guard.lastIncidentId;
-  return {c,job,extras,guard,hold,incident,alertKey:alert.id,accountRoot:c.accountRoot};
+  return {c,job,extras,releases,guard,hold,incident,alertKey:alert.id,accountRoot:c.accountRoot};
 }
 /**
  * The INTENT-kind twin of `blockedAccount`: a captured reservation whose review row is written by the real
@@ -230,6 +231,204 @@ async function signatures(root){
   return out;
 }
 
+test('a block during reserve keeps the Account confirmation without creating or capturing work',{timeout:120000},async()=>{
+  const c=await fixture('block_during_reserve'),requestKey=randomUUID(),now=Date.now(),original=c.transport.request.bind(c.transport);
+  c.transport.request=async call=>{
+    if(new URL(call.url).pathname==='/api/internal/video/reservations'){
+      await guardOf(c).create({accountId:c.account,blocked:true,epoch:1,createdAtMs:now,updatedAtMs:now,lastIncidentId:sha('synthetic concurrent incident')});
+    }
+    return original(call);
+  };
+  await assert.rejects(c.ai.enqueue(c.account,c.input,'translation:en',1,requestKey,c.uid));
+  c.transport.request=original;
+  const intentId=sha(JSON.stringify([c.account,requestKey])),intent=ref(c.root,'billingIntents',intentId);
+  const row=(await intent.get()).data();
+  assert.equal(row.state,'reserve_pending');
+  assert.equal((await c.root.collection('jobs').get()).size,0);
+  assert.equal((await c.root.collection('billingOutbox').get()).size,0);
+  const acks=await c.root.collection('billingReserveAckObservations').get();
+  assert.equal(acks.size,1,'the successful Account confirmation survives without a job');
+  assert.equal(acks.docs[0].get('attribution'),'unverified');
+  assert.deepEqual(await c.store.videoBalance(c.identity),{unit:'video_seconds',credited:40,available:38,reserved:2,consumed:0,active:1});
+  const witness=await c.backend.externalIntentWitness(c.account,requestKey,{
+    provider:'account_seconds',identityKey:c.identity,reservationId:row.reservationId,seconds:2,
+  });
+  assert.equal(await c.backend.captureDirectObservation(witness,requestKey,'status'),null);
+  assert.equal(c.transport.bodies.some(x=>x.pathname.endsWith('/capture')),false);
+
+  const incidentId=sha('synthetic-account-review');
+  await c.accountBilling.block(c.identity,incidentId);
+  const generation=await accountGuard(c);
+  assert.equal((await c.accountBilling.unblock(c.identity,{incidentId,...generation,reviewRef:'synthetic reviewed incident'})).blocked,false);
+  await guardOf(c).delete();
+  await intent.update({createdAtMs:Date.now()-30*60*1000,nextAttemptAt:0});
+  await c.ai.drainExternalBilling();
+  await c.ai.drainExternalBilling();
+  assert.equal((await intent.get()).get('state'),'closed');
+  assert.deepEqual(await c.store.videoBalance(c.identity),{unit:'video_seconds',credited:40,available:40,reserved:0,consumed:0,active:0});
+  assert.equal(c.transport.bodies.filter(x=>x.pathname.endsWith('/release')).length,1);
+  assert.equal(c.transport.bodies.some(x=>x.pathname.endsWith('/capture')),false);
+});
+
+test('a capture already authorized by Video reaches Account before a concurrent hold propagates',{timeout:120000},async()=>{
+  const c=await fixture('capture_before_hold_propagation'),job=await captureJob(c);
+  const capturePath=`/api/internal/video/reservations/${job.reservationId}/capture`;
+  const accountGuardRef=ref(c.accountRoot,'videoBillingGuards',c.accountOwner);
+  const initialBalance={unit:'video_seconds',credited:40,available:38,reserved:2,consumed:0,active:1};
+  assert.equal((await c.backend.job(c.account,job.id)).state,'succeeded');
+  const settlement=(await outbox(c,job.id).get()).data();
+  assert.equal(settlement.action,'capture');
+  assert.equal(settlement.state,'pending');
+  assert.equal((await guardOf(c).get()).exists,false);
+  assert.equal((await accountGuardRef.get()).exists,false);
+  assert.deepEqual(await c.store.videoBalance(c.identity),initialBalance);
+
+  const original=c.transport.request.bind(c.transport);
+  const start=c.transport.bodies.length;
+  const concurrentRequestKey=randomUUID();
+  const concurrentIncidentId=sha(JSON.stringify([c.account,concurrentRequestKey]));
+  c.transport.request=async call=>{
+    if(new URL(call.url).pathname===capturePath){
+      // The drain has passed Video validation. Publish a separate incident before dispatching this POST to Account.
+      const reservationId=randomUUID();
+      const billing={provider:'account_seconds',identityKey:c.identity,reservationId,seconds:2};
+      await c.backend.beginExternalBillingIntent(c.account,c.input,concurrentRequestKey,'translation:en',1,billing);
+      const review=await c.backend.recordExternalBillingReview(c.account,concurrentRequestKey,billing,{reservationId,seconds:2,state:'captured'});
+      assert.equal(review.state,'needs_review');
+      assert.equal((await guardOf(c).get()).get('blocked'),true);
+      assert.equal((await c.root.collection('billingHoldOutbox').where('state','==','pending').get()).size,1);
+      assert.equal((await accountGuardRef.get()).exists,false);
+      assert.deepEqual(await c.store.videoBalance(c.identity),initialBalance);
+    }
+    return original(call);
+  };
+  await c.ai.drainExternalBilling();
+  c.transport.request=original;
+
+  const calls=c.transport.bodies.slice(start);
+  const captures=calls.filter(call=>call.pathname===capturePath);
+  assert.equal(captures.length,1,'one capture POST reached the real AccountStore');
+  assert.equal(captures[0].data.identityKey,c.identity);
+  assert.equal(captures[0].data.seconds,2);
+  assert.equal(calls.some(call=>call.pathname==='/api/internal/video/billing-holds'),false);
+  const guard=(await guardOf(c).get()).data();
+  assert.equal(guard.blocked,true);
+  assert.equal(guard.lastIncidentId,concurrentIncidentId);
+  assert.equal((await accountGuardRef.get()).exists,false);
+  assert.equal((await c.store.videoReservation(c.identity,job.reservationId)).state,'captured');
+  const capturedBalance={...initialBalance,reserved:0,consumed:2,active:0};
+  assert.deepEqual(await c.store.videoBalance(c.identity),capturedBalance);
+  const captured=await c.accountRoot.collection('ledgerEntries').where('kind','==','video_capture').get();
+  assert.equal(captured.size,1);
+  assert.equal(captured.docs[0].get('seconds'),2);
+
+  const row=await outbox(c,job.id).get();
+  assert.equal(row.get('state'),'needs_review');
+  assert.equal(row.get('action'),'capture');
+  assert.equal(row.get('reservationId'),job.reservationId);
+  const ackIncidentId=row.get('reviewIncidentId');
+  assert.equal(guard.lastOutboxIncidentId,ackIncidentId);
+  assert.notEqual(ackIncidentId,concurrentIncidentId);
+  const ackIncident=await ref(c.root,'billingOutboxReviewIncidents',ackIncidentId).get();
+  assert.equal(ackIncident.get('state'),'needs_review');
+  assert.equal(ackIncident.get('phase'),'after_ack');
+  assert.equal(ackIncident.get('reason'),'remote_ack_outbox_changed');
+  assert.equal(ackIncident.get('outboxId'),job.id);
+  assert.equal(ackIncident.get('accountId'),c.account);
+  assert.equal(ackIncident.get('attribution'),'verified');
+  assert.deepEqual(ackIncident.get('remoteAck'),{reservationId:job.reservationId,seconds:2,state:'captured'});
+  const concurrentIncident=await ref(c.root,'billingReviewIncidents',concurrentIncidentId).get();
+  assert.equal(concurrentIncident.get('reason'),'captured_without_job');
+
+  const holds=await c.root.collection('billingHoldOutbox').get();
+  assert.equal(holds.size,2);
+  assert.ok(holds.docs.some(doc=>doc.get('sourceKind')==='intent'&&doc.get('sourceId')===concurrentIncidentId&&doc.get('state')==='pending'));
+  const ackHold=holds.docs.find(doc=>doc.id===accountHoldId('outbox',ackIncidentId,guard.epoch,guard.createdAtMs));
+  assert.ok(ackHold);
+  assert.equal(ackHold.get('sourceKind'),'outbox');
+  assert.equal(ackHold.get('sourceId'),ackIncidentId);
+  assert.equal(ackHold.get('accountId'),c.account);
+  assert.equal(ackHold.get('state'),'pending');
+
+  const beforeReplay=await signatures(c.root),callsBeforeReplay=c.transport.bodies.length;
+  await c.ai.drainExternalBilling();
+  assert.equal(c.transport.bodies.length,callsBeforeReplay,'the next drain sends no second capture');
+  assert.deepEqual(await signatures(c.root),beforeReplay,'the next drain preserves both incidents and holds');
+  assert.deepEqual(await c.store.videoBalance(c.identity),capturedBalance);
+  assert.equal((await c.accountRoot.collection('ledgerEntries').where('kind','==','video_capture').get()).size,1);
+});
+
+test('a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('blocked_release_outbox',{extraReleases:2}),{c,releases}=blocked;
+  const pending=outbox(c,releases[0].id),retrying=outbox(c,releases[1].id);
+  const old=Date.now()-3*24*60*60*1000;
+  await pending.update({state:'pending',attempts:7,nextAttemptAt:0,createdAtMs:old});
+  await retrying.update({state:'retry_wait',attempts:7,nextAttemptAt:0,createdAtMs:old});
+  const foreignUid='synthetic-foreign-'+randomUUID(),foreign=await c.store.bootstrap(foreignUid),foreignIdentity=accountIdentityKey(foreignUid);
+  await ref(c.accountRoot,'accounts',foreign.account.id).update({credited:10,available:10});
+  const foreignReservation=randomUUID();await c.store.reserveVideo(foreignIdentity,foreignReservation,3);
+  const foreignBefore=await c.store.videoBalance(foreignIdentity);
+  const before=await Promise.all([pending.get(),retrying.get()]);
+  const balanceBefore=await c.store.videoBalance(c.identity),postsBefore=c.transport.bodies.length;
+  assert.deepEqual(balanceBefore,{unit:'video_seconds',credited:40,available:34,reserved:6,consumed:0,active:3});
+
+  for(let i=0;i<9;i++)await c.ai.drainExternalBilling();
+  const during=await Promise.all([pending.get(),retrying.get()]);
+  for(let i=0;i<2;i++){
+    assert.deepEqual(during[i].data(),before[i].data(),'a blocked release retains all scheduling fields');
+    assert.equal(during[i].updateTime.isEqual(before[i].updateTime),true,'a blocked release writes no document');
+  }
+  assert.deepEqual(await c.store.videoBalance(c.identity),balanceBefore);
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBefore);
+  assert.equal(c.transport.bodies.slice(postsBefore).filter(x=>x.pathname.endsWith('/release')||x.pathname.endsWith('/capture')).length,0);
+  const report=await readPendingReport(c.root,Date.now()+60000);
+  for(const job of releases)assert.ok(report.rows.some(row=>row.kind==='outbox'&&row.id===job.id));
+  const alerts=await raisePendingAlerts(c.db,c.root,report,Date.now()+60000,{ageThresholdMs:1});
+  assert.ok(alerts.created>=2);
+  const alertsAgain=await raisePendingAlerts(c.db,c.root,report,Date.now()+60001,{ageThresholdMs:1});
+  assert.equal(alertsAgain.created,0,'repeat sweep does not duplicate alerts');
+
+  const unblockRequest=await request(c,blocked);
+  const result=await unblockBillingAccount(deps(c),c.account,unblockRequest,'operator-ana',9_000_000_000);
+  assert.equal(result.videoBlocked,false);
+  // Neither aged refund was visited by the age cursor while blocked. The reopening and its receipt protect both.
+  await c.backend.escalateStaleBillingRows({now:Date.now(),limit:25});
+  assert.equal((await pending.get()).get('state'),'pending');
+  assert.equal((await retrying.get()).get('state'),'retry_wait');
+  const start=c.transport.bodies.length;
+  await c.ai.drainExternalBilling();
+  await c.ai.drainExternalBilling();
+  for(const job of releases){
+    const sent=c.transport.bodies.slice(start).filter(x=>x.pathname.endsWith('/release')&&x.pathname.includes(job.reservationId));
+    assert.equal(sent.length,1,'each due reservation has one release request');
+    assert.equal((await c.store.videoReservation(c.identity,job.reservationId)).state,'released');
+    assert.equal((await outbox(c,job.id).get()).get('state'),'settled');
+  }
+  const balanceAfter=await c.store.videoBalance(c.identity);
+  assert.equal(balanceAfter.reserved,0);
+  assert.equal(balanceAfter.available-balanceBefore.available,4,'both two-second reservations return to available balance');
+  assert.equal(balanceAfter.consumed,2,'only the independently completed job is captured');
+  assert.equal(balanceAfter.active,0);
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBefore,'the other account is untouched');
+});
+
+for(const missing of ['billingIntentWitnesses','billingIntentJobMarkers','billingIntentAdmissionGuards']){
+ test(`an aged refund with missing ${missing} goes to review despite the account guard`,{timeout:120000},async()=>{
+  const {c,releases}=await blockedAccount('unverified_refund_age',{extraReleases:1}),job=releases[0];
+  const intentId=createHash('sha256').update(JSON.stringify([c.account,job.requestKey])).digest('hex');
+  const row=outbox(c,job.id),guard=await guardOf(c).get(),balanceBefore=await c.store.videoBalance(c.identity),calls=c.transport.bodies.length,now=Date.now();
+  await row.update({createdAtMs:now-3*24*60*60*1000});
+  const history=ref(c.root,missing,intentId);assert.equal((await history.get()).exists,true);await history.delete();
+  assert.equal((await c.backend.escalateStaleBillingRows({now,limit:25})).escalated,1);
+  assert.equal((await row.get()).get('state'),'needs_review');
+  const report=await readPendingReport(c.root,now);await raisePendingAlerts(c.db,c.root,report,now);
+  const alert=await ref(c.root,ALERT_COLLECTION,alertKey('outbox',job.id,'needs_review','needs_review')).get();
+  assert.equal(alert.get('status'),'open');
+  assert.equal((await guardOf(c).get()).updateTime.isEqual(guard.updateTime),true);
+  assert.equal(c.transport.bodies.length,calls);
+  assert.deepEqual(await c.store.videoBalance(c.identity),balanceBefore);
+ });
+}
 // ---------------------------------------------------------------------------
 // 1.4b piece 1 (guard accounting): every writer creates epoch 1 + createdAtMs and grows the epoch on a re-block.
 // ---------------------------------------------------------------------------

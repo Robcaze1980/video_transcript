@@ -1,0 +1,42 @@
+LV-019.B — revisión estática GLM vía respaldo OpenRouter
+Fecha 2026-11-26; modelo solicitado ~z-ai/glm-flash-latest; servido z-ai/glm-5.3-flash.
+C1, backend integrado f13efee2…, 24966 entrada, 0 caché, 42744 salida, US$0.03108216375, generación gen-1795713707-kPx6Ifm8q4XfhALVs9r9.
+Alcance limitado al paquete; hallazgos sujetos a contraste, no acredita producción.
+
+# Revisión independiente — LV-019.B, circuito C1 (voz revisada), base 255aa5e
+
+## Integridad del paquete
+El sha256 integrado (f13efee…) no es verificable: los fragmentos de `firestoreBackend.ts` son parciales (salto 915→1110) y `reserveAttemptEvidence.ts` omite las líneas 61–139. No hay manifiesto que ligue archivos→hash ni evidencia de la base 255aa5e. La ausencia de handler HTTP/despacho solo está afirmada en comentarios (firestoreBackend.ts:768–770); el paquete no contiene el cableado para demostrarla.
+
+## Verificado positivamente (en el código suministrado)
+- **Autorización del propietario**: re-verificada en transacción en cada paso con dinero: `verifiedUidAccountInTransaction` + ligadura uid↔identityKey (firestoreBackend.ts:824–842, 1156–1157, 1859–1860, 1929–1930); la autorización de la fuente ocurre dentro de la misma transacción del binding (firestoreReviewedTranslation.ts:408–411).
+- **Fuente revisada / captura previa**: revisión+recibo con `createdAtMs` iguales y sha validados (firestoreReviewedTranslation.ts:410–434); fingerprint del marker sobre todos los campos (reviewedVoiceMarker.ts:69–71, 125–129); job↔marker y attempt↔fuente verificados en replay (firestoreBackend.ts:1143–1152, 1889–1895). El bloque `external` del binding refiere a los documentos de cobro del job de texto (firestoreReviewedTranslation.ts:440–452), estables ante el commit de voz, por lo que el hash de historial del replay es estable.
+- **Arbitraje voz/texto antes de reservar**: lectura de claim dentro de `beginBillingIntent` (firestoreBackend.ts:1128) previa a crear intent; el POST de voz ocurre después de begin+prepare (771–790) y el de texto después de `beginExternalBillingIntent` (firestoreAi.ts:108→122). Inmutabilidad del claim (722–726), ancla mismo-commit (732), campos de enlace del ancla (736).
+- **ACK correcto**: igualdad estricta con el witness persistido (795); ACK+job en una sola transacción (1949–1959); una observación de status no autoriza job (1875–1884); preservación del ACK si el commit local falla (798–801, 893–908, 311–339); ACK perdido → UNKNOWN sin segundo POST (valla `localVoiceAttemptId`: 861–862, 1166).
+- **Simultáneos**: attemptId determinista = reservationId (823, videoReservationId.ts); creación de attempt + `localVoiceAttemptId` atómica (875–880); `prepareReserveAttemptInTransaction` idempotente y nunca re-autoriza (reserveAttemptEvidence.ts:292–303).
+- **Ventana pre-commit**: revalidación de versiones inmutables + semántica de intent/account/guard (reserveAttemptWindow.ts:71–92).
+- **Privacidad**: `canonicalEvidence` no enumerable y no persistido (firestoreReviewedTranslation.ts:462–471); el marker omite `canonicalEvidence`/`versions` (reviewedVoiceMarker.ts:44–48); snapshot del ACK solo metadatos (reserveAttemptEvidence.ts:252–257).
+- **Aislamiento**: circuito cejado a test/emulador/raíz sintética revalidada en cada lectura de claim (688–704, 776, 716–718).
+
+## Hallazgos concretos
+1. **Inconsistencia de redondeo en el borde de segundo (riesgo condicionado)** — reviewedVoiceMarker.ts:58–66 tolera `billableSeconds ∈ {ceil(ms/1000), min(600, floor(ms/1000)+1)}` («2000 ms → 2 o 3 s»), pero firestoreBackend.ts:1924 exige `price===Math.ceil(asset.metadata.duration)` (un único valor). Si la fuente produce el valor +1 en un borde y `metadata.duration` está truncada a segundos, el flujo paga en Account y luego falla en :1924 → ACK preservado (799) pero reserva huérfana. Depende del esquema de `Input.metadata` y del cálculo aguas arriba de `billableSeconds`, ausentes del paquete.
+2. **Elegibilidad aiPilot solo post-POST** — la rama de voz de `prepareReserveAttempt` (firestoreBackend.ts:858–874) valida saldo (869) y cuota (870) pero no `aiPilot`/`simulationOnly`; eso se exige recién tras el POST (reserveAttemptWindow.ts:86–88; firestoreBackend.ts:1887). Cuenta no elegible ⇒ reserva pagada y luego fallo cerrado (huérfana known-unknown).
+3. **Vida tras NACK con asentamiento fallido** — firestoreBackend.ts:791–793: si `settleExternalBillingIntent` falla, el intent queda `reserve_pending` con `localVoiceAttemptId` fijado y todo reintento cae en :861/:1166 → `LocalVoiceReserveUnknown` permanente; no hay ruta de recuperación en el paquete. Falla cerrado, sin doble gasto.
+4. **Observación (diseño probado, ruta con dinero)** — el claim es canónico en minúsculas (:715) pero anclas/intents usan la caja cruda (:749; firestoreAi.ts:106,108). Voz colapsa cajas (:775) ✓; texto externo no: dos enqueues que difieran solo en caja producirían dos intents/reservas/jobs pagados. El test lo declara comportamiento legado intencional para simulado (emulador :1368–1370); conviene confirmar que también es intencional en la ruta `account_seconds`.
+
+## Controles negativos conservados
+- Ancla falsificada coherente no burla el marker de voz previo (emulador :1332–1338; firestoreBackend.ts:732).
+- Claim recreado con token viejo o nuevo → conflicto por `createTime` (emulador :1325–1329; :732).
+- Claim borrado con historia viva → conflicto (emulador :1323–1324, :1352–1353; :743–748).
+- Alteración del modo del ancla → conflicto (emulador :1379–1380; :736).
+- Legado sensible a caja para texto (emulador :1368–1370) y arbitraje canónico voz↔texto en ambas direcciones (:1314–1363).
+- Pérdida de respuesta: un solo llamado a Account, saldos locales intactos (:1317–1318, :1339–1342).
+- Concurrentes voz+texto: exactamente un ganador, una llamada (:1396–1413).
+- Alteración de raíz (`localRequestKeyIndex:0`) y re-inicialización → conflicto (:1384–1388; :706, :717–718).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: firestoreBackend.ts:709-750,771-803,817-884,1118-1186,1842-1967; reserveAttemptEvidence.ts:140-339; reserveAttemptWindow.ts:1-92; reviewedVoiceMarker.ts:1-129; firestoreReviewedTranslation.ts:390-485; firestoreAi.ts:100-152; videoReservationId.ts:1-12; emulador :1305-1413. Los invariantes financieros visibles (autorización por transacción, arbitraje voz/texto previo al POST, ACK+job atómicos, status≠ACK, ventana pre-commit, privacidad) se sostienen con controles negativos; no se probó ningún fallo de integridad en el código suministrado. Hallazgos abiertos: inconsistencia de redondeo en bordes (reviewedVoiceMarker.ts:58-66 vs firestoreBackend.ts:1924), elegibilidad aiPilot solo post-POST (:858-874 vs :86-88/:1887), y bloqueo vital permanente tras NACK sin asentar (:791-793→:861/:1166); además, dedup por caja no canónica en la ruta de texto pagada (firestoreAi.ts:106,108; :749). No atribuible a producción: circuito solo test/emulador y regresión financiera anterior aún en ejecución.
+NEGATIVOS: ancla falsa + marker de voz previo bloqueado (emulador :1332-1338); claim recreado con token viejo/nuevo rechazado (:1325-1329); claim borrado con historia viva rechazado (:1323-1324,:1352-1353; firestoreBackend.ts:743-748); alteración de ancla rechazada (:1379-1380); legado sensible a caja documentado (:1368-1370); pérdida de ACK sin segundo POST (:1317-1318,:1339-1342); concurrentes con un solo ganador (:1396-1413); raíz alterada/re-init rechazadas (:1384-1388); status no autoriza job (firestoreBackend.ts:1875-1884, sin test visible en el fragmento).
+BLOQUEOS: sin manifiesto ni archivos completos, sha256 integrado y base 255aa5e no verificables; faltan reserveAttemptEvidence.ts:61-139 (copyWitness/copyVersions/codecs/requiredVoiceSources), voiceDocumentVersion, authorize/verifiedCurrentReview y derivación de billableSeconds, esquema de Input.metadata.duration, localVoiceRequestUuid (sensibilidad a caja inferida solo de tests), helpers de backend (intentWitness, externalIntentTransitionDue con LOCAL_VOICE_INTENT_NOT_DUE, settleExternalBillingIntent, verifiedUidAccountInTransaction, AI_VOICE_BUDGET vs artifactPlan, usable/readyPrivateInput, jobAccounting :916-1109), idempotencia del cliente Account, 40 de 44 tests y el cableado del fixture; ausencia de handler HTTP no demostrable desde el paquete.
+=== FIN RESUMEN ===

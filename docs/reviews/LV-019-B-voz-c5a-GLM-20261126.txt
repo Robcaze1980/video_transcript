@@ -1,0 +1,35 @@
+LV-019.B C5a — revisión estática de GLM por respaldo OpenRouter
+Fecha: 2026-11-26
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Generación: gen-1795712107-quJZ9WVAoDG5fuguzUhS
+Entrada: 5865 tokens; caché: 0; salida: 10145 tokens; costo observado: USD 0.004513311.
+Alcance: prototipo sintético de estimación; no voz real, teléfonos físicos ni integración.
+
+Revisión estática completada sobre los 5 archivos del paquete. Resumen:
+
+**Exactitud del cálculo (verificado a mano):**
+- `voiceQuotePreview.mjs:9` redondea la duración con techo al segundo; `:11` usa `floor((s·10+30)/60)`, que equivale a mitad-arriba de `s/6` centavos por servicio (aritmética entera, sin riesgo de coma flotante); `:13` suma tras redondear cada servicio por separado. Coincide con la regla.
+- Recomputé todos los valores esperados de `voiceQuotePreview.test.mjs`: 130 s→22/22/44 (l.6,10); 2 s→0 y 3 s→1 (l.14-15); 128 s→21+21=42, 129 s→22+22=44 (l.16-17); empates 3/9/129/597 s→1/2/22/100 (l.21); fronteras 1 ms→0 y 600 s→100 (l.27-28). Todo correcto. Voz solo junto con texto: radio group en `html:32/36` y `mjs:12-13` lo garantizan.
+
+**Precio no confirmado / saldo:** `html:16` "Demostración con datos de ejemplo. El importe es orientativo", "Estimación" (`html:44`), "Total estimado" (`html:56`). Sin botones de pago, sin "saldo", sin "reserva", sin CTA. Correcto.
+
+**Conexión accidental / privacidad:** CSP cerrada en `html:6` (`connect-src 'none'`, `form-action 'none'`, `base-uri 'none'`), cero recursos externos, sin formularios ni storage. El arnés (`browser.mjs:58,67`) destruye sockets y bloquea DNS salvo loopback.
+
+**A11y/móvil:** `label/for` (`html:22`), fieldset+legend+`aria-describedby` (`html:29`), `role="status"` + `aria-atomic` (`html:55`), `lang="es"`, targets ≥44 px (`css:42,57`), focus visible 3 px (`css:66`), viewport (`html:5`).
+
+**Hallazgos menores (no bloqueantes):**
+1. `voiceQuotePreview.html:59` — la nota de redondeo no menciona el desempate mitad-arriba; el código sí lo aplica.
+2. `voiceQuotePreview.css:64` — estado visual depende de `:has()`; sin soporte queda solo el radio nativo.
+3. `voiceQuotePreview.browser.mjs:95` — emulación móvil solo de métricas; no activa `Emulation.setTouchEmulationEnabled`, así que la interacción táctil no se ejercita.
+4. `voiceQuotePreview.mjs:30` — un valor manipulado del select lanzaría `RangeError` no capturado en `render`; mitigado por opciones fijas y validación en `mjs:6-8`.
+5. `voiceQuotePreview.mjs:2` — tope de 10 min invisible en la UI (irrelevante: opciones ≤3 min).
+
+**No verificable desde el paquete:** `reviewBrowserCdp.mjs` (importado en `browser.mjs:10`) no está incluido, así que el aislamiento de red del arnés no se puede auditar estáticamente; móvil físico y touch real; integración con precios/servicios reales (fuera de alcance por diseño). Los resultados reportados (6/6 Node, PASS 320/390, 6 GET, cero persistencia) se toman como datos, sin reejecución.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Cálculo verificado línea a línea: techo al segundo (mjs:9), mitad-arriba por servicio vía floor((s·10+30)/60) (mjs:11), suma posterior (mjs:13); todos los valores de test.mjs:5-29 recomputados correctos; voz solo con texto (html:32/36, mjs:12-13); disclaimers de estimación/orientativo sin CTA ni saldo (html:16,44,56); CSP cerrada y cero recursos externos (html:6); a11y label/fieldset/status/focus/targets ≥44px (html:22,29,55; css:42,57,66).
+NEGATIVOS: rechazo de entradas inválidas (test.mjs:31-38); 404 para no-GET/desconocido (browser.mjs:25-27); pageErrors y peticiones fuera del preview vacías (browser.mjs:157-158); proxy destructivo + MAP * ~NOTFOUND (browser.mjs:58,67); storage/formularios en cero (browser.mjs:153); recarga restaura US$0.22 sin persistencia (browser.mjs:154-156); contención del directorio temporal (browser.mjs:168).
+BLOQUEOS: ninguno para el veredicto estático; pendientes fuera de comprobación: reviewBrowserCdp.mjs ausente del paquete (browser.mjs:10), móvil físico/táctil real, integración de producción; tests reportados tomados como datos sin reejecución.
+=== FIN RESUMEN ===

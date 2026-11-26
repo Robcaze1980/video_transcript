@@ -343,6 +343,7 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
       tx.delete(guardRef);
       tx.update(alertRef,{status:'dispositioned',dispositionedAtMs:nowMs,dispositionedBy:authorizedBy,dispositionAuditId:unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs)});
       const releasedId=unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs);
+      tx.set(root.collection('billingReleaseReopenings').doc(accountId),{accountId,auditId:releasedId});
       tx.create(releasedRef,{auditId:releasedId,action:'video_released',...payload,kind,accountId,holdId,
         accountEpoch:accepted.epoch,accountCreatedAtMs:accepted.createdAtMs,
         advanced:[],accountBlocked:false,videoRivals:rivals,recordedAtMs:nowMs});
@@ -399,6 +400,7 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
       tx.update(alertRef,{status:'dispositioned',dispositionedAtMs:nowMs,dispositionedBy:authorizedBy,dispositionAuditId:unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs)});
     }
     const auditId=unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs);
+    if(clear)tx.set(root.collection('billingReleaseReopenings').doc(accountId),{accountId,auditId});
     tx.create(doneRef,{auditId,action:'unblocked',...payload,kind,accountId,holdId,advanced,accountBlocked:account.blocked,videoBlocked:!clear,videoRivals:rivals,accountReplayed:account.replayed,accountEpoch:accepted.epoch,accountCreatedAtMs:accepted.createdAtMs,recordedAtMs:nowMs});
     return {unblocked:true as const,replayed:false as const,accountBlocked:account.blocked,videoBlocked:!clear,advanced,auditId};
   });

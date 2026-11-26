@@ -1,0 +1,41 @@
+LV-019.B D2 — revisión estática de diseño, DeepSeek por respaldo OpenRouter
+Fecha: 2026-11-26. Borrador anterior a las aclaraciones sobre metadatos de Firestore.
+Modelo servido: deepseek/deepseek-v4.1-flash; generación gen-1795713671-2he8aE9dK87n3KESal6o.
+Entrada 14624; caché 0; salida 8791 tokens; costo observado US$0.00567301779.
+El informe identifica que las garantías propuestas aún no están implementadas; sus afirmaciones sobre versiones requieren contraste.
+
+Revisión estática: el paquete es un **borrador D2** con gate abierto. No hay certificado de admisión/cerca implementado ni pruebas que demuestren la postimagen exigida. Los fragmentos bastan para falsar el reconocimiento de avance en el código actual.
+
+**Defectos concretos**
+
+- `docs/specs/LV-019-B-progreso-concurrente-saldo.md:20` exige pre/postversiones o generaciones verificables. En cambio, `server/commercial/firestoreBackend.ts:36` solo modela `exists/createTime/updateTime`, y `:542` compara con `sameTerminalDocumentVersion`. Eso no descarta cambio-y-vuelta, borrado/recreación ni timestamps iguales.
+- `server/commercial/firestoreBackend.ts:530` invalida la observación si existe `request` o `jobMarker`. Por eso `matchingDirectObservation` (`:540-542`) no puede reconocer una admisión ya consumada; el caso “trabajo legítimo creado por otro proceso” cae en `recordReservedStatusUncertainty` (`:612-620`) y luego en `preserveDirectUncertainty`.
+- `server/commercial/firestoreBackend.ts:569-590`: si ve `request`, `jobMarker` y `row.jobId` coherentes, marca `attributed=true` (`:580-581`) y, con ello, escribe guard bloqueado, hold y revisión (`:584-588`). No distingue una admisión certificada. Un `status=reserved` tardío puede bloquear al titular, justo el fallo que el borrador quiere evitar.
+- `server/commercial/firestoreBackend.ts:592-609`: `captureDirectObservation` no persiste intento ni autentica Cuenta; genera `attemptId=randomUUID()` (`:598`). El documento exige registro durable por id de intento (`:7`). Tras caída/reinicio no se puede revalidar la captura original.
+- `server/commercial/firestoreBackend.ts:612-620`: `recordReservedStatusUncertainty` no tiene rama de excepción certificada; solo “unchanged” o “preserve”. Tampoco persiste el resultado de comparación si no hay incidente.
+- `server/commercial/firestoreBackend.ts:1950-1959`: el commit conjunto ACK+trabajo comprueba ventana y `stageReserveAck`, pero no emite certificado con pre/postimagen de las 14 dependencias ni recibo durable de generaciones. Los ACK siguen sin elevarse de `attribution:'unverified'` (`:17` del spec).
+- `server/commercial/firestoreBackend.ts:1944-1948`: crea `request`, `job`, marcador y actualiza intención, pero no deja postimagen verificable de los cambios autorizados.
+- `server/commercial/firestoreAi.ts:324`: el drenaje llama a `recordReservedStatusUncertainty` antes del deadline; una carrera con la admisión puede derivar a revisión/hold. `:329-340` usa `fenced.transitioned`, pero no emite/valida certificado de cerca. `:341-344` captura y libera sin cadena certificada.
+- Duplicaciones: `preserveDirectUncertainty` deriva el incidente de `attemptId` aleatorio (`firestoreBackend.ts:553,598`). La misma observación repetida tras reinicio puede crear incidentes distintos.
+- Identidad A→B→A: `firestoreBackend.ts:530`, `:566` y `:1930` solo comprueban `uid`/`accountId` actuales; no hay generación de vínculo. No se puede demostrar continuidad si la identidad se reasigna.
+- Permisos/ACK: la captura local no autentica Cuenta (`firestoreBackend.ts:592`). El ACK guardado por separado no acredita por sí solo el commit que creó el trabajo.
+
+**Controles negativos conservados**
+
+- Un `statusSnapshot` que coincide no autoriza crear/repetir trabajo: `firestoreBackend.ts:1875-1883`.
+- ACK faltante aborta el commit conjunto: `firestoreBackend.ts:1958`.
+- Versión/identidad/ventana incoherentes van a revisión conservadora: `firestoreBackend.ts:530`, `:566-576`.
+- `reserved`, `possibly_sent`, 404 o lease no autorizan repetir mutación: `docs/specs/LV-019-B-progreso-concurrente-saldo.md:26`.
+- Atribución fallida no impone hold: `firestoreBackend.ts:580-584`.
+- Legado sin certificado y A→B→A sin generación de vínculo quedan fuera de la excepción: `docs/specs/LV-019-B-progreso-concurrente-saldo.md:22,33`.
+
+**Qué falta por comprobar**
+
+Implementar y validar el certificado completo de admisión y cerca; postimagen resistente a reescrituras; diario transaccional o recibo de escritura durable; registro durable de intento/comparación; autenticación del cliente de Cuenta y generación de vínculo de identidad; cadena ordenada de certificados para envío/cierre posterior; pruebas de carreras A-3, mutaciones negativas, regresión financiera, legado y revisión independiente GLM/DeepSeek. Con este paquete, alcance y negativos **no bastan** para implementar la excepción.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: firestoreBackend.ts:36,530,542,569-590,592-620,1950-1959; firestoreAi.ts:324-344; spec LV-019-B líneas 7,20,22,26,33.
+NEGATIVOS: status no autoriza trabajo; ACK faltante aborta; versiones/identidad incoherentes van a revisión; reserva/lease/404 no autorizan repetir; atribución fallida no impone hold; legado y A→B→A sin vínculo quedan fuera.
+BLOQUEOS: falta certificado de admisión/cerca, postimagen por generaciones, registro durable de intento, autenticación de Cuenta, cadena ordenada de certificados, pruebas de carreras/negativos/regresión y revisión independiente; el borrador no autoriza despliegue.
+=== FIN RESUMEN ===

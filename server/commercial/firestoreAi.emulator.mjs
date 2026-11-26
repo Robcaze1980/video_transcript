@@ -14,6 +14,8 @@ import {ObjectFault} from './gcsObjects.ts';
 import {AI_TEXT_BUDGET,AI_CATALOG_VERSION} from './aiContracts.ts';
 import {AccountBillingClient,AccountBillingFault,accountIdentityKey} from './accountBillingClient.ts';
 import {AccountStore} from '../account/backend.ts';
+import {readPendingReport} from './billingPendingReport.ts';
+import {ALERT_COLLECTION,raisePendingAlerts} from './billingPendingAlerts.ts';
 import {prepareFinancialFixture,cleanupFinancialFixture} from './financialFixtureSafety.mjs';
 const sha=value=>createHash('sha256').update(value).digest('hex'),contexts=[];
 function reservationFor(account,identity,input,operation,revision,key){const bytes=createHash('sha256').update(JSON.stringify(['vistavo-video-reservation-v1',account,identity,input,operation,revision,key])).digest().subarray(0,16);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const h=bytes.toString('hex');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;}
@@ -553,31 +555,37 @@ test('job creation and the release fence exclude each other in either commit ord
  assert.equal((await d.root.collection('jobs').get()).size,0);
 });
 
-async function syntheticReleaseAccount(c,identityKey,reservationId,failureMode){
- assert.ok(['after_apply','before_apply'].includes(failureMode));
+async function syntheticReleaseAccount(c,identityKey,reservationId,failureMode,hooks={}){
+ assert.ok(['after_apply','before_apply','success'].includes(failureMode));
  const root=c.root.collection('syntheticAccountService').doc(randomUUID());await root.create({purpose:'synthetic-release-recovery-v1'});
  const store=new AccountStore(c.db,root),owner=await store.bootstrap(c.uid),foreign=await store.bootstrap(c.foreignUid);
  await root.collection('accounts').doc(owner.account.id).update({credited:20,available:20});
  await root.collection('accounts').doc(foreign.account.id).update({credited:7,available:7});
  await store.reserveVideo(identityKey,reservationId,2);
- const statusPath=`/api/internal/video/reservations/${reservationId}/status`,releasePath=`/api/internal/video/reservations/${reservationId}/release`,calls=[],unexpected=[];
+ const base=`/api/internal/video/reservations/${reservationId}`;
+ const statusPath=base+'/status',releasePath=base+'/release',resolutionPath=base+'/resolution',calls=[],unexpected=[];
  let releases=0,applied=0;
  const beforeForeign=(await store.me(c.foreignUid)).balance;
  const client=new AccountBillingClient(undefined,{request:async request=>{
   const path=new URL(request.url).pathname;calls.push(path);
-  if(path!==statusPath&&path!==releasePath){unexpected.push('path');throw Error('unexpected synthetic Account operation');}
+  if(![statusPath,releasePath,resolutionPath].includes(path)){unexpected.push('path');throw Error('unexpected synthetic Account operation');}
   const data=request.data,expectedKeys=path===statusPath?'identityKey':'identityKey,seconds';
-  if(request.method!=='POST'||!data||Object.keys(data).sort().join(',')!==expectedKeys||data.identityKey!==identityKey||(path===releasePath&&data.seconds!==2)){
+  if(request.method!=='POST'||!data||Object.keys(data).sort().join(',')!==expectedKeys||data.identityKey!==identityKey||(path!==statusPath&&data.seconds!==2)){
    unexpected.push('request');throw Error('invalid synthetic Account request');
   }
   if(path===statusPath)return {data:await store.videoReservation(identityKey,reservationId)};
+  if(path===resolutionPath){
+   const data=await store.videoReservationResolution(identityKey,reservationId,2);
+   await hooks.afterResolution?.(data);return {data};
+  }
   releases++;
+  await hooks.beforeRelease?.();
   if(failureMode==='before_apply'&&releases===1)throw Error('synthetic release failed before commit');
   const result=await store.settleVideo(identityKey,reservationId,'release',2);if(result.settled)applied++;
   if(failureMode==='after_apply'&&releases===1)throw Error('synthetic lost release acknowledgement');
   return {data:{reservationId,state:result.state,seconds:result.seconds}};
  }});
- return {root,store,owner:owner.account.id,beforeForeign,statusPath,releasePath,calls,unexpected,client,releases:()=>releases,applied:()=>applied};
+ return {root,store,owner:owner.account.id,beforeForeign,statusPath,releasePath,resolutionPath,calls,unexpected,client,releases:()=>releases,applied:()=>applied};
 }
 async function assertSyntheticRelease(c,remote){
  assert.deepEqual((await remote.store.me(c.uid)).balance,{unit:'video_seconds',credited:20,available:20,reserved:0,consumed:0,active:0});
@@ -610,24 +618,276 @@ test('a lost release acknowledgement is recovered by status without releasing tw
  }
 });
 
-test('a release failure before commit is retried with exactly one ledger movement',{timeout:60000},async()=>{
- const c=await fixture(),requestKey=randomUUID(),identityKey=accountIdentityKey(c.uid),reservationId=reservationFor(c.account,identityKey,c.input,'translation:en',1,requestKey),data={provider:'account_seconds',identityKey,reservationId,seconds:2};
- await c.backend.beginExternalBillingIntent(c.account,c.input,requestKey,'translation:en',1,data);
- assert.deepEqual(await c.backend.fenceExternalBillingRelease(c.account,requestKey,data),{state:'release_pending'});
- const remote=await syntheticReleaseAccount(c,identityKey,reservationId,'before_apply'),beforeLocal=await c.backend.readBalance(c.account),beforeForeign=await c.backend.readBalance(c.foreign);
+test('a transport failure before Account applies a release leaves one possibly sent POST and no refund',{timeout:60000},async t=>{
+ const c=await fixture(),p=await fencedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);
+ const claim=ref(c,'billingIntentDispatchClaims',terminalId(p,'release'));
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'before_apply'),beforeLocal=await c.backend.readBalance(c.account),beforeForeign=await c.backend.readBalance(c.foreign);
  const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
  assert.equal((await ai.drainExternalBilling()).intentsFailed,1);
- const docs=await c.root.collection('billingIntents').get();assert.equal(docs.size,1);assert.equal(docs.docs[0].get('state'),'release_pending');
  assert.deepEqual(remote.calls,[remote.statusPath,remote.releasePath]);assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);
- assert.equal((await remote.store.videoReservation(identityKey,reservationId)).state,'reserved');
- const beforeLedger=await remote.root.collection('ledgerEntries').get();assert.equal(beforeLedger.docs.filter(doc=>doc.get('kind')==='video_release').length,0);
- await docs.docs[0].ref.update({nextAttemptAt:0});
- assert.equal((await ai.drainExternalBilling()).intentsFailed,0);
- const closed=await docs.docs[0].ref.get();assert.equal(closed.get('state'),'closed');assert.equal(closed.get('releaseObservationSource'),'release_ack');
- assert.deepEqual(remote.calls,[remote.statusPath,remote.releasePath,remote.statusPath,remote.releasePath]);assert.equal(remote.releases(),2);await assertSyntheticRelease(c,remote);
- await ai.drainExternalBilling();assert.deepEqual(remote.calls,[remote.statusPath,remote.releasePath,remote.statusPath,remote.releasePath]);
+ const attempted=await claim.get();assert.equal(attempted.get('state'),'possibly_sent');
+ const row=await intent.get(),due=row.get('nextAttemptAt');assert.ok(Number.isSafeInteger(due)&&due>row.get('lastAttemptAtMs'));
+ t.mock.method(Date,'now',()=>due);
+ const retry=await ai.drainExternalBilling();assert.equal(retry.intentsRecovered,0);assert.equal(retry.intentsFailed,1);
+ assert.deepEqual(remote.calls,[remote.statusPath,remote.releasePath,remote.statusPath,remote.resolutionPath]);assert.deepEqual(remote.unexpected,[]);
+ assert.equal((await claim.get()).get('state'),'possibly_sent');const pending=await intent.get();
+ assert.equal(pending.get('state'),'release_pending');assert.equal(pending.get('releaseConfirmed'),undefined);
+ assert.equal((await remote.store.videoReservation(p.identityKey,p.reservationId)).state,'reserved');
+ assert.deepEqual((await remote.store.me(c.uid)).balance,{unit:'video_seconds',credited:20,available:18,reserved:2,consumed:0,active:1});
+ assert.deepEqual((await remote.store.me(c.foreignUid)).balance,remote.beforeForeign);
+ const ledger=await remote.root.collection('ledgerEntries').get();assert.deepEqual(ledger.docs.map(doc=>doc.get('kind')),['video_reserve']);
  assert.deepEqual(await c.backend.readBalance(c.account),beforeLocal);assert.deepEqual(await c.backend.readBalance(c.foreign),beforeForeign);
  assert.equal((await c.root.collection('jobs').get()).size,0);
+});
+
+test('a verified interruption before the dispatch claim allows one release POST and one refund',{timeout:60000},async t=>{
+ const c=await fixture(),p=await fencedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);
+ const claim=ref(c,'billingIntentDispatchClaims',terminalId(p,'release'));
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'success');
+ const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ const stop=t.mock.method(c.backend,'claimDirectTerminalDispatch',async()=>{throw Error('synthetic interruption before dispatch transaction');});
+ assert.equal((await ai.drainExternalBilling()).intentsFailed,1);assert.equal(stop.mock.callCount(),1);
+ assert.equal((await claim.get()).get('state'),'unsent');assert.deepEqual(remote.calls,[remote.statusPath]);
+ stop.mock.restore();
+ const due=(await intent.get()).get('nextAttemptAt');assert.ok(Number.isSafeInteger(due));t.mock.method(Date,'now',()=>due);
+ const retry=await ai.drainExternalBilling();assert.equal(retry.intentsRecovered,1);assert.equal(retry.intentsFailed,0);
+ assert.equal((await intent.get()).get('releaseObservationSource'),'release_ack');
+ assert.deepEqual(remote.calls,[remote.statusPath,remote.statusPath,remote.releasePath]);assert.equal(remote.releases(),1);await assertSyntheticRelease(c,remote);
+});
+
+test('an unresolved reserved resolution defers further Account reads across a drainer restart',{timeout:60000},async t=>{
+ const c=await fixture(),p=await fencedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'before_apply');
+ const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ assert.equal((await ai.drainExternalBilling()).intentsFailed,1);
+ const row=await intent.get(),due=row.get('nextAttemptAt');assert.ok(Number.isSafeInteger(due)&&due>row.get('lastAttemptAtMs'));
+ let now=due-1;t.mock.method(Date,'now',()=>now);
+ await ai.drainExternalBilling();assert.deepEqual(remote.calls,[remote.statusPath,remote.releasePath]);
+ now=due;const unresolved=await ai.drainExternalBilling();assert.equal(unresolved.intentsRecovered,0);
+ const expected=[remote.statusPath,remote.releasePath,remote.statusPath,remote.resolutionPath];
+ assert.deepEqual(remote.calls,expected);assert.deepEqual(remote.unexpected,[]);
+ const afterRestart=new FirestoreAi(c.db,c.root,new FirestoreBackend(c.db,c.root),c.objects,undefined,remote.client);
+ await afterRestart.drainExternalBilling();
+ assert.deepEqual(remote.calls,expected,'a fresh drainer must respect a durable wait for this unresolved read');
+ const pollRef=ref(c,'billingIntentResolutionPolls',terminalId(p,'release')),first=await pollRef.get();
+ assert.equal(first.get('outcome'),'reserved');assert.equal(first.get('generation'),1);
+ now=first.get('lastPollAtMs')-1;await afterRestart.drainExternalBilling();assert.deepEqual(remote.calls,expected);
+ now=first.get('nextAttemptAt')-1;await afterRestart.drainExternalBilling();assert.deepEqual(remote.calls,expected);
+ now++;await Promise.all([ai.drainExternalBilling(),afterRestart.drainExternalBilling()]);
+ assert.deepEqual(remote.calls,[...expected,remote.statusPath,remote.resolutionPath]);const second=await pollRef.get();assert.equal(second.get('generation'),2);
+ now=second.get('nextAttemptAt');
+ const missing=t.mock.method(remote.client,'status',async()=>{throw new AccountBillingFault('not_found');});
+ await ai.drainExternalBilling();assert.equal(missing.mock.callCount(),1);
+ assert.deepEqual(remote.calls,[...expected,remote.statusPath,remote.resolutionPath,remote.resolutionPath]);
+ assert.deepEqual(remote.unexpected,[]);assert.equal((await terminalPair(c,p,'seal').terminal.get()).exists,false);
+ assert.equal((await intent.get()).get('state'),'release_pending');assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);
+ const maxAgeMs=48*60*60*1000,created=row.get('createdAtMs');
+ const age=await c.backend.escalateStaleBillingRows({now:created+maxAgeMs+1,maxAgeMs,limit:25});assert.equal(age.escalated,1);
+ const overdue=await intent.get();assert.equal(overdue.get('state'),'needs_review');assert.equal(overdue.get('reviewReason'),'max_age');assert.equal(overdue.get('createdAtMs'),created);
+});
+
+test('a terminal poll leaves the in-flight release ACK valid and never dispatches a second release',{timeout:60000},async()=>{
+ const c=await fixture(),p=await fencedIntent(c),entered=Promise.withResolvers(),resume=Promise.withResolvers();
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'success',{beforeRelease:async()=>{entered.resolve();await resume.promise;}});
+ const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client),sender=ai.drainExternalBilling();
+ try{
+  await Promise.race([entered.promise,sender.then(()=>{throw Error('release did not reach Account');})]);
+  const reader=new FirestoreAi(c.db,c.root,new FirestoreBackend(c.db,c.root),c.objects,undefined,remote.client);
+  const intent=ref(c,'billingIntents',p.witness.intentId),before=await intent.get();
+  assert.equal((await reader.drainExternalBilling()).intentsRecovered,0);
+  assert.deepEqual(remote.calls,[remote.statusPath,remote.releasePath,remote.statusPath,remote.resolutionPath]);
+  assert.equal((await intent.get()).updateTime.isEqual(before.updateTime),true);
+  resume.resolve();assert.equal((await sender).intentsRecovered,1);assert.equal((await intent.get()).get('releaseObservationSource'),'release_ack');
+  assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0);
+  assert.equal((await c.root.collection('billingHoldOutbox').get()).size,0);
+  assert.equal(remote.releases(),1);await assertSyntheticRelease(c,remote);
+ }finally{resume.resolve();await sender;}
+});
+
+test('a delayed reserved poll cannot extend a newer turn or mutate the release claim',{timeout:60000},async t=>{
+ const c=await fixture(),p=await fencedIntent(c),entered=Promise.withResolvers(),resume=Promise.withResolvers();let reads=0;
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'before_apply',{afterResolution:async()=>{if(++reads===1){entered.resolve();await resume.promise;}}});
+ const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client),intent=ref(c,'billingIntents',p.witness.intentId);
+ assert.equal((await ai.drainExternalBilling()).intentsFailed,1);
+ const key=terminalId(p,'release'),poll=ref(c,'billingIntentResolutionPolls',key),claim=ref(c,'billingIntentDispatchClaims',key);
+ const prior=await claim.get();let now=(await intent.get()).get('nextAttemptAt');t.mock.method(Date,'now',()=>now);
+ const late=ai.drainExternalBilling();
+ try{
+  await Promise.race([entered.promise,late.then(()=>{throw Error('reader did not reach resolution');})]);
+  const first=await poll.get();assert.equal(first.get('generation'),1);
+  now=first.get('nextAttemptAt');await ai.drainExternalBilling();const second=await poll.get();
+  assert.equal(second.get('generation'),2);assert.equal(second.get('outcome'),'reserved');
+  now++;resume.resolve();await late;
+  assert.equal((await poll.get()).updateTime.isEqual(second.updateTime),true);assert.equal((await claim.get()).updateTime.isEqual(prior.updateTime),true);
+  assert.equal(reads,2);assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);
+ }finally{resume.resolve();await late;}
+});
+
+test('a page of release polls in backoff does not hide another account in the same queue',{timeout:60000},async t=>{
+ const c=await fixture(),now=Date.now(),batch=c.db.batch();t.mock.method(Date,'now',()=>now);
+ for(let i=0;i<101;i++){
+  const id=i.toString(16).padStart(64,'0'),terminalId=sha(JSON.stringify(['billing-intent-terminal-v1',id,'release']));
+  batch.create(ref(c,'billingIntents',id),{state:'release_pending',accountId:c.account,nextAttemptAt:0});
+  batch.create(ref(c,'billingIntentResolutionPolls',terminalId),{intentId:id,terminalId,action:'release',binding:'a'.repeat(64),token:randomUUID(),generation:1,lastPollAtMs:now,nextAttemptAt:now+2000});
+ }
+ const due='f'.repeat(64);batch.create(ref(c,'billingIntents',due),{state:'release_pending',accountId:c.foreign,nextAttemptAt:0});await batch.commit();
+ for(const cursor of [undefined,'0'.repeat(64)])assert.deepEqual((await c.backend.pendingExternalBillingIntents(1,cursor)).map(row=>row.id),[due]);
+});
+
+test('a due terminal poll preserves a changed status history for review before another resolution read',{timeout:60000},async t=>{
+ const c=await fixture(),p=await fencedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'before_apply');
+ const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ assert.equal((await ai.drainExternalBilling()).intentsFailed,1);
+ let now=(await intent.get()).get('nextAttemptAt');t.mock.method(Date,'now',()=>now);
+ await ai.drainExternalBilling();const poll=await ref(c,'billingIntentResolutionPolls',terminalId(p,'release')).get();
+ now=poll.get('nextAttemptAt');const status=remote.client.status.bind(remote.client);
+ t.mock.method(remote.client,'status',async(...args)=>{const observed=await status(...args);await intent.update({seconds:3});return observed;});
+ assert.equal((await ai.drainExternalBilling()).intentsFailed,1);
+ const incidents=await c.root.collection('billingIntentObservationIncidents').get();
+ assert.equal(incidents.size,1);assert.equal(incidents.docs[0].get('observedSeconds'),2);assert.equal(incidents.docs[0].get('source'),'status');
+ assert.equal((await intent.get()).get('seconds'),3);assert.equal((await ref(c,'billingGuards',c.foreign).get()).exists,false);
+ assert.equal(remote.calls.filter(path=>path===remote.resolutionPath).length,1);assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);
+});
+
+function pausedTerminalStep(){
+ const entered=Promise.withResolvers(),resume=Promise.withResolvers();
+ return {
+  async pause(){entered.resolve();await resume.promise;},
+  wait(task){return Promise.race([entered.promise,task.then(()=>{throw Error('operation completed before its barrier');})]);},
+  resume:()=>resume.resolve(),
+ };
+}
+
+for(const [firstAction,mode] of [['seal','first deadline'],['release','first deadline'],['release','mismatched sibling binding'],['seal','late released response']])test('two real terminal polls with '+mode+' and '+firstAction+' first',{timeout:60000},async t=>{
+ const c=await fixture(),requestKey=randomUUID(),identityKey=accountIdentityKey(c.uid);
+ const reservationId=reservationFor(c.account,identityKey,c.input,'translation:en',1,requestKey),billing={provider:'account_seconds',identityKey,reservationId,seconds:2};
+ const accountRoot=c.root.collection('syntheticAccountService').doc('double-poll'),store=new AccountStore(c.db,accountRoot);
+ const owner=await store.bootstrap(c.uid);await accountRoot.collection('accounts').doc(owner.account.id).update({credited:20,available:20});
+ await c.backend.beginExternalBillingIntent(c.account,c.input,requestKey,'translation:en',1,billing);
+ const witness=await c.backend.externalIntentWitness(c.account,requestKey,billing),attempt=await c.backend.prepareExternalReserveAttempt(c.account,c.input,requestKey,'translation:en',1,c.uid);
+ assert.equal(attempt.witness.reservationId,reservationId);
+ const p={witness},intent=ref(c,'billingIntents',witness.intentId),calls=[];
+ const reserve=pausedTerminalStep(),seal=pausedTerminalStep(),release=pausedTerminalStep(),lost=pausedTerminalStep();
+ const turns={seal:pausedTerminalStep(),release:pausedTerminalStep()},tasks=[];
+ const client=new AccountBillingClient(undefined,{request:async request=>{
+  const path=new URL(request.url).pathname,action=path.split('/').at(-1);calls.push(action);
+  assert.equal(request.method,'POST');assert.equal(request.data.identityKey,identityKey);
+  if(action==='reservations'){
+   assert.deepEqual(request.data,{identityKey,reservationId,seconds:2});await reserve.pause();
+   await store.reserveVideo(identityKey,reservationId,2);throw Error('lost reserve ACK');
+  }
+  assert.equal(path,`/api/internal/video/reservations/${reservationId}/${action}`);
+  assert.deepEqual(request.data,action==='status'?{identityKey}:{identityKey,seconds:2});
+  if(action==='status'){
+   try{return {data:await store.videoReservation(identityKey,reservationId)};}
+   catch(error){if(error.code==='not_found')throw Object.assign(Error('missing'),{response:{status:404}});throw error;}
+  }
+  if(action==='seal'){await seal.pause();return {data:await store.sealVideoReservation(identityKey,reservationId,2)};}
+  if(action==='release'){await release.pause();await store.settleVideo(identityKey,reservationId,'release',2);await lost.pause();throw Error('lost release ACK');}
+  if(action==='resolution')return {data:await store.videoReservationResolution(identityKey,reservationId,2)};
+  throw Error('unexpected Account path');
+ }});
+ const writer=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,client);
+ function startReader(action){
+  const backend=new FirestoreBackend(c.db,c.root),start=backend.beginTerminalResolutionPoll.bind(backend);
+  backend.beginTerminalResolutionPoll=async(...args)=>{assert.equal(args[2],terminalId(p,action));await turns[action].pause();return start(...args);};
+  const task=new FirestoreAi(c.db,c.root,backend,c.objects,undefined,client).drainExternalBilling();tasks.push(task);return task;
+ }
+ let now=Date.now();t.mock.method(Date,'now',()=>now);
+ try{
+  const reserved=assert.rejects(client.reserve(identityKey,reservationId,2),error=>error.code==='unavailable');tasks.push(reserved);
+  await reserve.wait(reserved);
+  const sending=writer.drainExternalBilling();tasks.push(sending);await seal.wait(sending);
+  const readers={seal:startReader('seal')};await turns.seal.wait(readers.seal);
+  reserve.resume();await reserved;seal.resume();await release.wait(sending);
+  readers.release=startReader('release');await turns.release.wait(readers.release);
+  const secondAction=firstAction==='seal'?'release':'seal';
+  turns[firstAction].resume();await readers[firstAction];now+=500;
+  turns[secondAction].resume();await readers[secondAction];
+  const polls=await c.root.collection('billingIntentResolutionPolls').get();assert.equal(polls.size,2);
+  const deadlines=Object.fromEntries(polls.docs.map(doc=>{assert.equal(doc.get('outcome'),'reserved');assert.equal(doc.get('generation'),1);return [doc.get('action'),doc.get('nextAttemptAt')];}));
+  assert.ok(deadlines[firstAction]<deadlines[secondAction]);
+  release.resume();await lost.wait(sending);assert.equal((await store.videoReservationResolution(identityKey,reservationId,2)).state,'released');
+  now=deadlines[firstAction]-1;const before=calls.length;await writer.drainExternalBilling();assert.equal(calls.length,before);
+  if(mode==='mismatched sibling binding'){
+   const other=ref(c,'billingIntentResolutionPolls',terminalId(p,secondAction));await other.update({binding:'f'.repeat(64)});
+   const changed=await other.get();now=deadlines[firstAction];await writer.drainExternalBilling();
+   now=deadlines[secondAction];await writer.drainExternalBilling();assert.equal(calls.length,before);
+   const pending=await intent.get();assert.equal(pending.get('state'),'release_pending');assert.equal(pending.get('releaseConfirmed'),undefined);
+   const expired=pending.get('createdAtMs')+48*60*60*1000+1;assert.equal((await c.backend.escalateStaleBillingRows({now:expired,limit:25})).escalated,1);
+   const report=await readPendingReport(c.root,expired);await raisePendingAlerts(c.db,c.root,report,expired);
+   const alerts=await c.root.collection(ALERT_COLLECTION).get();assert.equal(alerts.docs.filter(d=>d.get('rowId')===intent.id&&d.get('status')==='open'&&d.get('reason')==='needs_review').length,1);
+   lost.resume();await sending;assert.equal((await other.get()).updateTime.isEqual(changed.updateTime),true);assert.equal((await intent.get()).get('reviewReason'),'max_age');
+   assert.equal(calls.filter(call=>call==='release').length,1);assert.equal(calls.filter(call=>call==='seal').length,1);return;
+  }
+  // Compare without claiming at either deadline, then run two workers at the first one.
+  for(const clock of [deadlines[firstAction],deadlines[secondAction]]){
+   now=clock;const due=await c.backend.pendingExternalBillingIntents(1);
+   assert.equal(due.length,1);assert.equal(due[0].resolutionPollId,terminalId(p,firstAction));
+  }
+  if(mode==='late released response'){
+   const returned=pausedTerminalStep(),status=client.status.bind(client),delayedClient=Object.create(client);
+   delayedClient.status=async(...args)=>{const receipt=await status(...args);assert.equal(receipt.state,'released');await returned.pause();return receipt;};
+   const slow=new FirestoreAi(c.db,c.root,new FirestoreBackend(c.db,c.root),c.objects,undefined,delayedClient).drainExternalBilling();tasks.push(slow);
+   try{
+    await returned.wait(slow);const fast=await writer.drainExternalBilling();assert.equal(fast.intentsRecovered,1);
+    returned.resume();assert.equal((await slow).intentsFailed,0);assert.deepEqual(calls.slice(before),['status','status']);
+   }finally{returned.resume();await slow;}
+  }else{
+   now=deadlines[firstAction];const contender=new FirestoreAi(c.db,c.root,new FirestoreBackend(c.db,c.root),c.objects,undefined,client);
+   const first=await Promise.all([writer.drainExternalBilling(),contender.drainExternalBilling()]);const recovered=first.reduce((sum,result)=>sum+result.intentsRecovered,0);
+   assert.equal(calls.length,before+1);assert.equal(calls.at(-1),'status');
+   assert.equal(recovered,1,'the sibling poll must not postpone a confirmed refund beyond the first eligible deadline');
+   now=deadlines[secondAction];assert.equal((await writer.drainExternalBilling()).intentsRecovered,0);
+  }
+  lost.resume();await sending;assert.equal((await intent.get()).get('releaseConfirmed'),true);
+  for(const action of ['seal','release']){
+   assert.equal(calls.filter(call=>call===action).length,1);
+   assert.equal((await writer.recoverTerminalObservation(terminalId(p,action))).state,'already_closed');
+  }
+  assert.equal(calls.filter(call=>call==='reservations').length,1);
+  assert.equal((await accountRoot.collection('videoReservationTombstones').get()).size,0);
+  const ledger=await accountRoot.collection('ledgerEntries').get();assert.deepEqual(ledger.docs.map(d=>d.get('kind')).sort(),['video_release','video_reserve']);
+  assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0);assert.equal((await c.root.collection('billingHoldOutbox').get()).size,0);
+ }finally{
+  for(const barrier of [reserve,seal,release,lost,...Object.values(turns)])barrier.resume();
+  await Promise.allSettled(tasks);
+ }
+});
+
+test('an invalid terminal poll suppresses remote calls and the overdue intent raises one default alert',{timeout:60000},async t=>{
+ const c=await fixture(),p=await fencedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'before_apply'),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ await ai.drainExternalBilling();const original=await intent.get();let now=original.get('nextAttemptAt');t.mock.method(Date,'now',()=>now);
+ await ai.drainExternalBilling();const poll=ref(c,'billingIntentResolutionPolls',terminalId(p,'release')),genuine=await poll.get();
+ assert.equal(genuine.get('outcome'),'reserved');await poll.update({generation:-1});const broken=await poll.get(),calls=[...remote.calls];
+ now=genuine.get('nextAttemptAt')+1;const expired=original.get('createdAtMs')+48*60*60*1000+1;
+ await ai.drainExternalBilling();assert.deepEqual(remote.calls,calls);assert.equal((await intent.get()).get('state'),'release_pending');
+ assert.equal((await c.backend.escalateStaleBillingRows({now:expired,limit:25})).escalated,1);
+ const report=await readPendingReport(c.root,expired);await raisePendingAlerts(c.db,c.root,report,expired);await raisePendingAlerts(c.db,c.root,report,expired+1);
+ const alerts=await c.root.collection(ALERT_COLLECTION).get();
+ assert.equal(alerts.docs.filter(d=>d.get('kind')==='intent'&&d.get('rowId')===intent.id&&d.get('reason')==='needs_review'&&d.get('status')==='open').length,1);
+ assert.equal((await intent.get()).get('reviewReason'),'max_age');assert.equal((await poll.get()).updateTime.isEqual(broken.updateTime),true);
+ assert.equal((await ref(c,'billingIntentDispatchClaims',terminalId(p,'release')).get()).get('state'),'possibly_sent');
+ assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);assert.deepEqual(remote.unexpected,[]);
+});
+
+test('a selected terminal poll yields to the age sweep before calling Account',{timeout:60000},async t=>{
+ const c=await fixture(),p=await fencedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'before_apply'),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ await ai.drainExternalBilling();const row=await intent.get();let now=row.get('nextAttemptAt');t.mock.method(Date,'now',()=>now);
+ await ai.drainExternalBilling();const poll=ref(c,'billingIntentResolutionPolls',terminalId(p,'release')),prior=await poll.get(),before=[...remote.calls];
+ now=prior.get('nextAttemptAt');const selected=pausedTerminalStep(),start=c.backend.beginTerminalResolutionPoll.bind(c.backend);
+ t.mock.method(c.backend,'beginTerminalResolutionPoll',async(...args)=>{await selected.pause();return start(...args);});
+ const reader=ai.drainExternalBilling();
+ try{
+  await selected.wait(reader);const deadline=row.get('createdAtMs')+48*60*60*1000;
+  assert.equal((await c.backend.escalateStaleBillingRows({now:deadline,limit:25})).escalated,0);
+  assert.equal((await c.backend.escalateStaleBillingRows({now:deadline+1,limit:25})).escalated,1);
+  selected.resume();assert.equal((await reader).intentsRecovered,0);assert.deepEqual(remote.calls,before);
+  assert.equal((await intent.get()).get('reviewReason'),'max_age');assert.equal((await poll.get()).updateTime.isEqual(prior.updateTime),true);
+ }finally{selected.resume();await reader;}
 });
 
 test('concurrent direct releases close exactly once and the identical replay is already_closed',async()=>{
@@ -938,28 +1198,32 @@ test('terminal recovery with the witness already absent reports unverified witho
  assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0);
 });
 
-test('a locally committed release with a lost response is recognized as the same close on the retry: already_closed, no block',async()=>{
- const c=await fixture(),p=await preparedIntent(c),original=c.backend.finishExternalBillingRelease.bind(c.backend);let releases=0;
- c.backend.finishExternalBillingRelease=async(...args)=>{assert.equal(await original(...args),true);throw Error('synthetic lost local response');};
+test('a locally committed release with a lost response is recognized as the same close on the retry: already_closed, no block',async t=>{
+ const c=await fixture(),p=await fencedIntent(c),original=c.backend.finishExternalBillingRelease.bind(c.backend);let releases=0,committed=0;
+ const recovery=t.mock.method(c.backend,'recordConfirmedIntentObservation');
+ c.backend.finishExternalBillingRelease=async(...args)=>{if(await original(...args))committed++;throw Error('synthetic lost local response');};
  const billing=new AccountBillingClient(undefined,{request:async request=>{const path=new URL(request.url).pathname;if(path.endsWith('/status'))return {data:{state:'reserved',reservationId:p.reservationId,seconds:2}};
   if(path.endsWith('/release')){releases++;return {data:{state:'released',reservationId:p.reservationId,seconds:2}};}throw Error('unexpected operation');}}),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,billing);
  try{const result=await ai.drainExternalBilling();
   // LV-019.B E-3 (design v2 3.2): the identical direct close the retry re-reads is accepted as already_closed; the drain counts it recovered, not failed.
-  assert.equal(result.intentsRecovered,1);assert.equal(result.intentsFailed,0);assert.equal(releases,1);
+  assert.equal(result.intentsRecovered,1);assert.equal(result.intentsFailed,0);assert.equal(releases,1);assert.equal(committed,1);
+  assert.equal(recovery.mock.callCount(),1);assert.equal((await recovery.mock.calls[0].result).state,'already_closed');
   assert.equal((await ref(c,'billingIntents',p.witness.intentId).get()).get('state'),'closed');
   assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0,'no incident for the exact close');
   assert.notEqual((await ref(c,'billingGuards',c.account).get()).get('blocked'),true,'the owner is not blocked');
  }finally{c.backend.finishExternalBillingRelease=original;}
 });
 
-test('a locally committed seal with a lost response is recognized as the same close on the retry: already_closed, no block',async()=>{
- const c=await fixture(),p=await preparedIntent(c,'seal'),original=c.backend.finishExternalBillingSeal.bind(c.backend);let seals=0;
- c.backend.finishExternalBillingSeal=async(...args)=>{assert.equal(await original(...args),true);throw Error('synthetic lost local response');};
+test('a locally committed seal with a lost response is recognized as the same close on the retry: already_closed, no block',async t=>{
+ const c=await fixture(),p=await fencedIntent(c),original=c.backend.finishExternalBillingSeal.bind(c.backend);let seals=0,committed=0;
+ const recovery=t.mock.method(c.backend,'recordConfirmedIntentObservation');
+ c.backend.finishExternalBillingSeal=async(...args)=>{if(await original(...args))committed++;throw Error('synthetic lost local response');};
  const billing=new AccountBillingClient(undefined,{request:async request=>{const path=new URL(request.url).pathname;
   if(path.endsWith('/status'))throw Object.assign(Error('synthetic missing'),{response:{status:404}});
   if(path.endsWith('/seal')){seals++;return {data:{state:'sealed',reservationId:p.reservationId,seconds:2,created:true}};}throw Error('unexpected operation');}}),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,billing);
  try{const result=await ai.drainExternalBilling();
-  assert.equal(result.intentsRecovered,1);assert.equal(result.intentsFailed,0);assert.equal(seals,1);
+  assert.equal(result.intentsRecovered,1);assert.equal(result.intentsFailed,0);assert.equal(seals,1);assert.equal(committed,1);
+  assert.equal(recovery.mock.callCount(),1);assert.equal((await recovery.mock.calls[0].result).state,'already_closed');
   const closed=await ref(c,'billingIntents',p.witness.intentId).get();assert.equal(closed.get('state'),'closed');assert.equal(closed.get('sealConfirmed'),true);
   assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0,'no incident for the exact close');
   assert.notEqual((await ref(c,'billingGuards',c.account).get()).get('blocked'),true,'the owner is not blocked');
@@ -967,7 +1231,7 @@ test('a locally committed seal with a lost response is recognized as the same cl
 });
 
 test('a confirmed release whose local tuple changed is recorded and blocks only the proven owner',async()=>{
- const c=await fixture(),p=await preparedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);let releases=0;
+ const c=await fixture(),p=await fencedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);let releases=0;
  const billing=new AccountBillingClient(undefined,{request:async request=>{const path=new URL(request.url).pathname;if(path.endsWith('/status'))return {data:{state:'reserved',reservationId:p.reservationId,seconds:2}};
   if(path.endsWith('/release')){releases++;assert.equal((await c.root.collection('billingIntentTerminalWitnesses').get()).size,1);await intent.update({seconds:3});return {data:{state:'released',reservationId:p.reservationId,seconds:2}};}throw Error('unexpected operation');}}),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,billing);
  const result=await ai.drainExternalBilling();assert.equal(result.intentsFailed,1);assert.equal(releases,1);
@@ -1042,13 +1306,16 @@ test('an invalid observation and a legacy intent without its original witness do
 });
 
 test('an outage after a remote ACK leaves the prior witness for recovery by status',async()=>{
- const c=await fixture(),p=await preparedIntent(c),originalFinish=c.backend.finishExternalBillingRelease.bind(c.backend),originalRecord=c.backend.recordConfirmedIntentObservation.bind(c.backend);let state='reserved',calls=0;
+ const c=await fixture(),p=await fencedIntent(c),originalFinish=c.backend.finishExternalBillingRelease.bind(c.backend),originalRecord=c.backend.recordConfirmedIntentObservation.bind(c.backend);let state='reserved',calls=0,finishAttempts=0,recordAttempts=0;
+ const intent=ref(c,'billingIntents',p.witness.intentId),before=await intent.get();
  const billing=new AccountBillingClient(undefined,{request:async request=>{const path=new URL(request.url).pathname;if(path.endsWith('/status'))return {data:{state,reservationId:p.reservationId,seconds:2}};
   if(path.endsWith('/release')){calls++;state='released';return {data:{state,reservationId:p.reservationId,seconds:2}};}throw Error('unexpected operation');}}),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,billing);
- c.backend.finishExternalBillingRelease=async()=>{throw Error('synthetic Firestore outage');};c.backend.recordConfirmedIntentObservation=async()=>{throw Error('synthetic Firestore outage');};
- try{assert.equal((await ai.drainExternalBilling()).intentsFailed,1);const intent=ref(c,'billingIntents',p.witness.intentId);assert.equal((await intent.get()).get('state'),'release_pending');
+ c.backend.finishExternalBillingRelease=async()=>{finishAttempts++;throw Error('synthetic Firestore outage');};c.backend.recordConfirmedIntentObservation=async()=>{recordAttempts++;throw Error('synthetic Firestore outage');};
+ try{assert.equal((await ai.drainExternalBilling()).intentsFailed,1);const pending=await intent.get();assert.equal(pending.get('state'),'release_pending');
   assert.equal((await ref(c,'billingIntentWitnesses',p.witness.intentId).get()).exists,true);assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0);
-  c.backend.finishExternalBillingRelease=originalFinish;c.backend.recordConfirmedIntentObservation=originalRecord;await intent.update({nextAttemptAt:0});
+  assert.equal(calls,1);assert.equal(state,'released');assert.equal(finishAttempts,1);assert.equal(recordAttempts,1);
+  for(const field of ['attempts','nextAttemptAt','lastAttemptAtMs','lastErrorCode'])assert.equal(pending.get(field),before.get(field),field);
+  c.backend.finishExternalBillingRelease=originalFinish;c.backend.recordConfirmedIntentObservation=originalRecord;
   assert.equal((await ai.drainExternalBilling()).intentsFailed,0);const closed=await intent.get();assert.equal(closed.get('state'),'closed');assert.equal(closed.get('releaseObservationSource'),'status');assert.equal(calls,1);
  }finally{c.backend.finishExternalBillingRelease=originalFinish;c.backend.recordConfirmedIntentObservation=originalRecord;}
 });
@@ -1294,21 +1561,30 @@ test('a confirmed Account hold with a changed local event leaves a durable ackno
  assert.deepEqual(await store.videoBillingHold(identityKey,rows.docs[0].id),{blocked:true,recorded:true});
 });
 
-for(const mode of ['sealed','ack_lost','reserve_won'])test('a missing reservation is reconciled through Account seal: '+mode,async()=>{
+for(const mode of ['sealed','ack_lost','reserve_won'])test('a missing reservation is reconciled through Account seal: '+mode,async t=>{
  const c=await fixture(),accountRoot=c.root.collection('account_service_fixture').doc('root'),store=new AccountStore(c.db,accountRoot),boot=await store.bootstrap(c.uid),identityKey=AccountStore.identityKey(c.uid),requestKey=randomUUID(),reservationId=randomUUID(),data={provider:'account_seconds',identityKey,reservationId,seconds:2};
  await accountRoot.collection('accounts').doc(boot.account.id).update({credited:20,available:20});await c.backend.beginExternalBillingIntent(c.account,c.input,requestKey,'translation:en',1,data);
- let lose=mode==='ack_lost',race=mode==='reserve_won',sealCalls=0;
+ let lose=mode==='ack_lost',race=mode==='reserve_won',sealCalls=0;const calls=[];
  const billing=new AccountBillingClient(undefined,{request:async request=>{
-  const path=new URL(request.url).pathname;
+  const path=new URL(request.url).pathname,verb=path.split('/').at(-1);calls.push(verb);
+  assert.equal(path,`/api/internal/video/reservations/${reservationId}/${verb}`);assert.equal(request.method,'POST');
+  assert.deepEqual(request.data,verb==='status'?{identityKey}:{identityKey,seconds:2});
   if(path.endsWith('/status')){try{return {data:await store.videoReservation(identityKey,reservationId)};}catch(error){if(error.code==='not_found')throw Object.assign(Error('synthetic not found'),{response:{status:404}});throw error;}}
+  if(path.endsWith('/resolution'))return {data:await store.videoReservationResolution(request.data.identityKey,reservationId,request.data.seconds)};
   if(path.endsWith('/seal')){sealCalls++;if(race){race=false;await store.reserveVideo(identityKey,reservationId,2);}const result=await store.sealVideoReservation(identityKey,reservationId,2);if(lose){lose=false;throw Error('synthetic lost seal ACK');}return {data:result};}
   if(path.endsWith('/release'))return {data:{...await store.settleVideo(identityKey,reservationId,'release',2),reservationId}};
   throw Error('unexpected synthetic account operation');
  }}),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,billing);
  const first=await ai.drainExternalBilling(),intents=await c.root.collection('billingIntents').get();assert.equal(intents.size,1);
  if(mode==='ack_lost'){
-  assert.equal(first.intentsFailed,1);assert.equal(intents.docs[0].get('state'),'release_pending');await intents.docs[0].ref.update({nextAttemptAt:0});
-  assert.equal((await ai.drainExternalBilling()).intentsFailed,0);assert.equal(sealCalls,2);
+  assert.equal(first.intentsFailed,1);assert.equal(intents.docs[0].get('state'),'release_pending');assert.deepEqual(calls,['status','seal']);
+  const tombstones=await accountRoot.collection('videoReservationTombstones').get();assert.equal(tombstones.size,1);
+  const tomb=tombstones.docs[0],due=intents.docs[0].get('nextAttemptAt'),now=Date.now();
+  assert.ok(Number.isSafeInteger(due));t.mock.method(Date,'now',()=>Math.max(due,now));
+  const retry=await ai.drainExternalBilling();assert.equal(retry.intentsFailed,0);assert.equal(retry.intentsRecovered,1);assert.equal(sealCalls,1);
+  assert.deepEqual(calls,['status','seal','status','resolution']);assert.equal((await intents.docs[0].ref.get()).get('sealObservationSource'),'resolution_status');
+  assert.equal((await tomb.ref.get()).updateTime.isEqual(tomb.updateTime),true);assert.equal((await accountRoot.collection('ledgerEntries').get()).size,0);
+  assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).size,0);assert.equal((await c.root.collection('billingHoldOutbox').get()).size,0);
  }
  const intent=await intents.docs[0].ref.get();assert.equal(intent.get('state'),'closed');assert.equal((await c.root.collection('jobs').get()).size,0);
  if(mode==='reserve_won'){assert.equal(intent.get('releaseConfirmed'),true);assert.equal((await store.videoReservation(identityKey,reservationId)).state,'released');}

@@ -1884,3 +1884,41 @@ Verificamos los 127.557.451 tokens de entrada reportados en dos turnos de voz, c
 La candidata de desbloqueo de Video (1.4b.2) recupera una confirmación perdida desde el recibo inmutable de Cuenta. La prueba reproduce el fallo en la base y demuestra que la lectura recupera la generación aceptada, conserva bloqueos posteriores y registra una sola conclusión. Pasaron 47 pruebas de desbloqueo, 33 de transporte, tipos y dos compilaciones de backend. Las tres variantes incorrectas fueron detectadas.
 
 La regresión financiera completa terminó con 458 aprobadas, 0 fallos y 5 omisiones previstas de voz en el emulador aislado. GLM y DeepSeek aprobaron su revisión estática. OpenRouter reportó US$0,03735814005 por cuatro consultas. El respaldo de trabajo va en `codex/vistavo-checkpoint-20261125`. El siguiente paso es la salida de reservas bajo bloqueo (1.4b.3). [Evidencia, límites y costos](docs/evidence/lv019-b-unblock-receipt-20261125/README.md).
+
+## 2026-11-26 · LV-019.B · Devolución bajo bloqueo y diagnósticos locales
+
+La candidata focal anterior obtuvo 10/10. La regresión financiera de otra instantánea obtuvo 482 aprobadas, 6 fallos en diagnóstico y 5 omisiones previstas de voz. GLM y DeepSeek quedaron INCONCLUYENTES sobre la candidata focal. D1/D3 pasaron 5/5 negativos en una copia aislada y sus correcciones están en el checkpoint combinado.
+
+Se reprodujo una consulta `reserved` antes de plazo. La corrección de espera durable pasó 5/5 en una copia aislada, incluida la prueba con 101 esperas y otra cuenta. El parche se incorporó a la candidata combinada. El foco de esa candidata pasó 19/19 en emulador adaptado al puerto 8187, incluidos D1/D3, las cinco pruebas de espera y seis casos adaptados de la regresión anterior. Sigue la investigación de dos esperas de una misma intención. Quedan la regresión completa y las revisiones. D2 sigue abierto: siete controles negativos pasaron y dos casos de progreso concurrente válido fallaron al abrir una incidencia de más. La guardia para nuevas admisiones con devolución vencida sigue sin implementar. [Recibo del corte](docs/evidence/lv019-b-checkpoint-20261126/README.md) · [Diagnóstico D2](docs/reviews/LV-019-B-diagnostico-concurrencia-local-20261126.md).
+
+## 2026-11-26 · LV-019.B · Voz C1 combinada y adjudicación de revisiones
+
+La instantánea con backend SHA-256 `7586f98e82b94f7fad865189cb28b174efdc67f150bd6c3cab6f5c14a1ec2cbf` pasó 51/51 en modo local de C1 y 28/28 en modo predeterminado, con limpieza y sin omisiones, además de 249 unitarias, tipos y ambas compilaciones locales. C1 usa traducción revisada y reserva simulada, con la interfaz apagada por defecto y sin llamadas al proveedor.
+
+DeepSeek devolvió FALLA por un retorno de `insufficient` que puede omitir el cotejo del intento. El contraste local encontró también una posible escritura tras cambiar el historial. GLM quedó INCONCLUYENTE y se rechazó su afirmación de que el NACK es seguro. Ambos revisaron extractos y carecieron de ejecución propia, validación en nube y teléfono físico. La corrida posterior reprodujo ambos caminos con 51 pasadas y cinco fallos (casos 51–55), con saldo simulado. La reparación se desarrolla en un worktree aislado. C1 sigue sin certificar y sin integración liberable hasta B1. [DeepSeek](docs/reviews/LV-019-B-voz-c1-integrada-DeepSeek-20261126.txt) · [GLM](docs/reviews/LV-019-B-voz-c1-integrada-GLM-20261126.txt) · [Evidencia local](docs/evidence/lv019-b-checkpoint-20261126/README.md#voz-y-vista-previa).
+
+## 2026-11-26 · LV-019.B · Alcance de la lectura A0
+
+Rob aceptó la estimación del gateway y pidió «revisa la configuración de cloud en modo solo lectura». La instrucción cubre los metadatos, límites y permisos de A0. P0 y 1C se autorizaron y ejecutaron por separado el 19 nov. Antes de la ejecución de A0, el readback de IAM con la identidad usada entonces había sido parcial (403). La entrada de registro de prueba A3 mantiene su permiso específico. El dueño también autorizó por separado guardar la rama de trabajo en GitHub para continuar desde otra PC. El respaldo conserva los gates de despliegue y publicación del plan integral. [Definición de A0](docs/specs/LV-019-B-plan-integral-20261120.md) · [Recibo histórico del script A0](docs/evidence/lv019-b-t3-codificacion-a0-20261120/RECIBO.md) · [Alcance de P0 y 1C](docs/specs/LV-019-B-conciliacion-propuesta-nube.md).
+
+## 2026-11-26 · LV-019.B · Lectura A0 de producción y revisión del corte
+
+A0 se ejecutó una vez, de solo metadatos. El resultado se generó a las 10:02:49,885 PST y registra 12 solicitudes sin cambios de recursos. La sonda autenticada devolvió los 14 permisos consultados para la identidad de lectura. Files y Maintenance tienen ingreso interno y `publicInvoker: false`. Account tiene ingreso `ALL` y `publicInvoker: true` en Cloud Run. Se leyeron cero canales, políticas y métricas basadas en registros de Monitoring. Cloud Quotas figuraba deshabilitada y su consulta devolvió 403. Quedan por verificar la autenticación de aplicación de Account, los permisos efectivos del futuro gateway, VPC y conectividad, índices actuales, gasto y cuota. [Informe A0 y huellas](docs/reviews/LV-019-B-a0-readback-20261126.md).
+
+GLM calificó **FALLA** el corte documental anterior a esta lectura. Señaló la contradicción de ingreso entre Account y los servicios internos, la redacción que presuponía un gateway ya creado y la ambigüedad de A2 antes de G0. Se corrigió el estado en los planes con la observación de A0. El gateway y su identidad siguen por crear, A2 queda como preparación y pruebas locales, y G0 sigue rigiendo despliegue y habilitación. Se conserva el informe original con su resultado. [Revisión GLM](docs/reviews/LV-019-B-plan-corte-GLM-20261126.txt).
+
+## 2026-11-26 · LV-019.B · Reparación local de NACK de voz C1
+
+La reparación pasó 60/60 en el worktree aislado y se aplicó selectivamente al checkpoint. Falta repetir las pruebas sobre la candidata combinada y obtener las revisiones externas de la corrección. C1 permanece apagado, sin proveedor y sin certificar. [Corrida aislada y límites](docs/evidence/lv019-b-checkpoint-20261126/README.md#voz-y-vista-previa).
+
+## 2026-11-26 · LV-019.B · Doble sondeo, auditoría C1 y seguimiento documental
+
+El primer intento de integrar los casos de doble sondeo quedó en rojo al omitir un auxiliar. Se conservó ese TAP. Tras incorporar el auxiliar, la candidata combinada pasó **6/6** en emulador con puerto 8186. La regresión completa seguía pendiente y T3 financiero estaba en curso. DeepSeek quedó INCONCLUYENTE sobre el sondeo y sigue el contraste de las alertas con una cuenta bloqueada. [DeepSeek](docs/reviews/LV-019-B-saldo-sondeo-DeepSeek-20261126.txt) · [Ambos registros](docs/evidence/lv019-b-checkpoint-20261126/README.md#bloqueo-y-devoluciones).
+
+La auditoría independiente comprobó la evidencia del **60/60** de la reparación C1 aislada y dejó abiertos dos puntos: recibos contradictorios de ACK y NACK sin alerta e historia de la marca que puede alterarse y restaurarse sin que cambie su contenido final. Se preparan negativos. La candidata combinada pasó después **60/60**. Los negativos de la auditoría aún no se ejecutaron y C1 sigue sin certificar. [TAP combinado](docs/evidence/lv019-b-checkpoint-20261126/README.md#voz-y-vista-previa). [Auditoría del NACK](docs/reviews/LV-019-B-voz-c1-nack-auditoria-interna-20261126.md).
+
+GLM dio **PASS documental acotado** a las tres correcciones que siguieron a A0. La nota residual se incorporó como dependencia explícita de G0 para A4, junto a A1–A3. Se preserva el FALLA del corte anterior. El respaldo WIP previsto conserva las puertas de despliegue y publicación. [FALLA original](docs/reviews/LV-019-B-plan-corte-GLM-20261126.txt) · [PASS de seguimiento](docs/reviews/LV-019-B-plan-corte-seguimiento-GLM-20261126.txt).
+
+## 2026-11-26 · LV-019.B · Revisión del sondeo y plan
+
+Para la candidata del sondeo, DeepSeek respondió INCONCLUYENTE y GLM FALLA. Se contrastan la posible atribución incorrecta de una alerta de guard y la alerta de un sondeo corrupto con cuenta bloqueada. La batería financiera completa de esta versión sigue pendiente. [DeepSeek](docs/reviews/LV-019-B-saldo-sondeo-DeepSeek-20261126.txt) · [GLM](docs/reviews/LV-019-B-saldo-sondeo-GLM-20261126.txt).

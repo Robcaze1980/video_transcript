@@ -1,0 +1,22 @@
+# Revisión estática LV-019.B / C1 — `reserveReviewedVoiceLocally`
+
+Base: solo fragmentos congelados (SHA según encargo; no recalculables sin herramientas). Los 51/51, 249 y limpiezas son afirmaciones, no pruebas reejecutables.
+
+**(1) Sin re-POST ante incertidumbre — verificado.** Toda respuesta incierta converge en `LocalVoiceReserveUnknown` (799, 802, 805, 810). El vallado durable `localVoiceAttemptId` (913; 895; 1200) y el `attemptId` determinista (857) impiden un segundo POST, incluso concurrente: `prepareReserveAttemptInTransaction` da `created`/`already_prepared` (296–302) y el perdedor recibe unknown (895/911). Tras crash entre prepare y POST, la reinvocación cae en 895/1200 → sin POST.
+
+**(2) Marcador corrupto — verificado con salvedad.** Pre-POST: replay inválido → `ReviewedVoiceMarkerFault` → `LedgerFault('conflict')` (507–510 vía 792/794), sin POST. Post-ACK: el ACK se preserva antes del rethrow (809→931–942; stageReserveAck 1993 en la misma tx del job). Salvedad: en 802, `.catch(()=>false)` traga fallos definidos (marcador corrupto en 832–834) y los clasifica `unknown`, no `conflict`; seguro (sin re-POST ni saldo), pero enmascara. Igual en 809: un `LedgerFault('conflict')` de 935 se convierte en `'unknown'`.
+
+**(3) NACK de insufficient — verificado.** `readCommittedLocalVoiceNack` (815–837) es `{readOnly:true}` (836); exige estado/attempt/origen/claim/ventana y fuente exacta de ESTE intento (823–835; `matchesReviewedVoiceReserveSource` 202–217). Cualquier desajuste → false → `unknown` (802); jamás clasifica insuficiencia ajena ni escribe saldo (`settleExternalBillingIntent` solo muta estado del intent, 1442).
+
+**(4) No voz+texto simultáneos — verificado.** Claim de modo único por (cuenta,clave) (724, 731); marcador de voz existente bloquea adopción text (737, 741); intent y request comparten id `hash([accountId,requestKey])`.
+
+**(5) Aislamiento — parcial.** Puerta fixture en código (700–706, 785); proveedor = callback (781), sin HTTP. La ausencia de ruta productiva NO es demostrable: no hay capa de rutas en la evidencia (el comentario 776–779 es solo comentario).
+
+**Riesgos/ausencias:** liveness — intento preparado-no-POSTeado o reservado-no-commit queda varado para siempre (895/1200); no hay recuperación mostrada que complete el job desde el ACK durable. 1958: `price===Math.ceil(asset.metadata.duration)` puede divergir de `billableSeconds` en bordes de segundo (marcador permite floor+1; 61–65) → `invalid` post-ACK; depende de `authorize` (no incluido). Errores `ReviewedTranslationFault` escapan sin mapear (789/1165/897/1925). `settleExternalBillingIntent` nunca fija `closed` (1441). Comparadores JSON sensibles a orden de claves (250, 267) vs `isDeepStrictEqual` (825). No incluidos: `localVoiceRequestUuid`, `narrationRequiresReview`, `externalIntentTransitionDue`, `authorize`, tipos Input/Balance, suite de pruebas, capa HTTP. No apruebo el backend completo ni pagos; cubro solo el método y helpers mostrados.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Puntos 1–4 verificados en código: sin re-POST (799/802/805/810 + vallado 913/895/1200), marcador→conflict con ACK preservado (507–510, 809–811), NACK readOnly sin saldo ni insuficiencia cruzada (815–837), modo único por claim (724/731/737/741); puerta fixture 700–706/785. Defectos menores: 802 y 809 enmascaran fallos definidos como unknown; 1958 riesgo post-ACK 'invalid'; intents varados sin recuperación mostrada.
+NEGATIVOS: Sin capa HTTP en evidencia (no se puede probar ausencia de ruta); `authorize`/`verifiedCurrentReview`, `localVoiceRequestUuid`, `narrationRequiresReview`, `externalIntentTransitionDue`, tipos Input/Balance y código de pruebas ausentes; regresión financiera completa (6 fallos previos) no revalidada; IAM/GCS/teléfono real sin prueba; afirmaciones 51/51 y 249 no reejecutables.
+BLOQUEOS: Para PASS se requiere: archivos de rutas/handlers que prueben cero llamadas productivas, `authorize` (derivación de billableSeconds vs 1958), definición de `localVoiceRequestUuid`/`narrationRequiresReview`, y suite del emulador para reproducir los 51 casos y la regresión completa.
+=== FIN RESUMEN ===

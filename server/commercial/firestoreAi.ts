@@ -1,3 +1,4 @@
+import {videoReservationId} from './videoReservationId';
 import {createHash} from 'node:crypto';
 import {FieldPath,type Firestore,type DocumentReference,type Transaction} from 'firebase-admin/firestore';
 import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,pickOutboxSnapshot,copyOutboxSnapshot,OUTBOX_METADATA_KEYS,classifyA3ReplayWindow,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence} from './firestoreBackend';
@@ -10,7 +11,6 @@ import {diagnosticStage} from './cloudDiagnostics';
 import {reserveWithRecovery} from './cloudEnqueueRecovery';
 import {AccountBillingClient,AccountBillingFault,accountIdentityKey} from './accountBillingClient';
 const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
-function reservationUuid(accountId:string,identityKey:string,inputId:string,operation:string,revision:number,requestKey:string){const bytes=createHash('sha256').update(JSON.stringify(['vistavo-video-reservation-v1',accountId,identityKey,inputId,operation,revision,requestKey])).digest().subarray(0,16);bytes[6]=(bytes[6]&0x0f)|0x40;bytes[8]=(bytes[8]&0x3f)|0x80;const h=bytes.toString('hex');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;}
 export class AiFault extends Error {constructor(readonly code:'invalid'|'not_found'|'conflict'|'disabled'|'unknown'){super(code);}}
 export type AiCandidateLimits=Readonly<{maxSourceSeconds:number;maxNarrationChars:number;maxVoiceChunks:number}>;
 /**
@@ -103,7 +103,7 @@ export class FirestoreAi {
   if(this.accountBilling)await this.enabledForUid(accountId,uid!);else await this.enabled(accountId);
   const previous=()=>this.accountBilling?this.backend.priorExternalRequestForEnqueue(accountId,inputId,requestKey,op,revision,AI_CATALOG_VERSION,uid!):this.backend.priorSimulatedRequestForEnqueue(accountId,inputId,requestKey,op,revision,AI_CATALOG_VERSION);
   const prior=await previous();if(prior){if(this.accountBilling)throw new AiFault('unknown');return prior;}
-  const q=await this.quote(accountId,inputId,op,revision),data=this.accountBilling?(()=>{if(!uid)throw new AiFault('invalid');const identityKey=accountIdentityKey(uid);return {provider:'account_seconds' as const,identityKey,reservationId:reservationUuid(accountId,identityKey,inputId,op,revision,requestKey),seconds:q.units};})():undefined;
+  const q=await this.quote(accountId,inputId,op,revision),data=this.accountBilling?(()=>{if(!uid)throw new AiFault('invalid');const identityKey=accountIdentityKey(uid);return {provider:'account_seconds' as const,identityKey,reservationId:videoReservationId(accountId,identityKey,inputId,op,revision,requestKey),seconds:q.units};})():undefined;
    if(!data)return reserveWithRecovery(this,accountId,{inputId,operation:op,expectedRevision:revision,requestKey},()=>this.backend.reserve(accountId,inputId,requestKey,q.units,q.operation,revision,AI_CATALOG_VERSION),error=>error instanceof AiFault||error instanceof LedgerFault||error instanceof AiContractFault,previous);
    const priorIntent=await this.backend.beginExternalBillingIntent(accountId,inputId,requestKey,op,revision,data);if(priorIntent){const verified=await previous();if(verified!==priorIntent)throw new AiFault('conflict');throw new AiFault('unknown');}
    const witness=await this.backend.externalIntentWitness(accountId,requestKey,data);
@@ -232,7 +232,8 @@ export class FirestoreAi {
    if(!await this.drainShouldContinue(control)){stopped=true;break;}
    if(this.drainCapped(control,perAccount,typeof row.accountId==='string'?row.accountId:null)){skippedRows++;continue;}
    if(typeof row.id==='string'){nextIntents=row.id;intentsAttended=true;}
-   let failureEvidence:ExternalBillingIntentFailureEvidence|null=null,terminalObserved=false;
+   let failureEvidence:ExternalBillingIntentFailureEvidence|null=null,terminalObserved=false,polling=false;
+   let poll:Awaited<ReturnType<FirestoreBackend['beginTerminalResolutionPoll']>>=null;
    try{
    if(row.provider!=='account_seconds'||!['reserve_pending','release_pending'].includes(row.state)||typeof row.identityKey!=='string'||typeof row.reservationId!=='string'||typeof row.accountId!=='string'||typeof row.inputId!=='string'||typeof row.requestKey!=='string'||typeof row.operation!=='string'||!Number.isSafeInteger(row.revision)||!Number.isSafeInteger(row.seconds))throw new AiFault('invalid');
    const billing={provider:'account_seconds' as const,identityKey:row.identityKey,reservationId:row.reservationId,seconds:row.seconds};
@@ -242,7 +243,9 @@ export class FirestoreAi {
    // no failure evidence, no status snapshot), so each one records a bare ATTEMPT on the row before continuing.
    // Without it the row would be re-attempted on every pass without advancing its counter or its wait.
    if(typeof row.snapshotVersion!=='string'){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
-   failureEvidence=await this.backend.captureExternalBillingIntentFailureEvidence(witness,row.requestKey,row.snapshotVersion);
+   const observed=await this.backend.captureExternalBillingIntentFailureEvidence(witness,row.requestKey,row.snapshotVersion,undefined,true);
+   if(observed&&'snapshotVersion' in observed)failureEvidence=observed;
+   else if(observed){intentsFailed++;continue;}
    if(!failureEvidence){
           intentsFailed++;
           // LV-019.B step 1.3a: null failure evidence has many causes that are NOT a blocked account: a benign intent
@@ -258,14 +261,33 @@ export class FirestoreAi {
           await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);
           continue;
          }
-   const initialStatus=await this.backend.captureDirectObservation(witness,row.requestKey,'status'),statusSnapshot=copyDirectObservationSnapshot(initialStatus);
+   const initialStatus=await this.backend.captureDirectObservation(witness,row.requestKey,'status',true);
+   if(initialStatus&&'blocked' in initialStatus){intentsFailed++;continue;}
+   const statusSnapshot=copyDirectObservationSnapshot(initialStatus);
    if(!statusSnapshot){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
+   if(row.resolutionPollId!==undefined){
+    polling=true;poll=await this.backend.beginTerminalResolutionPoll(witness,row.requestKey,row.resolutionPollId);
+    if(!poll){intentsFailed++;continue;}
+   }
+   const reconcile=async(terminalId:string)=>{
+    polling=true;
+    if(poll?.turn.terminalId!==terminalId)poll=await this.backend.beginTerminalResolutionPoll(witness,row.requestKey,terminalId);
+    if(!poll)return 'failed' as const;
+    const result=await this.recoverTerminalObservation(terminalId);
+    if(result.state==='unresolved'||result.state==='unverified')await this.backend.finishTerminalResolutionPoll(witness,poll,result.state==='unresolved'?result.reason:'unverified');
+    return result.state==='closed'||result.state==='already_closed'?'recovered' as const:'failed' as const;
+   };
    // The status proof is checked inside the same transaction that fences and prepares release.
    const releaseAfter=async(snapshot:DirectObservationSnapshot,reason:'status_reserved'|'seal_reserved')=>{
-    const prepared=await this.backend.prepareTerminalFromDirectObservation(witness,row.requestKey,'release',reason,snapshot);
-    if(prepared.state==='job_created')return 'recovered' as const;if(prepared.state!=='ready')return 'failed' as const;
+    const prepared=await this.backend.prepareTerminalFromDirectObservation(witness,row.requestKey,'release',reason,snapshot,poll?.turn.terminalId);
+    if(prepared.state==='job_created')return 'recovered' as const;
+    if(prepared.state==='reconcile')return reconcile(prepared.terminalId);
+    if(prepared.state!=='ready')return 'failed' as const;
     const captured=await this.backend.captureDirectObservation(witness,row.requestKey,'release'),releaseSnapshot=copyDirectObservationSnapshot(captured);
     if(!releaseSnapshot)return 'failed' as const;
+    const dispatch=await this.backend.claimDirectTerminalDispatch(witness,row.requestKey,'release',reason,snapshot,releaseSnapshot);
+    if(dispatch==='reconcile')return reconcile(prepared.terminalId);
+    if(dispatch!=='send')return 'failed' as const;
     const released=await this.accountBilling!.settle(row.identityKey,row.reservationId,'release',row.seconds);
     if(released.state!=='released')throw new AiFault('unknown');terminalObserved=true;
     return await this.confirmedIntentObservation(witness,row.requestKey,{action:'release',source:'release_ack',reservationId:released.reservationId,seconds:released.seconds,state:released.state},releaseSnapshot)?'recovered' as const:'failed' as const;
@@ -274,10 +296,15 @@ export class FirestoreAi {
    try{held=await this.accountBilling.status(row.identityKey,row.reservationId);terminalObserved=held.state==='captured'||held.state==='released';}
    catch(error){
     if(!(error instanceof AccountBillingFault)||error.code!=='not_found')throw error;
-    const prepared=await this.backend.prepareTerminalFromDirectObservation(witness,row.requestKey,'seal','status_not_found',statusSnapshot);
-    if(prepared.state==='job_created'){intentsRecovered++;continue;}if(prepared.state!=='ready'){intentsFailed++;continue;}
+    const prepared=await this.backend.prepareTerminalFromDirectObservation(witness,row.requestKey,'seal','status_not_found',statusSnapshot,poll?.turn.terminalId);
+    if(prepared.state==='job_created'){intentsRecovered++;continue;}
+    if(prepared.state==='reconcile'){if(await reconcile(prepared.terminalId)==='recovered')intentsRecovered++;else intentsFailed++;continue;}
+    if(prepared.state!=='ready'){intentsFailed++;continue;}
     const captured=await this.backend.captureDirectObservation(witness,row.requestKey,'seal'),sealSnapshot=copyDirectObservationSnapshot(captured);
     if(!sealSnapshot){intentsFailed++;continue;}
+    const dispatch=await this.backend.claimDirectTerminalDispatch(witness,row.requestKey,'seal','status_not_found',statusSnapshot,sealSnapshot);
+    if(dispatch==='reconcile'){if(await reconcile(prepared.terminalId)==='recovered')intentsRecovered++;else intentsFailed++;continue;}
+    if(dispatch!=='send'){intentsFailed++;continue;}
     const sealed=await this.accountBilling.seal(row.identityKey,row.reservationId,row.seconds);
     terminalObserved=sealed.state==='sealed'||sealed.state==='captured'||sealed.state==='released';
     if(sealed.state==='sealed'){if(await this.confirmedIntentObservation(witness,row.requestKey,{action:'seal',source:'seal_ack',reservationId:sealed.reservationId,seconds:sealed.seconds,state:'sealed'},sealSnapshot))intentsRecovered++;else intentsFailed++;continue;}
@@ -335,7 +362,9 @@ export class FirestoreAi {
   }catch(error){
    // No response is not an ACK. If Firestore also fails after an ACK, the immutable
    // witness remains for independent reconciliation; a read-only seal status is still pending.
-   intentsFailed++;if(!terminalObserved&&failureEvidence&&typeof row.accountId==='string'&&typeof row.requestKey==='string')await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,error instanceof AccountBillingFault?error.code:'unavailable',failureEvidence).catch(()=>undefined);
+   intentsFailed++;
+   if(!terminalObserved&&poll&&failureEvidence)await this.backend.finishTerminalResolutionPoll(failureEvidence.witness,poll,'unavailable').catch(()=>undefined);
+   if(!terminalObserved&&!polling&&failureEvidence&&typeof row.accountId==='string'&&typeof row.requestKey==='string')await this.backend.recordExternalBillingIntentFailure(row.accountId,row.requestKey,error instanceof AccountBillingFault?error.code:'unavailable',failureEvidence).catch(()=>undefined);
   }
   }
   // A stop in the intents section ends the whole pass: no outbox row is read or touched, so a one-shot shouldContinue cannot leak into it.

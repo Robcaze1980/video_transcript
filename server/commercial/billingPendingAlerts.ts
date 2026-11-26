@@ -57,9 +57,13 @@ async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKi
     }
     const data=snap.data() as Record<string,unknown>|undefined;
     if(!validAlertShape(data,key))throw new Error('Corrupt alert document');
-    const base={seenCount:(data!.seenCount as number)+1,lastSeenAtMs:Math.max(nowMs,data!.lastSeenAtMs as number)};
+    // A malformed intent's accountId is only a report hint. Drop it when a
+    // later sighting withdraws it, without changing the alert or audit identity.
+    const dropAccountHint=fields.kind==='intent'&&fields.reason==='malformed'&&fields.accountId===null&&
+      data!.kind===fields.kind&&data!.rowId===fields.rowId&&data!.state===fields.state&&data!.reason===fields.reason&&typeof data!.accountId==='string';
+    const base={seenCount:(data!.seenCount as number)+1,lastSeenAtMs:Math.max(nowMs,data!.lastSeenAtMs as number),...(dropAccountHint?{accountId:null}:{})};
     // A cleared or superseded alert whose exact condition comes back reopens WITH its history. A dispositioned one
-    // (a human already decided this exact situation) only counts the sighting and keeps its status.
+    // (a human already decided this exact situation) keeps its status and disposition history.
     if(data!.status==='cleared'||data!.status==='superseded'){
       const wasCleared=data!.status==='cleared',keep=(v:unknown)=>nonNegativeInteger(v)?v:null;
       tx.update(ref,{...base,status:'open',reopenCount:(nonNegativeInteger(data!.reopenCount)?data!.reopenCount:0)+1,

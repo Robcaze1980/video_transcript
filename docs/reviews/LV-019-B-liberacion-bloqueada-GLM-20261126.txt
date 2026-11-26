@@ -1,0 +1,15 @@
+Vistavo LV-019.B 1.4b.3, revisión estática preliminar; base 255aa5e, diff SHA-256 2dc9f9edf77794a54d253f0e0efab4d89c99a384e96ba843b8363284ca302dcc.
+Vía: respaldo OpenRouter autorizado sin herramientas; modelo servido: z-ai/glm-5.3-flash; generación: gen-1795710213-EkCPd23qKzxriMcNIBiJ; entrada 27857, salida 26141, costo USD 0.0113660613.
+
+Trazado estático: las rutas blocked —evidencia (firestoreAi.ts:245-247; backend:1033-1045), status (firestoreAi.ts:263-266; backend:579-584) y deferral guard-only (backend:1091-1097)— no escriben fila, intentos ni updateTime; el stall reverifica el bloqueo (backend:1906). Tras desbloquear: un POST único, saldo correcto (datos). «Nunca capturar bajo bloqueo»: iniciación vetada (firestoreAi.ts:421-423); la captura autorizada antes del bloqueo que completa en vuelo se reconcilia —abono único, ACK divergente preservado (273-359)—: compatible con 3.5.
+
+Hallazgos: (1) backend:581,1094 usan blocked===true crudo, no billingBlocked (511/1033/1906); si exige epoch/createdAtMs, un guard malformado difiere un pase y se autocorrige; billingBlocked falta en contexto. (2) backend:1924-1988 ignora guard: a 48 h pasa devoluciones bloqueadas a needs_review; tras desbloqueo exigen reapertura auditada; decisión pendiente. (3) Carrera preexistente: dos drenadores leen status reserved antes del prepare; el segundo ve origin cambiado y, sin guard, incide y bloquea (560-568); control: drenadores entrelazados. (4) seal_reserved sin deferral guard-only incide tras el POST de sello: confirmar deliberado. (c) Cuenta bloqueada sola: conflictos contados, sin ACK falso.
+
+Gate: status_not_found y seal_reserved no cierran el gate de devolución; lo cierran E-4 (296-433) y outbox bloqueado (361-407). Abierto: batería en curso, 48h+reapertura, control (3), accountReconciliationCounts/accountReadOnlyRoot, internos (billingBlocked, quarantine, confirmedIntentObservation, pendingExternalBilling*). Nada ejecutado por mí.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: diff trazado sin defecto demostrado en líneas cambiadas; rutas blocked conservan fila/intentos (firestoreAi.ts:245-247,263-266; firestoreBackend.ts:579-584,1033-1045,1091-1097,1906); pruebas adjuntas como datos: E-4 firestoreA3Exit.emulator.mjs:296-433, A-5 442-493, outbox/captura concurrente billingUnblock.emulator.mjs:234-407.
+NEGATIVOS: bloqueo levantado tras lectura blocked no consume intento (348-368,370-390; el código previo escribiría 7→8); guard-only difiere y cambio de historial incide (392-433); sin segundo capture (353-358) ni alertas duplicadas (387-388); cuenta ajena intacta (366-381,407); capture vetado bajo guard (421-423).
+BLOQUEOS: billingBlocked/validClearIntentAdmissionGuard/terminalDocumentVersion/markExternalBillingSettled/quarantine/confirmedIntentObservation/pendingExternalBilling* sin fuente; batería financiera en curso; decisión 48h (1924-1988) y reapertura auditada; control dos-drenadores sin ensayar; contenido de accountReconciliationCounts.ts y accountReadOnlyRoot.ts; (c) sin control.
+=== FIN RESUMEN ===

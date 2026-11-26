@@ -835,3 +835,37 @@ En la candidata de la pieza 1.4b.2, el comparador de reintentos omite dos campos
 Seguimiento del 25 nov: la ejecución complementaria se detuvo en la comprobación de versión antes de tocar el emulador. La corrección alternativa de T3 reportó 45/45 con tres casos nuevos en su worktree y registró la generación efectivamente usada al cerrar. La adjudicación de esa política y la verificación de la versión integrada quedaron pendientes en ese punto. [Plan, hashes y evidencia de las pruebas](docs/reviews/LV-019-B-1-4b-p2-revision-local-2026-11-25.md).
 
 Cierre de prueba del 25 nov: el caso con respuesta perdida se reprodujo en la base y pasó tras recuperar el recibo de Cuenta por lectura. Se comprobó la conservación del bloqueo, la relectura de filas, la identidad y el cierre único. En la misma candidata compiló el servicio de Cuenta tras añadir su dependencia interna `settlementContract.ts` a la lista exacta de fuentes. La regresión terminó con 458 aprobadas, 0 fallos y 5 omisiones previstas. La herramienta de operador y la prueba online corresponden a fases posteriores. [Evidencia](docs/evidence/lv019-b-unblock-receipt-20261125/README.md).
+
+## 2026-11-26 · LV-019.B · D1/D3: diagnóstico de holds y atribución de alertas (CORRECCIONES INTEGRADAS, REGRESIÓN PENDIENTE)
+
+En los negativos sintéticos, una revisión o un hold incompatibles podían quedar sin diagnóstico preciso. Una fila con proveedor inválido y fecha futura requería alerta sin deducir dueño. Se reprodujeron además un hold de la misma identidad e ID con generación divergente sin `invalid_hold`, y un barrido repetido que conservaba una pista obsoleta de cuenta. La corrección aislada pasó 5/5 verificando el registro previo, la atribución y la disposición y auditoría de alertas. Las correcciones están en la candidata combinada y falta su regresión. [TAP y límites](docs/evidence/lv019-b-checkpoint-20261126/README.md#bloqueo-y-devoluciones).
+
+## 2026-11-26 · LV-019.B · Consulta prematura tras respuesta `reserved` (CORRECCIÓN INTEGRADA, VERIFICACIÓN PENDIENTE)
+
+Tras reiniciar el drenador, el negativo reprodujo otra consulta a Cuenta antes de que venciera la espera. La corrección registra la próxima consulta de forma durable. Pasaron 5/5 casos aislados con emulador, incluidos reinicio, respuesta tardía, ACK en vuelo, cambio de historial y una cola con 101 esperas y otra cuenta que sigue visible. El parche se incorporó a la candidata combinada y sus cinco casos pasaron dentro del foco 19/19. El seguimiento de doble sondeo se registra abajo. La regresión completa y la revisión financiera están en curso. [TAP y límites](docs/evidence/lv019-b-checkpoint-20261126/README.md#bloqueo-y-devoluciones).
+
+## 2026-11-26 · LV-019.B · D2: respuesta tardía crea una incidencia tras progreso válido (ABIERTO)
+
+La prueba sintética con Cuenta y Video separados en emulador produjo una incidencia tras dos transiciones válidas, una admisión con ACK y una cerca de devolución de otro drenador. Pasaron siete controles negativos de identidad, ACK, historial y cambios adicionales. Los dos positivos se detuvieron al detectar la incidencia inesperada y no llegaron a comprobar las aserciones posteriores sobre bloqueos y movimientos. Falta implementar y verificar el reconocimiento del progreso con evidencia durable. [Diagnóstico y controles](docs/reviews/LV-019-B-diagnostico-concurrencia-local-20261126.md).
+
+## 2026-11-26 · LV-019.B · C1: rechazo tardío de saldo insuficiente tras un cambio de historial (REPRODUCIDO EN EMULADOR)
+
+El NACK tardío se clasificó o persistió como `insufficient` en casos con intento, tupla, reclamo u origen distintos de los que autorizaban esa respuesta. La prueba con saldo simulado ejecutó 56 casos y registró 51 aprobadas, 5 fallos y 0 omisiones. Los casos 51–55 reproducen el retorno temprano ante una intención ya cerrada y la escritura de insuficiencia en una intención pendiente con historia alterada. La reparación pasó 60/60 en aislado y ya se aplicó al checkpoint. La comprobación en la candidata combinada pasó 60/60 y falta completar la revisión externa de la corrección. [TAP y límites](docs/evidence/lv019-b-checkpoint-20261126/README.md#voz-y-vista-previa) · [DeepSeek](docs/reviews/LV-019-B-voz-c1-integrada-DeepSeek-20261126.txt) · [GLM](docs/reviews/LV-019-B-voz-c1-integrada-GLM-20261126.txt).
+
+## 2026-11-26 · LV-019.B · A0: cuota de cuentas de servicio sin lectura (403)
+
+La consulta GET de Cloud Quotas devolvió 403 y Service Usage reportó Cloud Quotas deshabilitada. La sonda independiente `testIamPermissions` devolvió los 14 permisos solicitados para la identidad de lectura. El límite y el margen de cuota siguen desconocidos. Se conserva la evidencia sin atribuir el 403 a una causa demostrada. [Lectura A0](docs/reviews/LV-019-B-a0-readback-20261126.md).
+
+## 2026-11-26 · LV-019.B · Integración del doble sondeo omitió un auxiliar (CORREGIDA EN CANDIDATA)
+
+El TAP inicial registró los fallos de la primera integración, que omitió un auxiliar requerido. Después de incorporarlo se ejecutaron seis casos de la candidata combinada en el puerto 8186, con seis aprobados y sin fallos ni omisiones. El resultado corresponde al foco de doble sondeo. La regresión completa y la revisión financiera siguen en curso. [TAP inicial y posterior](docs/evidence/lv019-b-checkpoint-20261126/README.md#bloqueo-y-devoluciones).
+
+## 2026-11-26 · LV-019.B · C1: recibos contradictorios sin alerta e historia de marca incompleta (ABIERTOS)
+
+La auditoría del NACK constató que el caso con ACK posterior conserva ambos recibos y devuelve `unknown` al repetir, sin otro envío a Cuenta. La intención queda en `insufficient`, fuera del informe de pendientes. Identificó además que comparar la marca por contenido omite el cambio con restauración exacta o la recreación. Los nuevos negativos de alerta y continuidad de la marca aún no se ejecutaron. El 60/60, en aislado y combinado, corresponde a la reparación previa a esos negativos. [Auditoría](docs/reviews/LV-019-B-voz-c1-nack-auditoria-interna-20261126.md).
+
+## 2026-11-26 · LV-019.B · Alertas y estado WIP de sondeo
+
+Las revisiones externas de la candidata de espera no aprobaron el cierre: DeepSeek quedó INCONCLUYENTE y GLM señaló una posible atribución de una guardia corrupta a otra cuenta. El contraste local encontró también que un sondeo corrupto durante un bloqueo legítimo podría permanecer sin alerta específica durante la pausa. Ambos casos requieren pruebas y corrección; sin datos ni saldo reales. [DeepSeek](docs/reviews/LV-019-B-saldo-sondeo-DeepSeek-20261126.txt) · [GLM](docs/reviews/LV-019-B-saldo-sondeo-GLM-20261126.txt).
+
+La primera integración del doble sondeo omitió un auxiliar y falló; después de incorporarlo, seis pruebas focales de la candidata combinada pasaron. Esto no sustituye la regresión completa. [Recibo](docs/evidence/lv019-b-checkpoint-20261126/README.md).

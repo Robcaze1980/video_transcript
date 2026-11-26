@@ -28,6 +28,7 @@ function stubRoot(collections:Record<string,Doc[]>,log:string[]=[],duplicateBoun
   };
 }
 const NOW=10_000_000;
+const ACCOUNT='11111111-1111-4111-8111-111111111111';
 const row=(over:Partial<PendingRow>):PendingRow=>({kind:'intent',id:'a',state:'reserve_pending',createdAtMs:1000,nextAttemptAt:null,attempts:0,lastErrorCode:null,accountId:null,malformed:false,...over});
 
 describe('normalizePending',()=>{
@@ -46,6 +47,16 @@ describe('normalizePending',()=>{
     expect(normalizePending('intent','x',{state:'reserve_pending',createdAtMs:1,accountId:'not-a-uuid'}).malformed).toBe(true);
     expect(normalizePending('hold','x',undefined as unknown as Record<string,unknown>).malformed).toBe(true);
     expect(normalizePending('hold','x',{state:'pending',createdAtMs:-4}).malformed).toBe(true);
+  });
+  it('flags a supplied invalid intent provider without attributing an account or copying provider data',()=>{
+    const raw={state:'reserve_pending',createdAtMs:1,accountId:ACCOUNT};
+    for(const provider of ['synthetic-private-provider',null,{},1]){
+      const result=normalizePending('intent','bad',{...raw,provider});
+      expect(result).toMatchObject({createdAtMs:1,accountId:null,malformed:true});
+      expect(result).not.toHaveProperty('provider');
+    }
+    expect(normalizePending('intent','legacy',raw)).toMatchObject({accountId:ACCOUNT,malformed:false});
+    expect(normalizePending('intent','current',{...raw,provider:'account_seconds'})).toMatchObject({accountId:ACCOUNT,malformed:false});
   });
 });
 
@@ -69,6 +80,14 @@ describe('buildPendingReport',()=>{
     expect(by).toEqual({n:'needs_review',m:'malformed',u:'unknown_age',p:'pending'});
     expect(report.attention.map(r=>r.id).sort()).toEqual(['m','n','u']);
   });
+  it('suppresses a future creation date and account hint while preserving the exact clock boundary',()=>{
+    const future=Object.freeze(row({id:'future',createdAtMs:NOW+1,accountId:ACCOUNT}));
+    const report=buildPendingReport([future,row({id:'boundary',createdAtMs:NOW,nextAttemptAt:NOW+1,accountId:ACCOUNT})],NOW);
+    expect(report.attention).toEqual([expect.objectContaining({id:'future',attention:'malformed',malformed:true,
+      createdAtMs:null,ageMs:null,accountId:null})]);
+    expect(report.oldest).toMatchObject({id:'boundary',attention:'pending',ageMs:0,createdAtMs:NOW,nextAttemptAt:NOW+1,accountId:ACCOUNT});
+    expect(future).toMatchObject({createdAtMs:NOW+1,accountId:ACCOUNT,malformed:false});
+  });
   it('removes exact duplicates from overlapping reads and is deterministic',()=>{
     const input=[row({id:'a'}),row({id:'a'}),row({id:'b',createdAtMs:5})];
     const one=buildPendingReport(input,NOW),two=buildPendingReport([...input].reverse(),NOW);
@@ -88,6 +107,16 @@ describe('readPendingReport',()=>{
     const report=await readPendingReport(stubRoot({billingIntents:intents}) as never,NOW,{pageSize:25});
     expect(report.total).toBe(131);expect(report.rows[0].id).toBe('due-1');
     expect(report.rows.some(r=>r.id==='zdone')).toBe(false);
+  });
+  it('keeps a due intent with a bad provider and future creation in the default attention report',async()=>{
+    const bad=Object.freeze({state:'reserve_pending',provider:'synthetic-private-provider',createdAtMs:NOW+1000,nextAttemptAt:0,accountId:ACCOUNT});
+    const root=stubRoot({billingIntents:[{id:'bad',data:bad}]});
+    const report=await readPendingReport(root as never,NOW);
+    expect(report.total).toBe(1);
+    expect(report.attention).toEqual([expect.objectContaining({kind:'intent',id:'bad',state:'reserve_pending',
+      attention:'malformed',createdAtMs:null,ageMs:null,accountId:null})]);
+    expect(bad).toMatchObject({createdAtMs:NOW+1000,accountId:ACCOUNT});
+    expect(JSON.stringify(report)).not.toContain(bad.provider);
   });
   it('is strictly read-only and queries only non-terminal states',async()=>{
     const log:string[]=[];

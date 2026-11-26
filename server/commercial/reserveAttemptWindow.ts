@@ -3,7 +3,7 @@ import {
   RESERVE_ATTEMPT_DOCUMENTS,
   type ReserveAttemptDocumentName,
   type ReserveAttemptDocumentVersion,
-  type ReserveAttemptEvidenceV1,
+  type ReserveAttemptEvidence,
   type ReserveAttemptVersions,
 } from './reserveAttemptEvidence';
 
@@ -68,7 +68,7 @@ export function reserveAttemptVersions(docs:ReserveAttemptWindowDocuments):Reser
 }
 
 /** Returns true when any document invalidates the history recorded before the POST. */
-export function reserveAttemptWindowChanged(attempt:ReserveAttemptEvidenceV1,docs:ReserveAttemptWindowDocuments,accountId:string):boolean{
+export function reserveAttemptWindowChanged(attempt:ReserveAttemptEvidence,docs:ReserveAttemptWindowDocuments,accountId:string):boolean{
   for(const name of RESERVE_ATTEMPT_IMMUTABLE_DOCUMENTS){
     const expected=attempt.versions[name],actual=documentVersion(docs[name]);
     if(!expected||!actual||expected.exists!==actual.exists)return true;

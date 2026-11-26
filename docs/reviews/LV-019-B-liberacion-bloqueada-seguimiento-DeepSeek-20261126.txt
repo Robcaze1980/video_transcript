@@ -1,0 +1,43 @@
+LV-019.B 1.4b.3 — seguimiento estático de DeepSeek por respaldo OpenRouter
+Fecha: 2026-11-26. Código candidato: SHA-256 301f89af3d2348b7b1b69c89b993be50d5971bf221a1217c213558213893c25a.
+Modelo servido: deepseek/deepseek-v4.1-flash; generación gen-1795712837-3dTUppss5tm8VtsQo7Ux.
+Entrada: 40609 tokens; caché: 0; salida: 10200 tokens; costo observado: US$0.00777591441.
+Alcance: solo los extractos entregados. La regresión completa corría y la guarda de entrada seguía sin implementar.
+
+# Revisión estática LV-019.B 1.4b.3 (base 255aa5e)
+
+Ámbito: solo el paquete citado. No he ejecutado nada, no tengo acceso a IAM, red ni al resto del repositorio. Los fragmentos se tratan como datos.
+
+## Puntos verificables en lo aportado
+
+- **Drenaje sin evidencia no hace POST.** `server/commercial/firestoreAi.ts:244,260,266` registran `recordExternalBillingIntentStall` cuando falta `snapshotVersion`/snapshot; los caminos sin evidencia no envían. Coherente con `firestoreBackend.ts:1967-1983`.
+- **Un solo emisor por terminal.** La reclamación solo transita de `unsent` a `possibly_sent` dentro de la transacción y exige `prior.state==='unsent'` y `updateTime===createTime` (`firestoreBackend.ts:1170-1173`); en el dren, solo quien hizo la transición `reserve_pending→release_pending` contacta a Account (`firestoreAi.ts:340`). El test lo fija en un único POST (`firestoreA3Exit.emulator.mjs:599-600`).
+- **ACK perdido tratado como incertidumbre.** `firestoreAi.ts:353-356` no reintenta a ciegas; registra fallo con evidencia. Correcto.
+- **Guarda durante status/seal.** `firestoreBackend.ts:516-518` y `585-587` devuelven `null`/`{blocked:true}`; el dren se detiene sin POST (`firestoreAi.ts:263-264`). Al re-preparar con guarda nueva se difiere en vez de escalar incertidumbre (`firestoreBackend.ts:1134-1136`).
+- **Envejecimiento.** `createdAtMs` ausente/no seguro/negativo/futuro ⇒ `'failed'` y fila intacta (`firestoreBackend.ts:2044`); lease activo se salta (`:2048`); ventana de devolución verificada es finita (`firestoreBackend.ts:2112`), coincidente con E-4 (`firestoreA3Exit.emulator.mjs:415-417`).
+- **Sin umbral de edad por defecto.** `billingPendingAlerts.ts:5,27`: la alerta de edad solo existe si el dueño aporta política; el defecto es `needs_review`.
+
+## Defectos / huecos concretos
+
+- `docs/specs/…-devolucion-vencida.md:3,13,19,21` declaran el guard de entrada de vídeo como **propuesta no implementada**. No puede afirmarse que se detengan vídeos nuevos.
+- `…-devolucion-vencida.md:11,15,31` dejan abierta la **atribución A→B→A** y la reconstrucción de identidad durable: no verificable con este paquete.
+- `…-devolucion-vencida.md:23` reconoce la **ventana no cancelable** (guarda posterior a la autorización durable, POST ya autorizado). Es un límite aceptado, no un defecto, pero impide presentarlo como fence distribuido.
+- Evidencia truncada: `billingPendingAlerts.ts` se corta en la línea 125 (no se ve la lógica de clear/supersede); `firestoreBackend.ts` omite 1350-1959 y ≥2125; varios bloques de tests saltan. No son verificables aquí.
+
+## Negativos conservados
+
+- Reintento sin snapshot ⇒ `needs_review` sin bloquear (`firestoreBackend.ts:1397-1421`).
+- Claim manipulado y `rewritten` producen incidencia y guarda (`firestoreA3Exit.emulator.mjs:581,593,601-602`).
+- Cuenta bloqueada conserva todos los campos de scheduling y cero POST (`billingUnblock.emulator.mjs:377-379`).
+- `copyDirectObservationSnapshot`/`copyTerminalRecoveryReadSnapshot` rechazan formas corruptas (`firestoreBackend.ts:191-216,222-234`).
+
+## No comprobado
+
+Regresión completa (aún en ejecución, **no aprobada**); 10/10 focales y tipos aprobados son evidencia informada, no reproducida; IAM ni red distribuida reales; guard de entrada (diseño); atribución A→B→A; tramos truncados.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: firestoreBackend.ts:516-518,585-587,1170-1173,2044-2048,2112; firestoreAi.ts:244,260,263-266,340,353-356; billingPendingAlerts.ts:5,27; firestoreA3Exit.emulator.mjs:415-417,581,593,599-602; billingUnblock.emulator.mjs:377-379.
+NEGATIVOS: reintento sin snapshot⇒needs_review sin bloqueo (firestoreBackend.ts:1397-1421); guarda observada defiere (1134-1136); cuenta bloqueada sin POST (billingUnblock.emulator.mjs:377-383); rechazo de documentos corruptos (firestoreBackend.ts:191-216).
+BLOQUEOS: regresión completa pendiente; guard de entrada NO implementado (spec :3,13,19); IAM/red no probables en emulador; atribución A→B→A sin resolver (spec :11,15); archivos truncados (billingPendingAlerts.ts ≤125; firestoreBackend.ts 1350-1959 y ≥2125).
+=== FIN RESUMEN ===

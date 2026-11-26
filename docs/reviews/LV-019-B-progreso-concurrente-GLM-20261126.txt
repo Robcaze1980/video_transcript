@@ -1,0 +1,37 @@
+LV-019.B — revisión estática GLM vía respaldo OpenRouter
+Fecha 2026-11-26; modelo solicitado ~z-ai/glm-flash-latest; servido z-ai/glm-5.3-flash.
+Diseño D2 anterior a ajustes, 12480 entrada, 0 caché, 27679 salida, US$0.00556092504, generación gen-1795713671-hZyo2oAW8BnX3BWDWoIX.
+Alcance limitado al paquete; hallazgos sujetos a contraste, no acredita producción.
+
+# Revisión estática — LV-019.B (borrador D2)
+
+**Diagnóstico corroborado por el código.** El bloqueo indebido existe hoy: en `preserveDirectUncertainty` cualquier diferencia entre captura y estado actual crea incidencia (firestoreBackend.ts:581) y, aun cuando la atribución *verifica* un trabajo legítimo creado por otro proceso (`verifiedExternalJob`, 569-577), se escriben guard bloqueado, hold y revisión (584-589). El diseño lo describe con fidelidad (spec:3) y la excepción queda desactivada con gate abierto (spec:35). Coherente.
+
+**Defectos concretos**
+
+1. **firestoreBackend.ts:612/619** — `recordReservedStatusUncertainty` no recibe la respuesta de Cuenta y registra `observedSeconds:witness.seconds` (el valor *esperado*, no el observado). El diseño exige la respuesta vinculada como entrada y "segundos exactos" (spec:7). Evidencia mal etiquetada; la comparación de segundos reales es imposible con esta API.
+2. **firestoreBackend.ts:592-609** — la captura no es durable (comentario explícito en 592) y `attemptId` es aleatorio en memoria (598). El diseño exige registro durable por id de intento y prohíbe sustituirla tras reinicio (spec:7). Brecha declarada, pero real.
+3. **spec:26 vs spec:19** — asimetría: el certificado de admisión exige la lista exacta y validada de escrituras; el de cerca solo enumera dueño/tupla/vector previo/transición, mientras el observador afirma que "todas las otras dependencias permanecen intactas". Si el commit de `claimExternalBillingRelease` escribe alguna de las 14 (p. ej. filas de recuperación), la regla es insatisfactoria o incompleta. Dirección fail-safe, pero hay que exigir el mismo inventario de escrituras.
+4. **spec:12 vs :553** — "Registrar una sola vez" carece de mecanismo: el dedup actual es por `attemptId`, que no deduplicaría dos intentos de `status` explicados por la misma admisión. Falta clave de idempotencia por intento+admisión.
+5. **Legado** — solo aparece como negativo (spec:33). No hay ruta para incidencias/holds previos del caso legítimo ni para ACKs `attribution:'unverified'` (spec:17) que nunca podrán demostrar vínculo con su commit. Falta declaración de reconciliación.
+
+**Controles negativos vigentes (conservar)**
+- Una observación de `status` jamás autoriza trabajo/replay/compensación: ambos caminos con statusSnapshot devuelven null (firestoreBackend.ts:1875-1884).
+- Atribución fallida no bloquea cuenta ajena: guard/hold solo dentro de `if(attributed)` (584); el guard de intención es por-intento (583).
+- Sin transición propia no hay segunda devolución (firestoreAi.ts:340); `reserved`/`captured` → unresolved (218); incidente duplicado incoherente → invariante (557).
+
+**Intentos de falsación**
+- *Versiones/ausencias*: versiones {createTime,updateTime}+exists (35); el marcador durable de ausencias del certificado no existe aún (spec:20). Hash de valores o jobId existente no descartan interleaving — el diseño lo asume, correcto.
+- *A→B→A*: clave derivada solo del contenido (`hash(['firebase',uid])`, 529/566); una reasignación solo delata por cambio de versión del doc identidad. El diseño la excluye sin generación de vínculo (spec:22) — el protocolo no existe aún.
+- *Cuentas distintas / permisos / carreras / caídas*: hold solo con enlace cuenta-identidad actual (566); sin transición no hay segundo POST (340); la ventana sin cambios se verifica en la admisión (1956); recibo perdido → revisión (spec:20). Todo degrada a revisión, no a admisión. Nota: en Firestore dos lecturas con igual `updateTime` ya descartan escrituras intermedias; el diseño desconfía por principio — más estricto y más estrecho: cualquier escritura benigna a las 14 dependencias en la ventana seguirá bloqueando por la fila 3.
+
+**Por comprobar (ausente del paquete):** `claimExternalBillingRelease`, `verifiedExternalJob`, `reserveAttemptWindowChanged`, `reserveAttemptVersions`, `classifyA3ReplayWindow`, `stageReserveAck`, el formato real de los registros de ACK (`attribution:'unverified'`, spec:17), los documentos referidos en spec:3 y el inventario de todos los escritores de las 14 dependencias (spec:20). Faltan en la aceptación: escrituras benignas de terceros en la ventana, idempotencia bajo reinicio y el caso de reloj inválido (prometido en spec:321, ausente de spec:30-33).
+
+**Conclusión:** el problema es real, la dirección del diseño es conservadora y el gate se respeta; pero el reconocimiento propuesto no es demostrable con este paquete y tiene lagunas de especificación. No autoriza lanzar, conforme al propio documento.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Problema corroborado en firestoreBackend.ts:581-589 (guard+hold+revisión incluso con trabajo verificado en 569-577); tratamiento actual descrito con fidelidad (spec:3) y gate respetado (spec:35); la excepción no es demostrable: certificados sin contrato implementado (spec:17,20,26), captura no durable (592-609), respuesta de Cuenta ausente de la API con segundos esperados registrados como observados (612,619), dedup por attemptId incompatible con "una sola vez" (553 vs spec:12).
+NEGATIVOS: Vigentes y verificables: status jamás autoriza trabajo (1875-1884), atribución fallida no toca cuenta ajena (584), sin transición no hay segunda devolución (firestoreAi.ts:340), reserved/captured→unresolved (218), incidente incoherente→invariante (557); el diseño añade A→B→A, legado sin certificado y compra concurrente (spec:33).
+BLOQUEOS: Falta especificar/implementar certificados de admisión y cerca con postimagen durable y recuperación tras caída (spec:20), protocolo de vínculo de dueño para A→B→A (spec:22), emisión del certificado de cerca con inventario completo de escrituras, clave de idempotencia del reconocimiento, ruta de reconciliación del legado, inventario de escritores de las 14 dependencias y las funciones referidas no incluidas en el paquete.
+=== FIN RESUMEN ===

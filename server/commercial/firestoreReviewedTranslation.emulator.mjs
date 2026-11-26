@@ -9,16 +9,22 @@ import { join, relative, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { Firestore } from 'firebase-admin/firestore';
 import { FirestoreBackend } from './firestoreBackend.ts';
-import { AI_CATALOG_VERSION, AI_TEXT_WINDOW_MS } from './aiContracts.ts';
+import { FirestoreAi } from './firestoreAi.ts';
+import { AccountBillingClient } from './accountBillingClient.ts';
+import { AccountFault, AccountStore } from '../account/backend.ts';
+import { AI_CATALOG_VERSION, AI_STORAGE_LIMIT, AI_TEXT_WINDOW_MS } from './aiContracts.ts';
+import { cloudDiagnosticError, withCloudDiagnostics } from './cloudDiagnostics.ts';
 import { privateBucket } from './privateObjectPlan.ts';
 import { encodeTextBundle } from './pipelineTextCodec.ts';
 import { validateReviewedVoiceCall } from './reviewedVoiceCanonical.ts';
 import { narrationChunks, VOICE_MODEL, VOICE_NARRATION_STYLE } from './pipelineVoiceProvider.ts';
+import { videoReservationId } from './videoReservationId.ts';
 
 const host = '127.0.0.1:8185';
 const project = 'demo-vistavo-ledger';
 const testCollection = 'vistavo_review_contract_synthetic';
-const testCount = 28;
+const voiceC1 = process.env.LV_VOICE_C1_FIXTURE === '1';
+const testCount = voiceC1 ? 60 : 28;
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const contexts = [];
 let verifiedCleanups = 0;
@@ -162,7 +168,16 @@ after(() => {
   assert.equal(verifiedCleanups, testCount, 'Every synthetic root must be independently cleaned and verified');
 });
 
-async function fixture({ longOriginal = false, durationSeconds = 2 } = {}) {
+async function fundSyntheticAccounts(c, credited) {
+  const store = new AccountStore(c.db, ref(c, 'syntheticAccountStores', randomUUID()));
+  for (const uid of [c.uid, c.foreignPrincipal.uid]) {
+    const {account} = await store.bootstrap(uid);
+    await store.root.collection('accounts').doc(account.id).update({credited, available:credited});
+  }
+  return store;
+}
+
+async function fixture({ longOriginal = false, durationSeconds = 2, externalTextCredits } = {}) {
   assertSafeEnvironment();
   assert.ok(Number.isFinite(durationSeconds) && durationSeconds >= 1.8 && durationSeconds <= 600);
   const durationMs = Math.floor(durationSeconds * 1_000), billableSeconds = Math.ceil(durationSeconds);
@@ -172,13 +187,18 @@ async function fixture({ longOriginal = false, durationSeconds = 2 } = {}) {
   const c = { db, root, backend, objects, originalFetch: globalThis.fetch, outbound: [], syntheticRefs: [], marker: randomUUID(), markerConfirmed: false };
   contexts.push(c);
   assertSafeClient(db); assertSyntheticRoot(c);
-  assert.equal((await root.get()).exists, false, 'Synthetic root must be unused');
-  assert.deepEqual(await root.listCollections(), [], 'Synthetic root must have no pre-existing descendants');
-  await root.create({ marker: c.marker, purpose: 'review-contract-synthetic-v1', project });
+  if (voiceC1) {
+    await backend.initializeLocalVoiceFixture(c.marker);
+  } else {
+    assert.equal((await root.get()).exists, false, 'Synthetic root must be unused');
+    assert.deepEqual(await root.listCollections(), [], 'Synthetic root must have no pre-existing descendants');
+    await root.create({ marker: c.marker, purpose: 'review-contract-synthetic-v1', project });
+  }
   const marker = await root.get();
   assert.equal(marker.get('marker'), c.marker);
   assert.equal(marker.get('purpose'), 'review-contract-synthetic-v1');
   assert.equal(marker.get('project'), project);
+  assert.equal(marker.get('localRequestKeyIndex'), voiceC1 ? 1 : undefined);
   c.markerConfirmed = true;
   // This guard applies to fetch; it is not evidence about unrelated native APIs.
   globalThis.fetch = async (request, init) => {
@@ -215,7 +235,21 @@ async function fixture({ longOriginal = false, durationSeconds = 2 } = {}) {
     storage: { bucket: privateBucket, key: `candidate-files-v1/${c.input}/video.mp4`, generation: '9007199254740993', size: 100, sha256: sourceSha },
   });
   await backend.saveProject(c.account, c.input, 0, '');
-  c.jobId = await backend.reserve(c.account, c.input, randomUUID(), billableSeconds, 'translation:en', 1, AI_CATALOG_VERSION);
+  const textRequestKey = randomUUID();
+  if (externalTextCredits === undefined) {
+    c.jobId = await backend.reserve(c.account, c.input, textRequestKey, billableSeconds, 'translation:en', 1, AI_CATALOG_VERSION);
+  } else {
+    c.accountStore = await fundSyntheticAccounts(c, externalTextCredits);
+    const identityKey = AccountStore.identityKey(c.uid);
+    const reservationId = videoReservationId(c.account, identityKey, c.input, 'translation:en', 1, textRequestKey);
+    c.textBilling = {provider:'account_seconds', identityKey, reservationId, seconds:billableSeconds};
+    await backend.beginExternalBillingIntent(c.account, c.input, textRequestKey, 'translation:en', 1, c.textBilling);
+    const prepared = await backend.prepareExternalReserveAttempt(c.account, c.input, textRequestKey, 'translation:en', 1, c.uid);
+    const receipt = await c.accountStore.reserveVideo(identityKey, reservationId, billableSeconds);
+    assert.equal(receipt.created, true);
+    c.jobId = await backend.reserveWithReserveAck(c.account, c.input, textRequestKey, billableSeconds, 'translation:en', 1, c.textBilling,
+      prepared, {reservationId, seconds:receipt.seconds, state:receipt.state}, c.uid);
+  }
   c.syntheticRefs.push(ref(c, 'jobs', c.jobId), ref(c, 'jobAccounting', c.jobId), ref(c, 'artifacts', c.jobId), ref(c, 'outbox', c.jobId),
     ref(c, 'movements', `reserve:${c.jobId}`), ref(c, 'movements', `terminal:${c.jobId}`), ref(c, 'billingOutbox', c.jobId), ref(c, 'providerCalls', `${c.jobId}-text-window-0000`));
   const attempt = await backend.claim(c.account, c.jobId);
@@ -225,10 +259,15 @@ async function fixture({ longOriginal = false, durationSeconds = 2 } = {}) {
   assert.equal(await backend.beginInvocation(c.account, c.jobId, attempt.attemptId), true);
   for (let index = 0; index < Math.ceil(durationMs / AI_TEXT_WINDOW_MS); index++) {
     const ordinal = String(index).padStart(4, '0'), callRef = ref(c, 'providerCalls', `${c.jobId}-text-window-${ordinal}`);
+    const callKey = `text-window:${ordinal}`, model = 'gemini-3.8-flash', requestSha256 = 'a'.repeat(64);
+    if (c.textBilling) {
+      await c.accountStore.admitVideoCall(c.textBilling.identityKey, c.textBilling.reservationId, billableSeconds,
+        c.jobId, attempt.attemptId, callKey, model, requestSha256);
+    }
     c.syntheticRefs.push(callRef);
-    await callRef.create({ jobId: c.jobId, accountId: c.account, attemptId: attempt.attemptId, callKey: `text-window:${ordinal}`,
-      model: 'gemini-3.8-flash', state: 'received', httpStatus: 200,
-      requestSha256: 'a'.repeat(64), responseSha256: 'b'.repeat(64), responseId: 'synthetic-review-receipt',
+    await callRef.create({ jobId: c.jobId, accountId: c.account, attemptId: attempt.attemptId, callKey,
+      model, state: 'received', httpStatus: 200,
+      requestSha256, responseSha256: 'b'.repeat(64), responseId: 'synthetic-review-receipt',
       usage: { totalTokenCount: 1 }, fixtureOnly: true });
   }
   c.attemptId = attempt.attemptId;
@@ -250,6 +289,18 @@ async function fixture({ longOriginal = false, durationSeconds = 2 } = {}) {
   });
   assert.equal(await backend.stageArtifactReceipt(c.account, c.jobId, attempt.attemptId, entries), true);
   assert.equal(await backend.finish(c.account, c.jobId, attempt.attemptId, true), true);
+  if (c.textBilling) {
+    const expected = {jobId:c.jobId, accountId:c.account, ...c.textBilling, action:'capture', attemptId:attempt.attemptId, settlementProtocol:3};
+    const intentId = sha(JSON.stringify([c.account, textRequestKey]));
+    const snapshot = await db.runTransaction(tx => backend.captureExternalBillingSettlement(tx, expected, intentId));
+    assert.ok(snapshot);
+    const receipt = await c.accountStore.settleVideo(c.textBilling.identityKey, c.textBilling.reservationId,
+      'capture', billableSeconds, {jobId:c.jobId, attemptId:attempt.attemptId});
+    assert.equal(receipt.settled, true);
+    assert.equal(receipt.state, 'captured');
+    assert.equal(receipt.seconds, billableSeconds);
+    assert.equal(await backend.markExternalBillingSettled(expected, snapshot), true);
+  }
   c.cues = bundle.cues;
   c.cuesEntry = entries.find(entry => entry.name === 'cues.json');
   c.edits = [
@@ -1040,3 +1091,669 @@ test('the maximum supported source duration bills 600 seconds and rejects values
   await input.update({ 'metadata.duration': 600.0001 }); await failClosed(voiceBinding(c)); await input.set(initial);
   assert.equal((await voiceBinding(c)).billableSeconds, 600); await unchangedFinancialState(c);
 });
+
+if (voiceC1) {
+  const claimRef = (c, key) => ref(c,'localVideoRequestKeys',sha(JSON.stringify(['local-video-request-key-v1',c.account,key.toLowerCase()])));
+  async function voiceFixture(credited=20, externalText=false) {
+    const c = await fixture({durationSeconds:2.0004, externalTextCredits:externalText ? credited : undefined});
+    const saved = await c.service.saveReview(c.principal, {
+      inputId:c.input, jobId:c.jobId, expectedRevision:1, requestKey:randomUUID(), edits:c.edits,
+    });
+    const store = c.accountStore ?? await fundSyntheticAccounts(c, credited);
+    const calls = [];
+    let responseHook = async value => value;
+    const reserve = async (identityKey, reservationId, seconds) => {
+      calls.push({identityKey,reservationId,seconds});
+      let answer;
+      try { answer = await store.reserveVideo(identityKey,reservationId,seconds); }
+      catch (error) {
+        if (error instanceof AccountFault && error.code === 'insufficient') return responseHook({state:'insufficient'});
+        throw error;
+      }
+      return responseHook({reservationId,seconds:answer.seconds,state:answer.state});
+    };
+    const request = (requestKey, principal=c.principal, revision=saved.committedRevision) =>
+      c.backend.reserveReviewedVoiceLocally(c.service, reserve, principal, c.input, revision, requestKey, 'narration:en:male');
+    const balances = () => Promise.all([c.uid, c.foreignPrincipal.uid].map(uid => store.videoBalance(AccountStore.identityKey(uid))));
+    const voiceJobs = async () => (await c.root.collection('jobs').get()).docs.filter(doc => doc.get('operation').startsWith('narration:'));
+    const acks = () => c.root.collection('billingReserveAckObservations').get();
+    return {c, store, calls, request, balances, voiceJobs, acks, revision:saved.committedRevision, setResponseHook: hook => { responseHook = hook; }};
+  }
+
+  function requestWithDiagnostics(fixture, requestKey, logs) {
+    return withCloudDiagnostics(async () => {
+      try { return await fixture.request(requestKey); }
+      catch (error) { cloudDiagnosticError(error); throw error; }
+    }, () => 200, line => logs.push(line), true);
+  }
+
+  function localTextAi(f) {
+    const calls = [];
+    const transport = {async request(request) {
+      const path = new URL(request.url).pathname, body = request.data ?? {};
+      if (path !== '/api/internal/video/reservations') throw Error('unexpected synthetic Account route');
+      calls.push(path);
+      const answer = await f.store.reserveVideo(body.identityKey,body.reservationId,body.seconds);
+      return {data:{...answer,reservationId:body.reservationId}};
+    }};
+    return {calls, ai:new FirestoreAi(f.c.db,f.c.root,f.c.backend,{},undefined,new AccountBillingClient(undefined,transport))};
+  }
+
+  async function assertNoVoiceWork(f) {
+    assert.equal((await f.voiceJobs()).length,0);
+    const dispatch = await f.c.root.collection('outbox').get();
+    assert.deepEqual(dispatch.docs.map(document => document.id),[f.c.jobId],'Only the original text dispatch exists');
+  }
+
+  async function corruptVoiceMarker(c) {
+    const rows = await c.root.collection('reviewedVoiceMarkers').get();
+    assert.equal(rows.size,1,'The initial intent must have saved its own review marker');
+    await rows.docs[0].ref.update({fingerprint:'0'.repeat(64)});
+  }
+
+  test('C1 voice reserves only for the owner, replays and keeps private source data out of records and logs', async () => {
+    const f = await voiceFixture(), key = randomUUID(), logs = [];
+    const privateUrl = 'https://synthetic.invalid/voice?key=private-storage-canary';
+    const privateText = 'private-input-filename-canary';
+    const input = ref(f.c,'inputs',f.c.input), storage = (await input.get()).get('storage');
+    await input.update({'storage.signedUrl':privateUrl, 'storage.metadata':{filename:privateText}});
+    await assert.rejects(() => f.request(key, f.c.foreignPrincipal), {code:'not_found'});
+    assert.equal(f.calls.length,0);
+    const [first, second] = await Promise.allSettled([requestWithDiagnostics(f,key,logs), f.request(key)]);
+    const successful = [first,second].filter(result => result.status === 'fulfilled');
+    assert.ok(successful.length);
+    const jobId = successful[0].value;
+    for (const result of successful) assert.equal(result.value,jobId);
+    assert.equal(await requestWithDiagnostics(f,key.toUpperCase(),logs),jobId);
+    assert.equal(f.calls.length,1);
+    const [owner, foreign] = await f.balances();
+    assert.equal(owner.reserved,3);
+    assert.equal(foreign.reserved,0);
+    const rows = await f.voiceJobs();
+    assert.equal(rows.length,1);
+    assert.equal(rows[0].get('snapshot'),null);
+    assert.equal(rows[0].get('price'),3);
+    assert.deepEqual(rows[0].get('inputStorage'),storage);
+    const persisted = [rows[0].data()];
+    for (const collection of ['billingIntents','billingIntentWitnesses','billingIntentJobMarkers','reviewedVoiceMarkers',
+      'billingReserveAttempts','billingReserveAckObservations']) {
+      const result = await f.c.root.collection(collection).get();
+      assert.equal(result.size,1);
+      persisted.push(result.docs[0].data());
+    }
+    assert.equal(logs.length,2);
+    for (const canary of [privateUrl,privateText,f.c.edits[0].en]) {
+      assert.equal(JSON.stringify(persisted).includes(canary),false);
+      assert.equal(logs.some(line => line.includes(canary)),false);
+    }
+    assert.equal((await f.acks()).size,1);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,1);
+    assert.equal(await f.c.backend.claim(f.c.account,jobId),null);
+    assert.equal((await ref(f.c,'outbox',jobId).get()).exists,false);
+    assert.equal(f.c.outbound.length,0);
+  });
+
+  test('C1 rejects URLs, private text and malformed UUID request keys before any reservation write', async () => {
+    const f = await voiceFixture(), logs = [], before = await financialState(f.c), balances = await f.balances();
+    const requests = await f.c.root.collection('requests').get();
+    const invalidKeys = ['https://synthetic.invalid/voice?key=private-request-canary', 'private-request-text-canary',
+      '91605fd0-279b-16c6-88b4-76921edd4cb3', '91605fd0-279b-46c6-78b4-76921edd4cb3', `${randomUUID()}\n`];
+    for (const key of invalidKeys) await assert.rejects(() => requestWithDiagnostics(f,key,logs), {code:'invalid'});
+    assert.equal(f.calls.length,0);
+    assert.deepEqual(await f.balances(),balances);
+    await unchangedFinancialState(f.c,before);
+    assert.equal((await f.c.root.collection('requests').get()).size,requests.size);
+    for (const collection of ['billingIntents','billingIntentWitnesses','billingIntentAdmissionGuards','billingIntentJobMarkers',
+      'reviewedVoiceMarkers','billingReserveAttempts','billingReserveAckObservations']) {
+      assert.equal((await f.c.root.collection(collection).get()).size,0);
+    }
+    assert.equal((await f.voiceJobs()).length,0);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+    assert.equal(logs.length,invalidKeys.length);
+    assert.equal(logs.some(line => line.includes('private-request-')),false);
+  });
+
+  test('C1 reserves voice from a translation with an AccountStore capture and settled Video receipt', async () => {
+    const f = await voiceFixture(20,true), {textBilling} = f.c;
+    const source = await f.store.videoReservation(textBilling.identityKey,textBilling.reservationId);
+    assert.equal(source.state,'captured');
+    assert.equal(source.seconds,3);
+    assert.equal((await ref(f.c,'billingOutbox',f.c.jobId).get()).get('state'),'settled');
+    const binding = await voiceBinding(f.c,f.c.principal,f.c.input,f.c.jobId,f.revision);
+    assert.equal(binding.versions.external.intent.exists,true);
+    const key = randomUUID(), jobId = await f.request(key);
+    assert.equal(await f.request(key),jobId);
+    assert.equal(f.calls.length,1);
+    assert.notEqual(f.calls[0].reservationId,textBilling.reservationId);
+    const [owner, foreign] = await f.balances();
+    assert.deepEqual([owner.available,owner.consumed,owner.reserved],[14,3,3]);
+    assert.deepEqual([foreign.available,foreign.consumed,foreign.reserved],[20,0,0]);
+    const ledger = await f.store.root.collection('ledgerEntries').get();
+    assert.deepEqual(ledger.docs.map(doc => doc.get('kind')).sort(),['video_capture','video_reserve','video_reserve']);
+    assert.equal((await f.voiceJobs()).length,1);
+    assert.equal((await ref(f.c,'outbox',jobId).get()).exists,false);
+    assert.equal(f.c.outbound.length,0);
+  });
+
+  test('C1 voice rejects insufficient balance and a request for a stale revision', async () => {
+    const f = await voiceFixture(2), key = randomUUID();
+    await assert.rejects(() => f.request(randomUUID(),f.c.principal,1));
+    assert.equal(f.calls.length,0);
+    await assert.rejects(() => f.request(key),{code:'insufficient'});
+    await assert.rejects(() => f.request(key),{code:'insufficient'});
+    assert.equal(f.calls.length,1);
+    const [owner, foreign] = await f.balances();
+    assert.equal(owner.reserved,0);
+    assert.equal(foreign.reserved,0);
+    assert.equal((await f.voiceJobs()).length,0);
+    assert.equal((await f.acks()).size,0);
+    const intent = (await f.c.root.collection('billingIntents').get()).docs[0];
+    assert.equal(intent.get('state'),'insufficient');
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+  });
+
+  test('C1 voice preserves a direct ACK but does not create work after a review is changed and restored', async () => {
+    const f = await voiceFixture(), key = randomUUID();
+    const review = (await f.c.root.collection('reviewedTranslations').get()).docs[0];
+    f.setResponseHook(async answer => {
+      await review.ref.update({voiceSha256:'0'.repeat(64)});
+      await review.ref.set(review.data());
+      return answer;
+    });
+    await assert.rejects(() => f.request(key),{code:'conflict'});
+    await assert.rejects(() => f.request(key),{code:'unknown'});
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.balances())[0].reserved,3);
+    assert.equal((await f.balances())[1].reserved,0);
+    assert.equal((await f.acks()).size,1);
+    assert.equal((await f.voiceJobs()).length,0);
+    const before = await financialState(f.c);
+    await assert.rejects(() => f.c.backend.reserveForUid(f.c.account,f.c.input,key,1,
+      'synthetic:other',f.revision,f.c.uid), {code:'conflict'});
+    await unchangedFinancialState(f.c,before);
+  });
+
+  test('C1 voice with an unknown Account response cannot retry or create work through the generic reservation', async () => {
+    const f = await voiceFixture(), key = randomUUID();
+    f.setResponseHook(async () => { throw Error('synthetic Account response lost'); });
+    await assert.rejects(() => f.request(key),{code:'unknown'});
+    await assert.rejects(() => f.request(key),{code:'unknown'});
+    const billing = {provider:'account_seconds', ...f.calls[0]}, before = await financialState(f.c);
+    await assert.rejects(() => f.c.backend.reserve(f.c.account, f.c.input, key, billing.seconds,
+      'narration:en:male', f.revision, AI_CATALOG_VERSION, billing, undefined, f.c.uid), {code:'invalid'});
+    // Neither the anonymous/simulated routes nor a different operation may
+    // consume the C1 key while the Account response is unknown.
+    await assert.rejects(() => f.c.backend.reserveForUid(f.c.account,f.c.input,key,1,
+      'synthetic:other',f.revision,f.c.uid), {code:'conflict'});
+    await assert.rejects(() => f.c.backend.reserve(f.c.account,f.c.input,key.toUpperCase(),1,
+      'synthetic:other',f.revision), {code:'conflict'});
+    await assert.rejects(() => f.c.backend.reserveSimulatedAiForUid(f.c.account,f.c.input,key,
+      billing.seconds,'translation:en',f.revision,f.c.uid), {code:'conflict'});
+    await unchangedFinancialState(f.c,before);
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.balances())[0].reserved,3);
+    assert.equal((await f.balances())[1].reserved,0);
+    assert.equal((await f.acks()).size,0);
+    assert.equal((await f.voiceJobs()).length,0);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,1);
+    assert.equal((await f.c.root.collection('billingReserveAttempts').get()).size,1);
+    assert.deepEqual(await f.c.backend.pendingExternalBillingIntents(),[]);
+  });
+
+  test('C1 rejects a generic key collision if either the voice marker or intent is missing', async () => {
+    const f = await voiceFixture(), key = randomUUID();
+    f.setResponseHook(async () => { throw Error('synthetic Account response lost'); });
+    await assert.rejects(() => f.request(key),{code:'unknown'});
+    const marker = (await f.c.root.collection('reviewedVoiceMarkers').get()).docs[0];
+    const intent = (await f.c.root.collection('billingIntents').get()).docs[0];
+    assert.ok(marker && intent);
+    const markerData = marker.data(), intentData = intent.data(), before = await financialState(f.c);
+    await marker.ref.delete();
+    await assert.rejects(() => f.c.backend.reserveForUid(f.c.account,f.c.input,key,1,
+      'synthetic:other',f.revision,f.c.uid), {code:'conflict'});
+    await marker.ref.set(markerData);
+    await intent.ref.delete();
+    await assert.rejects(() => f.c.backend.reserveForUid(f.c.account,f.c.input,key,1,
+      'synthetic:other',f.revision,f.c.uid), {code:'conflict'});
+    await intent.ref.set(intentData);
+    await unchangedFinancialState(f.c,before);
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.balances())[0].reserved,3);
+    assert.equal((await f.balances())[1].reserved,0);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,1);
+  });
+
+  test('C1 before external text rejects the canonical key before any second Account call', async () => {
+    const f = await voiceFixture(), key = 'ab' + randomUUID().slice(2), text = localTextAi(f);
+    const startText = () => text.ai.enqueue(f.c.account,f.c.input,'translation:en',f.revision,key.toUpperCase(),f.c.uid);
+    f.setResponseHook(async () => { throw Error('synthetic Account response lost'); });
+    await assert.rejects(() => f.request(key),{code:'unknown'});
+    const balanceBefore = await f.balances(), entriesBefore = (await f.store.root.collection('ledgerEntries').get()).size;
+    await assert.rejects(startText,{code:'conflict'});
+    const claim = claimRef(f.c,key), original = (await claim.get()).data();
+    assert.equal(original.mode,'voice');
+    await claim.delete();
+    await assert.rejects(startText,{code:'conflict'});
+    for (const token of [randomUUID(),original.token]) {
+      await claim.create({...original,mode:'text',token});
+      await assert.rejects(startText,{code:'conflict'});
+      await claim.delete();
+    }
+    // Even a mutually consistent counterfeit text anchor cannot bypass the
+    // prior voice marker. Use a third raw spelling to avoid an exact-key hit.
+    const alias = 'A' + key.slice(1), fakeAnchor = ref(f.c,'requests',sha(JSON.stringify([f.c.account,alias])));
+    const token = randomUUID(), batch = f.c.db.batch();
+    batch.delete(ref(f.c,original.anchorCollection,original.anchorId));
+    batch.create(fakeAnchor,{localRequestClaimId:claim.id,localRequestClaimMode:'text',localRequestClaimToken:token});
+    batch.create(claim,{...original,mode:'text',token,anchorCollection:'requests',anchorId:fakeAnchor.id});
+    await batch.commit();
+    await assert.rejects(startText,{code:'conflict'});
+    assert.equal(text.calls.length,0);
+    assert.equal(f.calls.length,1);
+    assert.deepEqual(await f.balances(),balanceBefore);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,entriesBefore);
+  });
+
+  test('external text before C1 owns the canonical key without a voice Account call', async () => {
+    const f = await voiceFixture(), key = 'ab' + randomUUID().slice(2), text = localTextAi(f);
+    await text.ai.enqueue(f.c.account,f.c.input,'translation:en',f.revision,key.toUpperCase(),f.c.uid);
+    const balanceBefore = await f.balances(), entriesBefore = (await f.store.root.collection('ledgerEntries').get()).size;
+    await assert.rejects(() => f.request(key),{code:'conflict'});
+    const claim = claimRef(f.c,key), original = (await claim.get()).data();
+    assert.equal(original.mode,'text');
+    await claim.delete();
+    await assert.rejects(() => f.request(key),{code:'conflict'});
+    for (const token of [randomUUID(),original.token]) {
+      await claim.create({...original,mode:'voice',token});
+      await assert.rejects(() => f.request(key),{code:'conflict'});
+      await claim.delete();
+    }
+    assert.equal(text.calls.length,1);
+    assert.equal(f.calls.length,0);
+    assert.deepEqual(await f.balances(),balanceBefore);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,entriesBefore);
+  });
+
+  test('simulated text before C1 owns the canonical key without an Account call', async () => {
+    const f = await voiceFixture(), key = 'ab' + randomUUID().slice(2);
+    const simulated = requestKey => f.c.backend.reserveForUid(f.c.account,f.c.input,requestKey,1,'synthetic:other',f.revision,f.c.uid);
+    const upper = await simulated(key.toUpperCase());
+    const lower = await simulated(key);
+    assert.notEqual(upper,lower,'Legacy text writers retain distinct case-sensitive request IDs');
+    const claim = await claimRef(f.c,key).get(), first = claim.data();
+    const links = await f.c.root.collection('requests').where('localRequestClaimId','==',claim.id).get();
+    assert.equal(links.size,2);
+    for (const link of links.docs) {
+      assert.equal(link.get('localRequestClaimToken'),first.token);
+      assert.equal(link.get('localRequestClaimMode'),'text');
+    }
+    const anchor = ref(f.c,first.anchorCollection,first.anchorId);
+    await anchor.update({localRequestClaimMode:'voice'});
+    await assert.rejects(() => simulated(key),{code:'conflict'});
+    await anchor.update({localRequestClaimMode:'text'});
+    const legacy = await simulated('legacy-text-request:v1');
+    assert.equal(await simulated('legacy-text-request:v1'),legacy);
+    await assert.rejects(() => f.c.backend.initializeLocalVoiceFixture(randomUUID()),{code:'conflict'});
+    const root = await f.c.root.get();
+    await f.c.root.update({localRequestKeyIndex:0});
+    await assert.rejects(() => f.request(randomUUID()),{code:'conflict'});
+    await f.c.root.set(root.data());
+    const balanceBefore = await f.balances(), entriesBefore = (await f.store.root.collection('ledgerEntries').get()).size;
+    await assert.rejects(() => f.request(key),{code:'conflict'});
+    assert.equal(f.calls.length,0);
+    assert.deepEqual(await f.balances(),balanceBefore);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,entriesBefore);
+  });
+
+  test('concurrent C1 and external text share one canonical claim and one Account reservation', async () => {
+    const f = await voiceFixture(), key = 'ab' + randomUUID().slice(2), text = localTextAi(f);
+    const results = await Promise.allSettled([
+      f.request(key),text.ai.enqueue(f.c.account,f.c.input,'translation:en',f.revision,key.toUpperCase(),f.c.uid),
+    ]);
+    assert.equal(results.filter(item => item.status === 'fulfilled').length,1);
+    assert.equal(results.filter(item => item.status === 'rejected').length,1);
+    assert.equal(f.calls.length+text.calls.length,1);
+    const claim = await claimRef(f.c,key).get(), lease = claim.data();
+    const anchor = await ref(f.c,lease.anchorCollection,lease.anchorId).get();
+    assert.equal(lease.mode,f.calls.length?'voice':'text');
+    assert.equal(anchor.get('localRequestClaimMode'),lease.mode);
+    assert.equal(anchor.get('localRequestClaimToken'),lease.token);
+    assert.ok(claim.createTime.isEqual(anchor.createTime));
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,1);
+    assert.equal((await f.balances())[0].reserved,3);
+    assert.equal((await f.balances())[1].reserved,0);
+  });
+
+  test('C1 voice replays the original job after a lost Video commit response', async () => {
+    const f = await voiceFixture(), key = randomUUID();
+    const original = f.c.backend.reserveAs.bind(f.c.backend);
+    f.c.backend.reserveAs = async (...args) => {
+      const jobId = await original(...args);
+      f.c.backend.reserveAs = original;
+      throw Error('synthetic response lost after Video commit ' + jobId);
+    };
+    await assert.rejects(() => f.request(key), /response lost after Video commit/);
+    const rows = await f.voiceJobs();
+    assert.equal(rows.length,1);
+    assert.equal(await f.request(key),rows[0].id);
+    const before = await financialState(f.c);
+    await assert.rejects(() => f.c.backend.reserveForUid(f.c.account,f.c.input,key,1,
+      'synthetic:other',f.revision,f.c.uid), {code:'conflict'});
+    await unchangedFinancialState(f.c,before);
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.acks()).size,1);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,1);
+    assert.equal((await f.balances())[1].reserved,0);
+  });
+
+  test('C1 voice keeps a single Account call after the unacknowledged evidence row is removed', async () => {
+    const f = await voiceFixture(), key = randomUUID();
+    const noClaimKey = randomUUID(), original = f.c.backend.prepareReserveAttempt.bind(f.c.backend);
+    f.c.backend.prepareReserveAttempt = async (...args) => {
+      await claimRef(f.c,noClaimKey).delete();
+      return original(...args);
+    };
+    await assert.rejects(() => f.request(noClaimKey),{code:'conflict'});
+    f.c.backend.prepareReserveAttempt = original;
+    assert.equal(f.calls.length,0);
+    assert.equal((await f.c.root.collection('billingReserveAttempts').get()).size,0);
+    f.setResponseHook(async () => { throw Error('synthetic Account response lost'); });
+    await assert.rejects(() => f.request(key),{code:'unknown'});
+    const attempt = ref(f.c,'billingReserveAttempts',f.calls[0].reservationId);
+    assert.equal((await attempt.get()).exists,true);
+    await attempt.delete();
+    await assert.rejects(() => f.request(key),{code:'unknown'});
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.balances())[0].reserved,3);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,1);
+    assert.equal((await f.acks()).size,0);
+    assert.equal((await f.voiceJobs()).length,0);
+  });
+
+  test('C1 voice retains the ACK without creating work after the request UID is revoked', async () => {
+    const f = await voiceFixture(), key = randomUUID();
+    const identity = ref(f.c,'identities',AccountStore.identityKey(f.c.uid));
+    f.setResponseHook(async answer => {
+      await identity.delete();
+      return answer;
+    });
+    await assert.rejects(() => f.request(key),{code:'not_found'});
+    await assert.rejects(() => f.request(key),{code:'not_found'});
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.acks()).size,1);
+    assert.equal((await f.voiceJobs()).length,0);
+    assert.equal((await f.balances())[0].reserved,3);
+    assert.equal((await f.balances())[1].reserved,0);
+  });
+
+  test('C1 voice rejects a mismatched ACK without staging a receipt or work', async () => {
+    const f = await voiceFixture(), key = randomUUID();
+    f.setResponseHook(async answer => ({...answer,seconds:answer.seconds - 1}));
+    await assert.rejects(() => f.request(key),{code:'unknown'});
+    await assert.rejects(() => f.request(key),{code:'unknown'});
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.acks()).size,0);
+    assert.equal((await f.voiceJobs()).length,0);
+    assert.equal((await f.balances())[0].reserved,3);
+    assert.equal((await f.balances())[1].reserved,0);
+    const alteredKey = randomUUID();
+    f.setResponseHook(async answer => {
+      await claimRef(f.c,alteredKey).update({token:randomUUID()});
+      return answer;
+    });
+    await assert.rejects(() => f.request(alteredKey),{code:'conflict'});
+    await assert.rejects(() => f.request(alteredKey),{code:'conflict'});
+    assert.equal(f.calls.length,2);
+    assert.equal((await f.acks()).size,1,'Preserve the direct ACK as unverified evidence after claim corruption');
+    assert.equal((await f.voiceJobs()).length,0);
+  });
+
+  test('C1 voice checks the Video work and storage limits before calling Account', async () => {
+    const f = await voiceFixture(), key = randomUUID();
+    const account = ref(f.c,'accounts',f.c.account), previous = (await account.get()).data();
+    await account.update({active:3});
+    await assert.rejects(() => f.request(key),{code:'conflict'});
+    await account.set({...previous,storageReservedBytes:AI_STORAGE_LIMIT - previous.storageCommittedBytes});
+    await assert.rejects(() => f.request(key),{code:'quota'});
+    assert.equal(f.calls.length,0);
+    assert.equal((await f.c.root.collection('billingReserveAttempts').get()).size,0);
+    assert.equal((await f.balances())[0].reserved,0);
+    await account.set(previous);
+    assert.equal(typeof await f.request(key),'string');
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.balances())[0].reserved,3);
+  });
+
+  test('C1 classifies a marker corrupted between intent and preflight as conflict without calling Account', async () => {
+    const f = await voiceFixture(), key = randomUUID(), balances = await f.balances();
+    const prepare = f.c.backend.prepareReserveAttempt.bind(f.c.backend);
+    f.c.backend.prepareReserveAttempt = async (...args) => {
+      await corruptVoiceMarker(f.c);
+      return prepare(...args);
+    };
+    const result = await observed(f.request(key));
+    assert.equal(f.calls.length,0);
+    assert.equal((await f.acks()).size,0);
+    assert.equal((await f.c.root.collection('billingReserveAttempts').get()).size,0);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+    assert.deepEqual(await f.balances(),balances);
+    await assertNoVoiceWork(f);
+    assert.equal(result.error?.code,'conflict');
+  });
+
+  test('C1 classifies a marker corrupted after the Account ACK and preserves that ACK without resending', async () => {
+    const f = await voiceFixture(), key = randomUUID(), [, otherBefore] = await f.balances();
+    f.setResponseHook(async answer => {
+      assert.equal(answer.state,'reserved');
+      await corruptVoiceMarker(f.c);
+      return answer;
+    });
+    const first = await observed(f.request(key));
+    const replay = await observed(f.request(key));
+    assert.equal(f.calls.length,1);
+    const acks = await f.acks();
+    assert.equal(acks.size,1);
+    const ack = acks.docs[0];
+    assert.equal(ack.get('reservationId'),f.calls[0].reservationId);
+    assert.equal(ack.get('state'),'reserved');
+    assert.equal(ack.get('source'),'reserve_ack');
+    assert.equal(ack.get('attribution'),'unverified');
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,1);
+    const [owner, other] = await f.balances();
+    assert.equal(owner.reserved,3);
+    assert.deepEqual(other,otherBefore);
+    await assertNoVoiceWork(f);
+    assert.ok(['conflict','unknown'].includes(first.error?.code));
+    assert.ok(['conflict','unknown'].includes(replay.error?.code));
+  });
+
+  test('C1 stops before Account when the pilot is disabled between intent and preflight', async () => {
+    const f = await voiceFixture(), key = randomUUID(), balances = await f.balances();
+    const prepare = f.c.backend.prepareReserveAttempt.bind(f.c.backend);
+    f.c.backend.prepareReserveAttempt = async (...args) => {
+      const intents = await f.c.root.collection('billingIntents').get();
+      assert.equal(intents.size,1);
+      assert.equal(intents.docs[0].get('state'),'reserve_pending');
+      await ref(f.c,'accounts',f.c.account).update({aiPilot:false});
+      return prepare(...args);
+    };
+    const result = await observed(f.request(key));
+    assert.equal(f.calls.length,0);
+    assert.equal((await f.acks()).size,0);
+    assert.equal((await f.c.root.collection('billingReserveAttempts').get()).size,0);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+    assert.deepEqual(await f.balances(),balances);
+    await assertNoVoiceWork(f);
+    assert.ok(['disabled','conflict'].includes(result.error?.code));
+  });
+
+  test('C1 retains the real ACK when the pilot is disabled after preflight and Account reservation', async () => {
+    const f = await voiceFixture(), key = randomUUID(), [, otherBefore] = await f.balances();
+    const account = ref(f.c,'accounts',f.c.account);
+    f.setResponseHook(async answer => {
+      assert.equal(answer.state,'reserved');
+      const prepared = await ref(f.c,'billingReserveAttempts',answer.reservationId).get();
+      assert.equal(prepared.get('version'),2);
+      await account.update({aiPilot:false});
+      return answer;
+    });
+    const first = await observed(f.request(key));
+    await account.update({aiPilot:true});
+    const replay = await observed(f.request(key));
+    assert.equal(f.calls.length,1);
+    const acks = await f.acks();
+    assert.equal(acks.size,1);
+    assert.equal(acks.docs[0].get('reservationId'),f.calls[0].reservationId);
+    assert.equal(acks.docs[0].get('state'),'reserved');
+    assert.equal(acks.docs[0].get('attribution'),'unverified');
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,1);
+    const [owner, other] = await f.balances();
+    assert.equal(owner.reserved,3);
+    assert.deepEqual(other,otherBefore);
+    await assertNoVoiceWork(f);
+    assert.ok(['disabled','conflict'].includes(first.error?.code));
+    assert.equal(replay.error?.code,'unknown');
+  });
+
+  for (const committed of [false,true]) {
+    test(`C1 insufficient NACK persistence failure ${committed?'after':'before'} the commit stays classifiable without a second POST`, async () => {
+      const f = await voiceFixture(2), key = randomUUID(), balances = await f.balances();
+      const settle = f.c.backend.settleLocalVoiceNack.bind(f.c.backend);
+      f.c.backend.settleLocalVoiceNack = async (voice, requestKey, attempt) => {
+        assert.deepEqual([voice.principal.accountId,requestKey,attempt.attemptId],[f.c.account,key,f.calls[0].reservationId]);
+        if (committed) assert.equal(await settle(voice,requestKey,attempt),true);
+        throw Error('Synthetic loss of the insufficient write response');
+      };
+      const first = await observed(f.request(key));
+      f.c.backend.settleLocalVoiceNack = settle;
+      const replay = await observed(f.request(key));
+      const intents = await f.c.root.collection('billingIntents').get();
+      assert.equal(intents.size,1);
+      assert.equal(intents.docs[0].get('state'),committed?'insufficient':'reserve_pending');
+      assert.equal(f.calls.length,1);
+      assert.equal(intents.docs[0].get('localVoiceAttemptId'),f.calls[0].reservationId);
+      assert.equal((await f.c.root.collection('billingReserveAttempts').get()).size,1);
+      const nacks = await f.c.root.collection('localVoiceReserveNacks').get();
+      assert.equal(nacks.size,committed?1:0);
+      if (committed) assert.equal(nacks.docs[0].get('attemptId'),f.calls[0].reservationId);
+      assert.equal((await f.acks()).size,0);
+      assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+      assert.deepEqual(await f.balances(),balances);
+      await assertNoVoiceWork(f);
+      assert.equal(replay.error?.code,committed?'insufficient':'unknown');
+      assert.equal(first.error?.code,committed?'insufficient':'unknown');
+    });
+  }
+
+  const lateNackChanges = [
+    ['settled intent for another attempt', ({intent}) => intent.update({state:'insufficient',localVoiceAttemptId:randomUUID()})],
+    ['settled intent without a C1 NACK receipt', ({intent}) => intent.update({state:'insufficient'})],
+    ['pending intent with another tuple', ({intent}) => intent.update({seconds:4})],
+    ['pending intent with a changed claim', ({claim}) => claim.update({token:randomUUID()})],
+    ['pending intent with a changed origin', ({origin}) => origin.update({reservationId:randomUUID()})],
+    ['pending intent with a restored origin', async ({origin}) => {
+      const original = (await origin.get()).data();
+      await origin.update({reservationId:randomUUID()});
+      await origin.set(original);
+    }],
+    ['settled intent with a changed origin', ({intent,origin}) => Promise.all([
+      intent.update({state:'insufficient'}), origin.update({reservationId:randomUUID()}),
+    ])],
+  ];
+  for (const [history, alter] of lateNackChanges) {
+    test(`C1 late insufficient NACK fails closed for a ${history}`, async () => {
+      const f = await voiceFixture(2), key = randomUUID(), balances = await f.balances();
+      const id = sha(JSON.stringify([f.c.account,key]));
+      const intent = ref(f.c,'billingIntents',id), origin = ref(f.c,'billingIntentWitnesses',id), claim = claimRef(f.c,key);
+      const documents = [intent,origin,claim], read = () => Promise.all(documents.map(document => document.get()));
+      let atResponse;
+      f.setResponseHook(async answer => {
+        assert.equal(answer.state,'insufficient');
+        const prepared = await intent.get();
+        assert.equal(prepared.get('state'),'reserve_pending');
+        assert.equal(prepared.get('localVoiceAttemptId'),f.calls[0].reservationId);
+        assert.equal(prepared.get('seconds'),3);
+        await alter({intent,origin,claim});
+        atResponse = await read();
+        return answer;
+      });
+
+      const first = await observed(f.request(key));
+      assert.ok(atResponse,'The mutation ran after the real Account NACK and before its delivery');
+      const retry = await observed(f.request(key));
+      const afterRetry = await read();
+
+      assert.equal(f.calls.length,1,'Replaying the request must not call Account again');
+      assert.equal((await f.c.root.collection('billingReserveAttempts').get()).size,1);
+      assert.equal((await f.acks()).size,0);
+      assert.equal((await f.c.root.collection('localVoiceReserveNacks').get()).size,0);
+      assert.equal((await f.store.root.collection('videoReservations').get()).size,0);
+      assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+      assert.deepEqual(await f.balances(),balances);
+      await assertNoVoiceWork(f);
+
+      assert.deepEqual({
+        first:first.error?.code,
+        replayFailsClosed:['unknown','conflict'].includes(retry.error?.code),
+        alteredHistoryUnchanged:afterRetry.every((document,index) => document.updateTime.isEqual(atResponse[index].updateTime)),
+      },{first:'unknown',replayFailsClosed:true,alteredHistoryUnchanged:true});
+    });
+  }
+
+  for (const before of [true,false]) {
+    test(`C1 does not classify insufficient beside conflicting ACK evidence recorded ${before?'before':'after'} NACK settlement`, async () => {
+      const f = await voiceFixture(2), key = randomUUID(), balances = await f.balances();
+      async function recordConflictingAck() {
+        const {reservationId,seconds} = f.calls[0];
+        const stored = await ref(f.c,'billingReserveAttempts',reservationId).get();
+        assert.equal(await f.c.backend.recordReserveAck(stored.data(),{reservationId,seconds,state:'reserved'}),'recorded');
+      }
+      if (before) f.setResponseHook(async answer => {
+        assert.equal(answer.state,'insufficient');
+        await recordConflictingAck();
+        return answer;
+      });
+      await assert.rejects(() => f.request(key),{code:before?'unknown':'insufficient'});
+      if (!before) await recordConflictingAck();
+      await assert.rejects(() => f.request(key),{code:'unknown'});
+
+      const intent = await ref(f.c,'billingIntents',sha(JSON.stringify([f.c.account,key]))).get();
+      assert.equal(intent.get('state'),before?'reserve_pending':'insufficient');
+      assert.equal((await f.c.root.collection('localVoiceReserveNacks').get()).size,before?0:1);
+      assert.equal((await f.acks()).size,1);
+      assert.equal(f.calls.length,1);
+      assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+      assert.deepEqual(await f.balances(),balances);
+      await assertNoVoiceWork(f);
+    });
+  }
+
+  test('historical external text v1 uses distinct literal key casing and never reserves again for exact replays', async () => {
+    const f = await voiceFixture(), text = localTextAi(f), key = 'ab' + randomUUID().slice(2);
+    const upper = key.toUpperCase();
+    const enqueue = requestKey => text.ai.enqueue(f.c.account,f.c.input,'translation:en',f.revision,requestKey,f.c.uid);
+    const upperJob = await enqueue(upper), lowerJob = await enqueue(key);
+    assert.notEqual(upperJob,lowerJob);
+    const upperRow = await ref(f.c,'jobs',upperJob).get(), lowerRow = await ref(f.c,'jobs',lowerJob).get();
+    assert.equal(upperRow.get('requestKey'),upper);
+    assert.equal(lowerRow.get('requestKey'),key);
+    assert.notEqual(upperRow.get('externalBilling.reservationId'),lowerRow.get('externalBilling.reservationId'));
+    const requestFor = requestKey => ref(f.c,'requests',sha(JSON.stringify([f.c.account,requestKey]))).get();
+    const [upperRequest,lowerRequest] = await Promise.all([requestFor(upper),requestFor(key)]);
+    const claim = await claimRef(f.c,key).get();
+    assert.equal(claim.get('mode'),'text');
+    assert.equal(upperRequest.get('localRequestClaimToken'),claim.get('token'));
+    assert.equal(lowerRequest.get('localRequestClaimToken'),claim.get('token'));
+    for (const [literal,jobId] of [[upper,upperJob],[key,lowerJob]]) {
+      assert.equal(await f.c.backend.priorExternalRequestForEnqueue(f.c.account,f.c.input,literal,'translation:en',
+        f.revision,AI_CATALOG_VERSION,f.c.uid),jobId);
+      await assert.rejects(() => enqueue(literal),{code:'unknown'});
+    }
+    assert.equal(text.calls.length,2);
+    assert.equal(f.calls.length,0);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,2);
+    const [owner,other] = await f.balances();
+    assert.deepEqual([owner.available,owner.reserved,owner.consumed],[14,6,0]);
+    assert.deepEqual([other.available,other.reserved,other.consumed],[20,0,0]);
+  });
+}

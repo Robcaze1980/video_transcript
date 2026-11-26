@@ -43,7 +43,10 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
   const attempts=nonNegativeInteger(d.attempts)?d.attempts:null;
   const lastErrorCode=typeof d.lastErrorCode==='string'&&errorCode.test(d.lastErrorCode)?d.lastErrorCode:null;
   const accountId=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null;
-  const malformed=!data||typeof data!=='object'||!state||(present(d.createdAtMs)&&createdAtMs===null)||(present(d.nextAttemptAt)&&nextAttemptAt===null)||(present(d.attempts)&&attempts===null)||
+  // Old intent rows may omit the provider. A supplied but unsupported value
+  // is refused by the drainer, so surface the row without an account hint.
+  const invalidIntentProvider=kind==='intent'&&Object.hasOwn(d,'provider')&&d.provider!=='account_seconds';
+  const malformed=!data||typeof data!=='object'||!state||invalidIntentProvider||(present(d.createdAtMs)&&createdAtMs===null)||(present(d.nextAttemptAt)&&nextAttemptAt===null)||(present(d.attempts)&&attempts===null)||
     (present(d.lastErrorCode)&&lastErrorCode===null)||(present(d.accountId)&&accountId===null);
   if(kind==='guard'){
     // A blocked account is its own row. Its state carries the guard GENERATION, so an account blocked again after a release is a new
@@ -63,7 +66,7 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
     return {kind,id,state:'blocked:'+epoch+':'+createdAtMs+':'+incidentKey,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:guardAccount,
       malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incident||(hasEpoch&&!validEpoch)||(hasCreated&&!validCreated)||hasEpoch!==hasCreated};
   }
-  return {kind,id,state,createdAtMs,nextAttemptAt,attempts,lastErrorCode,accountId,malformed};
+  return {kind,id,state,createdAtMs,nextAttemptAt,attempts,lastErrorCode,accountId:invalidIntentProvider?null:accountId,malformed};
 }
 
 const kindOrder:Record<PendingKind,number>={intent:0,terminal_recovery:1,hold:2,outbox:3,job_unknown:4,guard:5};
@@ -78,7 +81,13 @@ export function buildPendingReport(input:readonly PendingRow[],nowMs:number):Pen
   if(!nonNegativeInteger(nowMs))throw new RangeError('invalid clock');
   const unique=new Map<string,PendingRow>();
   for(const row of input){const key=row.kind+'\u0000'+row.id;if(!unique.has(key))unique.set(key,row);}
-  const rows:ReportRow[]=[...unique.values()].map(row=>({...row,ageMs:row.createdAtMs===null?null:Math.max(0,nowMs-row.createdAtMs),attention:attentionOf(row)}));
+  const rows:ReportRow[]=[...unique.values()].map(row=>{
+    // Match the age sweep's clock boundary. A future creation time cannot
+    // establish age or a billable owner. Later retry dates are still allowed.
+    if(row.createdAtMs!==null&&row.createdAtMs>nowMs)
+      return {...row,createdAtMs:null,ageMs:null,accountId:null,malformed:true,attention:'malformed'};
+    return {...row,ageMs:row.createdAtMs===null?null:nowMs-row.createdAtMs,attention:attentionOf(row)};
+  });
   rows.sort((a,b)=>{
     if((a.createdAtMs===null)!==(b.createdAtMs===null))return a.createdAtMs===null?-1:1;
     if(a.createdAtMs!==b.createdAtMs&&a.createdAtMs!==null&&b.createdAtMs!==null)return a.createdAtMs-b.createdAtMs;

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>Estimación de voz · Vistavo</title>
+  <link rel="stylesheet" href="./voiceQuotePreview.css">
+  <script type="module" src="./voiceQuotePreview.mjs"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="brand">Vistavo</p>
+      <h1>Estima el costo de tu video</h1>
+      <p>Demostración con datos de ejemplo. El importe es orientativo.</p>
+    </header>
+
+    <div class="layout">
+      <section class="choices" aria-labelledby="choices-title">
+        <h2 id="choices-title">Video de ejemplo</h2>
+        <label for="duration">Duración del video</label>
+        <select id="duration" autocomplete="off">
+          <option value="30000">30 s</option>
+          <option value="130000" selected>2 min 10 s</option>
+          <option value="180000">3 min</option>
+        </select>
+
+        <fieldset aria-describedby="voice-explanation">
+          <legend>Servicios en la estimación</legend>
+          <label class="option">
+            <input type="radio" name="services" id="text-only" checked autocomplete="off">
+            <span>Solo texto y subtítulos</span>
+          </label>
+          <label class="option">
+            <input type="radio" name="services" id="with-voice" autocomplete="off">
+            <span>Texto, subtítulos y voz</span>
+          </label>
+          <p id="voice-explanation">La voz es opcional y se genera a partir de la traducción revisada.</p>
+        </fieldset>
+      </section>
+
+      <section class="summary" aria-labelledby="summary-title">
+        <h2 id="summary-title">Estimación</h2>
+        <dl>
+          <div>
+            <dt>Texto y subtítulos <small id="text-rate"></small></dt>
+            <dd id="text-price"></dd>
+          </div>
+          <div>
+            <dt>Voz opcional <small id="voice-rate"></small></dt>
+            <dd id="voice-price"></dd>
+          </div>
+        </dl>
+        <p class="total" role="status" aria-atomic="true">
+          <span>Total estimado</span>
+          <strong id="total-price"></strong>
+        </p>
+        <p class="rounding">Calculamos cada servicio con la duración del video, redondeada hacia arriba al segundo. Los importes se redondean por separado al centavo más cercano antes de sumarlos.</p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

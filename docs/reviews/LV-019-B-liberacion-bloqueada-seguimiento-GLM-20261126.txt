@@ -1,0 +1,45 @@
+LV-019.B 1.4b.3 — seguimiento estático de GLM por respaldo OpenRouter
+Fecha: 2026-11-26. Código candidato: SHA-256 301f89af3d2348b7b1b69c89b993be50d5971bf221a1217c213558213893c25a.
+Modelo solicitado: ~z-ai/glm-flash-latest; servido: z-ai/glm-5.3-flash; generación gen-1795712837-L5tsogf8yFheeYrCZMNK.
+Entrada: 34583 tokens; caché: 0; salida: 38772 tokens; costo observado: US$0.0145966293.
+Alcance: solo los extractos entregados; los hallazgos D1–D3 requieren verificación independiente. La regresión completa corría.
+
+# Revisión independiente LV-019.B 1.4b.3 (Vistavo) — lectura estática
+
+Trato los fragmentos como datos y uso solo el paquete. No puedo confirmar que el texto corresponda al SHA-256 301f89af… ni a la base 255aa5e (sin herramientas). Esta es una de las dos revisiones de solo lectura; la del segundo revisor y GLM/DeepSeek (borrador:32) siguen siendo gates de aceptación.
+
+## 1. Devolución al titular / no duplicación
+- El titular se demuestra por cadena en cada paso: uid→hash de identidad (:514, :550, :1368), witness durable en origin (:550), enlaces de trabajo verificados (:553-560, :779-785); el POST lleva el reservationId del witness (:1150, firestoreAi:282-284).
+- Un solo POST por terminal: claim `unsent→possibly_sent` una sola vez (:1168-1174); si ya fue reclamado, `reconcile` (:1171); cierre solo con claim+versiones+confirmaciones (:1422-1427, :1110-1116). Resultado incierto nunca reenvía: reintento sin snapshot solo cuenta intentos (:1407-1421) y la recuperación solo consulta `/resolution` (firestoreAi:210-223).
+- Hueco: la contabilidad del reembolso (movimientos `video_release`) no está en los fragmentos; solo es visible la clave de idempotencia `movements/terminal:{jobId}` (:2090). "Acredita al titular exactamente una vez" no es demostrable estáticamente aquí.
+
+## 2. Carrera de dos drenadores
+- Transición atómica + `transitioned`: solo quien transiciona contacta a Account (:337-340); el perdedor no escribe nada. Tolerancia al peer ya preparado con preimage de historia (:1098-1108, :1172) y cierre concurrente verificado por `claim.updateTime==intent.updateTime` (:1112). Negativos E-4: claim/rewrite manipulados → incidente, 1 POST, 1 movimiento (:568-633).
+
+## 3. ACK perdido
+- `terminalObserved` evita registrar un fallo tras ACK (:287, :300, :356); recuperación por status/resolución (:311-313); `possibly_sent` no se reclama de nuevo (:1170-1171); la fila queda acotada por envejecimiento (:1995-2059). Hueco de resolución: la ruta de operador para `possibly_sent`+`reserved` no existe aún (borrador:21).
+
+## 4. Guarda durante status/seal y envejecimiento; alerta por defecto
+- Captura con guarda → `{blocked}`/null sin POST (:579-594; firestoreAi:263-266, :277-278, :294-295); prepare/claim revalidan (:1130-1136, :1166). La ventana claim→POST sigue abierta por diseño (:1159, :1177-1181; borrador:23): el ACK posterior se preserva como revisión sin mover saldo (:1429-1444).
+- Envejecimiento: reloj inyectado (:1995-2001), relectura por fila (:2033-2048), `createdAtMs` corrupto → `failed` sin adivinar (:2044), ventana finita tras desbloqueo (:2062-2116; E-4:407-418 fija el borde inclusive). Alerta `needs_review` por defecto sin umbral (billingPendingAlerts:25-28); alertas de edad solo con umbral del dueño (:5-6, :76-77); dedup por (kind,rowId,state,reason) (:22-24; prueba:388-389).
+
+## 5. Intentos de falsación — defectos concretos
+- **D1** firestoreBackend.ts:569-572 — el bloqueo atribuido escribe guard/hold sin comprobar `generation==preview` (:546-548), a diferencia de :1440-1441 que lanza invariante; y :565 no registra `holdProblem` cuando `holdValid`/`reviewValid` fallan (compárese :1434). No demostrable explotable sin ver guardPreview/writeBlockedGuard.
+- **D2** firestoreBackend.ts:596-606 con :553-560 — `recordReservedStatusUncertainty` carece de la tolerancia a progreso benigno/peer que sí tiene prepareTerminal (:1131-1136). Un trabajo admitido legítimamente (:558 acepta `job_created`) entre la captura (firestoreAi:263) y el registro (:324) —o un peer en `release_pending` sin request/marker (:550-553)— se convierte en incidencia atribuida → bloqueo de cuenta + hold por progreso legítimo. Sobre-bloqueo seguro, pero atribuye divergencia falsa.
+- **D3** firestoreAi.ts:237→:353-357 — fila malformada falla sin registrar intento (no hay failureEvidence) y con `createdAtMs` corrupto escalateStaleBillingRows:2044 devuelve `failed` siempre → progreso solo vía alerta externa del reporte pending (operador).
+
+## 6. Borrador: diseño NO implementado
+- docs/specs/LV-019-B-admision-video-devolucion-vencida.md:3 lo declara pendiente; el código lo confirma: escalateStaleBillingRows no escribe guard de entrada (:2052; :1991 "blocks no owner"). Hoy una devolución vencida **no detiene** vídeos nuevos; solo la guarda por incidencias previas restringe admisión (:1189, :780). No debe afirmarse lo contrario.
+
+## 7. No pude comprobar
+- Funciones críticas no suministradas: validInitialReaderPair (:521), guardPreview/writeBlockedGuard (:546/:569), billingIntent (:517/:552/:781), claimExternalBillingRelease, closeA3ReservationForReview, recordExternalBillingReview/Failure, markExternalBillingSettled/quarantine, pendingExternalBilling(Intents), terminalWitnessForRecovery, classifyA3ReplayWindow, booking del reembolso; alcanzabilidad del invariante :1432 con incidentes previos tras desbloqueo (billingUnblock:394).
+- clearResolvedAlerts truncado en billingPendingAlerts:125: la lectura terminal dentro de la tx que autoriza el borrado no es visible.
+- El emulador no prueba IAM ni red distribuida real; las 10/10 focales son evidencia reportada, no reejecutada; la regresión completa de ESTA instantánea sigue en curso (el 469 con 5 omisiones de voz fue otra instantánea, no transferible).
+- Negativos conservados verificados: 0 POST con guarda (E-4:424, billingUnblock:383), 0 releo de claim tras `possibly_sent` (:1170), atribución no verificada nunca bloquea (:564-565, :1433-1434), fila con createdAtMs corrupto intacta (:2044), cursor por grupos de id (:2021-2029, :2056-2057), alertas dispositioned no se reabren (:61-62, :69).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: lectura estática de los 5 fragmentos + 3 ficheros de prueba + borrador; sin falsación demostrada de seguridad (claim único :1168-1174, atribución conChain :550-574, envejecimiento con reloj inyectado :1995-2059, ventana finita :2062-2116, alertas dedup billingPendingAlerts:22-24); negativos E-4 (:391-433, :568-633) y unblock (:361-431) coherentemente anclados al código; 10/10 focales en emulador reportadas por el paquete, no reejecutadas.
+NEGATIVOS: D1 firestoreBackend.ts:569-572 sin invariante generation==preview (presente en :1440-1441) y sin holdProblem en :565; D2 firestoreBackend.ts:596-606 sin tolerancia a progreso benigno/peer (:1131-1136) → sobre-bloqueo atribuido con job_created verificado (:558) o peer en vuelo (:550-553); D3 firestoreAi.ts:237/:353-357 sin registro de intento en fila malformada y :2044 'failed' perpetuo si createdAtMs corrupto → progreso dependiente de alerta externa; negativos positivos mantenidos: 0 POST tras guarda (E-4:424, billingUnblock:383), sin releo de possibly_sent (:1170), atribución no demostrada nunca bloquea (:564-565, :1433).
+BLOQUEOS: regresión completa de esta instantánea en ejecución (no dar por aprobada; el 469/5-voz fue otra instantánea); funciones invariantes no suministradas incl. booking contable del reembolso al titular (devolución correcta no probable estáticamente); billingPendingAlerts:106-125 truncado (borrado de alertas incompleto); borrador de guard de entrada NO implementado (doc:3) — no afirmar que se detienen vídeos nuevos; ruta de resolución de operador sin diseñar (doc:21); emulador sin IAM/red distribuida; verificación SHA-256/base imposible sin herramientas; segunda revisión y GLM/DeepSeek pendientes (doc:32).
+=== FIN RESUMEN ===

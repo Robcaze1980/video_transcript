@@ -1,21 +1,26 @@
+import type {FirestoreReviewedTranslation,ReviewedTranslationPrincipal} from './firestoreReviewedTranslation';
+import {createReviewedVoiceMarker,validateReviewedVoiceMarkerReplay,ReviewedVoiceMarkerFault,type ReviewedVoiceMarker} from './reviewedVoiceMarker';
+import {videoReservationId} from './videoReservationId';
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {accountHoldId,holdId,legacyHoldId,type HoldGeneration} from './billingHoldIdentity';
 import {diagnosticStage,diagnosticTransaction,diagnosticMark} from './cloudDiagnostics';
 import { Firestore, FieldPath, FieldValue, type DocumentReference, type DocumentSnapshot, type Transaction } from 'firebase-admin/firestore';
 import {readyPrivateInput,type PrivateInputBinding} from './privateObjectPlan';
 import {narrationChunks,VOICE_MODEL} from './pipelineVoiceProvider';
 import {textModel} from './pipelineTextProvider';
-import {AI_CATALOG_VERSION,AI_TEXT_WINDOW_MS,AI_TEXT_MAX_DURATION_MS,AI_TEXT_MAX_WINDOWS,artifactPlan,artifactPlanHash,simulatedAiPrice,storageQuota,validateArtifactManifest,type AiArtifactPlan,type AiArtifactReceipt} from './aiContracts';
+import {AI_CATALOG_VERSION,AI_TEXT_WINDOW_MS,AI_TEXT_MAX_DURATION_MS,AI_TEXT_MAX_WINDOWS,AI_VOICE_BUDGET,artifactPlan,artifactPlanHash,simulatedAiPrice,storageQuota,validateArtifactManifest,type AiArtifactPlan,type AiArtifactReceipt} from './aiContracts';
 import {validateDigitalSilenceProof,digitalSilenceProofHash} from './digitalSilence';
 import {validResolution,UNKNOWN_RESOLUTION_MIN_AGE_MS,type ResolutionKind,type VideoResolution} from '../account/settlementContract';
-import {RESERVE_ATTEMPT_DOCUMENTS,RESERVE_ATTEMPT_PROFILE_V1,ReserveAttemptEvidenceFault,prepareReserveAttemptInTransaction,recordReserveAckInTransaction,stageReserveAck,type ReserveAck,type ReserveAttemptDocumentName,type ReserveAttemptEvidenceV1,type ReserveAttemptWitnessV1} from './reserveAttemptEvidence';
-import {reserveAttemptVersions,reserveAttemptWindowChanged,type ReserveAttemptWindowDocuments} from './reserveAttemptWindow';
+import {RESERVE_ATTEMPT_DOCUMENTS,RESERVE_ATTEMPT_PROFILE_V1,ReserveAttemptEvidenceFault,createReviewedVoiceReserveAttempt,matchesReviewedVoiceReserveSource,verifyReviewedVoiceReserveReplay,prepareReserveAttemptInTransaction,recordReserveAckInTransaction,stageReserveAck,type ReserveAck,type ReserveAttemptDocumentName,type ReserveAttemptEvidence,type ReserveAttemptEvidenceV1,type ReserveAttemptEvidenceV2,type ReserveAttemptWitnessV1} from './reserveAttemptEvidence';
+import {RESERVE_ATTEMPT_IMMUTABLE_DOCUMENTS,reserveAttemptVersions,reserveAttemptWindowChanged,type ReserveAttemptWindowDocuments} from './reserveAttemptWindow';
 
 // Server-only persistence for the cloud candidate; the public application remains separate.
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** LV-019.B C2a: `reconcile` evidence is already a bounded text string, so its hash is over the raw bytes (never JSON-quoted). */
 const textHash = (value: string) => createHash('sha256').update(value).digest('hex');
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}(?![\s\S])/i;
+const localVoiceRequestUuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/i;
 type State = 'queued' | 'running' | 'unknown' | 'succeeded' | 'failed' | 'cancelled';
 type Balance = { credited: number; available: number; reserved: number; consumed: number; active: number };
 export type ProjectSnapshot = {accountId: string; inputId: string; revision: number; draft: string; updatedAtMs: number};
@@ -32,6 +37,8 @@ export type TerminalRecoveryDocumentVersion = {exists:false}|{exists:true;create
 export type TerminalRecoveryReadSnapshot = {intentId:string;action:'seal'|'release';origin:TerminalRecoveryDocumentVersion;sealWitness:TerminalRecoveryDocumentVersion;sealRecovery:TerminalRecoveryDocumentVersion;releaseWitness:TerminalRecoveryDocumentVersion;releaseRecovery:TerminalRecoveryDocumentVersion};
 const directDocumentNames=['account','identity','input','project','intent','origin','guard','intentGuard','request','jobMarker','sealWitness','sealRecovery','releaseWitness','releaseRecovery'] as const;
 type DirectDocumentName=typeof directDocumentNames[number];
+type TerminalReason='status_not_found'|'status_reserved'|'seal_reserved';
+type TerminalPollTurn={terminalId:string;intentId:string;action:'release'|'seal';binding:string;generation:number;token:string;lastPollAtMs:number;nextAttemptAt:number;outcome?:'reserved'|'not_found'|'captured'|'unavailable'|'unverified'};
 export type DirectObservationSnapshot={attemptId:string;source:'status'|'seal'|'release';witness:ExternalBillingIntentWitness;versions:Record<DirectDocumentName,TerminalRecoveryDocumentVersion>};
 export type ExternalBillingIntentLease = {leaseToken:string;leaseOwner:string;generation:number;leaseUntil:number};
 export type ExternalBillingIntentFailureEvidence = {snapshotVersion:string;intentGuardVersion:string;state:'reserve_pending'|'release_pending';witness:ExternalBillingIntentWitness}&(
@@ -65,7 +72,7 @@ export type ExternalBillingOutboxQuarantine =
   | {phase:'before_ack';snapshotVersion?:string|null}
   | {phase:'after_ack';snapshotVersion?:string|null;expected:ExternalBillingOutboxSnapshot;ack:ExternalBillingObservation;settlementSnapshot?:ExternalBillingSettlementReadSnapshot|null};
 export type ExternalBillingOutboxQuarantineResult = {state:'changed'|'already_settled'|'retry_wait'|'needs_review';ownerBlocked:boolean;incidentId?:string};
-export type Job = { aiProfile?:typeof AI_CATALOG_VERSION;snapshotSha256?:string; accountId: string; inputId: string; price: number; state: State; inputSha256: string;
+export type Job = { reviewedVoice?:ReviewedVoiceMarker; aiProfile?:typeof AI_CATALOG_VERSION;snapshotSha256?:string; accountId: string; inputId: string; price: number; state: State; inputSha256: string;
   externalBilling?:ExternalVideoBilling;
   operation: string; revision: number | null; snapshot: ProjectSnapshot | null;
   inputStorage: PrivateInputBinding | null;
@@ -158,12 +165,6 @@ function validTerminalRecoveryOrigin(doc:DocumentSnapshot,expected:ExternalBilli
     typeof marker.sealPrepared==='boolean'&&typeof marker.releasePrepared==='boolean';
 }
 function intentTerminalKey(intentId:string,action:'release'|'seal'){return hash(['billing-intent-terminal-v1',intentId,action]);}
-/** Same deterministic reservation id as `FirestoreAi.reservationUuid`, kept here without an import cycle. */
-function reservationUuidFor(accountId:string,identityKey:string,inputId:string,operation:string,revision:number,requestKey:string){
-  const bytes=createHash('sha256').update(JSON.stringify(['vistavo-video-reservation-v1',accountId,identityKey,inputId,operation,revision,requestKey])).digest().subarray(0,16);
-  bytes[6]=(bytes[6]&0x0f)|0x40;bytes[8]=(bytes[8]&0x3f)|0x80;const h=bytes.toString('hex');
-  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
-}
 function validInitialTerminalRecovery(value:unknown,terminalId:string,createdAtMs:unknown){
   if(!value||typeof value!=='object'||Array.isArray(value))return false;
   const row=value as Record<string,unknown>;
@@ -214,6 +215,10 @@ export function copyDirectObservationSnapshot(value:unknown):DirectObservationSn
   }catch{return null;}
 }
 function directSnapshotHash(snapshot:DirectObservationSnapshot){return hash(['direct-observation-v1',snapshot.attemptId,snapshot.source,snapshot.witness,directDocumentNames.map(name=>[name,snapshot.versions[name]])]);}
+function preparationHistory(snapshot:DirectObservationSnapshot,action:'seal'|'release',reason:TerminalReason){
+  // Independent status calls have different attempt ids but may have read exactly the same document versions.
+  return hash(['terminal-preparation-v1',snapshot.source,snapshot.witness,action,reason,directDocumentNames.map(name=>[name,snapshot.versions[name]])]);
+}
 export function copyTerminalRecoveryReadSnapshot(value:unknown):TerminalRecoveryReadSnapshot|null{
   try{
   if(!value||typeof value!=='object'||Array.isArray(value))return null;
@@ -345,6 +350,20 @@ function outboxVersion(doc:DocumentSnapshot){
 }
 /** LV-019.B: the shared growing wait of every billing retry, `min(15 min, 1 s * 2^min(attempts,10))`. */
 function billingAttemptDelay(attempts:number){return Math.min(15*60_000,1000*2**Math.min(attempts,10));}
+/** The poll coordinates reads only. It is deliberately outside the documents authenticated by a direct ACK. */
+function validTerminalPoll(row:FirebaseFirestore.DocumentData|undefined,intentId:string,action:'release'|'seal'):row is TerminalPollTurn{
+  if(!row)return false;
+  const fields=['terminalId','intentId','action','binding','generation','token','lastPollAtMs','nextAttemptAt'];
+  if(Object.hasOwn(row,'outcome')){
+    if(!['reserved','not_found','captured','unavailable','unverified'].includes(row.outcome))return false;
+    fields.push('outcome');
+  }
+  if(Object.keys(row).length!==fields.length||fields.some(field=>!Object.hasOwn(row,field)))return false;
+  return row.intentId===intentId&&row.action===action&&row.terminalId===intentTerminalKey(intentId,action)&&
+    typeof row.binding==='string'&&/^[a-f0-9]{64}(?![\s\S])/.test(row.binding)&&typeof row.token==='string'&&uuid.test(row.token)&&
+    Number.isSafeInteger(row.generation)&&row.generation>0&&Number.isSafeInteger(row.lastPollAtMs)&&row.lastPollAtMs>=0&&
+    Number.isSafeInteger(row.nextAttemptAt)&&row.nextAttemptAt===row.lastPollAtMs+billingAttemptDelay(row.generation);
+}
 /** At most `limit` items taken alternately from `first` and `second` (starting with `first`); when one runs out the other fills the rest. */
 function interleave<T>(first:readonly T[],second:readonly T[],limit:number):T[]{
   const out:T[]=[];
@@ -482,6 +501,29 @@ export function classifyUnknownQuarantine(row:{quarantinedAtMs?:unknown;unknownA
 interface Context { accountRef: DocumentReference; jobRef: DocumentReference; inputRef: DocumentReference;
   terminalRef: DocumentReference; account: Balance; job: Job; input: Input; terminalExists: boolean;rawAccountData:Record<string,unknown>;artifactRef?:DocumentReference;artifact?:AiArtifactRecord;providerReceipts?:Array<{id:string;data:Record<string,unknown>}> }
 
+type LocalReviewedVoice = Readonly<{
+  service:FirestoreReviewedTranslation; principal:ReviewedTranslationPrincipal;
+}>;
+type LocalVoiceReserveResponse = ReserveAck | Readonly<{state:'insufficient'}>;
+const LOCAL_VOICE_INTENT_NOT_DUE = Number.MAX_SAFE_INTEGER;
+const LOCAL_VOICE_ROOT_PURPOSE = 'review-contract-synthetic-v1';
+const LOCAL_VOICE_PROJECT = 'demo-vistavo-ledger';
+type LocalRequestKeyAnchor = 'billingIntents'|'requests';
+type LocalRequestKeyClaim = Readonly<{
+  doc:DocumentSnapshot;
+  data:{protocol:1; accountId:string; mode:'voice'|'text'; token:string; anchorCollection:LocalRequestKeyAnchor; anchorId:string};
+}>;
+
+class LocalVoiceReserveUnknown extends Error {
+  readonly code = 'unknown';
+  constructor() { super('reviewed_voice_reserve_unknown'); }
+}
+
+function rethrowLocalVoiceMarkerError(error:unknown):never {
+  if(error instanceof ReviewedVoiceMarkerFault)throw new LedgerFault('conflict');
+  throw error;
+}
+
 export class FirestoreBackend {
   private readonly unverifiedTestInputs:boolean;
   constructor(private readonly db: Firestore, private readonly root: DocumentReference,
@@ -504,11 +546,11 @@ export class FirestoreBackend {
     const refs=this.directObservationRefs(witness),docs=await tx.getAll(...directDocumentNames.map(name=>refs[name]));
     return Object.fromEntries(directDocumentNames.map((name,index)=>[name,docs[index]])) as Record<DirectDocumentName,DocumentSnapshot>;
   }
-  private validDirectObservationDocs(d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],allowClosed=false){
+  private validDirectObservationDocs(d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],allowClosed=false,allowBlocked=false){
     const uid=d.identity.get('uid');
     if(!d.account.exists||!d.identity.exists||d.identity.get('accountId')!==witness.accountId||typeof uid!=='string'||!uid||uid.length>128||hash(['firebase',uid])!==witness.identityKey||!d.input.exists||d.input.get('accountId')!==witness.accountId||d.project.exists&&d.project.get('accountId')!==witness.accountId||!validTerminalRecoveryOrigin(d.origin,witness)||!validClearIntentAdmissionGuard(d.intentGuard,witness.intentId)||d.request.exists||d.jobMarker.exists)return false;
     try{
-      if(this.billingBlocked(d.guard,witness.accountId))return false;
+      if(this.billingBlocked(d.guard,witness.accountId)&&!allowBlocked)return false;
       const row=this.billingIntent(d.intent,witness.accountId,requestKey,witness);
       if(row.inputId!==witness.inputId||row.operation!==witness.operation||row.revision!==witness.revision||row.jobId||!(allowClosed&&row.state==='closed'||source==='status'&&['reserve_pending','release_pending'].includes(row.state)||source!=='status'&&row.state==='release_pending'))return false;
       if(row.state!=='closed')externalIntentTransitionDue(d.intent);
@@ -516,9 +558,9 @@ export class FirestoreBackend {
       return !!marker&&(source==='status'||marker[source==='seal'?'sealPrepared':'releasePrepared']===true)&&validInitialReaderPair(marker.sealPrepared,d.sealWitness,d.sealRecovery,witness,'seal')&&validInitialReaderPair(marker.releasePrepared,d.releaseWitness,d.releaseRecovery,witness,'release');
     }catch(error){if(error instanceof LedgerFault)return false;throw error;}
   }
-  private matchingDirectObservation(snapshot:DirectObservationSnapshot,d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],options:{ignore?:readonly DirectDocumentName[];allowClosed?:boolean}={}){
+  private matchingDirectObservation(snapshot:DirectObservationSnapshot,d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],options:{ignore?:readonly DirectDocumentName[];allowClosed?:boolean;allowBlocked?:boolean}={}){
     const ignore=options.ignore??[];
-    return snapshot.source===source&&sameIntentWitness(snapshot.witness,witness)&&this.validDirectObservationDocs(d,witness,requestKey,source,options.allowClosed??false)&&directDocumentNames.every(name=>ignore.includes(name)||sameTerminalDocumentVersion(d[name],snapshot.versions[name]));
+    return snapshot.source===source&&sameIntentWitness(snapshot.witness,witness)&&this.validDirectObservationDocs(d,witness,requestKey,source,options.allowClosed??false,options.allowBlocked??false)&&directDocumentNames.every(name=>ignore.includes(name)||sameTerminalDocumentVersion(d[name],snapshot.versions[name]));
   }
   /**
    * Preserve a returned read whose original local history changed. This is not a
@@ -540,7 +582,7 @@ export class FirestoreBackend {
     // The hold of this occurrence is named by the generation the writer will use; it is read before the guard write.
     const now=Date.now(),preview=this.guardPreview(d.guard,witness.accountId,{field:'lastIncidentId',id:key},now),
       previewHold=preview?externalHold(witness.accountId,witness.identityKey,'intent',key,preview):null,
-      oldHold=previewHold?await tx.get(this.ref('billingHoldOutbox',previewHold.id)):null;
+      holdRef=previewHold?this.ref('billingHoldOutbox',previewHold.id):null,oldHold=holdRef?await tx.get(holdRef):null;
     const uid=d.identity.get('uid'),guardValid=!d.guard.exists||d.guard.get('accountId')===witness.accountId&&typeof d.guard.get('blocked')==='boolean';
     let owner=d.account.exists&&d.identity.exists&&d.identity.get('accountId')===witness.accountId&&typeof uid==='string'&&!!uid&&uid.length<=128&&hash(['firebase',uid])===witness.identityKey&&d.input.exists&&d.input.get('accountId')===witness.accountId&&validStoredIntentWitness(d.origin,witness)&&guardValid;
     let row:ExternalBillingIntent|undefined;
@@ -555,25 +597,36 @@ export class FirestoreBackend {
       }
     }
     const reviewValid=!oldReview.exists||oldReview.get('accountId')===witness.accountId&&oldReview.get('identityKey')===witness.identityKey&&oldReview.get('intentId')===key&&oldReview.get('reservationId')===witness.reservationId&&oldReview.get('expectedSeconds')===witness.seconds;
-    const holdValid=!oldHold?.exists||matchesHold(oldHold.data(),previewHold!)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
-    const attributed=!!owner;
-    tx.create(incident,{...witness,state:'needs_review',kind:'direct_status_uncertainty',source:snapshot.source,observedState:observed.state,observedSeconds:observed.seconds,directObservationSnapshot:snapshot,directSnapshotHash:directSnapshotHash(snapshot),attribution:attributed?'verified':'unverified',ownerBlocked:attributed,createdAtMs:now,updatedAtMs:now});
+    // This preview names an exact generation; the matching ID cannot substitute for those stored fields.
+    const holdValid=!oldHold?.exists||!!previewHold&&matchesHold(oldHold.data(),previewHold)&&
+      oldHold.get('epoch')===previewHold.epoch&&oldHold.get('createdAtMs')===previewHold.createdAtMs&&
+      ['pending','applied','needs_review'].includes(oldHold.get('state'));
+    const attributed=!!owner,problem=!reviewValid?'invalid_review':!holdValid?'invalid_hold':null;
+    tx.create(incident,{...witness,state:'needs_review',kind:'direct_status_uncertainty',source:snapshot.source,observedState:observed.state,observedSeconds:observed.seconds,directObservationSnapshot:snapshot,directSnapshotHash:directSnapshotHash(snapshot),attribution:attributed?'verified':'unverified',ownerBlocked:attributed,...(problem?{holdProblem:problem}:{}),createdAtMs:now,updatedAtMs:now});
     // An absent or incompatible marker remains unresolved and is never backfilled.
     if(validClearIntentAdmissionGuard(d.intentGuard,key))tx.update(d.intentGuard.ref,{state:'needs_review',incidentId,updatedAtMs:now});
     if(attributed){
-      const generation=this.writeBlockedGuard(tx,d.guard,witness.accountId,{field:'lastIncidentId',id:key},now),
-        hold=externalHold(witness.accountId,witness.identityKey,'intent',key,generation),holdRef=this.ref('billingHoldOutbox',hold.id);
+      const generation=this.writeBlockedGuard(tx,d.guard,witness.accountId,{field:'lastIncidentId',id:key},now);
+      if(!preview||!previewHold||!holdRef||generation.epoch!==preview.epoch||generation.createdAtMs!==preview.createdAtMs)throw new LedgerFault('invariant');
       if(reviewValid&&!oldReview.exists)tx.create(review,{accountId:witness.accountId,intentId:key,inputId:witness.inputId,operation:witness.operation,revision:witness.revision,identityKey:witness.identityKey,reservationId:witness.reservationId,expectedSeconds:witness.seconds,reason:'direct_status_uncertain',firstObserved:{source:snapshot.source,state:observed.state,seconds:observed.seconds,atMs:now},createdAtMs:now,updatedAtMs:now});
-      if(reviewValid&&holdValid&&!oldHold?.exists)tx.create(holdRef,pendingHoldRow(hold!,now));
+      if(reviewValid&&holdValid&&!oldHold?.exists)tx.create(holdRef,pendingHoldRow(previewHold,now));
       if(row&&!row.jobId&&['reserve_pending','release_pending'].includes(row.state))tx.update(d.intent.ref,{state:'needs_review',reviewReason:'direct_status_uncertain',reviewIncidentId:key,updatedAtMs:now});
     }
   }
   /** One synthetic/local call snapshot. It does not persist an attempt or authenticate Account. */
-  async captureDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source']):Promise<DirectObservationSnapshot|null>{
+  async captureDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source']):Promise<DirectObservationSnapshot|null>;
+  async captureDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],reportBlocked:true):Promise<DirectObservationSnapshot|{blocked:true}|null>;
+  async captureDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],reportBlocked=false):Promise<DirectObservationSnapshot|{blocked:true}|null>{
     validIntentWitness(witness);witness=copyIntentWitness(witness);validIntentWitness(witness);text(requestKey);
     if(hash([witness.accountId,requestKey])!==witness.intentId||!['status','seal','release'].includes(source))throw new LedgerFault('invalid');
     const attemptId=randomUUID();return this.db.runTransaction(async tx=>{
-      const docs=await this.directObservationDocs(tx,witness);if(!this.validDirectObservationDocs(docs,witness,requestKey,source))return null;
+      const docs=await this.directObservationDocs(tx,witness);
+      if(!this.validDirectObservationDocs(docs,witness,requestKey,source)){
+        if(reportBlocked&&source==='status'&&docs.intent.get('state')==='release_pending'&&
+          docs.guard.exists&&docs.guard.get('accountId')===witness.accountId&&docs.guard.get('blocked')===true&&
+          this.validDirectObservationDocs(docs,witness,requestKey,source,false,true))return {blocked:true};
+        return null;
+      }
       const versions={} as Record<DirectDocumentName,TerminalRecoveryDocumentVersion>;
       for(const name of directDocumentNames){const version=terminalDocumentVersion(docs[name]);if(!version)return null;versions[name]=version;}
       return copyDirectObservationSnapshot({attemptId,source,witness,versions});
@@ -656,6 +709,175 @@ export class FirestoreBackend {
   private reserveAttemptRefs(attemptId:string){
     return {prepared:this.ref('billingReserveAttempts',attemptId),ack:this.ref('billingReserveAckObservations',attemptId)};
   }
+  private localVoiceFixtureTarget(){
+    if(process.env.NODE_ENV!=='test'||process.env.LV_VOICE_C1_FIXTURE!=='1'||
+      process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8185')return false;
+    const client=this.db as unknown as {
+      projectId?:string; databaseId?:string; _settings?:{servicePath?:string;port?:number;ssl?:boolean};
+    };
+    return client.projectId===LOCAL_VOICE_PROJECT&&client.databaseId==='(default)'&&
+      client._settings?.servicePath==='127.0.0.1'&&client._settings.port===8185&&client._settings.ssl===false&&
+      this.root.parent.path==='vistavo_review_contract_synthetic'&&uuid.test(this.root.id);
+  }
+  /**
+   * Only the isolated fixture owns a new UUID root and can verify it before
+   * any writer starts. An existing root needs a fenced writer cutover and
+   * backfill before absence can be treated as an unused canonical key.
+   */
+  async initializeLocalVoiceFixture(marker:string){
+    if(!this.localVoiceFixtureTarget()||!localVoiceRequestUuid.test(marker))throw new LedgerFault('invalid');
+    const [root, children]=await Promise.all([this.root.get(),this.root.listCollections()]);
+    if(root.exists||children.length)throw new LedgerFault('conflict');
+    await this.root.create({marker,purpose:LOCAL_VOICE_ROOT_PURPOSE,project:LOCAL_VOICE_PROJECT,localRequestKeyIndex:1});
+  }
+  private async readLocalRequestKeyClaim(tx:Transaction,accountId:string,requestKey:string,mode:'voice'|'text',
+    anchorCollection:LocalRequestKeyAnchor,mustExist=false):Promise<LocalRequestKeyClaim|null>{
+    if(!this.localVoiceFixtureTarget()||!localVoiceRequestUuid.test(requestKey)){
+      if(mode==='voice')throw new LedgerFault('invalid');
+      return null;
+    }
+    const key=requestKey.toLowerCase(),id=hash(['local-video-request-key-v1',accountId,key]);
+    const [root,doc]=await tx.getAll(this.root,this.ref('localVideoRequestKeys',id));
+    if(!root.exists||root.get('purpose')!==LOCAL_VOICE_ROOT_PURPOSE||root.get('project')!==LOCAL_VOICE_PROJECT||
+      root.get('localRequestKeyIndex')!==1||!localVoiceRequestUuid.test(root.get('marker')))throw new LedgerFault('conflict');
+    const voiceMarkerRef=this.ref('reviewedVoiceMarkers',hash(['reviewed-voice-marker-id-v1',accountId,key]));
+    if(doc.exists){
+      const data=doc.data()!, {createTime,updateTime}=doc;
+      if(Object.keys(data).length!==6||data.protocol!==1||data.accountId!==accountId||data.mode!==mode||
+        (data.anchorCollection!=='billingIntents'&&data.anchorCollection!=='requests')||
+        typeof data.anchorId!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(data.anchorId)||
+        typeof data.token!=='string'||!localVoiceRequestUuid.test(data.token)||!createTime||!updateTime||!createTime.isEqual(updateTime))
+        throw new LedgerFault('conflict');
+      const anchorRef=this.ref(data.anchorCollection,data.anchorId);
+      const [anchor,voiceMarker]=await tx.getAll(anchorRef,...(mode==='text'?[voiceMarkerRef]:[]));
+      // The first writer creates the anchor and claim in one commit. Matching
+      // token and mode without the same creation time could adopt a new claim
+      // after the original was deleted. Later text variants keep this anchor.
+      if(!anchor.exists||!anchor.createTime||!createTime.isEqual(anchor.createTime)||voiceMarker?.exists)
+        throw new LedgerFault('conflict');
+      const claim:LocalRequestKeyClaim={doc,data:{protocol:1,accountId,mode,token:data.token,
+        anchorCollection:data.anchorCollection,anchorId:data.anchorId}};
+      this.localRequestClaimLink(claim,anchor);
+      return claim;
+    }
+    if(mustExist)throw new LedgerFault('conflict');
+    // A surviving intent or request proves this is damaged history, even if
+    // it used another spelling of the UUID. Complete removal of the claim,
+    // all links and the voice marker leaves no local evidence of that use.
+    const [intents,requests,voiceMarker]=await Promise.all([
+      tx.get(this.root.collection('billingIntents').where('localRequestClaimId','==',id).limit(1)),
+      tx.get(this.root.collection('requests').where('localRequestClaimId','==',id).limit(1)),
+      tx.get(voiceMarkerRef),
+    ]);
+    if(!intents.empty||!requests.empty||voiceMarker.exists)throw new LedgerFault('conflict');
+    return {doc,data:{protocol:1,accountId,mode,token:randomUUID(),anchorCollection,anchorId:hash([accountId,requestKey])}};
+  }
+  private localRequestClaimLink(claim:LocalRequestKeyClaim|null,...documents:Array<DocumentSnapshot|undefined>){
+    if(!claim)return {};
+    const localRequestClaimId=claim.doc.id,localRequestClaimToken=claim.data.token,localRequestClaimMode=claim.data.mode;
+    for(const document of documents){
+      if(document?.exists&&(!claim.doc.exists||document.get('localRequestClaimId')!==localRequestClaimId||
+        document.get('localRequestClaimToken')!==localRequestClaimToken||document.get('localRequestClaimMode')!==localRequestClaimMode))
+        throw new LedgerFault('conflict');
+    }
+    return {localRequestClaimId,localRequestClaimToken,localRequestClaimMode};
+  }
+  private async currentVoiceSource(tx:Transaction, voice:LocalReviewedVoice, inputId:string, expectedRevision:number){
+    const project = await tx.get(this.ref('projects', inputId));
+    const textJobId = project.get('reviewJobId');
+    if(typeof textJobId !== 'string')throw new LedgerFault('not_found');
+    return voice.service.voiceBindingInTransaction(tx, voice.principal, inputId, textJobId, expectedRevision);
+  }
+  /**
+   * Isolated C1 circuit. No runtime or HTTP handlers call this method. The
+   * fixture supplies a direct reserve callback to an emulated AccountStore.
+   */
+  async reserveReviewedVoiceLocally(service:FirestoreReviewedTranslation,
+    reserveInEmulator:(identityKey:string,reservationId:string,seconds:number)=>Promise<LocalVoiceReserveResponse>,
+    principal:ReviewedTranslationPrincipal,inputId:string,revision:number,rawRequestKey:string,operation:string){
+    if(typeof rawRequestKey!=='string'||!localVoiceRequestUuid.test(rawRequestKey))throw new LedgerFault('invalid');
+    const requestKey=rawRequestKey.toLowerCase();
+    if(!this.localVoiceFixtureTarget())throw new LedgerFault('invalid');
+    if(operation!=='narration:en:male'&&operation!=='narration:en:female')throw new LedgerFault('invalid');
+    const voice={service,principal:Object.freeze({...principal})}, {accountId,uid}=voice.principal;
+    identifier(accountId);identifier(inputId);integer(revision,true);
+    const source=await this.db.runTransaction(tx=>this.currentVoiceSource(tx,voice,inputId,revision));
+    const billing:ExternalVideoBilling={provider:'account_seconds',identityKey:source.identityKey,
+      reservationId:videoReservationId(accountId,source.identityKey,inputId,operation,revision,requestKey),seconds:source.billableSeconds};
+    const prior=await this.beginBillingIntent(accountId,inputId,requestKey,operation,revision,billing,voice).catch(rethrowLocalVoiceMarkerError);
+    if(prior)return prior;
+    const attempt=await this.prepareReserveAttempt(accountId,inputId,requestKey,operation,revision,uid,voice).catch(rethrowLocalVoiceMarkerError);
+    // An already-prepared request may have reached Account, even with no ACK.
+    if(attempt.version!==2)throw new LedgerFault('invariant');
+    const {identityKey,reservationId,seconds}=attempt.witness;
+    let ack:LocalVoiceReserveResponse;
+    try{ack=await reserveInEmulator(identityKey,reservationId,seconds);}catch{throw new LocalVoiceReserveUnknown();}
+    if(ack?.state==='insufficient'){
+      const committed=await this.settleLocalVoiceNack(voice,requestKey,attempt).catch(()=>false);
+      if(!committed&&!await this.readCommittedLocalVoiceNack(voice,requestKey,attempt).catch(()=>false))throw new LocalVoiceReserveUnknown();
+      throw new LedgerFault('insufficient');
+    }
+    if(ack?.reservationId!==reservationId||ack.seconds!==seconds||ack.state!=='reserved')throw new LocalVoiceReserveUnknown();
+    try{
+      return await this.reserveAs(accountId,inputId,requestKey,seconds,operation,revision,AI_CATALOG_VERSION,billing,undefined,uid,attempt,ack,voice);
+    }catch(error){
+      const recorded=await this.recordReserveAck(attempt,ack).catch(()=> 'unknown' as const);
+      if(recorded==='unknown')throw new LocalVoiceReserveUnknown();
+      rethrowLocalVoiceMarkerError(error);
+    }
+  }
+  /** Validate the original local reservation history before recording or replaying its NACK. */
+  private async localVoiceNackTarget(tx:Transaction,voice:LocalReviewedVoice,requestKey:string,
+    witness:ExternalBillingIntentWitness,state:'reserve_pending'|'insufficient',expected?:ReserveAttemptEvidenceV2){
+    const {accountId,inputId,operation,revision,intentId,reservationId:attemptId}=witness;
+    if(!this.localVoiceFixtureTarget()||voice.principal.accountId!==accountId)return null;
+    const refs=this.reserveAttemptRefs(attemptId),nackRef=this.ref('localVoiceReserveNacks',attemptId);
+    const [docs,[prepared,ack,nack]]=await Promise.all([
+      this.directObservationDocs(tx,witness),tx.getAll(refs.prepared,refs.ack,nackRef),
+    ]);
+    const {intent,origin,guard,intentGuard}=docs,attempt=prepared.data() as ReserveAttemptEvidenceV2|undefined;
+    if(!attempt||attempt.version!==2||attempt.attemptId!==attemptId||!sameIntentWitness(attempt.witness,witness)||
+      expected&&!isDeepStrictEqual(attempt,expected)||!prepared.createTime||!prepared.updateTime||!prepared.createTime.isEqual(prepared.updateTime)||
+      !intent.exists||!intent.updateTime||intent.get('state')!==state||intent.get('localVoiceAttemptId')!==attemptId||
+      intent.get('nextAttemptAt')!==LOCAL_VOICE_INTENT_NOT_DUE||ack.exists||
+      !validStoredIntentWitness(origin,witness)||this.billingBlocked(guard,accountId)||!validClearIntentAdmissionGuard(intentGuard,intentId))return null;
+    const row=this.billingIntent(intent,accountId,requestKey,witness);
+    if(row.inputId!==inputId||row.operation!==operation||row.revision!==revision||row.jobId!==undefined)return null;
+    const claim=await this.readLocalRequestKeyClaim(tx,accountId,requestKey,'voice','billingIntents',true);
+    this.localRequestClaimLink(claim,intent);
+    const source=await this.currentVoiceSource(tx,voice,inputId,revision);
+    if(!matchesReviewedVoiceReserveSource(attempt,source,requestKey))return null;
+    const marker=createReviewedVoiceMarker(source,requestKey,operation);
+    const storedMarker=await tx.get(this.ref('reviewedVoiceMarkers',marker.markerId));
+    validateReviewedVoiceMarkerReplay(storedMarker.data(),source,accountId,requestKey,operation);
+
+    // Preparation placed the attempt ID on the original intent. Require its
+    // write version before settling and the linked NACK commit after.
+    const intentVersion=terminalDocumentVersion(intent),preparedVersion=terminalDocumentVersion(prepared);
+    if(!intentVersion?.exists||!attempt.versions.intent.exists||
+      intentVersion.createTime!==attempt.versions.intent.createTime||!preparedVersion?.exists||
+      !RESERVE_ATTEMPT_IMMUTABLE_DOCUMENTS.every(name=>sameTerminalDocumentVersion(docs[name],attempt.versions[name])))return null;
+    const proof={protocol:1,state:'insufficient',attemptId,intentId,preparedVersion};
+    const valid=state==='reserve_pending'
+      ? !nack.exists&&prepared.createTime.isEqual(intent.updateTime)
+      : !!nack.createTime&&!!nack.updateTime&&nack.createTime.isEqual(nack.updateTime)&&
+        nack.createTime.isEqual(intent.updateTime)&&isDeepStrictEqual(nack.data(),proof);
+    return valid?{intent,nackRef,proof}:null;
+  }
+  private async settleLocalVoiceNack(voice:LocalReviewedVoice,requestKey:string,attempt:ReserveAttemptEvidenceV2):Promise<boolean>{
+    return this.db.runTransaction(async tx=>{
+      const target=await this.localVoiceNackTarget(tx,voice,requestKey,attempt.witness,'reserve_pending',attempt);
+      if(!target)return false;
+      tx.create(target.nackRef,target.proof);
+      tx.update(target.intent.ref,{state:'insufficient',updatedAtMs:Date.now()});
+      return true;
+    });
+  }
+  /** Recover a lost local commit response by reading the exact NACK target. */
+  private async readCommittedLocalVoiceNack(voice:LocalReviewedVoice,requestKey:string,attempt:ReserveAttemptEvidenceV2):Promise<boolean>{
+    return this.db.runTransaction(async tx=>
+      !!await this.localVoiceNackTarget(tx,voice,requestKey,attempt.witness,'insufficient',attempt),{readOnly:true});
+  }
   /**
    * Step 1.3b. Before the Account POST, in one transaction: re-read every source
    * document and the witness, reject a revoked/reassigned identity, a blocked guard,
@@ -665,10 +887,17 @@ export class FirestoreBackend {
    * must not happen.
    */
   async prepareExternalReserveAttempt(accountId:string,inputId:string,requestKey:string,operation:string,expectedRevision:number,requesterUid:string):Promise<ReserveAttemptEvidenceV1>{
+    const attempt=await this.prepareReserveAttempt(accountId,inputId,requestKey,operation,expectedRevision,requesterUid);
+    if(attempt.version!==1)throw new LedgerFault('invariant');
+    return attempt;
+  }
+  private async prepareReserveAttempt(accountId:string,inputId:string,requestKey:string,operation:string,expectedRevision:number,
+    requesterUid:string,voice?:LocalReviewedVoice):Promise<ReserveAttemptEvidence>{
     if(typeof requesterUid!=='string'||!requesterUid||requesterUid.length>128)throw new LedgerFault('not_found');
     identifier(accountId);identifier(inputId);text(requestKey);text(operation);integer(expectedRevision,true);
-    const identityKey=hash(['firebase',requesterUid]),key=hash([accountId,requestKey]),attemptId=randomUUID(),
-      expectedReservationId=reservationUuidFor(accountId,identityKey,inputId,operation,expectedRevision,requestKey);
+    const identityKey=hash(['firebase',requesterUid]),key=hash([accountId,requestKey]),
+      expectedReservationId=videoReservationId(accountId,identityKey,inputId,operation,expectedRevision,requestKey);
+    const attemptId=voice?expectedReservationId:randomUUID();
     return diagnosticTransaction('reserve',this.db,async tx=>{
       if(!await verifiedUidAccountInTransaction(tx,this.root,accountId,requesterUid))throw new LedgerFault('not_found');
       // Derive the naming refs from the key only; the authoritative witness values
@@ -698,12 +927,36 @@ export class FirestoreBackend {
       const originUid=docs.origin.get('uid');
       if(!validStoredIntentWitness(docs.origin,witness)||!matchesExternalBilling(docs.origin.data(),witness)||
         typeof originUid==='string'&&originUid!==requesterUid)throw new LedgerFault('conflict');
+      const claim=await this.readLocalRequestKeyClaim(tx,accountId,requestKey,voice?'voice':'text','billingIntents',true);
+      this.localRequestClaimLink(claim,docs.intent);
       externalIntentTransitionDue(docs.intent);
       const versions=reserveAttemptVersions(docs);
       if(!versions)throw new LedgerFault('invariant');
-      const attempt:ReserveAttemptEvidenceV1={version:1,attemptId,witness:reserveAttemptWitness(witness),versions};
-      try{await prepareReserveAttemptInTransaction(tx,this.root,attempt);}catch(error){if(error instanceof ReserveAttemptEvidenceFault)throw new LedgerFault('invariant');throw error;}
-      return attempt;
+      try{
+        let attempt:ReserveAttemptEvidence;
+        if(voice){
+          if(docs.intent.get('localVoiceAttemptId')===attemptId)throw new LocalVoiceReserveUnknown();
+          if(docs.intent.get('localVoiceAttemptId')!==null||docs.intent.get('nextAttemptAt')!==LOCAL_VOICE_INTENT_NOT_DUE)throw new LedgerFault('conflict');
+          const source=await this.currentVoiceSource(tx,voice,inputId,expectedRevision);
+          const marker=createReviewedVoiceMarker(source,requestKey,operation);
+          const storedMarker=await tx.get(this.ref('reviewedVoiceMarkers',marker.markerId));
+          validateReviewedVoiceMarkerReplay(storedMarker.data(),source,accountId,requestKey,operation);
+          const asset=docs.input.data() as Input;
+          if(!this.usable(asset,inputId))throw new LedgerFault('not_found');
+          if(asset.unknownCount!==0||balance(docs.account.data() as Balance).active>=3)throw new LedgerFault('conflict');
+          storageQuota(docs.account.data(),AI_VOICE_BUDGET,0);
+          attempt=createReviewedVoiceReserveAttempt(attemptId,witness,versions,source,requestKey);
+        }else{
+          attempt={version:1,attemptId,witness:reserveAttemptWitness(witness),versions};
+        }
+        const prepared=await prepareReserveAttemptInTransaction(tx,this.root,attempt);
+        if(voice){
+          if(prepared.state!=='created')throw new LocalVoiceReserveUnknown();
+          // A missing evidence pair on a later read cannot authorize another Account call.
+          tx.update(docs.intent.ref,{localVoiceAttemptId:attemptId});
+        }
+        return attempt;
+      }catch(error){if(error instanceof ReserveAttemptEvidenceFault)throw new LedgerFault('invariant');throw error;}
     });
   }
   /**
@@ -714,8 +967,11 @@ export class FirestoreBackend {
    * version: `identity`/`input`/`project`/`origin` are re-read but their version is not
    * compared because the POST's authorization is the immutable preflight, not this call.
    */
-  async recordExternalReserveAck(attempt:ReserveAttemptEvidenceV1,observed:ReserveAck):Promise<'recorded'|'already_recorded'|'unknown'>{
-    if(attempt.witness.operation!=='translation:en')throw new LedgerFault('invalid');
+  async recordExternalReserveAck(attempt:ReserveAttemptEvidenceV1,observed:ReserveAck){
+    if(attempt.version!==1||attempt.witness.operation!=='translation:en')throw new LedgerFault('invalid');
+    return this.recordReserveAck(attempt,observed);
+  }
+  private async recordReserveAck(attempt:ReserveAttemptEvidence,observed:ReserveAck):Promise<'recorded'|'already_recorded'|'unknown'>{
     const raw=observed?.reservationId===attempt.witness.reservationId&&observed.seconds===attempt.witness.seconds&&observed.state==='reserved';
     if(!raw)throw new LedgerFault('invalid');
     const record=async()=>this.db.runTransaction(async tx=>{
@@ -934,6 +1190,9 @@ export class FirestoreBackend {
   }
   /** Persist cross-database recovery data before reserving in the account service. */
   async beginExternalBillingIntent(accountId:string,inputId:string,requestKey:string,operation:string,revision:number,billing:ExternalVideoBilling){
+    return this.beginBillingIntent(accountId,inputId,requestKey,operation,revision,billing);
+  }
+  private async beginBillingIntent(accountId:string,inputId:string,requestKey:string,operation:string,revision:number,billing:ExternalVideoBilling,voice?:LocalReviewedVoice){
     identifier(accountId);identifier(inputId);text(requestKey);text(operation);integer(revision,true);
     validExternalBilling(billing);billing=copyExternalBilling(billing);validExternalBilling(billing);const witness=intentWitness(accountId,inputId,requestKey,operation,revision,billing);
     const id=witness.intentId,a=this.ref('accounts',accountId),i=this.ref('inputs',inputId),p=this.ref('projects',inputId),r=this.ref('requests',id),intent=this.ref('billingIntents',id),guard=this.ref('billingGuards',accountId),identity=this.ref('identities',billing.identityKey),origin=this.ref('billingIntentWitnesses',id),jobMarker=this.ref('billingIntentJobMarkers',id),intentGuard=this.ref('billingIntentAdmissionGuards',id);
@@ -943,9 +1202,32 @@ export class FirestoreBackend {
       if(this.billingBlocked(blocked,accountId))throw new LedgerFault('conflict');
       if(prior.exists||old.exists||storedWitness.exists||storedJobMarker.exists){if(!validClearIntentAdmissionGuard(storedIntentGuard,id))throw new LedgerFault('conflict');}
       else if(storedIntentGuard.exists)throw new LedgerFault('conflict');
+      const claim=await this.readLocalRequestKeyClaim(tx,accountId,requestKey,voice?'voice':'text','billingIntents');
+      const claimLink=this.localRequestClaimLink(claim,prior,old);
+      if(voice&&claim?.doc.exists&&!old.exists)throw new LedgerFault('conflict');
+      const voiceSource=voice?await this.currentVoiceSource(tx,voice,inputId,revision):null;
+      const marker=voiceSource?createReviewedVoiceMarker(voiceSource,requestKey,operation):null;
+      const voiceRef=marker?this.ref('reviewedVoiceMarkers',marker.markerId):null;
+      const storedVoice=voiceRef?await tx.get(voiceRef):null;
+      if(marker&&(marker.billableSeconds!==billing.seconds||marker.identityKey!==billing.identityKey))throw new LedgerFault('conflict');
+      if(storedVoice){
+        if(old.exists||prior.exists)validateReviewedVoiceMarkerReplay(storedVoice.data(),voiceSource,accountId,requestKey,operation);
+        else if(storedVoice.exists)throw new LedgerFault('conflict');
+      }
       if(prior.exists){
         const jobId=await this.verifiedExternalJob(tx,prior,accountId,inputId,requestKey,operation,revision,billing);
         if(old.exists){const row=this.billingIntent(old,accountId,requestKey,billing);if(row.inputId!==inputId||row.operation!==operation||row.revision!==revision||row.jobId&&row.jobId!==jobId)throw new LedgerFault('invariant');}
+        if(voiceSource){
+          if(!old.exists||old.get('localVoiceAttemptId')!==billing.reservationId||old.get('state')!=='job_created'||old.get('jobId')!==jobId||!validStoredIntentWitness(storedWitness,witness)||
+            !sameIntentWitness(storedJobMarker.data(),witness)||storedJobMarker.get('jobId')!==jobId||
+            storedJobMarker.get('historyProtocol')!==1)throw new LedgerFault('conflict');
+          const jobSnapshot=await tx.get(this.ref('jobs',jobId)),job=jobSnapshot.data() as Job;
+          if(job.snapshot!==null||job.snapshotSha256!==marker?.voiceTextSha256||await this.jobAccounting(tx,jobId,job)!=='account_seconds')throw new LedgerFault('conflict');
+          validateReviewedVoiceMarkerReplay(job.reviewedVoice,voiceSource,accountId,requestKey,operation);
+          const ackRefs=this.reserveAttemptRefs(billing.reservationId);
+          const [prepared,ack]=await tx.getAll(ackRefs.prepared,ackRefs.ack);
+          if(!verifyReviewedVoiceReserveReplay(prepared.data(),ack.data(),voiceSource,requestKey,operation))throw new LedgerFault('conflict');
+        }
         return jobId;
       }
       if(!input.exists||input.get('accountId')!==accountId||input.get('deleted')||input.get('expiresAtMs')<=Date.now()||!project.exists||project.get('accountId')!==accountId||project.get('revision')!==revision)throw new LedgerFault('not_found');
@@ -956,15 +1238,27 @@ export class FirestoreBackend {
         if(row.state==='job_created'||row.jobId)throw new LedgerFault('invariant');
         if(['release_pending','needs_review','closed'].includes(row.state))throw new LedgerFault('conflict');
         const nextAttemptAt=externalIntentTransitionDue(old);
+        if(voice){
+          if(row.state==='insufficient'){
+            if(await this.localVoiceNackTarget(tx,voice,requestKey,witness,'insufficient'))throw new LedgerFault('insufficient');
+            throw new LocalVoiceReserveUnknown();
+          }
+          if(old.get('localVoiceAttemptId')===billing.reservationId)throw new LocalVoiceReserveUnknown();
+          if(old.get('localVoiceAttemptId')!==null)throw new LedgerFault('conflict');
+          return null;
+        }
         if(row.state==='insufficient'){const attempts=old.get('attempts')??0;integer(attempts);tx.update(intent,{state:'reserve_pending',updatedAtMs:Date.now(),nextAttemptAt,lastErrorCode:null,attempts:attempts+1});}
         else tx.update(intent,{updatedAtMs:Date.now()});
       }else{
         if(storedWitness.exists||storedJobMarker.exists)throw new LedgerFault('invariant');
+        if(claim&&!claim.doc.exists)tx.create(claim.doc.ref,claim.data);
+        if(voiceRef&&marker)tx.create(voiceRef,marker);
         const now=Date.now();tx.create(origin,{intentId:witness.intentId,accountId:witness.accountId,inputId:witness.inputId,operation:witness.operation,
           revision:witness.revision,profile:witness.profile,provider:witness.provider,identityKey:witness.identityKey,
           reservationId:witness.reservationId,seconds:witness.seconds,historyProtocol:1,baseline:'before_reservation',createdAtMs:now,
           terminalRecovery:{protocol:1,sealPrepared:false,releasePrepared:false}});
-        tx.create(intent,{id,accountId,inputId,requestKey,operation,revision,...copyExternalBilling(billing),state:'reserve_pending',createdAtMs:now,updatedAtMs:now,nextAttemptAt:now,attempts:1});
+        tx.create(intent,{id,accountId,inputId,requestKey,operation,revision,...copyExternalBilling(billing),state:'reserve_pending',createdAtMs:now,updatedAtMs:now,
+          nextAttemptAt:voiceSource?LOCAL_VOICE_INTENT_NOT_DUE:now,attempts:1,...claimLink,...(voiceSource?{localVoiceAttemptId:null}:{})});
         tx.create(intentGuard,{protocol:1,intentId:id,state:'clear',createdAtMs:now});
       }
       return null;
@@ -1012,20 +1306,28 @@ export class FirestoreBackend {
    * error and treat the new snapshot as evidence of the old operation.
    * A claimed lease is usable only with its independently held exact tuple.
    */
-  async captureExternalBillingIntentFailureEvidence(witness:ExternalBillingIntentWitness,requestKey:string,expectedVersion?:string,lease?:ExternalBillingIntentLease):Promise<ExternalBillingIntentFailureEvidence|null>{
+  async captureExternalBillingIntentFailureEvidence(witness:ExternalBillingIntentWitness,requestKey:string,expectedVersion?:string,lease?:ExternalBillingIntentLease):Promise<ExternalBillingIntentFailureEvidence|null>;
+  async captureExternalBillingIntentFailureEvidence(witness:ExternalBillingIntentWitness,requestKey:string,expectedVersion:string|undefined,lease:ExternalBillingIntentLease|undefined,reportBlocked:true):Promise<ExternalBillingIntentFailureEvidence|{blocked:true}|null>;
+  async captureExternalBillingIntentFailureEvidence(witness:ExternalBillingIntentWitness,requestKey:string,expectedVersion?:string,lease?:ExternalBillingIntentLease,reportBlocked=false):Promise<ExternalBillingIntentFailureEvidence|{blocked:true}|null>{
     validIntentWitness(witness);text(requestKey);if(hash([witness.accountId,requestKey])!==witness.intentId)throw new LedgerFault('invalid');
     if(expectedVersion!==undefined&&!/^\d{1,15}:\d{9}(?![\s\S])/.test(expectedVersion))return null;
     return this.db.runTransaction(async tx=>{
       const [account,identity,input,origin,intent,request,marker,guard,intentGuard]=await tx.getAll(this.ref('accounts',witness.accountId),this.ref('identities',witness.identityKey),this.ref('inputs',witness.inputId),this.ref('billingIntentWitnesses',witness.intentId),this.ref('billingIntents',witness.intentId),this.ref('requests',witness.intentId),this.ref('billingIntentJobMarkers',witness.intentId),this.ref('billingGuards',witness.accountId),this.ref('billingIntentAdmissionGuards',witness.intentId));
       const version=outboxVersion(intent),intentGuardVersion=outboxVersion(intentGuard),uid=identity.get('uid');
       if(!version||!intentGuardVersion||expectedVersion!==undefined&&version!==expectedVersion||!account.exists||!identity.exists||identity.get('accountId')!==witness.accountId||
-        typeof uid!=='string'||!uid||uid.length>128||hash(['firebase',uid])!==witness.identityKey||!input.exists||input.get('accountId')!==witness.accountId||!validStoredIntentWitness(origin,witness)||!validClearIntentAdmissionGuard(intentGuard,witness.intentId)||request.exists||marker.exists||this.billingBlocked(guard,witness.accountId))return null;
+        typeof uid!=='string'||!uid||uid.length>128||hash(['firebase',uid])!==witness.identityKey||!input.exists||input.get('accountId')!==witness.accountId||!validStoredIntentWitness(origin,witness)||!validClearIntentAdmissionGuard(intentGuard,witness.intentId)||request.exists||marker.exists)return null;
+      const blocked=this.billingBlocked(guard,witness.accountId);
+      // Preserve the existing guard-first behavior for enqueue and reserve_pending recovery.
+      if(blocked&&(!reportBlocked||intent.get('state')!=='release_pending'))return null;
       const row=this.billingIntent(intent,witness.accountId,requestKey,witness);
       if(row.inputId!==witness.inputId||row.operation!==witness.operation||row.revision!==witness.revision||row.jobId||!['reserve_pending','release_pending'].includes(row.state))return null;
       externalIntentTransitionDue(intent);const raw=intent.data()!,base={snapshotVersion:version,intentGuardVersion,state:row.state as 'reserve_pending'|'release_pending',witness};
-      if(!hasIntentLease(raw))return lease?null:{...base,mode:'unleased'};
+      if(hasIntentLease(raw)&&(!lease||!sameIntentLease(raw,lease)||lease.leaseUntil<=Date.now()))return null;
+      if(!hasIntentLease(raw)&&lease)return null;
+      if(blocked)return {blocked:true};
+      if(!hasIntentLease(raw))return {...base,mode:'unleased'};
       // The current drainer holds no lease. Do not infer ownership from the row.
-      if(!lease||!sameIntentLease(raw,lease)||lease.leaseUntil<=Date.now())return null;
+      if(!lease)return null;
       return {...base,mode:'leased',leaseToken:lease.leaseToken,leaseOwner:lease.leaseOwner,generation:lease.generation,leaseUntil:lease.leaseUntil};
     });
   }
@@ -1065,27 +1367,152 @@ export class FirestoreBackend {
       return {state:'ready'};
     });
   }
+  private peerPreparedTerminal(d:Record<DirectDocumentName,DocumentSnapshot>,snapshot:DirectObservationSnapshot,requestKey:string,
+    proof:DocumentSnapshot,action:'release'|'seal',reason:TerminalReason,claim?:DocumentSnapshot){
+    const witness=snapshot.witness,selected=action==='seal'?'sealWitness':'releaseWitness',recovery=action==='seal'?'sealRecovery':'releaseRecovery';
+    const transitioned=proof.get('transitioned');
+    const blocked=d.guard.exists&&d.guard.get('accountId')===witness.accountId&&d.guard.get('blocked')===true;
+    const closed=d.intent.get('state')==='closed';
+    const alreadyPrepared=snapshot.versions[selected].exists&&snapshot.versions[recovery].exists;
+    if(!proof.exists||!proof.createTime||!proof.updateTime?.isEqual(proof.createTime)||typeof transitioned!=='boolean'||
+      (!closed&&d.intent.get('state')!=='release_pending')||!this.validDirectObservationDocs(d,witness,requestKey,snapshot.source,closed,blocked))return false;
+    if(alreadyPrepared){
+      if(!closed)return false; // Only closing may advance a snapshot which already contained the preparation.
+      const authorized=copyDirectObservationSnapshot({...snapshot,source:action,attemptId:claim?.get('attemptId')});
+      if(!authorized||claim?.get('history')!==directSnapshotHash(authorized))return false;
+    }else if(snapshot.versions[selected].exists||snapshot.versions[recovery].exists||proof.get('history')!==preparationHistory(snapshot,action,reason))return false;
+    const changed:DirectDocumentName[]=alreadyPrepared?[]:['origin',selected,recovery];
+    const sameCreation=(name:DirectDocumentName)=>{
+      const prior=snapshot.versions[name],current=terminalDocumentVersion(d[name]);
+      return prior.exists&&current?.exists&&prior.createTime===current.createTime;
+    };
+    if(!sameCreation('origin')||!d[selected].createTime?.isEqual(proof.createTime)||!d[recovery].createTime?.isEqual(proof.createTime))return false;
+    if(!alreadyPrepared&&transitioned){if(!sameCreation('intent'))return false;changed.push('intent');}
+    if(closed){
+      const before=snapshot.versions.intent,previous=copyTerminalDocumentVersion(claim?.get('intentBeforeClosure')),confirmed=claim?.get('confirmedAction');
+      if(!claim?.exists||!claim.createTime?.isEqual(proof.createTime)||!claim.updateTime?.isEqual(d.intent.updateTime!)||claim.get('state')!=='confirmed'||
+        claim.get('action')!==action||!before.exists||!previous?.exists||!sameCreation('intent')||previous.createTime!==before.createTime||
+        previous.updateTime!==(!alreadyPrepared&&transitioned?outboxVersion(proof):before.updateTime)||!['release','seal'].includes(confirmed)||
+        d.intent.get(confirmed+'Confirmed')!==true||d.intent.get(confirmed+'ReservationId')!==witness.reservationId||d.intent.get(confirmed+'Seconds')!==witness.seconds)return false;
+    }
+    // The authenticated preimage identifies the preparing transaction. The same-document versions also reject a
+    // subsequent edit or recreation. A timestamp shared by arbitrary writes is never proof of this preparation.
+    return directDocumentNames.every(name=>(name==='guard'&&blocked&&!alreadyPrepared)||(name==='intent'&&closed)||(changed.includes(name)?d[name].updateTime?.isEqual(proof.createTime!):
+      sameTerminalDocumentVersion(d[name],snapshot.versions[name])));
+  }
   /** Compare the original read and fence/prepare in one transaction. */
-  async prepareTerminalFromDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,action:'release'|'seal',reason:'status_not_found'|'status_reserved'|'seal_reserved',snapshotInput:unknown):Promise<{state:'ready'}|{state:'changed'}|{state:'job_created';jobId:string}>{
+  async prepareTerminalFromDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,action:'release'|'seal',reason:TerminalReason,snapshotInput:unknown,readOnlyTerminalId?:string):Promise<{state:'ready'|'reconcile';terminalId:string}|{state:'changed'}|{state:'job_created';jobId:string}>{
     validIntentWitness(witness);witness=copyIntentWitness(witness);validIntentWitness(witness);text(requestKey);
     const snapshot=copyDirectObservationSnapshot(snapshotInput),source=reason==='seal_reserved'?'seal':'status';
     if(!snapshot||hash([witness.accountId,requestKey])!==witness.intentId||!['status_not_found','status_reserved','seal_reserved'].includes(reason)||action!==(reason==='status_not_found'?'seal':'release')||snapshot.source!==source||!sameIntentWitness(snapshot.witness,witness))return {state:'changed'};
     return this.db.runTransaction(async tx=>{
       const d=await this.directObservationDocs(tx,witness);
+      const terminalId=intentTerminalKey(witness.intentId,action),proofRef=this.ref('billingIntentPreparationProofs',terminalId),proof=await tx.get(proofRef);
       if(!this.matchingDirectObservation(snapshot,d,witness,requestKey,source)){
+        const closedClaim=d.intent.get('state')==='closed'?await tx.get(this.ref('billingIntentDispatchClaims',terminalId)):undefined;
+        if(this.peerPreparedTerminal(d,snapshot,requestKey,proof,action,reason,closedClaim))return {state:'changed'};
+        // A newly blocked account defers an unchanged terminal decision. Other history changes still require review.
+        if(d.intent.get('state')==='release_pending'&&
+          d.guard.exists&&d.guard.get('accountId')===witness.accountId&&d.guard.get('blocked')===true&&
+          this.matchingDirectObservation(snapshot,d,witness,requestKey,source,{ignore:['guard'],allowBlocked:true}))return {state:'changed'};
         await this.preserveDirectUncertainty(tx,d,witness,requestKey,snapshot,{state:reason==='status_not_found'?'not_found':'reserved',seconds:reason==='status_not_found'?null:witness.seconds});
         return {state:'changed'};
       }
+      // A scheduled read still compares its original status history. A changed Account answer
+      // (including 404 after an uncertain release) cannot create a new dispatch through this turn.
+      if(readOnlyTerminalId!==undefined){
+        const polled=readOnlyTerminalId===intentTerminalKey(witness.intentId,'release')?'release':'seal';
+        if(readOnlyTerminalId!==intentTerminalKey(witness.intentId,polled)||!this.validDirectObservationDocs(d,witness,requestKey,polled))return {state:'changed'};
+        return {state:'reconcile',terminalId:readOnlyTerminalId};
+      }
       const marker=d.origin.get('terminalRecovery'),prepared=marker[action==='seal'?'sealPrepared':'releasePrepared'] as boolean;
       const selected=action==='seal'?d.sealWitness:d.releaseWitness,recovery=action==='seal'?d.sealRecovery:d.releaseRecovery;
+      if(prepared&&!proof.exists)return {state:'reconcile',terminalId}; // A legacy preparation may already have sent its POST.
+      if(!prepared&&proof.exists){
+        await this.preserveDirectUncertainty(tx,d,witness,requestKey,snapshot,{state:reason==='status_not_found'?'not_found':'reserved',seconds:reason==='status_not_found'?null:witness.seconds});
+        return {state:'changed'};
+      }
       if(d.intent.get('state')==='reserve_pending')tx.update(d.intent.ref,{state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt:externalIntentTransitionDue(d.intent)});
       if(!prepared){
         const now=Date.now(),terminalId=intentTerminalKey(witness.intentId,action);if(!Number.isSafeInteger(now)||now<0)throw new LedgerFault('invariant');
         tx.create(selected.ref,{intentId:witness.intentId,accountId:witness.accountId,inputId:witness.inputId,operation:witness.operation,revision:witness.revision,profile:witness.profile,provider:witness.provider,identityKey:witness.identityKey,reservationId:witness.reservationId,seconds:witness.seconds,action,historyProtocol:1,stage:'prepared',createdAtMs:now});
         tx.create(recovery.ref,{terminalId,protocol:1,state:'pending',generation:0,attempts:0,createdAtMs:now,nextAttemptAt:now});
         tx.update(d.origin.ref,{[`terminalRecovery.${action==='seal'?'sealPrepared':'releasePrepared'}`]:true});
+        tx.create(proofRef,{history:preparationHistory(snapshot,action,reason),transitioned:d.intent.get('state')==='reserve_pending'});
+        tx.create(this.ref('billingIntentDispatchClaims',terminalId),{terminalId,action,state:'unsent'});
       }
-      return {state:'ready'};
+      return {state:'ready',terminalId};
+    });
+  }
+  private terminalPollBinding(d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,action:'release'|'seal',proof:DocumentSnapshot,dispatch:DocumentSnapshot){
+    if(!this.validDirectObservationDocs(d,witness,requestKey,action)||hasIntentLease(d.intent.data()!))return null;
+    const witnessDoc=action==='release'?d.releaseWitness:d.sealWitness,recovery=action==='release'?d.releaseRecovery:d.sealRecovery;
+    // A legacy pair has neither dispatch record. Both forms still authorize only a read.
+    if(proof.exists||dispatch.exists){
+      if(!proof.exists||!dispatch.exists||!proof.createTime?.isEqual(proof.updateTime!)||!dispatch.createTime?.isEqual(proof.createTime!)||
+        !witnessDoc.createTime?.isEqual(proof.createTime!)||!recovery.createTime?.isEqual(proof.createTime!)||
+        typeof proof.get('transitioned')!=='boolean'||!/^[a-f0-9]{64}(?![\s\S])/.test(proof.get('history'))||
+        !uuid.test(dispatch.get('attemptId'))||!/^[a-f0-9]{64}(?![\s\S])/.test(dispatch.get('history'))||
+        dispatch.get('terminalId')!==intentTerminalKey(witness.intentId,action)||dispatch.get('action')!==action||dispatch.get('state')!=='possibly_sent')return null;
+    }
+    return hash([witness,action,terminalDocumentVersion(witnessDoc),terminalDocumentVersion(recovery),terminalDocumentVersion(dispatch),terminalDocumentVersion(proof)]);
+  }
+  /** Reserve a bounded period for this read before issuing it, including when the reader crashes. */
+  async beginTerminalResolutionPoll(witness:ExternalBillingIntentWitness,requestKey:string,terminalId:string){
+    validIntentWitness(witness);witness=copyIntentWitness(witness);text(requestKey);
+    const action=terminalId===intentTerminalKey(witness.intentId,'release')?'release':'seal';
+    if(hash([witness.accountId,requestKey])!==witness.intentId||intentTerminalKey(witness.intentId,action)!==terminalId)return null;
+    const token=randomUUID(),ref=this.ref('billingIntentResolutionPolls',terminalId);
+    const siblingAction=action==='release'?'seal':'release',siblingId=intentTerminalKey(witness.intentId,siblingAction);
+    return this.db.runTransaction(async tx=>{
+      const d=await this.directObservationDocs(tx,witness);
+      const [poll,sibling,proof,dispatch]=await tx.getAll(ref,this.ref('billingIntentResolutionPolls',siblingId),this.ref('billingIntentPreparationProofs',terminalId),this.ref('billingIntentDispatchClaims',terminalId));
+      const binding=this.terminalPollBinding(d,witness,requestKey,action,proof,dispatch);
+      if(!binding)return null;
+      if(sibling.exists){
+        const other=sibling.data();
+        if(!validTerminalPoll(other,witness.intentId,siblingAction))return null;
+        const [otherProof,otherDispatch]=await tx.getAll(this.ref('billingIntentPreparationProofs',siblingId),this.ref('billingIntentDispatchClaims',siblingId));
+        if(other.binding!==this.terminalPollBinding(d,witness,requestKey,siblingAction,otherProof,otherDispatch))return null;
+      }
+      const prior=poll.data(),now=Date.now();
+      if(!Number.isSafeInteger(now)||now<0||poll.exists&&(!validTerminalPoll(prior,witness.intentId,action)||prior.binding!==binding||now<prior.nextAttemptAt))return null;
+      const generation=(prior?.generation??0)+1,nextAttemptAt=now+billingAttemptDelay(generation);
+      if(!Number.isSafeInteger(generation)||!Number.isSafeInteger(nextAttemptAt))return null;
+      const turn:TerminalPollTurn={terminalId,intentId:witness.intentId,action,binding,generation,token,lastPollAtMs:now,nextAttemptAt};
+      const versions=hash(directDocumentNames.map(name=>terminalDocumentVersion(d[name])));
+      tx.set(ref,turn);return {turn,versions};
+    });
+  }
+  /** A delayed failure may extend its own turn only while the same monetary history and reader still own it. */
+  async finishTerminalResolutionPoll(witness:ExternalBillingIntentWitness,permit:{turn:TerminalPollTurn;versions:string},outcome:'reserved'|'not_found'|'captured'|'unavailable'|'unverified'){
+    const {turn,versions}=permit,ref=this.ref('billingIntentResolutionPolls',turn.terminalId);
+    return this.db.runTransaction(async tx=>{
+      const d=await this.directObservationDocs(tx,witness),prior=(await tx.get(ref)).data(),now=Date.now();
+      if(!validTerminalPoll(prior,witness.intentId,turn.action)||prior.token!==turn.token||prior.generation!==turn.generation||
+        prior.binding!==turn.binding||prior.lastPollAtMs!==turn.lastPollAtMs||prior.outcome!==undefined||
+        hash(directDocumentNames.map(name=>terminalDocumentVersion(d[name])))!==versions||
+        !Number.isSafeInteger(now)||now<turn.lastPollAtMs)return false;
+      const nextAttemptAt=now+billingAttemptDelay(turn.generation);if(!Number.isSafeInteger(nextAttemptAt))return false;
+      tx.update(ref,{lastPollAtMs:now,nextAttemptAt,outcome});return true;
+    });
+  }
+  /** A reservation or 404 cannot exclude an earlier POST still in flight across the two services. */
+  async claimDirectTerminalDispatch(witness:ExternalBillingIntentWitness,requestKey:string,action:'seal'|'release',reason:TerminalReason,
+    base:DirectObservationSnapshot,post:DirectObservationSnapshot):Promise<'send'|'changed'|'reconcile'>{
+    const terminalId=intentTerminalKey(witness.intentId,action);
+    return this.db.runTransaction(async tx=>{
+      const d=await this.directObservationDocs(tx,witness),claim=this.ref('billingIntentDispatchClaims',terminalId);
+      const [proof,prior]=await tx.getAll(this.ref('billingIntentPreparationProofs',terminalId),claim);
+      if(!this.matchingDirectObservation(post,d,witness,requestKey,action))return 'changed';
+      const selected=action==='release'?d.releaseWitness:d.sealWitness,recovery=action==='release'?d.releaseRecovery:d.sealRecovery;
+      if(!proof.exists||!proof.createTime||!proof.updateTime?.isEqual(proof.createTime)||!selected.createTime?.isEqual(proof.createTime)||
+        !recovery.createTime?.isEqual(proof.createTime)||typeof proof.get('transitioned')!=='boolean'||typeof proof.get('history')!=='string'||
+        !/^[a-f0-9]{64}$/.test(proof.get('history'))||!prior.exists||prior.get('state')!=='unsent'||prior.get('action')!==action||
+        prior.get('terminalId')!==terminalId||!prior.createTime?.isEqual(proof.createTime)||!prior.updateTime?.isEqual(prior.createTime!))return 'reconcile';
+      if(!this.matchingDirectObservation(base,d,witness,requestKey,base.source)&&!this.peerPreparedTerminal(d,base,requestKey,proof,action,reason))return 'changed';
+      tx.update(claim,{state:'possibly_sent',attemptId:post.attemptId,history:directSnapshotHash(post)});
+      return 'send';
     });
   }
   /**
@@ -1334,7 +1761,12 @@ export class FirestoreBackend {
         return {state:'needs_review',ownerBlocked:false};
       }
       const canClose=owner&&actionProven&&historyMatched&&same&&jobless&&guardValid&&!guarded&&(row!.state==='release_pending'||row!.state==='reserve_pending'&&observed.source==='status');
-      if(canClose){const now=Date.now();tx.update(intent,{state:'closed',...(observed.action==='release'?{releaseConfirmed:true,releaseReservationId:witness.reservationId,releaseSeconds:witness.seconds,releaseObservationSource:observed.source}:{sealConfirmed:true,sealReservationId:witness.reservationId,sealSeconds:witness.seconds,sealObservationSource:observed.source}),...(!isRecovery&&direct&&directReceipt?{directObservationReceiptHash:directReceipt,directObservationAttemptId:direct.attemptId}:{}),updatedAtMs:now});return {state:'closed',ownerBlocked:false};}
+      if(canClose){
+        const claimRef=this.ref('billingIntentDispatchClaims',intentTerminalKey(key,terminalAction)),claim=await tx.get(claimRef);
+        if(claim.exists&&claim.get('action')===terminalAction&&claim.get('state')==='possibly_sent')
+          tx.update(claimRef,{state:'confirmed',confirmedAction:observed.action,intentBeforeClosure:terminalDocumentVersion(current)});
+        const now=Date.now();tx.update(intent,{state:'closed',...(observed.action==='release'?{releaseConfirmed:true,releaseReservationId:witness.reservationId,releaseSeconds:witness.seconds,releaseObservationSource:observed.source}:{sealConfirmed:true,sealReservationId:witness.reservationId,sealSeconds:witness.seconds,sealObservationSource:observed.source}),...(!isRecovery&&direct&&directReceipt?{directObservationReceiptHash:directReceipt,directObservationAttemptId:direct.attemptId}:{}),updatedAtMs:now});return {state:'closed',ownerBlocked:false};
+      }
       if(!recordReview)return {state:'needs_review',ownerBlocked:false};
       const reviewReason=(!isRecovery&&identicalClosed?'remote_ack_closure_unverified':'remote_ack_intent_mismatch') as ExternalBillingReviewReason,reviewValid=!oldReview.exists||oldReview.get('accountId')===witness.accountId&&oldReview.get('identityKey')===witness.identityKey&&oldReview.get('intentId')===key&&oldReview.get('reservationId')===witness.reservationId&&oldReview.get('expectedSeconds')===witness.seconds;
       const holdValid=!oldHold?.exists||matchesHold(oldHold.data(),hold!)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
@@ -1371,8 +1803,9 @@ export class FirestoreBackend {
   async pendingExternalBillingIntents(limit=25,afterId?:string|null){
     if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
     const now=Date.now(),due=(d:DocumentSnapshot)=>!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<=now;
-    const [reserves,releases]=await Promise.all([this.dueRows('billingIntents','reserve_pending',limit,due,afterId),this.dueRows('billingIntents','release_pending',limit,due,afterId)]);
-    return interleave(releases,reserves,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
+    const polls=new Map<string,string>();
+    const [reserves,releases]=await Promise.all([this.dueRows('billingIntents','reserve_pending',limit,due,afterId),this.dueRows('billingIntents','release_pending',limit,due,afterId,{now,polls})]);
+    return interleave(releases,reserves,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d),resolutionPollId:polls.get(d.id)}));
   }
   /**
    * Rows of one `state` that satisfy `due`, in document-id order, scanning pages (equality + id order: automatic index) until `limit` are found or the state is exhausted.
@@ -1380,24 +1813,47 @@ export class FirestoreBackend {
    * and stops before the cursor, so one rotation serves each due row at most once. An `afterId` that is not a row of this collection (or `null`/absent) reads from the
    * beginning; without it the query is exactly the plain equality+id one.
    */
-  private async dueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean,afterId?:string|null){
-    if(!afterId||!(await this.root.collection(collection).doc(afterId).get()).exists)return this.scanDueRows(collection,state,limit,due,null,null);
-    const out=await this.scanDueRows(collection,state,limit,due,afterId,null);
-    if(out.length<limit)for(const d of await this.scanDueRows(collection,state,limit-out.length,due,null,afterId))out.push(d);
+  private async dueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean,afterId?:string|null,schedule?:{now:number;polls:Map<string,string>}){
+    if(!afterId||!(await this.root.collection(collection).doc(afterId).get()).exists)return this.scanDueRows(collection,state,limit,due,null,null,schedule);
+    const out=await this.scanDueRows(collection,state,limit,due,afterId,null,schedule);
+    if(out.length<limit)for(const d of await this.scanDueRows(collection,state,limit-out.length,due,null,afterId,schedule))out.push(d);
     return out;
   }
   /** One bounded scan of a `state` in document-id order, with a first-page exclusive `startAfterId` and an exclusive `stopBeforeId`. */
-  private async scanDueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean,startAfterId:string|null,stopBeforeId:string|null){
+  private async scanDueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean,startAfterId:string|null,stopBeforeId:string|null,schedule?:{now:number;polls:Map<string,string>}){
     const out:DocumentSnapshot[]=[];let last:DocumentSnapshot|undefined,first=true;
     for(;;){
       let query=this.root.collection(collection).where('state','==',state).orderBy(FieldPath.documentId()).limit(100);
       if(first&&startAfterId)query=query.startAfter(this.root.collection(collection).doc(startAfterId));else if(last)query=query.startAfter(last);
       first=false;
       const page=await query.get();
+      const waiting=new Set<string>();
+      if(schedule){
+        const candidates=page.docs.filter(d=>(stopBeforeId===null||d.id<stopBeforeId)&&due(d)&&/^[a-f0-9]{64}$/.test(d.id));
+        const owners=new Map<string,{id:string;action:'release'|'seal'}>();
+        for(const d of candidates)for(const action of ['release','seal'] as const)owners.set(intentTerminalKey(d.id,action),{id:d.id,action});
+        if(owners.size){
+          const results=await this.db.getAll(...Array.from(owners.keys(),id=>this.ref('billingIntentResolutionPolls',id)));
+          const choices=new Map<string,{invalid:boolean;earliest?:TerminalPollTurn}>();
+          for(const poll of results){
+            if(!poll.exists)continue;
+            const {id,action}=owners.get(poll.id)!,data=poll.data();
+            const choice=choices.get(id)??{invalid:false};choices.set(id,choice);
+            if(!validTerminalPoll(data,id,action)||!Number.isSafeInteger(schedule.now)){choice.invalid=true;continue;}
+            if(schedule.now<data.nextAttemptAt)continue;
+            const first=choice.earliest;
+            if(!first||data.nextAttemptAt<first.nextAttemptAt||data.nextAttemptAt===first.nextAttemptAt&&data.terminalId<first.terminalId)choice.earliest=data;
+          }
+          for(const [id,choice] of choices){
+            if(choice.invalid||!choice.earliest)waiting.add(id);
+            else schedule.polls.set(id,choice.earliest.terminalId);
+          }
+        }
+      }
       let crossed=false;
       for(const d of page.docs){
         if(stopBeforeId!==null&&d.id>=stopBeforeId){crossed=true;break;}
-        if(due(d)){out.push(d);if(out.length>=limit)return out;}
+        if(!waiting.has(d.id)&&due(d)){out.push(d);if(out.length>=limit)return out;}
       }
       if(crossed||page.docs.length<100)return out;
       last=page.docs[page.docs.length-1];
@@ -1549,7 +2005,9 @@ export class FirestoreBackend {
   }
   private async reserveAs(accountId: string, inputId: string, requestKey: string, price: number, operation: string,
     expectedRevision?: number,aiProfile?:typeof AI_CATALOG_VERSION,externalBilling?:ExternalVideoBilling,statusSnapshotInput?:unknown,requesterUid?:string,
-    attempt?:ReserveAttemptEvidenceV1,reserveAck?:ReserveAck) {
+    attempt?:ReserveAttemptEvidence,reserveAck?:ReserveAck,voice?:LocalReviewedVoice) {
+    if(externalBilling&&narrationRequiresReview(operation)&&!voice)throw new LedgerFault('invalid');
+    if(Boolean(voice)!==(attempt?.version===2)||voice&&(!externalBilling||!reserveAck||!expectedRevision||!narrationRequiresReview(operation)))throw new LedgerFault('invalid');
     if(aiProfile!==undefined&&aiProfile!==AI_CATALOG_VERSION)throw new LedgerFault('invalid');
     if(aiProfile&&expectedRevision===undefined)throw new LedgerFault('invalid');
     identifier(accountId); identifier(inputId); text(requestKey); text(operation); integer(price, true);
@@ -1568,6 +2026,9 @@ export class FirestoreBackend {
       const intentRef=externalBilling?this.ref('billingIntents',requestId):null,originRef=externalBilling?this.ref('billingIntentWitnesses',requestId):null,markerRef=externalBilling?this.ref('billingIntentJobMarkers',requestId):null;
       const readRefs=[a,i,r,this.ref('projects',inputId),this.ref('billingGuards',accountId),...(externalBilling?[intentRef!,originRef!,markerRef!,this.ref('identities',externalBilling.identityKey),this.ref('billingIntentAdmissionGuards',requestId)]:[])];
       const [account, input, prior, project, guard, intentDoc,originDoc,markerDoc,identityDoc,intentGuard] = await diagnosticStage('reserve.read',()=>tx.getAll(...readRefs));
+      const claim=await this.readLocalRequestKeyClaim(tx,accountId,requestKey,voice?'voice':'text',
+        externalBilling?'billingIntents':'requests',!!externalBilling);
+      const claimLink=this.localRequestClaimLink(claim,prior,intentDoc);
       // Step 1.3b: read the attempt/observation pair and terminal rows up front.
       let ackPrepared:DocumentSnapshot|null=null,ackObserved:DocumentSnapshot|null=null;
       let attemptDocs:Record<'sealWitness'|'sealRecovery'|'releaseWitness'|'releaseRecovery',DocumentSnapshot>|null=null;
@@ -1588,6 +2049,15 @@ export class FirestoreBackend {
       if (!account.exists) throw new LedgerFault('not_found');
       if(externalBilling&&(!intentGuard||!validClearIntentAdmissionGuard(intentGuard,requestId)||this.billingBlocked(guard,accountId)))throw new LedgerFault('conflict');
       if(aiProfile&&(account.get('aiPilot')!==true||account.get('simulationOnly')!==true))throw new LedgerFault('conflict');
+      let reviewedVoice:ReviewedVoiceMarker|undefined;
+      if(voice&&attempt?.version===2){
+        if(intentDoc?.get('localVoiceAttemptId')!==attempt.attemptId||intentDoc.get('nextAttemptAt')!==LOCAL_VOICE_INTENT_NOT_DUE)throw new LedgerFault('conflict');
+        const source=await this.currentVoiceSource(tx,voice,inputId,expectedRevision!);
+        reviewedVoice=createReviewedVoiceMarker(source,requestKey,operation);
+        const marker=await tx.get(this.ref('reviewedVoiceMarkers',reviewedVoice.markerId));
+        validateReviewedVoiceMarkerReplay(marker.data(),source,accountId,requestKey,operation);
+        if(!matchesReviewedVoiceReserveSource(attempt,source,requestKey)||prior.exists)throw new LedgerFault('conflict');
+      }
       if (prior.exists) {
         if (prior.get('requestFingerprint') !== requestFingerprint(inputId,operation,expectedRevision??null,aiProfile)) throw new LedgerFault('conflict');
         const existingId=prior.get('jobId');if(typeof existingId!=='string'||!uuid.test(existingId))throw new LedgerFault('conflict');
@@ -1606,11 +2076,17 @@ export class FirestoreBackend {
       const asset = input.data() as Input;
       if (!this.usable(asset,inputId)) throw new LedgerFault('not_found');
       if (asset.unknownCount > 0) throw new LedgerFault('conflict');
+      let inputStorage=asset.storage??null;
+      if(reviewedVoice){
+        if(!readyPrivateInput(asset,inputId))throw new LedgerFault('not_found');
+        const {bucket,key,generation,size,sha256}=asset.storage;
+        inputStorage={bucket,key,generation,size,sha256};
+      }
       const current = balance(account.data() as Balance);
       const plan=aiProfile?artifactPlan(jobId,inputId,operation as any):undefined;
       if(aiProfile){
         if(!asset.metadata||price!==(externalBilling?Math.ceil(asset.metadata.duration):simulatedAiPrice(operation as any,asset.metadata.duration)))throw new LedgerFault('invalid');
-        if(operation.startsWith('narration:')&&(typeof project.get('draft')!=='string'||!project.get('draft').trim()||project.get('reviewedTextRevision')!==expectedRevision||project.get('reviewedTextSha256')!==draftSha(project.get('draft'))))throw new LedgerFault('invalid');
+        if(!reviewedVoice&&operation.startsWith('narration:')&&(typeof project.get('draft')!=='string'||!project.get('draft').trim()||project.get('reviewedTextRevision')!==expectedRevision||project.get('reviewedTextSha256')!==draftSha(project.get('draft'))))throw new LedgerFault('invalid');
       }
       if(externalBilling){
         if(!intentDoc||!originDoc||!markerDoc||!identityDoc)throw new LedgerFault('invariant');
@@ -1622,15 +2098,17 @@ export class FirestoreBackend {
       if (!externalBilling&&current.available < price) throw new LedgerFault('insufficient');
       if (current.active >= 3) throw new LedgerFault('conflict');
       const next = balance(externalBilling?{...current,active:current.active+1}:{ ...current, available: current.available - price, reserved: current.reserved + price, active: current.active + 1 });
-      const job: Job = { accountId, inputId, price, operation, revision: expectedRevision ?? null,...(externalBilling?{externalBilling:copyExternalBilling(externalBilling)}:{}),...(aiProfile?{aiProfile,snapshotSha256:draftSha(project.get('draft'))}:{}),
-        inputStorage: asset.storage??null,
-        snapshot: expectedRevision === undefined ? null : project.data() as ProjectSnapshot,
+      const job: Job = { accountId, inputId, price, operation, revision: expectedRevision ?? null,...(externalBilling?{externalBilling:copyExternalBilling(externalBilling)}:{}),...(aiProfile?{aiProfile,snapshotSha256:reviewedVoice?.voiceTextSha256??draftSha(project.get('draft'))}:{}),
+        inputStorage,
+        snapshot: reviewedVoice||expectedRevision===undefined?null:project.data() as ProjectSnapshot,
+        ...(reviewedVoice?{reviewedVoice}:{}),
         state: 'queued', inputSha256: asset.sha256,
         attemptId: null, leaseUntil: null, unknownAttemptId: null, requestKey, invocationPhase: null };
-      tx.update(a, {...next,...quota}); tx.create(r, { accountId, fingerprint, requestFingerprint: requestFingerprint(inputId,operation,expectedRevision ?? null,aiProfile), jobId }); tx.create(this.ref('jobs', jobId), job);
+      if(claim&&!claim.doc.exists)tx.create(claim.doc.ref,claim.data);
+      tx.update(a, {...next,...quota}); tx.create(r, { accountId, fingerprint, requestFingerprint: requestFingerprint(inputId,operation,expectedRevision ?? null,aiProfile), jobId,...claimLink }); tx.create(this.ref('jobs', jobId), job);
       tx.create(this.ref('jobAccounting',jobId),{protocol:1,jobId,accountId,inputId,requestKey,operation,revision:expectedRevision??null,price,profile:aiProfile??null,mode:externalBilling?'account_seconds':'simulation',createdAtMs:Date.now(),...(externalBilling?copyExternalBilling(externalBilling):{})});
-      if(plan)tx.create(this.ref('artifacts',jobId),{accountId,inputId,jobId,plan,planHash:artifactPlanHash(plan),sourceGeneration:asset.storage!.generation,inputSha256:asset.sha256,revision:expectedRevision!,snapshotSha256:draftSha(project.get('draft')),expiresAtMs:asset.expiresAtMs,state:'pending',quotaMode:'reserved',quotaHeld:plan.budgetBytes,entries:[],attemptId:null,nextAttemptAt:Date.now()} satisfies AiArtifactRecord);
-      tx.create(this.ref('outbox', jobId), {accountId, jobId, ...(aiProfile?{aiProfile}:{}), state: 'pending', nextAttemptAt: Date.now(), dispatchAttempt: null, leaseUntil: null});
+      if(plan)tx.create(this.ref('artifacts',jobId),{accountId,inputId,jobId,plan,planHash:artifactPlanHash(plan),sourceGeneration:asset.storage!.generation,inputSha256:asset.sha256,revision:expectedRevision!,snapshotSha256:reviewedVoice?.voiceTextSha256??draftSha(project.get('draft')),expiresAtMs:asset.expiresAtMs,state:'pending',quotaMode:'reserved',quotaHeld:plan.budgetBytes,entries:[],attemptId:null,nextAttemptAt:Date.now()} satisfies AiArtifactRecord);
+      if(!reviewedVoice)tx.create(this.ref('outbox', jobId), {accountId, jobId, ...(aiProfile?{aiProfile}:{}), state: 'pending', nextAttemptAt: Date.now(), dispatchAttempt: null, leaseUntil: null});
       if(externalBilling){tx.create(markerRef!,{...intentWitness(accountId,inputId,requestKey,operation,expectedRevision!,externalBilling),jobId,historyProtocol:1,createdAtMs:Date.now()});tx.update(intentRef!,{state:'job_created',jobId,updatedAtMs:Date.now()});}
       // Step 1.3b: the ACK and the job commit in ONE transaction. A failure aborts both.
       if(attempt){
@@ -1883,6 +2361,7 @@ export class FirestoreBackend {
       const row=d.data() as ExternalBillingIntent;
       // The row is re-read here: only a still-pending, unleased, well-formed row is rescheduled.
       if(row.accountId!==accountId||row.requestKey!==requestKey||!['reserve_pending','release_pending'].includes(row.state)||hasIntentLease(d.data()!)||!validUnleasedBillingMetadata(d.data()!)||!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<0||d.get('nextAttemptAt')>Date.now())return false;
+      if(row.state==='release_pending'&&this.billingBlocked(await tx.get(this.ref('billingGuards',accountId)),accountId))return false;
       const previous=d.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
       const attempts=Number(previous)+1,now=Date.now();
       // Every permanent refusal shares one bound, so no row can retry forever; the owner is never blocked (no hold, no guard).
@@ -1954,6 +2433,7 @@ export class FirestoreBackend {
           // An active lease means someone is working the row right now: it is seen again in the next rotation.
           const leaseUntil=doc.get('leaseUntil');
           if(Number.isSafeInteger(leaseUntil)&&Number(leaseUntil)>clock)return 'skipped' as const;
+          if(await this.deferVerifiedReleaseAge(tx,candidate.collection,doc,clock,limitAge))return 'skipped' as const;
           // A dangling or expired lease must not survive on a reviewed row; the audited release (1.4b) reopens it.
           const clearLease=hasIntentLease(doc.data()!)?{leaseToken:FieldValue.delete(),leaseOwner:FieldValue.delete(),leaseUntil:FieldValue.delete()}:{};
           tx.update(ref,{state:'needs_review',reviewReason:'max_age',updatedAtMs:clock,...clearLease});return 'escalated' as const;
@@ -1964,6 +2444,62 @@ export class FirestoreBackend {
       if(index===selected.length-1||selected[index+1].id!==candidate.id)completed=candidate.id;
     }
     return report;
+  }
+  /** The report still observes the original creation date. Only a verified refund can wait for its next drain. */
+  private async deferVerifiedReleaseAge(tx:Transaction,collection:string,doc:DocumentSnapshot,clock:number,maxAgeMs:number){
+    const row=doc.data()!;
+    if(collection==='billingIntents'&&row.state!=='release_pending'||collection==='billingOutbox'&&row.action!=='release'||collection==='billingHoldOutbox')return false;
+    const accountId=row.accountId;
+    if(typeof accountId!=='string'||!uuid.test(accountId)||hasIntentLease(row)||!validUnleasedBillingMetadata(row)||
+      !Number.isSafeInteger(row.nextAttemptAt)||row.nextAttemptAt<0)return false;
+    const guard=await tx.get(this.ref('billingGuards',accountId));
+    const pauseRef=this.ref('billingReleaseAgePauses',hash([collection,doc.id])),reopenRef=this.ref('billingReleaseReopenings',accountId);
+    const [pause,reopen]=await tx.getAll(pauseRef,reopenRef);
+    const blocked=guard.exists&&guard.get('accountId')===accountId&&guard.get('blocked')===true;
+    const version=outboxVersion(doc);
+    if(!version)return false;
+    const samePause=pause.exists&&pause.get('accountId')===accountId&&pause.get('rowVersion')===version;
+    const paused=samePause&&typeof pause.get('guardVersion')==='string';
+    // A committed reopening can precede BOTH cursors. Arm a fixed window the first time the age sweep sees it open.
+    const reopened=reopen.exists&&reopen.get('accountId')===accountId&&typeof reopen.get('auditId')==='string'&&
+      /^[a-f0-9]{64}$/.test(reopen.get('auditId'))&&doc.updateTime&&reopen.updateTime&&doc.updateTime.valueOf()<=reopen.updateTime.valueOf();
+    if(!blocked&&!paused&&!reopened)return false;
+    if(collection==='billingIntents'){
+      if(typeof row.requestKey!=='string'||hash([accountId,row.requestKey])!==doc.id)return false;
+      let witness:ExternalBillingIntentWitness;
+      try{witness=intentWitness(accountId,row.inputId,row.requestKey,row.operation,row.revision,row as ExternalVideoBilling);}
+      catch(error){if(error instanceof LedgerFault)return false;throw error;}
+      const docs=await this.directObservationDocs(tx,witness);
+      if(!this.validDirectObservationDocs(docs,witness,row.requestKey,'status',false,true))return false;
+    }else{
+      const tuple=copyOutboxSnapshot(row,OUTBOX_METADATA_KEYS);
+      if(!tuple||tuple.jobId!==doc.id)return false;
+      const [job,t,a]=await tx.getAll(this.ref('jobs',doc.id),this.ref('movements','terminal:'+doc.id),this.ref('artifacts',doc.id));
+      const owner=await this.verifiedOutboxOwner(tx,doc.id,job,tuple);
+      if(!owner||owner.intentState!=='job_created'||!['failed','cancelled'].includes(owner.job.state)||
+        t.get('kind')!=='external_release'||t.get('accountId')!==accountId||t.get('reference')!==doc.id||t.get('credits')!==tuple.seconds||
+        a.get('accountId')!==accountId||a.get('jobId')!==doc.id||a.get('inputId')!==owner.job.inputId)return false;
+      if(!await this.externalJobLinksAllowed(tx,doc.id,owner.job,false))return false;
+    }
+    if(blocked){
+      const guardVersion=outboxVersion(guard);
+      if(!guardVersion)return false;
+      if(!paused||pause.get('guardVersion')!==guardVersion||pause.get('opportunity')!==undefined)tx.set(pauseRef,{accountId,rowVersion:version,guardVersion});
+      return true;
+    }
+    let opportunity=paused?'guard:'+pause.get('guardVersion'):null;
+    if(reopened){
+      const audit=await tx.get(this.ref('billingUnblockAudit',reopen.get('auditId')));
+      if(audit.exists&&audit.get('auditId')===reopen.get('auditId')&&audit.get('accountId')===accountId&&audit.get('accountBlocked')===false&&
+        (audit.get('action')==='video_released'||audit.get('action')==='unblocked'&&audit.get('videoBlocked')===false))opportunity='audit:'+audit.id;
+    }
+    if(!opportunity)return false;
+    if(samePause&&pause.get('opportunity')===opportunity){
+      const started=pause.get('resumeStartedAtMs');
+      return Number.isSafeInteger(started)&&started>=0&&started<=clock&&clock-started<=maxAgeMs;
+    }
+    tx.set(pauseRef,{accountId,rowVersion:version,...(paused?{guardVersion:pause.get('guardVersion')}:{}),opportunity,resumeStartedAtMs:clock});
+    return true;
   }
   /**
    * One bounded read of a state in document-id order strictly after `after`, for the age escalation. A single query of

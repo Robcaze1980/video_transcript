@@ -5,6 +5,7 @@
 // Run using Node 24, only after the parent has frozen and reviewed the inputs:
 //   node scripts/runReviewedTranslationEmulator.mjs --prepare
 //   node scripts/runReviewedTranslationEmulator.mjs --run <generated-manifest>
+// Add --voice-c1 to both commands to include the C1 reservation fixtures.
 // --prepare writes only a manifest of hashes; --run creates a new isolated
 // profile/log directory and starts the fixture. No directory is deleted here.
 import { createHash, randomUUID } from 'node:crypto';
@@ -18,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 
 const project = 'demo-vistavo-ledger';
 const host = '127.0.0.1:8185';
-const expectedTests = 28;
+const voiceC1 = process.argv.at(-1) === '--voice-c1';
+const expectedTests = voiceC1 ? 60 : 28;
 const guardFile = 'scripts/reviewEmulatorNetworkGuard.cjs';
 const fixtureFile = 'server/commercial/firestoreReviewedTranslation.emulator.mjs';
 const tracked = Object.freeze([
@@ -27,6 +29,13 @@ const tracked = Object.freeze([
   'server/commercial/cloudEnqueueRecovery.ts',
   'server/commercial/firestoreReviewedTranslation.ts',
   'server/commercial/reviewedVoiceCanonical.ts',
+  'server/commercial/reviewedVoiceMarker.ts',
+  'server/commercial/reserveAttemptEvidence.ts',
+  'server/commercial/reserveAttemptWindow.ts',
+  'server/commercial/videoReservationId.ts',
+  'server/commercial/accountBillingClient.ts',
+  'server/account/backend.ts',
+  'server/account/settlementContract.ts',
   fixtureFile,
   'server/commercial/reviewedTranslation.ts',
   'server/commercial/pipelineTextCodec.ts',
@@ -147,7 +156,7 @@ const outputRoot = checkedDirectory(workspace, 'outputs');
 const manifests = checkedDirectory(outputRoot, 'lv019-b-review-manifests', true);
 const runs = checkedDirectory(outputRoot, 'lv019-b-review-runs', true);
 const node = nodeIdentity();
-const args = process.argv.slice(2);
+const args = voiceC1 ? process.argv.slice(2, -1) : process.argv.slice(2);
 
 if (args.length === 1 && args[0] === '--prepare') {
   const before = snapshot(workspace);
@@ -173,6 +182,7 @@ if (args.length === 1 && args[0] === '--prepare') {
     APPDATA: profile, USERPROFILE: profile, LOCALAPPDATA: profile, TEMP: temp, TMP: temp,
     NODE_ENV: 'test', FIRESTORE_EMULATOR_HOST: host, GOOGLE_CLOUD_PROJECT: project,
     GCLOUD_PROJECT: project, METADATA_SERVER_DETECTION: 'none', LV_REVIEW_CONTRACT: '1',
+    ...(voiceC1 ? { LV_VOICE_C1_FIXTURE: '1' } : {}),
   };
   if ('HOME' in env || 'CODEX_HOME' in env || 'NODE_OPTIONS' in env || 'GOOGLE_APPLICATION_CREDENTIALS' in env) fail('Unexpected child environment');
   writeFileSync(path.join(run, 'manifest.json'), manifestText, { flag: 'wx' });
@@ -226,5 +236,5 @@ if (args.length === 1 && args[0] === '--prepare') {
   process.stdout.write(`Synthetic review fixture: ${pass ? 'PASS' : 'FAIL'}; evidence: ${run}\n`);
   if (!pass) process.exitCode = 1;
 } else {
-  fail('Use --prepare or --run <task-manifest>; the fixture was not started');
+  fail('Use --prepare or --run <task-manifest>, optionally with --voice-c1; the fixture was not started');
 }

@@ -24,7 +24,8 @@ export function stub(initial:Record<string,Record<string,Record<string,unknown>>
   const root={path:'operator-local/stub-root',collection:(c:string)=>({doc:(id:string)=>docRef(c,id),...query(c,[],null,null)})};
   const db={async runTransaction<T>(fn:(tx:unknown)=>Promise<T>){
     const staged:Array<()=>void>=[];
-    const tx={async get(ref:{path:string;id:string}){const d=store.get(ref.path);return {id:ref.id,exists:!!d,data:()=>d?structuredClone(d):undefined,get:(f:string)=>d?.[f]};},
+    const read=async(ref:{path:string;id:string})=>{const d=store.get(ref.path);return {id:ref.id,exists:!!d,data:()=>d?structuredClone(d):undefined,get:(f:string)=>d?.[f]};};
+    const tx={get:read,async getAll(...refs:Array<{path:string;id:string}>){return Promise.all(refs.map(read));},
       create(ref:{path:string},data:Record<string,unknown>){if(store.has(ref.path)||staged.length>50)throw Error('ALREADY_EXISTS');staged.push(()=>{writes.push('create:'+ref.path);store.set(ref.path,structuredClone(data));});},
       update(ref:{path:string},data:Record<string,unknown>){if(!store.has(ref.path))throw Error('NOT_FOUND');staged.push(()=>{writes.push('update:'+ref.path);store.set(ref.path,{...store.get(ref.path)!,...data});});}};
     const result=await fn(tx);staged.forEach(f=>f());return result;}};

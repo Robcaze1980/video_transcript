@@ -1,0 +1,18 @@
+**Alcance:** solo los fragmentos suministrados; el informe A0, recibos y reseñas externas no están en el paquete.
+
+**(1) Ingreso.** Sin contradicción activa: toda mención distingue ingreso interno y `publicInvoker: false` solo para Files/Maintenance frente a `ALL` y `publicInvoker: true` para Account (MASTERPLAN.md:26; backlog.md:36; HANDOFF.md:16; plan-integral:62 y :102). gantt.md:16 es neutral. No persiste la afirmación generalizada del FALLA previo.
+
+**(2) Gateway.** Claro: «Falta crear el gateway y su identidad y luego verificar» (MASTERPLAN.md:26); «están por crear» (backlog.md:36); fila 6 PENDIENTE (gantt.md:17); «futuro gateway» (MASTERPLAN.md:52). El «gateway loopback» (MASTERPLAN.md:22) es el de la candidata local y no se confunde.
+
+**(3) A2/G0.** Admisible solo en local: plan-integral:22 y §0.1:29 (lista cerrada de nube, «solo en local»); despliegue y habilitación sujetos a G0 en plan-integral:64, backlog.md:25, MASTERPLAN.md:58, gantt.md:14 y HANDOFF.md:20.
+
+**Nota residual:** la columna de dependencias de A4 (plan-integral:66) indica «A1–A3» sin G0; lo cierran :22 y :29, pero conviene añadir G0 en esa celda.
+
+**Límites:** el conteo «12 metadatos» solo consta en tu mensaje; sin el archivo A0 no confirmo permisos, cuota 403 ni la no existencia material del gateway. No certifico la nube ni el plan completo.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: MASTERPLAN.md:26,52; backlog.md:25,36,37; gantt.md:14,16,17; HANDOFF.md:16,20; plan-integral:22,29,62,64,102 — los tres puntos quedan resueltos dentro de los fragmentos.
+NEGATIVOS: autenticación de aplicación de Account fuera de la lectura (MASTERPLAN.md:26); cuota 403 e IAM/VPC del gateway pendientes (MASTERPLAN.md:52; backlog.md:36); «bases vacías no validan la conciliación» (plan-integral:62); reserva externa por HTTP deshabilitada (MASTERPLAN.md:62); sin Cloud SQL ni saldo ficticio (gantt.md:25).
+BLOQUEOS: ninguno para este alcance; confirmar el A0 material exige docs/reviews/LV-019-B-a0-readback-20261126.md, no suministrado.
+=== FIN RESUMEN ===

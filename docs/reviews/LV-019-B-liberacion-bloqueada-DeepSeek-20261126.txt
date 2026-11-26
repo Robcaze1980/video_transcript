@@ -1,0 +1,11 @@
+Vistavo LV-019.B 1.4b.3, revisión estática preliminar; base 255aa5e, diff SHA-256 2dc9f9edf77794a54d253f0e0efab4d89c99a384e96ba843b8363284ca302dcc.
+Vía: respaldo OpenRouter autorizado sin herramientas; modelo servido: deepseek/deepseek-v4.1-flash; generación: gen-1795710213-VSQOTyjql9qpb5h9FMWB; entrada 30747, salida 16626, costo USD 0.028883547.
+
+Hallazgos de cierre: (1) Carrera en `server/commercial/firestoreBackend.ts` L1091-1097: si dos drenadores leen `status_reserved` antes de que el primero prepare terminal, el segundo ve versiones distintas de `origin/releaseWitness/releaseRecovery` y `preserveDirectUncertainty` crea incidencia/`needs_review`, aunque el avance fue válido; falta excepción para terminal ya preparado por el mismo witness. (2) L1972-1980: `escalateStaleBillingRows` no lee `billingGuards`; a 48 h puede mover `release_pending/outbox` bloqueado a `needs_review`. Si el dueño no admite esa excepción, incumple conservación bajo bloqueo. (3) L273-274 y `account/backend.ts` L458: bloqueo solo de Cuenta puede devolver `conflict`; no hay propagación estática a Video y podría contar intento/reintento. (4) La frase “Nunca capturar bajo bloqueo” no queda garantizada en carrera: la prueba L273-359 muestra un capture ya autorizado llegando a Account tras surgir el guard de Video; falta fence distribuido. `status_not_found` prepara seal; `seal_reserved` es release tras POST de seal. Para el gate de devolución hacen falta `status_reserved` y `seal_reserved`; la nueva deferencia solo cubre `status_reserved`. No comprobé batería financiera, catch posterior a L330, `billingBlocked/externalIntentTransitionDue` ni ejecución real. Controles negativos: E-4 L296-335 y outbox L361-408 conservan fila/intentos; A-5 L442-460; captura concurrente L273-359; otra cuenta intacta.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: diff SHA-256 2dc9f9edf77794a54d253f0e0efab4d89c99a384e96ba843b8363284ca302dcc; firestoreBackend.ts L1091-1097, L1972-1980; firestoreAi.ts L263-266, L273-274; account/backend.ts L458.
+NEGATIVOS: E-4 bloqueo de release conserva fila e intentos y no POST; outbox bloqueado conserva fila; A-5 no captura/release bajo bloqueo; otra cuenta intacta.
+BLOQUEOS: No ejecuté pruebas; faltan catch posterior a L330, definiciones externas y batería financiera en curso.
+=== FIN RESUMEN ===
