@@ -1,0 +1,104 @@
+Voy a confirmar el estado del repositorio y leer los documentos de control vigentes antes de mapear el código.
+
+Estado confirmado: HEAD `d166133`, con cambios locales activos y sin tocar `server/commercial/billingUnblock.ts`. Ahora reviso los documentos de control y el alcance C1.
+
+La salida quedó truncada, así que leo solo los bloques de estado y las secciones de C1 del plan integral para no perder criterios.
+
+Los criterios C1 están claros: identidad + revisión/recibo + marca + intención/reserva en Cuenta, solo emulador e interfaz apagada. Ahora mapeo el código relevante, sin leer el archivo bloqueado.
+
+El mapeo por literales fue demasiado amplio. Voy por rutas específicas: contrato de Cuenta, cliente comercial, backend de video y pruebas de voz ya existentes.
+
+La interfaz existente de voz es ensayo privado sin descontar saldo; la voy a distinguir explícitamente del flujo comercial. Reviso ahora el bloqueo actual y los artefactos de revisión/recibo en Video.
+
+Tengo la marca y el mecanismo de intención/reserva ya construidos, pero necesito distinguir qué está integrado y qué queda como prueba sintética. Reviso los emuladores existentes y el flujo HTTP real.
+
+La voz sigue formalmente cerrada en el flujo público (`firestoreHttp.ts` rechaza `narration:*`), pero el servicio interno ya tiene una implementación parcial con Cuenta sintética y pruebas en emulador. Reviso ahora los detalles de ese flujo y los contratos de recuperación que C1 puede reutilizar.
+
+La protección funcionó correctamente: me equivoqué al intentar leer `billingUnblock.ts`; no lo tocaré ni intentaré inferir su contenido. Continúo solo con el mapa estructural y el diseño de C1.
+
+Entendido: evito también búsquedas amplias que puedan tocar ese archivo. Con lo ya mapeado es suficiente para el plan; a continuación reviso la parte HTTP del desbloqueo y el panel móvil sin tocar el archivo bloqueado.
+
+# Plan C1 de voz · LV-019.B
+
+**Estado examinado**
+- Repositorio `Robcaze1980/video_transcript` en HEAD `d166133`; cambios locales activos en documentos, `firestoreBackend.ts`, `billingPendingReport.ts`, `billingReadOnlyRoot.ts` y archivos nuevos de 1.4b. No se leyó `server/commercial/billingUnblock.ts`.
+- `MASTERPLAN.md` y `backlog.md` confirman: voz reabierta solo local, clientes cerrados, despliegue bloqueado, 1.4b.2 pendiente y `billingUnblock.ts` activo en revisión concurrente.
+- C1 exige: identidad → revisión/recibo → marca → intención/reserva Cuenta, en la misma transacción local de Video. Cuenta y video están en bases Firestore separadas; no puede haber una transacción única entre ambas.
+
+**Código y pruebas ya existentes**
+- Revisión estructurada: `firestoreReviewedTranslation.ts` expone `voiceBindingInTransaction`; valida identidad, cuenta, input, proyecto, trabajo de texto, artefacto, revisión, recibo, hashes y `billableSeconds`.
+- Marca de voz: `reviewedVoiceMarker.ts` y `reviewedVoiceCanonical.ts` son codecs puros con pruebas y vectores; autentican contenido, no procedencia ni cobro.
+- Intención/reserva externa: `firestoreAi.ts` ya implementa `enqueue` con `AccountBillingClient`, `beginExternalBillingIntent`, `prepareExternalReserveAttempt`, ACK durable y recuperación. `firestoreBackend.ts` guarda ACK y trabajo en una transacción de Video; Cuenta queda fuera de esa transacción.
+- `AccountStore`: `server/account/backend.ts` tiene `reserveVideo`, `admitVideoCall`, `settleVideo`, `videoReservation`, `blockVideoBilling` y `unblockVideoBilling`; `billingDrainSection.emulator.mjs` muestra el adaptador `LocalAccountTransport` que usa `AccountStore` real detrás de `AccountBillingClient`.
+- Bloqueo actual de voz: la ruta pública (`firestoreHttp.ts`, `firestoreAiHttp.ts`, `quoteForUid`, `enqueueForUid`) sigue rechazando `narration:*`. El flujo interno existe pero no está conectado a clientes.
+- Pruebas sintéticas ya escritas: `voiceReviewedBinding.emulator.mjs`, `voiceReviewedRecovery.emulator.mjs`, `runVoiceReviewedBindingEmulator.mjs`, `runVoiceReviewedRecoveryEmulator.mjs`, `runVoiceWorkerGateEmulator.mjs`, `runFinancialVoiceRejectEmulator.mjs`, `cloudCandidateVoice*.browser.mjs`. Usan proveedor y Cuenta sintéticos o reales pero locales. `pipelineVoicePostgres.test.ts` es legado y no pertenece a la candidata Firestore.
+
+**Primer incremento C1 alcanzable**
+- Archivo nuevo: `server/commercial/voiceReservations.ts` con tres funciones: `prepareVoiceReservation`, `completeVoiceReservationFromAck`, `recoverVoiceReservationByStatus`.
+- Colección nueva en Video: `voiceReservations` con `{requestKey, accountId, identityKey, inputId, textJobId, revision, voiceId, bindingHash, reservationId, state, createdAtMs, ackAtMs}`.
+- No modificar `firestoreHttp.ts`, `firestoreAiHttp.ts`, `firestoreAi.ts`, `firestoreBackend.ts`, `billingUnblock.ts` ni interfaz. Se prueba como servicio interno y se deja sin ruta pública.
+- El `reservationId` se deriva de `(accountId, identityKey, inputId, operation, revision, requestKey)` para que Cuenta pueda rechazar reuso con otra identidad o segundos.
+
+**Orden de escrituras**
+1. Gateway verifica Firebase y entrega `uid`/`accountId` al servicio.
+2. Transacción de Video: leer identidad, cuenta, input, proyecto, texto terminado, artefacto, revisión y recibo; crear `voiceReservations` con `state:'reserved'`, `reservationId` y hash del vínculo.
+3. Llamar a `AccountStore.reserveVideo` mediante el adaptador local. Cuenta es autoridad del saldo y bloqueos.
+4. Si llega ACK: en una nueva transacción de Video crear `voiceReservations` con `state:'ack'` y `reservationId`. Si la escritura falla, conservar ACK como observación y no crear trabajo.
+5. Si no llega ACK: dejar `state:'reserved'` con `nextAttemptAt`; no liberar automáticamente.
+
+**Recuperación de ACK perdido**
+- Drenaje local lee `voiceReservations` pendientes y llama a `AccountStore.videoReservation(identityKey, reservationId)`.
+- Si Cuenta devuelve `reserved`: completar el ACK en Video y crear el trabajo de voz.
+- Si Cuenta devuelve `not_found` o `released`: cerrar la intención y no crear trabajo.
+- Si hay conflicto de identidad o segundos: no tocar Cuenta; marcar revisión.
+
+**Pruebas mínimas**
+- Happy path: una reserva, un ACK y un trabajo; reserva en Cuenta y trabajo en Video en bases separadas.
+- Repetición con mismo `requestKey`: una sola reserva en Cuenta.
+- ACK perdido con reserva vigente: el drenaje completa el trabajo una vez.
+- ACK perdido con reserva liberada: la intención se cierra sin trabajo.
+- Saldo insuficiente: Cuenta rechaza y Video no crea trabajo.
+- UID de otra cuenta: no puede reservar voz de un texto/revisión ajeno.
+- Revisión o recibo alterados: la reserva nueva falla; la existente no se reutiliza.
+- `pipelineVoicePostgres.test.ts` no se usa como referencia de la candidata.
+
+**Criterios anti-doble-cargo y anti-texto-ajeno**
+- `reservationId` derivado de la tupla exacta y Cuenta rechaza conflicto de identidad o segundos.
+- ACK persistido antes de crear el trabajo; sin ACK no hay trabajo ni reintento de reserva.
+- Ninguna captura hasta verificar WAV y `voiceTextSha256`.
+- No abrir ruta pública hasta C2/C3/C5/C6 y cierre financiero 1.4b/1.7.
+
+**iPhone/Android físicos**
+- Requiere endpoint local accesible por HTTPS o túnel restringido, no despliegue.
+- Requiere Safari/Chrome con Firebase Auth en el dispositivo y mismo origen.
+- Requiere permisos del dueño para red local, cámara/selector de archivos y pruebas de reanudación tras suspender.
+- No se prueba voz hasta que C2/C3 estén integrados.
+
+**Pendientes explícitos**
+- Contrato exacto de `billingUnblock.ts` está fuera de este plan por la revisión activa.
+- Falta confirmar que `firestoreBackend.ts` actual ya acepta `operation: 'narration:*'` con la marca y no solo con texto revisado plano.
+- Falta prueba con `AccountStore` real en la ruta de voz (no con doble sintético).
+- Falta integración con `voiceBindingInTransaction` antes de escribir el intento.
+- Falta la puerta 1.4b y 1.7 antes de integrar C1 en la candidata.
+
+**No medido**
+- Costo/modelo servido de T3: no medido. No se invocó T3 en esta tarea.
+- Resultado: planificación estructural, no certificación de producto.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA:
+- `MASTERPLAN.md`, `backlog.md`, `gantt.md`, `bitacora.md`, `errorlogs.md`, `HANDOFF.md` revisados.
+- `docs/specs/LV-019-B-plan-integral-20261120.md`, `docs/specs/LV-019-B-voz-desde-revision.md`, `docs/specs/LV-019-B-voz-integracion-local.md`, `docs/specs/LV-019-B-voz-canon-v1.md`.
+- Código mapeado: `firestoreReviewedTranslation.ts`, `reviewedVoiceMarker.ts`, `reviewedVoiceCanonical.ts`, `firestoreAi.ts`, `firestoreBackend.ts`, `firestoreHttp.ts`, `firestoreAiHttp.ts`, `AccountStore` y adaptador local de `AccountBillingClient`.
+- Pruebas existentes: `voiceReviewedBinding.emulator.mjs`, `voiceReviewedRecovery.emulator.mjs`, `runVoiceReviewedBindingEmulator.mjs`, `runVoiceReviewedRecoveryEmulator.mjs`, `runVoiceWorkerGateEmulator.mjs`, `runFinancialVoiceRejectEmulator.mjs`, `cloudCandidateVoice*.browser.mjs`.
+- `server/commercial/billingUnblock.ts` no leído; 1.4b.2 sigue abierta.
+- Repositorio en HEAD `d166133` con cambios locales; no se ejecutaron pruebas ni se usó nube.
+NEGATIVOS:
+- Ninguno nuevo identificado en esta revisión de solo lectura.
+BLOQUEOS:
+- 1.4b.2 abierta y `billingUnblock.ts` en revisión concurrente: no integrar C1 hasta cerrar el paso financiero.
+- Falta contratar prueba de voz con `AccountStore` real (no doble sintético).
+- Falta integrar `voiceBindingInTransaction` antes de crear el intento.
+- La voz no debe abrirse a clientes hasta C2/C3/C5/C6 y las puertas del plan integral.
+=== FIN RESUMEN ===

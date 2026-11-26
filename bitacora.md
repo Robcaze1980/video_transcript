@@ -1872,3 +1872,5 @@ T3 recibió HTTP 402 y una revisión repitió operaciones con consumo parcial el
 El diagnóstico posterior del puerto preservó un primer intento FALLA por una ruta de perfil incorrecta. Con el lanzador corregido y una copia que adapta exclusivamente la condición del puerto de prueba, el archivo afectado pasó 41/41; se guardaron ambos resultados. Es un diagnóstico acotado y no sustituye la batería completa de la versión final.
 
 Se subió el corte de trabajo a GitHub en la rama `codex/vistavo-checkpoint-20261125` (primer commit `668a36d`), con evidencia sintética portable, el borrador incompleto identificado y el estado pendiente. La rama es un respaldo de trabajo, no una publicación del procesamiento.
+
+Para la fase de voz se preservó el informe de GLM como borrador no aceptado y se preparó un encargo C1 más acotado, sin enviarlo ni integrar código. El borrador proponía una reserva nueva antes de confirmar Cuenta; el seguimiento quedó sin respuesta por HTTP 402. [Adjudicación](docs/reviews/LV-019-B-voz-c1-borrador-adjudicacion-2026-11-25.md).
