@@ -261,7 +261,7 @@ export class FirestoreAi {
           await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);
           continue;
          }
-   const initialStatus=await this.backend.captureDirectObservation(witness,row.requestKey,'status',true);
+   const initialStatus=await this.backend.captureDirectObservation(witness,row.requestKey,'status',true,'before_status');
    if(initialStatus&&'blocked' in initialStatus){intentsFailed++;continue;}
    const statusSnapshot=copyDirectObservationSnapshot(initialStatus);
    if(!statusSnapshot){intentsFailed++;await this.backend.recordExternalBillingIntentStall(row.accountId,row.requestKey,'unavailable').catch(()=>undefined);continue;}
@@ -335,7 +335,7 @@ export class FirestoreAi {
     intentsFailed++;continue;
    }
    let fenced:{state:'release_pending';transitioned:boolean}|{state:'job_created';jobId:string};
-   try{fenced=await this.backend.claimExternalBillingRelease(row.accountId,row.requestKey,billing);}
+   try{fenced=await this.backend.claimExternalBillingRelease(row.accountId,row.requestKey,billing,{snapshot:statusSnapshot,observed:held});}
    catch(error){
     if(!(error instanceof LedgerFault)||error.code!=='conflict')throw error;
     // A blocked account (or an invalid admission guard) closes the A-3 row for review without

@@ -214,6 +214,15 @@ export function copyDirectObservationSnapshot(value:unknown):DirectObservationSn
     return {attemptId,source:source as DirectObservationSnapshot['source'],witness,versions};
   }catch{return null;}
 }
+type A3StatusRead = Readonly<{snapshot:DirectObservationSnapshot; observed:ExternalBillingObservation}>;
+
+// Only the simple text intent has a fixed scalar schema in this writer version.
+// Hash ordered fields to preserve the complete row without copying its request key into a second collection.
+const a3ReceiptIntentFields=['id','accountId','inputId','requestKey','operation','revision','provider','identityKey',
+  'reservationId','seconds','state','createdAtMs','updatedAtMs','nextAttemptAt','attempts'] as const;
+function a3IntentDigest(row:Record<string,unknown>){
+  return hash(['a3-text-intent-v1',a3ReceiptIntentFields.map(field=>[field,row[field]])]);
+}
 function directSnapshotHash(snapshot:DirectObservationSnapshot){return hash(['direct-observation-v1',snapshot.attemptId,snapshot.source,snapshot.witness,directDocumentNames.map(name=>[name,snapshot.versions[name]])]);}
 function preparationHistory(snapshot:DirectObservationSnapshot,action:'seal'|'release',reason:TerminalReason){
   // Independent status calls have different attempt ids but may have read exactly the same document versions.
@@ -526,11 +535,32 @@ function rethrowLocalVoiceMarkerError(error:unknown):never {
 
 export class FirestoreBackend {
   private readonly unverifiedTestInputs:boolean;
+  private readonly a3ReceiptNonce?:string;
   constructor(private readonly db: Firestore, private readonly root: DocumentReference,
-    options:{allowUnverifiedInputsForTests?:true}={}) {
+    options:{allowUnverifiedInputsForTests?:true;a3FenceReceiptFixtureNonce?:string}={}) {
+    this.a3ReceiptNonce=options.a3FenceReceiptFixtureNonce;
+    if(this.a3ReceiptNonce!==undefined&&!this.a3ReceiptTarget())throw new LedgerFault('invalid');
     this.unverifiedTestInputs=options.allowUnverifiedInputsForTests===true;
     if(this.unverifiedTestInputs&&(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8185'||
       !/^vistavo_(backend_test|transport_test|grpc_control)\/[a-f0-9-]{36}$/.test(root.path)))throw new LedgerFault('invalid');
+  }
+  private a3ReceiptTarget(){
+    const client=this.db as Firestore & {projectId?:string;_settings?:{servicePath?:string;port?:number;ssl?:boolean}};
+    return typeof this.a3ReceiptNonce==='string'&&localVoiceRequestUuid.test(this.a3ReceiptNonce)&&
+      process.env.NODE_ENV==='test'&&process.env.FIRESTORE_EMULATOR_HOST==='127.0.0.1:8185'&&
+      this.db===this.root.firestore&&client.projectId==='demo-vistavo-ledger'&&client.databaseId==='(default)'&&
+      client._settings?.servicePath==='127.0.0.1'&&client._settings.port===8185&&client._settings.ssl===false&&
+      this.root.parent.path==='vistavo_a3_exit_video_synthetic'&&localVoiceRequestUuid.test(this.root.id);
+  }
+  private async verifyA3ReceiptRoot(tx:Transaction){
+    if(!this.a3ReceiptTarget())throw new LedgerFault('invariant');
+    const root=await tx.get(this.root);
+    if(!root.exists||root.get('purpose')!=='a3-exit-synthetic'||root.get('nonce')!==this.a3ReceiptNonce)
+      throw new LedgerFault('invariant');
+  }
+  private a3StatusAttempt(snapshot:DirectObservationSnapshot){
+    return {protocol:1,kind:'a3_status_request',namespace:this.root.path,fixtureNonce:this.a3ReceiptNonce,
+      snapshot,expectedReservationId:snapshot.witness.reservationId,expectedSeconds:snapshot.witness.seconds};
   }
   private usable(input:Input,inputId:string,job?:Job){
     return !input.deleted&&input.expiresAtMs>Date.now()&&
@@ -613,10 +643,10 @@ export class FirestoreBackend {
       if(row&&!row.jobId&&['reserve_pending','release_pending'].includes(row.state))tx.update(d.intent.ref,{state:'needs_review',reviewReason:'direct_status_uncertain',reviewIncidentId:key,updatedAtMs:now});
     }
   }
-  /** One synthetic/local call snapshot. It does not persist an attempt or authenticate Account. */
+  /** A read snapshot. Only the explicitly marked D2 fixture records before_status requests; this does not authenticate Account. */
   async captureDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source']):Promise<DirectObservationSnapshot|null>;
-  async captureDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],reportBlocked:true):Promise<DirectObservationSnapshot|{blocked:true}|null>;
-  async captureDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],reportBlocked=false):Promise<DirectObservationSnapshot|{blocked:true}|null>{
+  async captureDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],reportBlocked:true,stage?:'before_status'):Promise<DirectObservationSnapshot|{blocked:true}|null>;
+  async captureDirectObservation(witness:ExternalBillingIntentWitness,requestKey:string,source:DirectObservationSnapshot['source'],reportBlocked=false,stage?:'before_status'):Promise<DirectObservationSnapshot|{blocked:true}|null>{
     validIntentWitness(witness);witness=copyIntentWitness(witness);validIntentWitness(witness);text(requestKey);
     if(hash([witness.accountId,requestKey])!==witness.intentId||!['status','seal','release'].includes(source))throw new LedgerFault('invalid');
     const attemptId=randomUUID();return this.db.runTransaction(async tx=>{
@@ -629,7 +659,13 @@ export class FirestoreBackend {
       }
       const versions={} as Record<DirectDocumentName,TerminalRecoveryDocumentVersion>;
       for(const name of directDocumentNames){const version=terminalDocumentVersion(docs[name]);if(!version)return null;versions[name]=version;}
-      return copyDirectObservationSnapshot({attemptId,source,witness,versions});
+      const snapshot=copyDirectObservationSnapshot({attemptId,source,witness,versions});
+      if(this.a3ReceiptNonce!==undefined&&stage==='before_status'&&source==='status'&&snapshot&&
+        witness.operation==='translation:en'&&docs.intent.get('state')==='reserve_pending'){
+        await this.verifyA3ReceiptRoot(tx);
+        tx.create(this.ref('billingA3StatusAttempts',attemptId),this.a3StatusAttempt(snapshot));
+      }
+      return snapshot;
     });
   }
   /** Preserve uncertainty from a read-only reserved status; never admit work or move balance. */
@@ -1548,6 +1584,44 @@ export class FirestoreBackend {
       externalIntentTransitionDue(d);tx.update(ref,{state,updatedAtMs:Date.now()});return true;
     });
   }
+  /** Write-only synthetic pilot. No consumer, outbox, grant, or Account operation is derived from this record. */
+  private async stageLocalA3FenceReceipt(tx:Transaction,witness:ExternalBillingIntentWitness,requestKey:string,
+    read:A3StatusRead,nextAttemptAt:number){
+    await this.verifyA3ReceiptRoot(tx);
+    const d=await this.directObservationDocs(tx,witness);
+    const receipt=this.ref('billingA3FenceReceipts',witness.intentId);
+    const attempt=this.ref('billingA3StatusAttempts',read.snapshot.attemptId);
+    const [started,prior]=await tx.getAll(attempt,receipt);
+    if(prior.exists||!started.exists||!terminalDocumentVersion(started)||!started.createTime?.isEqual(started.updateTime!)||
+      !isDeepStrictEqual(started.data(),this.a3StatusAttempt(read.snapshot))||
+      !this.matchingDirectObservation(read.snapshot,d,witness,requestKey,'status')||
+      !d.project.exists||d.project.get('inputId')!==witness.inputId||d.project.get('revision')!==witness.revision||
+      d.input.get('deleted')!==false||d.sealWitness.exists||d.releaseWitness.exists||
+      read.observed.state!=='reserved'||read.observed.reservationId!==witness.reservationId||read.observed.seconds!==witness.seconds){
+      throw new LedgerFault('invariant');
+    }
+    const row=d.intent.data()!;
+    const evaluatedAtMs=Math.floor(d.intent.readTime.toMillis());
+    if(!Number.isSafeInteger(evaluatedAtMs)||evaluatedAtMs<0||Object.keys(row).length!==a3ReceiptIntentFields.length||
+      !a3ReceiptIntentFields.every(field=>Object.hasOwn(row,field))||row.state!=='reserve_pending'||
+      !['createdAtMs','updatedAtMs','nextAttemptAt','attempts'].every(field=>Number.isSafeInteger(row[field])&&row[field]>=0)||
+      row.updatedAtMs<row.createdAtMs||row.updatedAtMs>evaluatedAtMs||row.nextAttemptAt>evaluatedAtMs||witness.operation!=='translation:en'||
+      row.createdAtMs!==d.origin.get('createdAtMs')||classifyA3ReplayWindow({createdAtMs:row.createdAtMs},evaluatedAtMs)!=='due'){
+      throw new LedgerFault('invariant');
+    }
+    const patch={state:'release_pending',updatedAtMs:evaluatedAtMs,nextAttemptAt};
+    tx.create(receipt,{
+      protocol:1,kind:'a3_fence_writer_evidence',namespace:this.root.path,fixtureNonce:this.a3ReceiptNonce,
+      witness,requestKeySha256:textHash(requestKey),statusAttemptId:read.snapshot.attemptId,
+      statusSource:'status',returnedStatus:read.observed,beforeVersions:read.snapshot.versions,
+      startedRequest:{path:attempt.path,version:terminalDocumentVersion(started)},
+      intentBeforeSha256:a3IntentDigest(row),intendedIntentAfterSha256:a3IntentDigest({...row,...patch}),
+      intentCreatedAtMs:row.createdAtMs,evaluatedAtMs,clockSource:'video_transaction_read_time',
+      policy:{version:1,windowMs:A3_REPLAY_WINDOW_MS,skewMs:A3_CLOCK_SKEW_MS},
+      writes:{updateIntent:{path:d.intent.ref.path,fields:patch},createReceipt:{path:receipt.path}},
+    });
+    return patch;
+  }
   /** Fence job creation in video Firestore before a separately authorized remote release. */
   async fenceExternalBillingRelease(accountId:string,requestKey:string,billing:ExternalVideoBilling):Promise<ExternalBillingReleaseFence>{
     const claimed=await this.claimExternalBillingRelease(accountId,requestKey,billing);
@@ -1559,9 +1633,16 @@ export class FirestoreBackend {
    * single release: the loser sees `transitioned:false` and must not contact Account again. Behavior is otherwise
    * identical to `fenceExternalBillingRelease` (work check, blocked guard, admission guard).
    */
-  async claimExternalBillingRelease(accountId:string,requestKey:string,billing:ExternalVideoBilling):Promise<{state:'release_pending';transitioned:boolean}|{state:'job_created';jobId:string}>{
+  async claimExternalBillingRelease(accountId:string,requestKey:string,billing:ExternalVideoBilling,statusRead?:A3StatusRead):Promise<{state:'release_pending';transitioned:boolean}|{state:'job_created';jobId:string}>{
     identifier(accountId);text(requestKey);if(!billing||typeof billing!=='object')throw new LedgerFault('invalid');
     const authorizedBilling=copyExternalBilling(billing);validExternalBilling(authorizedBilling);
+    let localRead:A3StatusRead|undefined;
+    if(this.a3ReceiptNonce!==undefined&&statusRead!==undefined){
+      const snapshot=copyDirectObservationSnapshot(statusRead.snapshot);
+      if(!snapshot||snapshot.source!=='status')throw new LedgerFault('invalid');
+      const {state,reservationId,seconds}=statusRead.observed;
+      localRead={snapshot,observed:{state,reservationId,seconds}};
+    }
     const key=hash([accountId,requestKey]),account=this.ref('accounts',accountId),intent=this.ref('billingIntents',key),request=this.ref('requests',key),guard=this.ref('billingGuards',accountId),intentGuard=this.ref('billingIntentAdmissionGuards',key);
     return this.db.runTransaction(async tx=>{
       const [a,d,prior,blocked,admission]=await tx.getAll(account,intent,request,guard,intentGuard);if(!a.exists)throw new LedgerFault('not_found');
@@ -1572,7 +1653,10 @@ export class FirestoreBackend {
       if(row.state==='release_pending'){externalIntentTransitionDue(d);return {state:'release_pending',transitioned:false};}
       if(row.state!=='reserve_pending')throw new LedgerFault('conflict');
       const nextAttemptAt=externalIntentTransitionDue(d);
-      tx.update(intent,{state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt});return {state:'release_pending',transitioned:true};
+      const patch=localRead?await this.stageLocalA3FenceReceipt(tx,
+        intentWitness(accountId,row.inputId,requestKey,row.operation,row.revision,authorizedBilling),requestKey,localRead,nextAttemptAt):
+        {state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt};
+      tx.update(intent,patch);return {state:'release_pending',transitioned:true};
     });
   }
   /**

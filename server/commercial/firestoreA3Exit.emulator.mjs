@@ -109,6 +109,205 @@ async function otherAccount(c){
  return {account,identityKey:accountIdentityKey(uid)};
 }
 
+// D2. The AccountStore transaction commits normally. Only delivery of its HTTP adapter's response is paused.
+// Neither the snapshots, the actual ACK, the call to enqueue, nor the drainer's decision are mocked.
+for(const history of ['intact','missing ACK','changed ACK','reassigned identity','restored project','altered origin','additional account write']){
+ test(`D2 delayed reserved status after a real admitted job: ${history}`,{timeout:WORK_TIMEOUT_MS},async()=>{
+  const c=await fixture('d2_job'),requestKey=randomUUID(),intent=intentRef(c,requestKey);
+  const foreignUid='d2-foreign-'+randomUUID(),foreign=await c.backend.accountForUid(foreignUid);
+  await c.store.bootstrap(foreignUid);
+  const otherIdentity=accountIdentityKey(foreignUid),otherBefore=await c.store.videoBalance(otherIdentity);
+  const ledger=c.accountRoot.collection('ledgerEntries'),initialLedger=(await ledger.get()).size;
+  const reserved=Promise.withResolvers(),giveAck=Promise.withResolvers(),read=Promise.withResolvers(),deliver=Promise.withResolvers();
+  const request=c.transport.request.bind(c.transport);
+  c.transport.request=async call=>{
+   const response=await request(call),pathname=new URL(call.url).pathname;
+   if(pathname==='/api/internal/video/reservations'){
+    reserved.resolve(response.data);
+    await bounded(giveAck.promise,30000,'deliver original reserve ACK');
+   }else if(pathname.endsWith('/status')){
+    read.resolve(response.data);
+    await bounded(deliver.promise,30000,'deliver delayed Account status');
+   }
+   return response;
+  };
+  const enqueuing=c.ai.enqueue(c.account,c.input,'translation:en',1,requestKey,c.uid);enqueuing.catch(()=>undefined);
+  let draining,jobId,billing;
+  try{
+   const ack=await bounded(reserved.promise,30000,'AccountStore reserves once');
+   billing={reservationId:ack.reservationId,seconds:2,state:'reserved'};
+   assert.equal(ack.state,'reserved');assert.equal(ack.seconds,2);
+   const pending=await intent.get();assert.equal(pending.get('state'),'reserve_pending');
+   assert.equal((await c.root.collection('billingReserveAttempts').get()).size,1);
+   assert.equal((await c.root.collection('billingReserveAckObservations').get()).size,0);
+   draining=c.ai.drainExternalBilling(undefined,{now:pending.get('createdAtMs')+1});draining.catch(()=>undefined);
+   assert.deepEqual(await bounded(read.promise,30000,'status reads Account before Video commits'),billing);
+   assert.equal(await jobs(c),0);
+   giveAck.resolve();jobId=await bounded(enqueuing,30000,'job and direct ACK commit');
+   const after=await intent.get(),requestDoc=await ref(c.root,'requests',intent.id).get(),marker=await ref(c.root,'billingIntentJobMarkers',intent.id).get();
+   assert.equal(after.get('state'),'job_created');assert.equal(after.get('jobId'),jobId);
+   assert.equal(requestDoc.get('jobId'),jobId);assert.equal(marker.get('jobId'),jobId);
+   const acks=await c.root.collection('billingReserveAckObservations').get();assert.equal(acks.size,1);
+   const direct=acks.docs[0],prepared=await ref(c.root,'billingReserveAttempts',direct.id).get();
+   assert.equal(direct.get('source'),'reserve_ack');assert.equal(direct.get('attemptId'),direct.id);
+   assert.equal(direct.get('reservationId'),ack.reservationId);assert.equal(direct.get('seconds'),2);
+   assert.equal(direct.get('intentId'),intent.id);assert.equal(prepared.get('attemptId'),direct.id);
+   assert.equal(prepared.get('witness').identityKey,c.identity);
+   if(history==='missing ACK')await direct.ref.delete();
+   if(history==='changed ACK')await direct.ref.update({seconds:3});
+   if(history==='reassigned identity')await ref(c.root,'identities',c.identity).update({accountId:foreign});
+   if(history==='restored project'){
+    const projectRef=ref(c.root,'projects',c.input),original=await projectRef.get();
+    await projectRef.update({draft:'synthetic intermediate draft'});
+    await projectRef.update({draft:original.get('draft')});
+    assert.deepEqual((await projectRef.get()).data(),original.data());
+    assert.equal((await projectRef.get()).updateTime.isEqual(original.updateTime),false);
+   }
+   if(history==='altered origin')await ref(c.root,'billingIntentWitnesses',intent.id).update({reservationId:randomUUID()});
+   if(history==='additional account write')await ref(c.root,'accounts',c.account).update({d2UnrelatedRevision:1});
+   deliver.resolve();await bounded(draining,30000,'consume old reserved response');
+  }finally{
+   giveAck.resolve();deliver.resolve();
+   await Promise.allSettled(draining?[enqueuing,draining]:[enqueuing]);
+   c.transport.request=request;
+  }
+  assert.equal(await jobs(c),1);assert.equal((await ref(c.root,'jobs',jobId).get()).get('state'),'queued');
+  assert.deepEqual(c.transport.bodies.map(call=>call.path.split('/').at(-1)),['reservations','status']);
+  assert.deepEqual(await c.store.videoReservation(c.identity,billing.reservationId),billing);
+  assert.equal((await c.accountRoot.collection('videoReservations').get()).size,1);
+  assert.equal((await ledger.where('kind','==','video_reserve').get()).size,1);
+  assert.equal((await ledger.get()).size,initialLedger+1);
+  assert.deepEqual(await balance(c),{unit:'video_seconds',credited:40,available:38,reserved:2,consumed:0,active:1});
+  assert.deepEqual(await localBalance(c),{credited:40,available:40,reserved:0,consumed:0,active:1});
+  assert.deepEqual(await c.store.videoBalance(otherIdentity),otherBefore);
+  assert.equal((await ref(c.root,'billingGuards',foreign).get()).exists,false);
+  const observations=await c.root.collection('billingIntentObservationIncidents').get();
+  const holds=await c.root.collection('billingHoldOutbox').get(),guard=await ref(c.root,'billingGuards',c.account).get();
+  if(history==='intact'){
+   assert.equal(observations.size,0,'the late status must not raise an incident for the genuine admitted job');
+   assert.equal(holds.size,0);assert.equal(guard.exists,false);
+   assert.equal((await c.root.collection('billingReviewIncidents').get()).size,0);
+   assert.equal((await ref(c.root,'billingIntentAdmissionGuards',intent.id).get()).get('state'),'clear');
+  }else{
+   assert.equal(observations.size,1);
+   const observation=observations.docs[0];
+   assert.equal(observation.get('source'),'status');assert.equal(observation.get('observedState'),'reserved');
+   assert.equal(observation.get('intentId'),intent.id);
+   const verified=history!=='reassigned identity'&&history!=='altered origin';
+   assert.equal(observation.get('ownerBlocked'),verified);
+   assert.equal(holds.size,verified?1:0);assert.equal(guard.exists,verified);
+  }
+ });
+}
+
+for(const changed of [false,true]){
+ test(`D2 delayed reserved status after a peer fences the intent: ${changed?'additional write':'intact'}`,{timeout:WORK_TIMEOUT_MS},async()=>{
+  const c=await fixture('d2_fence'),pending=await a3(c),createdAt=(await pending.intent.get()).get('createdAtMs');
+  const firstRead=Promise.withResolvers(),deliver=Promise.withResolvers(),fenced=Promise.withResolvers(),resume=Promise.withResolvers();
+  const request=c.transport.request.bind(c.transport),claim=c.backend.claimExternalBillingRelease.bind(c.backend);
+  let statusCalls=0;
+  c.transport.request=async call=>{
+   const response=await request(call);
+   if(new URL(call.url).pathname.endsWith('/status')&&++statusCalls===1){
+    firstRead.resolve(response.data);
+    await bounded(deliver.promise,30000,'deliver earlier reserved status');
+   }
+   return response;
+  };
+  c.backend.claimExternalBillingRelease=async(...args)=>{
+   const result=await claim(...args);
+   if(result.transitioned){fenced.resolve();await bounded(resume.promise,30000,'resume winner after observed fence');}
+   return result;
+  };
+  const older=c.ai.drainExternalBilling(undefined,{now:createdAt+1});older.catch(()=>undefined);
+  let winner;
+  try{
+   assert.equal((await bounded(firstRead.promise,30000,'first status sees reserved')).state,'reserved');
+   winner=c.ai.drainExternalBilling(undefined,{now:createdAt+30*60*1000});winner.catch(()=>undefined);
+   await bounded(fenced.promise,30000,'another drainer commits the fence');
+   assert.equal((await pending.intent.get()).get('state'),'release_pending');assert.equal(await terminal(c),0);
+   if(changed)await ref(c.root,'projects',c.input).update({draft:'other write beside the fence'});
+   deliver.resolve();await bounded(older,30000,'classify the delayed status');
+   assert.equal(c.transport.bodies.some(call=>call.path.endsWith('/release')),false);
+  }finally{
+   deliver.resolve();resume.resolve();
+   const results=await Promise.allSettled(winner?[older,winner]:[older]);
+   c.backend.claimExternalBillingRelease=claim;c.transport.request=request;
+   for(const result of results)assert.equal(result.status,'fulfilled');
+  }
+  assert.equal(statusCalls,2);
+  const observations=await c.root.collection('billingIntentObservationIncidents').get();
+  assert.equal(observations.size,changed?1:0,'only a second, unexplained transition needs review');
+  assert.equal((await ref(c.root,'billingGuards',c.account).get()).exists,changed);
+  assert.equal((await c.root.collection('billingHoldOutbox').get()).size,changed?1:0);
+  assert.equal(c.transport.bodies.filter(call=>call.path.endsWith('/release')).length,changed?0:1);
+  assert.equal(c.transport.bodies.some(call=>call.path.endsWith('/capture')),false);
+  assert.equal((await c.accountRoot.collection('ledgerEntries').where('kind','==','video_release').get()).size,changed?0:1);
+  assert.equal((await c.store.videoReservation(c.identity,pending.billing.reservationId)).state,changed?'reserved':'released');
+  assert.equal(await jobs(c),0);
+ });
+}
+
+for(const history of ['intact','rewritten project','replaced request','caller clock only']){
+ test('D2 writer-only A3 fence with AccountStore: '+history,{timeout:WORK_TIMEOUT_MS},async()=>{
+  const c=await fixture('d2_writer');
+  const nonce=(await c.root.get()).get('nonce');
+  c.backend=new FirestoreBackend(c.db,c.root,{a3FenceReceiptFixtureNonce:nonce});
+  c.ai=new FirestoreAi(c.db,c.root,c.backend,{},undefined,new AccountBillingClient(undefined,c.transport));
+  // Seed the synthetic historical business dates BEFORE the first status read. SDK clocks remain real.
+  const now=Date.now(),age=history==='caller clock only'?0:31*60_000;
+  const pending=await a3(c,{createdAtMs:now-age});
+  await ref(c.root,'billingIntentWitnesses',pending.intent.id).update({createdAtMs:now-age});
+  const issued=c.root.collection('billingA3StatusAttempts');
+  const receipt=ref(c.root,'billingA3FenceReceipts',pending.intent.id);
+  const originalRequest=c.transport.request.bind(c.transport),originalClaim=c.backend.claimExternalBillingRelease.bind(c.backend);
+  let attemptsAtStatus,claims=0;
+  c.transport.request=async call=>{
+   const result=await originalRequest(call);
+   if(new URL(call.url).pathname.endsWith('/status')){
+    const prepared=await issued.get();assert.equal(prepared.size,1);
+    attemptsAtStatus=prepared.docs[0];assert.equal(attemptsAtStatus.get('snapshot.attemptId'),attemptsAtStatus.id);
+    assert.equal(attemptsAtStatus.get('snapshot.versions.intent.exists'),true);
+    assert.equal((await receipt.get()).exists,false);assert.equal(result.data.state,'reserved');
+    if(history==='rewritten project'){
+     const project=ref(c.root,'projects',c.input),before=await project.get();
+     await project.update({draft:'temporary'});await project.update({draft:before.get('draft')});
+    }
+    if(history==='replaced request')await attemptsAtStatus.ref.update({expectedSeconds:3});
+   }
+   return result;
+  };
+  c.backend.claimExternalBillingRelease=async(...args)=>{
+   const result=await originalClaim(...args);
+   if(result.transitioned){
+    claims++;
+    const evidence=await receipt.get(),row=await pending.intent.get();
+    assert.equal(row.get('state'),'release_pending');assert.equal(await terminal(c),0);
+    assert.equal(evidence.get('statusAttemptId'),attemptsAtStatus.id);
+    assert.deepEqual(evidence.get('beforeVersions'),attemptsAtStatus.get('snapshot.versions'));
+    assert.deepEqual(evidence.get('returnedStatus'),{state:'reserved',reservationId:pending.billing.reservationId,seconds:2});
+    assert.deepEqual(evidence.get('writes.updateIntent.fields'),{state:'release_pending',updatedAtMs:row.get('updatedAtMs'),nextAttemptAt:row.get('nextAttemptAt')});
+    assert.equal(c.transport.bodies.some(x=>x.path.endsWith('/release')),false);
+    // Model replay after losing the response to the local commit. The replay has no dispatch right.
+    assert.deepEqual(await originalClaim(...args),{state:'release_pending',transitioned:false});
+    assert.equal((await receipt.get()).updateTime.isEqual(evidence.updateTime),true);
+   }
+   return result;
+  };
+  const result=await c.ai.drainExternalBilling(undefined,{now:history==='caller clock only'?now+31*60_000:now});
+  assert.ok(attemptsAtStatus);assert.equal((await issued.get()).size,1);
+  const success=history==='intact';
+  assert.equal(claims,success?1:0);assert.equal(result.intentsRecovered,success?1:0);
+  assert.equal((await receipt.get()).exists,success);
+  assert.equal(c.transport.bodies.filter(x=>x.path.endsWith('/release')).length,success?1:0);
+  assert.equal(c.transport.bodies.filter(x=>x.path.endsWith('/capture')||x.path.endsWith('/seal')).length,0);
+  assert.equal((await c.accountRoot.collection('ledgerEntries').where('kind','==','video_release').get()).size,success?1:0);
+  assert.equal((await c.store.videoReservation(c.identity,pending.billing.reservationId)).state,success?'released':'reserved');
+  assert.equal(await jobs(c),0);
+ });
+}
+
+
 test('A3 timeout boundary: one ms before the limit waits; the exact limit releases; never captures',{timeout:WORK_TIMEOUT_MS},async()=>{
  const c=await fixture('boundary');
  const boundaryNow=Date.now();
