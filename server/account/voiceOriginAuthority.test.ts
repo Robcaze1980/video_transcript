@@ -333,3 +333,138 @@ it('retries a racing hold against Account state before admitting a fragment',asy
  expect(after.delete('videoBillingGuards/'+f.A)).toBe(true);
  expect(after).toEqual(before);
 });
+
+it('H1 counts the legacy seal and contradictory resolution after a v3 reservation is lost',async()=>{
+ const f=fixture(),input=await f.issue(),r=f.requestA;
+ const live=f.snapshot(),reservationPath=f.reservationPath(f.A);
+ const stateBefore=await f.store.sealVideoReservation(r.identityKey,r.reservationId,r.seconds);
+ expect(stateBefore).toMatchObject({state:'reserved',created:false});
+ expect(f.snapshot()).toEqual(live);
+ f.drop(reservationPath);
+ const missing=f.snapshot();
+ expect(missing.has(f.originPath())).toBe(true);
+ expect(missing.has(f.claimPath())).toBe(true);
+ await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'conflict'});
+ await expect(f.store.admitVideoCallWithVoiceOrigin(f.scope,input)).rejects.toMatchObject({code:'not_found'});
+ await expect(f.store.videoReservationResolution(r.identityKey,r.reservationId,r.seconds)).rejects.toMatchObject({code:'not_found'});
+ expect(f.snapshot()).toEqual(missing);
+
+ const reply=await f.store.sealVideoReservation(r.identityKey,r.reservationId,r.seconds);
+ expect(reply).toMatchObject({state:'sealed',created:true});
+ const after=f.snapshot(),changes=new Map(after);
+ const tombPath='videoReservationTombstones/'+hash([f.A,r.reservationId]);
+ expect(changes.delete(tombPath)).toBe(true);
+ expect(changes).toEqual(missing);
+ expect(f.data(tombPath)).toMatchObject({state:'sealed',seconds:3,ownerAccountId:f.A});
+ expect(f.data('accounts/'+f.A)).toMatchObject({available:27,reserved:3,active:1,consumed:0});
+ expect(after.get('accounts/'+f.B)).toEqual(live.get('accounts/'+f.B));
+ expect([...after.keys()].filter(key=>key.startsWith('ledgerEntries/'))).toHaveLength(1);
+ const retry=f.makeStore();
+ await expect(retry.sealVideoReservation(r.identityKey,r.reservationId,r.seconds)).resolves.toMatchObject({state:'sealed',created:false});
+ await expect(retry.videoReservationResolution(r.identityKey,r.reservationId,r.seconds)).resolves.toMatchObject({state:'sealed'});
+ await expect(retry.videoReservation(r.identityKey,r.reservationId)).rejects.toMatchObject({code:'not_found'});
+ await expect(retry.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'conflict'});
+ await expect(retry.admitVideoCallWithVoiceOrigin(f.scope,input)).rejects.toMatchObject({code:'conflict'});
+ expect(f.snapshot()).toEqual(after);
+});
+
+it('H1 a surviving v3 origin and debit must preclude a new legacy seal',async()=>{
+ const f=fixture(),r=f.requestA;
+ await f.issue();
+ f.drop(f.reservationPath(f.A));
+ const before=f.snapshot();
+ const result=await f.store.sealVideoReservation(r.identityKey,r.reservationId,r.seconds)
+   .then(value=>value.state,error=>error.code);
+ expect({result,changes:f.snapshot().size-before.size}).toEqual({result:'conflict',changes:0});
+});
+
+it.each(['first','second'] as const)('H3 keeps a surviving %s ordinal after its receipt disappears',async which=>{
+ const f=fixture(),first=await f.issue(),r=f.requestA;
+ const second={...first,callKey:'voice-chunk:0001',requestSha256:'b'.repeat(64)};
+ for(const call of [first,second])await f.store.admitVideoCallWithVoiceOrigin(f.scope,call);
+ const lost=which==='first'?first:second;
+ const reservationPath=f.reservationPath(f.A),receiptPath=reservationPath+'/providerCalls/'+hash(['provider-call-v2',lost.callKey]);
+ const original=f.snapshot();
+ expect(f.data(reservationPath).voiceCallOrdinals).toEqual([0,1]);
+ f.drop(receiptPath);
+ const before=f.snapshot(),fresh=f.makeStore();
+ for(const call of [lost,{...lost,requestSha256:'c'.repeat(64)}]){
+   await expect(fresh.admitVideoCallWithVoiceOrigin(f.scope,call)).rejects.toMatchObject({code:'invariant'});
+   expect(f.snapshot()).toEqual(before);
+ }
+ expect(f.data(reservationPath).voiceCallOrdinals).toEqual([0,1]);
+ expect(f.snapshot().has(receiptPath)).toBe(false);
+ const third={...first,callKey:'voice-chunk:0002',requestSha256:'d'.repeat(64)};
+ if(which==='first'){
+   await expect(fresh.admitVideoCallWithVoiceOrigin(f.scope,third)).rejects.toMatchObject({code:'invariant'});
+   expect(f.snapshot()).toEqual(before);
+ }else{
+   await expect(fresh.admitVideoCallWithVoiceOrigin(f.scope,third)).resolves.toMatchObject({created:true,receiptOnly:false});
+   expect(f.data(reservationPath).voiceCallOrdinals).toEqual([0,1,2]);
+   const after=f.snapshot();
+   expect(after.size).toBe(before.size+1);
+   for(const [path,row] of before)if(path!==reservationPath)expect(after.get(path)).toEqual(row);
+   expect(after.has(reservationPath+'/providerCalls/'+hash(['provider-call-v2',third.callKey]))).toBe(true);
+   await expect(fresh.admitVideoCallWithVoiceOrigin(f.scope,third)).resolves.toMatchObject({created:false,receiptOnly:true});
+   await expect(fresh.admitVideoCallWithVoiceOrigin(f.scope,second)).rejects.toMatchObject({code:'invariant'});
+   expect(f.snapshot()).toEqual(after);
+ }
+ expect(f.snapshot().get('accounts/'+f.A)).toEqual(original.get('accounts/'+f.A));
+ expect(f.snapshot().get('accounts/'+f.B)).toEqual(original.get('accounts/'+f.B));
+ expect([...f.snapshot().keys()].filter(key=>key.startsWith('ledgerEntries/'))).toHaveLength(1);
+ expect(f.data(f.reservationPath(f.A)).seconds).toEqual(r.seconds);
+});
+
+it.each([
+ ['target receipt survives without its ordinal',[0]],
+ ['duplicate ordinal',[0,1,1]],
+ ['unsorted ordinals',[1,0]],
+ ['out-of-range ordinal',[0,1,1000]],
+ ['wrong ordinal type',[0,'1']],
+ ['empty list despite first admission',[]],
+] as const)('H3 rejects %s without recreating or charging',async(_label,index)=>{
+ const f=fixture(),first=await f.issue();
+ const second={...first,callKey:'voice-chunk:0001',requestSha256:'b'.repeat(64)};
+ for(const call of [first,second])await f.store.admitVideoCallWithVoiceOrigin(f.scope,call);
+ const path=f.reservationPath(f.A);
+ f.put(path,{...f.data(path),voiceCallOrdinals:[...index]});
+ const before=f.snapshot();
+ await expect(f.makeStore().admitVideoCallWithVoiceOrigin(f.scope,second)).rejects.toMatchObject({code:'invariant'});
+ expect(f.snapshot()).toEqual(before);
+});
+
+it('DS3 measures reserve replay, first admission and receipt replay after losing only the v3 ledger entry',async()=>{
+ const f=fixture(),first=await f.issue(),r=f.requestA;
+ const intact=f.snapshot(),ledgerPaths=[...intact.keys()].filter(path=>path.startsWith('ledgerEntries/'));
+ expect(ledgerPaths).toHaveLength(1);
+ const ledgerPath=ledgerPaths[0];
+ f.drop(ledgerPath);
+ const missing=f.snapshot(),reservationPath=f.reservationPath(f.A);
+ expect(missing.has(f.originPath())&&missing.has(f.claimPath())&&missing.has(reservationPath)).toBe(true);
+ const retry=f.makeStore();
+ await expect(retry.reserveVideoWithVoiceOrigin(f.scope,r)).resolves.toMatchObject({created:false,state:'reserved',originRef:first.originRef});
+ expect(f.snapshot()).toEqual(missing);
+ await expect(retry.admitVideoCallWithVoiceOrigin(f.scope,first)).resolves.toMatchObject({created:true,receiptOnly:false});
+ const after=f.snapshot();
+ const receiptPath=reservationPath+'/providerCalls/'+hash(['provider-call-v2',first.callKey]);
+ const fencePath=reservationPath+'/providerCallFences/first';
+ expect([...after.keys()].filter(path=>!missing.has(path)).sort()).toEqual([fencePath,receiptPath].sort());
+ expect([...missing.keys()].filter(path=>after.get(path)?.updated!==missing.get(path)?.updated)).toEqual([reservationPath]);
+ expect(after.has(ledgerPath)).toBe(false);
+ expect(after.get('accounts/'+f.A)).toEqual(intact.get('accounts/'+f.A));
+ expect(after.get('accounts/'+f.B)).toEqual(intact.get('accounts/'+f.B));
+ await expect(f.makeStore().admitVideoCallWithVoiceOrigin(f.scope,first)).resolves.toMatchObject({created:false,receiptOnly:true});
+ expect(f.snapshot()).toEqual(after);
+});
+
+it('DS3 an absent reserve ledger should prevent a new fragment from being authorized as economically backed',async()=>{
+ const f=fixture(),first=await f.issue();
+ const beforeLoss=f.snapshot();
+ const ledgerPath=[...beforeLoss.keys()].find(path=>path.startsWith('ledgerEntries/'))!;
+ f.drop(ledgerPath);
+ const before=f.snapshot();
+ const result=await f.makeStore().admitVideoCallWithVoiceOrigin(f.scope,first)
+   .then(response=>response.created?'created':'replay',()=> 'denied');
+ expect({result,changes:f.snapshot().size-before.size,unchanged:f.snapshot().get(f.reservationPath(f.A))?.updated===before.get(f.reservationPath(f.A))?.updated})
+   .toEqual({result:'denied',changes:0,unchanged:true});
+});
