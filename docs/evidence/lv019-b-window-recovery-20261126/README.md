@@ -25,3 +25,13 @@ Cuenta y Video fueron dobles independientes. El prototipo puede verificar la res
 | `outputs/lv019-b-window-recovery-20261126/verified-types.log` (vacío) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 
 Los hashes corresponden a los bytes de la copia de trabajo verificada. Git ignora las salidas de `outputs/`. El respaldo contiene únicamente documentación y código de prueba. Costo y tokens no medidos.
+
+## Revisión del vínculo de la reserva
+
+En una copia aislada de `57cca77`, el primer negativo dejó la suite en **22/23**. Antes del manifiesto, un lector de Video inconsistente puso el ID de una reserva válida de otro input de la misma cuenta para los mismos 151 segundos. El arnés aceptó seis admisiones y seis recepciones simuladas y escribió 19 archivos, con la reserva del doble intacta. Un manifiesto ya fijado rechazaba el cambio. Una ejecución focal anterior a la corrección reprodujo cuatro fallos, uno por cada variante de ID procedente de otro input, operación, revisión o clave literal. Los registros quedan en `outputs/lv019-b-window-recovery-review-20261126/fixture-unit.log` y `donor-red.log`.
+
+El prototipo ahora deriva el ID esperado con `videoReservationId` a partir de la cuenta, la identidad, el input, la revisión y la clave original del trabajo de Video, con la operación `translation:en`. Una discrepancia termina en `unknown` antes de leer la reserva, crear el manifiesto o pedir admisión. La clave se usa tal como llega del lector de Video y se mantiene el formato de manifiesto. La ejecución posterior pasó **37/37 en dos suites**, incluidas **27/27 del prototipo**. Los cuatro negativos se cerraron sin consultas al doble de Cuenta, admisiones, recepciones ni archivos. El códec siguió rechazando otro idioma, silencio y habla sin segmentos antes de persistir el resultado.
+
+La repetición independiente de coordinación también obtuvo **37/37** y terminó con código **0**. Vitest avisó que un worker tardó en finalizar. El resultado corresponde a las pruebas locales de este corte. La revisión dual y la aprobación para producción siguen pendientes.
+
+La comprobación confía en el vínculo original que suministra el lector de Video. Una sustitución coherente de toda la historia por un escritor privilegiado queda fuera de lo observado. Faltan la comprobación durable de esa procedencia entre Cuenta y Video y la recuperación ante caídas reales. El corte sigue limitado a pruebas locales. No se ejecutaron emuladores ni proveedores.

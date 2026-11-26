@@ -4,10 +4,11 @@ import { AI_TEXT_FILE_MAX, AI_TEXT_MAX_WINDOWS, AI_TEXT_WINDOW_MS } from './aiCo
 import { encodeTextBundle, validateProviderTextResult, type ProviderTextCue } from './pipelineTextCodec';
 import { textModel } from './pipelineTextProvider';
 import { privateSha, privateUuid } from './privateObjectPlan';
+import { videoReservationId } from './videoReservationId';
 
 export type FixturePrincipal = Readonly<{ accountId: string; uid: string }>;
 export type FixtureVideo = Readonly<FixturePrincipal & {
-  jobId: string; attemptId: string; reservationId: string; inputId: string;
+  jobId: string; attemptId: string; reservationId: string; inputId: string; requestKey: string;
   revision: number; authorityVersion: number; sourceGeneration: string; sourceSha256: string;
   durationSeconds: number; requests: readonly string[];
 }>;
@@ -67,9 +68,10 @@ export function createLongVideoWindowFixture(files: FixtureWindowFiles, ports: P
     const video = await ports.video(principal, jobId);
     if (!video || video.uid !== principal.uid || video.accountId !== principal.accountId || video.jobId !== jobId)
       throw new FixtureFault('denied');
-    const { accountId, uid, inputId, attemptId, reservationId, revision, authorityVersion, sourceGeneration,
+    const { accountId, uid, inputId, attemptId, reservationId, requestKey, revision, authorityVersion, sourceGeneration,
       sourceSha256, durationSeconds } = video;
     if (![inputId, attemptId, reservationId].every(uuid) || !positive(revision) || !positive(authorityVersion) ||
+      typeof requestKey !== 'string' || !requestKey.trim() || requestKey.length > 200 ||
       typeof sourceGeneration !== 'string' || !/^[1-9]\d{0,30}$/.test(sourceGeneration) || !hex(sourceSha256) ||
       !Number.isFinite(durationSeconds) || durationSeconds < 120 || durationSeconds > 180) return unknown();
     const durationMs = Math.floor(durationSeconds * 1000), seconds = Math.ceil(durationSeconds);
@@ -81,6 +83,9 @@ export function createLongVideoWindowFixture(files: FixtureWindowFiles, ports: P
       requests.push(video.requests[index]);
     }
     const identityKey = digest(['firebase', uid]);
+    // The trusted Video reader supplies the original job's literal key; a
+    // reservation row from Account alone cannot establish its source input.
+    if (reservationId !== videoReservationId(accountId, identityKey, inputId, 'translation:en', revision, requestKey)) return unknown();
     const reservation = await ports.reservation(identityKey, reservationId);
     if (!isDeepStrictEqual(reservation, { identityKey, reservationId, seconds, state: 'reserved' })) return unknown();
     if (disabled()) throw new FixtureFault('disabled');

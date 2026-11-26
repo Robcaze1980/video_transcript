@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AccountStore } from '../account/backend';
 import { createLongVideoWindowFixture, type FixtureCall, type FixtureReservation, type FixtureVideo, type FixtureWindowFiles } from './longVideoWindowRecovery.fixture';
+import { validateProviderTextResult } from './pipelineTextCodec';
 import { videoReservationId } from './videoReservationId';
 
 const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -58,7 +59,7 @@ async function fixture() {
       },
     };
   }
-  const video: FixtureVideo = { ...principal, jobId, inputId, attemptId, reservationId,
+  const video: FixtureVideo = { ...principal, jobId, inputId, attemptId, reservationId, requestKey,
     revision: 1, authorityVersion: 1, sourceGeneration: '1', sourceSha256: 'f'.repeat(64), durationSeconds: 150.25, requests };
   const reserve: FixtureReservation = { identityKey, reservationId, seconds: 151, state: 'reserved' };
   const account = new Map([[reservationId, reserve]]), admissions = new Set<string>();
@@ -161,6 +162,93 @@ it('does not return saved results without the original reserve and exact source 
   f.account.delete(reservationId);
   await expect(f.worker().assemble(principal, jobId)).rejects.toMatchObject({ code: 'unknown' });
   expect(counts(f)).toEqual([6, 6]);
+});
+
+it.each([
+  { mismatch: 'another input', source: id(11), operation: 'translation:en', revision: 1, key: id(12) },
+  { mismatch: 'another operation', source: inputId, operation: 'narration:en:male', revision: 1, key: requestKey },
+  { mismatch: 'another revision', source: inputId, operation: 'translation:en', revision: 2, key: requestKey },
+  { mismatch: 'another literal request key', source: inputId, operation: 'translation:en', revision: 1, key: id(12) },
+])('rejects a same-owner same-seconds reserve for $mismatch before starting the journal', async ({ source, operation, revision, key }) => {
+  const f = await fixture();
+  const donorId = videoReservationId(principal.accountId, identityKey, source, operation, revision, key);
+  expect(donorId).not.toBe(reservationId);
+  const donor: FixtureReservation = Object.freeze({ ...f.reserve, reservationId: donorId });
+  f.account.clear();
+  f.account.set(donorId, donor);
+  // Corrupt only the Video reader's reserve link before the first preparation.
+  // Account returns the original valid donor reserve, without changing its row.
+  f.ports.video.mockResolvedValue({ ...f.video, reservationId: donorId });
+  const outcome = await f.worker().prepare(principal, jobId).then(
+    async () => {
+      await f.worker().assemble(principal, jobId);
+      expect(f.ports.admit.mock.calls.every(([call]) => call.reservationId === donorId)).toBe(true);
+      return 'accepted';
+    },
+    (error: { code: string }) => error.code,
+  );
+  expect([...f.account.values()]).toEqual([donor]);
+  expect({
+    outcome, reservationReads: f.ports.reservation.mock.calls.length,
+    admitAndReceive: counts(f), journalEntries: (await readdir(f.directory)).length,
+  }).toEqual({ outcome: 'unknown', reservationReads: 0, admitAndReceive: [0, 0], journalEntries: 0 });
+});
+
+it('rejects substitution of an equal donor reserve once the original manifest has been pinned', async () => {
+  const f = await fixture();
+  await f.worker().prepare(principal, jobId);
+  const donorId = videoReservationId(principal.accountId, identityKey, id(11), 'translation:en', f.video.revision, id(12));
+  const donor: FixtureReservation = { ...f.reserve, reservationId: donorId };
+  f.account.set(donorId, donor);
+  f.ports.video.mockResolvedValue({ ...f.video, reservationId: donorId });
+  await expect(f.worker().assemble(principal, jobId)).rejects.toMatchObject({ code: 'unknown' });
+  expect(counts(f)).toEqual([0, 0]);
+  expect(await readdir(f.directory)).toEqual([expect.stringMatching(/-manifest$/)]);
+  expect([...f.account.values()]).toEqual([f.reserve, donor]);
+});
+
+it('binds a literal text request key without rewriting its case', async () => {
+  const f = await fixture();
+  const literalKey = 'Synthetic-Original-Text-Request';
+  const originalId = videoReservationId(principal.accountId, identityKey, inputId, 'translation:en', 1, literalKey);
+  const original: FixtureReservation = { ...f.reserve, reservationId: originalId };
+  f.account.clear();
+  f.account.set(originalId, original);
+  const video = { ...f.video, reservationId: originalId, requestKey: literalKey };
+  f.ports.video.mockResolvedValue({ ...video, requestKey: literalKey.toLowerCase() });
+  await expect(f.worker().prepare(principal, jobId)).rejects.toMatchObject({ code: 'unknown' });
+  expect(f.ports.reservation).not.toHaveBeenCalled();
+  expect(await readdir(f.directory)).toEqual([]);
+  f.ports.video.mockResolvedValue(video);
+  await f.worker().prepare(principal, jobId);
+  await f.worker().assemble(principal, jobId);
+  expect(counts(f)).toEqual([6, 6]);
+  expect(f.ports.admit.mock.calls.every(([call]) => call.reservationId === originalId)).toBe(true);
+  expect([...f.account.values()]).toEqual([original]);
+});
+
+it.each([
+  { name: 'non-Spanish speech', language: 'en', hasSpeech: true, withCues: true, rejectedField: 'detectedLanguage' },
+  { name: 'silence without cues', language: 'es', hasSpeech: false, withCues: false, rejectedField: 'hasSpeech' },
+  { name: 'silence with contradictory cues', language: 'es', hasSpeech: false, withCues: true, rejectedField: 'hasSpeech' },
+  { name: 'speech without cues', language: 'es', hasSpeech: true, withCues: false, rejectedField: 'cues' },
+])('rejects $name before normalizing or persisting a result', async ({ language, hasSpeech, withCues, rejectedField }) => {
+  const f = await fixture();
+  const changeResponse = (value: ReturnType<typeof response>) => ({
+    detectedLanguage: language, hasSpeech, cues: withCues ? value.cues : [],
+  });
+  const sample = changeResponse({ detectedLanguage: 'es', hasSpeech: true,
+    cues: [{ startMs: 0, endMs: 30_000, es: 'Texto sintético.', en: 'Synthetic text.' }] });
+  expect(() => validateProviderTextResult(jobId, 30_000, sample)).toThrow('providerResult.' + rejectedField);
+  await f.worker().prepare(principal, jobId);
+  f.ports.receive.mockImplementationOnce(async call => changeResponse(response(call)));
+  await expect(f.worker().assemble(principal, jobId)).rejects.toMatchObject({ code: 'unknown' });
+  await expect(f.worker().assemble(principal, jobId)).rejects.toMatchObject({ code: 'unknown' });
+  expect(counts(f)).toEqual([1, 1]);
+  expect((await readdir(f.directory)).sort()).toEqual([
+    expect.stringMatching(/-0-intent$/), expect.stringMatching(/-manifest$/),
+  ]);
+  expect([...f.account.values()]).toEqual([f.reserve]);
 });
 
 it('rejects a damaged receipt, switched bytes and loss of the manifest without resending', async () => {
