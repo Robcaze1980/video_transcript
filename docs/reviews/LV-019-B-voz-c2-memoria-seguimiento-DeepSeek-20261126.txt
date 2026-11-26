@@ -1,0 +1,16 @@
+Revisión estática del corte `238e7d9` sobre el paquete suministrado. Los 36/36 casos del puente y los 237/237 de seis suites con tipos son evidencia reportada; no hay ejecución de emulador, backend ni proveedor. El prototipo de memoria sí distingue `jobId` de voz y `textJobId`, coteja el origen revisado antes y después de la admisión simulada, exige pines propios de datos, conserva evidencia y no reintenta tras incertidumbre. Quedan estos huecos concretos:
+
+1. `server/commercial/reviewedVoiceFragment.memory.ts:151-153`: cualquier excepción de `readVerifiedC1` en la primera lectura se convierte en `'rejected'`. No hay prueba de primera lectura que lance; si el puerto falla de forma transitoria, se confunde con rechazo definitivo en lugar de `'unknown'`.
+2. `server/commercial/reviewedVoiceFragment.memory.ts:91-93`: `copyRequest` solo valida tipos de `operation`, `model` y `body`; la validación semántica ocurre después, en `capture`, tras llamar a `readVerifiedC1` (líneas 110-112). El test `reviewedVoiceFragment.memory.test.ts:127-135` no comprueba que el puerto no sea invocado para esos cambios.
+3. `server/commercial/reviewedVoiceFragment.memory.test.ts:100-105`: el caso llamado “missing ACK” elimina el pin `versions.reserveAck`, pero deja intacto `read.reserveAck`; la ruta de ACK ausente no queda cubierta directamente.
+4. `server/commercial/reviewedVoiceFragment.memory.ts:187`: `inspectForTest` lee `principal.accountId` y `principal.uid` sin validar forma ni capturar errores; un principal con getter/proxy puede lanzar. El test de entradas malformadas `reviewedVoiceFragment.memory.test.ts:137-147` solo cubre `send`.
+5. `server/commercial/reviewedVoiceFragment.memory.ts:21,113`: el prototipo solo admite `chunkCount === 1` y `callKey = 'voice-chunk:0000'`; no cubre textos con múltiples fragmentos. Es limitación de alcance del vector seleccionado, no fallo del caso positivo.
+
+No se ha comprobado aquí: adaptador de producción, durabilidad entre procesos, ACK durable de `AccountStore`, `originalMarkerVersion` procedente del intento C1, proveedor/emulador real ni transacción distribuida Video-Cuenta.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Paquete estático con `reviewedVoiceCanonical.ts`, `reviewedVoiceFragment.memory.ts`, `reviewedVoiceFragment.memory.test.ts`, adjudicación y vector; 36/36 pruebas del puente y 237/237 en seis suites con tipos reportados. No se ejecutó emulador, backend ni proveedor.
+NEGATIVOS: Se conservan distinción `textJobId`/`jobId`, binding de origen antes/después de admisión simulada, pines propios de datos, admisión/replay, evidencia retenida, inspección por dueño, bandera desactivada y controles de pérdida/concurrencia.
+BLOQUEOS: Adaptador de producción, durabilidad entre procesos, ACK durable de `AccountStore`, `originalMarkerVersion` del intento C1, proveedor/emulador real y transacción distribuida Video-Cuenta.
+=== FIN RESUMEN ===

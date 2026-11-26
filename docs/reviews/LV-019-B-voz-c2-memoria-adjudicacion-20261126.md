@@ -26,4 +26,12 @@ Los archivos versionados conservan el texto completo y normalizan espacios al fi
 
 El adaptador futuro debe obtener la proyección de origen del trabajo de voz y su marcador C1 durable en una lectura autenticada y transaccional. Debe comprobar UID, cuenta, revisión y recibo, versiones y vínculo mutuo, origen, ACK durable de reserva e identidad de Cuenta. `originalMarkerVersion` debe venir del intento C1 que autorizó la reserva. Esta base todavía carece de ese campo. Un adaptador que invente tanto los campos de origen como la prueba canónica puede engañar a un prototipo de puerto simulado. La autoridad de esas lecturas y del recibo de Cuenta queda pendiente, junto con la cerca durable y la recuperación C3 en más de una instancia. No se ha demostrado una transacción distribuida de Video y Cuenta.
 
-La puerta local requiere Node en modo de prueba y una bandera explícita. Este corte usa dobles y un receptor en memoria. Quedan fuera de su evidencia el emulador integrado, las rutas, el proveedor, la persistencia entre procesos, la liquidación, el audio y el teléfono. Las dos revisiones existentes son anteriores a esta corrección.
+La puerta local requiere Node en modo de prueba y una bandera explícita. Este corte usa dobles y un receptor en memoria. Quedan fuera de su evidencia el emulador integrado, las rutas, el proveedor, la persistencia entre procesos, la liquidación, el audio y el teléfono.
+
+## Seguimiento del corte corregido
+
+GLM y DeepSeek dieron **PASS limitado al prototipo en memoria** del commit `238e7d9`; sus informes son estáticos y no sustituyen la prueba del adaptador ni del recorrido completo. [GLM](LV-019-B-voz-c2-memoria-seguimiento-GLM-20261126.txt) · [DeepSeek](LV-019-B-voz-c2-memoria-seguimiento-DeepSeek-20261126.txt).
+
+Antes de integrar C2 quedan por contrastar las observaciones sobre una excepción en la primera lectura, las entradas malformadas del inspector, la prueba directa de ACK ausente y el tratamiento de IDs iguales. La validación semántica de contenido ocurre tras consultar el puerto de lectura y antes de admitir. La aplicación futura necesita distinguir errores recuperables de rechazos. La ausencia de los imports del canon en el paquete limita la revisión estática; no significa que falten en el repositorio.
+
+Los recibos locales, fuera de Git, conservan las salidas originales; las copias versionadas solo normalizan espacios al final de línea. GLM `4486daf8…`: SHA-256 `ff875f952ab69a9542ab14dd49ea3c7f0b45ae75a66534e955c6bbd02c811471`, 13.525 tokens de entrada, 13.712 de salida, US$0,00158302782. DeepSeek `03b2e012…`: SHA-256 `cd186f77f4c6ff758edaf3105c4dc35ddac8ee7d0e6f6f6a13aecc4057007034`, 14.537 de entrada, 45.350 de salida, US$0,02842023789. Caché informada: cero.
