@@ -4,6 +4,8 @@ Preparación aislada del 26 nov 2026, sobre `c8939327682d88ac737652448743e1068fc
 
 La implementación verificó **216 pruebas en seis archivos** y TypeScript; la coordinación repitió de forma independiente las **15 pruebas** de `reviewedVoiceFragment.memory.test.ts`. Se cubrieron el apagado predeterminado, bytes del canon, dos lecturas, un recibo nuevo, `receiptOnly`, fallos de respuesta, repetición y concurrencia dentro de una sola instancia. La copia de los registros de la segunda ejecución está en `%TEMP%/vistavo-c2-memory-bridge-20261126.log`, fuera de Git.
 
+Tras las revisiones externas se reprodujeron dos fallos de vínculo con el texto de origen y se corrigió el prototipo. La suite ampliada pasó **237/237**; la coordinación repitió las **36/36** pruebas propias del puente. Este resultado corresponde a una revisión posterior a la tabla de hashes original y aún no tiene la doble revisión externa de seguimiento. [Adjudicación y límites](../../reviews/LV-019-B-voz-c2-memoria-adjudicacion-20261126.md).
+
 La autoridad de la lectura C1 es una dependencia simulada: falta un adaptador que demuestre con datos persistidos la versión del marcador original y la reserva. La cerca en memoria no sobrevive a un reinicio ni coordina varias instancias. Faltan emulador integral, recuperación durable, generación de audio, saldo completo, acceso privado y pruebas físicas en teléfono. Ninguno de esos puntos se demuestra por las unitarias.
 
 | Archivo | SHA-256 |

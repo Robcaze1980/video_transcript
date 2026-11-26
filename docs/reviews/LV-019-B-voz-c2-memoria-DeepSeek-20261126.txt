@@ -1,0 +1,36 @@
+Revisión estática, sin ejecución ni cambios. Me ceñí a los SHA y líneas suministrados.
+
+**Defectos concretos**
+
+1. **Falta el vínculo `textJobId` y el test positivo lo enmascara.**
+   `reviewedVoiceFragment.memory.ts:52` exige `read.jobId===request.jobId`, pero `:65` solo compara `accountId`, `inputId`, `revision` y `chunkCount`; nunca exige `call.textJobId===read.jobId`. En `reviewedVoiceFragment.memory.test.ts:15` se crea `jobId=randomUUID()` y en `:19` se usa `canonicalEvidence` del vector, con otro `textJobId`; `:59` incluso afirma `jobId:request.jobId`. El puente acepta una reserva C1 de un trabajo con evidencia canónica de otro. Eso contradice la “tupla completa” y la verificación en trabajo/evidencia de C1 (`spec:17-18`). Es el defecto principal.
+
+2. **La tupla de admisión está incompleta.**
+   `reviewedVoiceFragment.memory.ts:36-38` y `:105-108` solo pasan `reservationId`, `seconds`, `jobId`, `attemptId`, `callKey`, `model`, `requestSha256`. No pasan `accountId`, `inputId`, `textJobId`, `revision`, `reviewId`, `receiptId`, `bindingHash`, `payloadSha256` ni `voiceTextSha256`. El puerto de admisión no puede ligar la admisión al recibo/revisión canónicos, contrario a `spec:18` (“tupla completa”). La segunda lectura `:113-114` compara historial C1, no historial durable de Account.
+
+3. **`reserveAck` es una comprobación de forma tautológica.**
+   `reviewedVoiceFragment.memory.ts:55-58` exige `attemptId===read.reservationId` y una forma exacta derivada del propio read. `reviewedVoiceFragment.memory.test.ts:20` fabrica ese ACK. No prueba un ACK durable de `AccountStore.reserveVideo`; puede rechazar un ACK real con `attemptId` distinto o aceptar un ACK fabricado con esa forma. `spec:17` exige que un ACK fabricado no autorice.
+
+4. **Pines de versión no estrictos.**
+   `reviewedVoiceFragment.memory.ts:59-61` accede a `read.versions[field]` sin validar claves propias, prototipo nulo o ausencia de getters, a diferencia del validador estricto `fields` de `reviewedVoiceCanonical.ts:23-36`. `version()` (`:46-49`) tampoco exige objeto plano. Además, `versionTime` (`:13`) impone `segundos:9 dígitos`; no hay prueba de que corresponda al tipo real de Firestore.
+
+5. **Acceso sin dueño.**
+   `reviewedVoiceFragment.memory.ts:127-128` expone `readReceipt(jobId)` y `received()` sin principal/cuenta. Si se reutiliza fuera del test, viola `spec:29` (“sin dueño verificado, ninguna atribución o bloqueo”). El comentario `:80-84` dice que es test-only, pero la API no está acotada por dueño.
+
+6. **Canon: cabos sueltos.**
+   `baseHash`/`bindingHash` solo se comprueban hex e igualdad (`reviewedVoiceCanonical.ts:66-70`), no se recalculan. `privateSha`/`privateUuid` (`:3,20-21`) no están suministrados; si tuvieran flag global, `.test` sería stateful. El límite `reviewed.voiceText.length > 12_000` (`:78`) es unidades UTF-16, no bytes UTF-8. La voz/modelo/cuerpo dependen de `narrationChunks`, `VOICE_MODEL` y `reviewTranslation`, no suministrados.
+
+7. **Metadatos y alcance documental inconsistentes.**
+   `spec:3` cita rama `codex/vistavo-voice-c2-20261126` y respaldo `1b122ceb...`; el encargo cita `codex/vistavo-voice-c2-bridge-20261126`, commit `5a2f32d`, base `c893932`. `spec:32` lista `reviewedVoiceCanonical.test.ts`, fixture emulador y README, pero omite `reviewedVoiceFragment.memory.ts` y su test.
+
+8. **Cobertura de pruebas incompleta.**
+   No hay caso de cambio de `NODE_ENV`/flag a mitad de vuelo, aunque el código rechequea en `:15,91,99,112,114`. No hay caso de excepción en la segunda lectura tras admisión, aunque se captura en `:119`. No se prueban todos los campos de versión (`test:92,103` cubre solo identity/project/review/receipt/marker). No hay prueba de acceso por dueño, multi-instancia, liquidación, proveedor, audio ni teléfono.
+
+**Lo que debe probar el adaptador ausente, sin exigirlo a este prototipo:** lectura C1 atómica y autorizada; UID/cuenta verificados; `originalMarkerVersion` tomado del intento C1, no del marcador actual; ACK durable de reserva; `canonicalEvidence.textJobId` ligado a `read.jobId`/`request.jobId`; admisión Account con tupla completa, idempotencia y transacción; contraste post-ACK contra historial durable; acceso con dueño; recuperación de respuesta perdida; ausencia de proveedor, facturación, audio y multi-instancia.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Revisión estática de los SHA indicados; hallé que el puente no liga `canonicalEvidence.textJobId` con `read.jobId`/`request.jobId` (memory.ts:52,65,105-108; test:15,18-19,59), la tupla de admisión está incompleta (memory.ts:36-38,105-108), `reserveAck` es comprobación de forma tautológica (memory.ts:55-58; test:20), los pines de versión no se validan como objetos propios (memory.ts:46-61) y `readReceipt`/`received` no tienen dueño (memory.ts:127-128); el test positivo usa jobId aleatorio con evidencia de otro textJobId y por eso 15/15 no prueba el vínculo.
+NEGATIVOS: No hay prueba live-cloud, emulador, Account/Firestore, proveedor real, multi-instancia, durabilidad, liquidación, audio ni teléfono; 15/15 es local y sintético; 216/216 y TypeScript son reportados, no verificados; no hay dos revisiones independientes para contratos de dinero/Account.
+BLOQUEOS: Faltan `privateObjectPlan`, `reviewedTranslation`, `pipelineVoiceProvider`, vectores, `reviewedVoiceCanonical.test.ts`, fixture `firestoreReviewedTranslation.emulator.mjs` y README; la especificación cita rama/base `codex/vistavo-voice-c2-20261126`/`1b122ceb...` y el encargo `codex/vistavo-voice-c2-bridge-20261126`/`5a2f32d`/`c893932`; no ejecuté nada.
+=== FIN RESUMEN ===
