@@ -6,6 +6,8 @@ import test from 'node:test';
 import { AccountStore } from '../account/backend.ts';
 import { FirestoreBackend, EXTERNAL_BILLING_MAX_AGE_MS } from './firestoreBackend.ts';
 import { stub } from './billingFirestoreStub.ts';
+import { ALERT_COLLECTION, alertKey, raisePendingAlerts } from './billingPendingAlerts.ts';
+import { readPendingReport } from './billingPendingReport.ts';
 import { privateBucket } from './privateObjectPlan.ts';
 import { videoReservationId } from './videoReservationId.ts';
 
@@ -15,7 +17,19 @@ const operation = 'translation:en';
 
 function fixture() {
   const video = stub(), account = stub();
-  const backend = new FirestoreBackend(video.db, video.root);
+  // The real financial-guard writer uses merge-set and the snapshot's reference.
+  // Stage creation/merge through the existing stub transaction, including rollback.
+  const videoDb={runTransaction:work=>video.db.runTransaction(tx=>{
+    const read=async ref=>({...await tx.get(ref),ref});
+    return work({...tx,get:read,getAll:(...refs)=>Promise.all(refs.map(read)),
+      set(ref,data,options){
+        if (!video.store.has(ref.path)) return tx.create(ref,data);
+        assert.equal(options?.merge,true,'the fixture only supports merge on an existing document');
+        return tx.update(ref,data);
+      },
+    });
+  })};
+  const backend = new FirestoreBackend(videoDb, video.root);
   // Account's settlement transaction reads a fence under the reservation document.
   // Resolve nested references to paths in the Account store, independent of Video.
   function accountCollection(name) {
@@ -146,4 +160,79 @@ test('an independent Account hold permits consultation but prevents an ordinary 
   assert.equal((await f.store.reserveVideo(f.b.identityKey, b.billing.reservationId, duration)).created, true);
   assert.equal((await f.store.videoBalance(f.a.identityKey)).reserved, duration);
   assert.equal((await f.store.videoBalance(f.b.identityKey)).reserved, duration);
+});
+
+async function escalateAndReadAlert(f,pending,now) {
+  const swept=await f.backend.escalateStaleBillingRows({now,limit:15});
+  assert.deepEqual([swept.escalated,swept.failed],[1,0]);
+  const report=await readPendingReport(f.video.root,now);
+  const raised=await raisePendingAlerts(f.video.db,f.video.root,report,now);
+  assert.deepEqual([raised.created,raised.seen],[1,0]);
+  const id=pending.intentPath.split('/')[1];
+  const alert=await f.video.root.collection(ALERT_COLLECTION).doc(alertKey('intent',id,'needs_review','needs_review')).get();
+  assert.equal(alert.exists,true);assert.equal(alert.data().status,'open');
+  return alert.data();
+}
+
+test('entry authority: reserve and refund histories produce the same current row, origin, open alert and Account resolution',async context=>{
+  const reserve=fixture(),refund=fixture(),a=reserve.a;
+  const pending=await reserve.begin(a);
+  const reservation=await reserve.store.reserveVideo(a.identityKey,pending.billing.reservationId,duration);
+  assert.equal(reservation.created,true);
+  // Fork one legitimate persisted preimage into independent in-memory stores.
+  // The refund branch alone invokes the real transition. Neither leg edits a row by hand.
+  for(const name of ['video','account']){
+    const destination=refund[name].store;
+    destination.clear();
+    for(const [key,value] of reserve[name].store) destination.set(key,structuredClone(value));
+  }
+  assert.deepEqual(await refund.backend.claimExternalBillingRelease(a.videoId,pending.key,pending.billing),
+    {state:'release_pending',transitioned:true});
+  assert.equal(reserve.video.store.get(pending.intentPath).state,'reserve_pending');
+  assert.equal(refund.video.store.get(pending.intentPath).state,'release_pending');
+  // The release fence resets its due date. An ordinary failed status read can
+  // legitimately reschedule either state. Apply the same stall at the same fixture
+  // clock so retry timing cannot accidentally distinguish the two histories.
+  const stalledAt=reserve.video.store.get(pending.intentPath).createdAtMs+1000;
+  context.mock.method(Date,'now',()=>stalledAt);
+  for(const f of [reserve,refund])assert.equal(await f.backend.recordExternalBillingIntentStall(a.videoId,pending.key,'unavailable'),true);
+  const now=reserve.video.store.get(pending.intentPath).createdAtMs+EXTERNAL_BILLING_MAX_AGE_MS+1;
+  const first=await escalateAndReadAlert(reserve,pending,now);
+  const second=await escalateAndReadAlert(refund,pending,now);
+  assert.deepEqual(first,second);assert.equal(first.accountId,a.videoId);
+  assert.deepEqual(reserve.video.store,refund.video.store);
+  assert.deepEqual(reserve.account.store,refund.account.store);
+  const read=f=>f.store.videoReservationResolution(a.identityKey,pending.billing.reservationId,duration);
+  assert.deepEqual(await read(reserve),await read(refund));
+});
+
+test('entry authority: a normally emitted open alert can inherit the wrong owner hint despite a genuine A origin',async()=>{
+  const f=fixture(),p=await f.begin(f.a);
+  const reserved=await f.store.reserveVideo(f.a.identityKey,p.billing.reservationId,duration);
+  assert.equal(reserved.account.id,f.a.accountId);
+  await f.backend.claimExternalBillingRelease(f.a.videoId,p.key,p.billing);
+  const row=f.video.store.get(p.intentPath);
+  const origin=f.video.store.get('billingIntentWitnesses/'+row.id);
+  assert.equal(origin.accountId,f.a.videoId);assert.equal(origin.identityKey,f.a.identityKey);
+  // Explicit corruption of a legacy row in the test double, not an authenticated user operation.
+  f.video.store.set(p.intentPath,{...row,accountId:f.b.videoId});
+  const alert=await escalateAndReadAlert(f,p,row.createdAtMs+EXTERNAL_BILLING_MAX_AGE_MS+1);
+  assert.equal(alert.accountId,f.b.videoId);
+  assert.equal((await f.store.videoReservation(f.a.identityKey,p.billing.reservationId)).state,'reserved');
+  assert.equal(f.video.store.has('billingGuards/'+f.b.videoId),false);
+  const bJob=await f.genericJob(f.b);assert.equal(f.video.store.get('jobs/'+bJob).accountId,f.b.videoId);
+});
+
+test('entry authority: a financial guard written by the review flow rejects only new A work',async()=>{
+  const f=fixture(),key=randomUUID(),prior=await f.genericJob(f.a,key);
+  const p=await f.begin(f.a);
+  await f.backend.recordExternalBillingReview(f.a.videoId,p.key,p.billing,
+    {reservationId:p.billing.reservationId,state:'captured',seconds:duration});
+  const guard=f.video.store.get('billingGuards/'+f.a.videoId);
+  assert.equal(guard.blocked,true);assert.equal(guard.accountId,f.a.videoId);
+  assert.equal(await f.genericJob(f.a,key),prior);
+  await assert.rejects(()=>f.genericJob(f.a),{code:'conflict'});
+  await assert.rejects(()=>f.begin(f.a),{code:'conflict'});
+  const bJob=await f.genericJob(f.b);assert.equal(f.video.store.get('jobs/'+bJob).accountId,f.b.videoId);
+  assert.equal(f.video.store.has('billingGuards/'+f.b.videoId),false);
 });
