@@ -334,38 +334,23 @@ it('retries a racing hold against Account state before admitting a fragment',asy
  expect(after).toEqual(before);
 });
 
-it('H1 counts the legacy seal and contradictory resolution after a v3 reservation is lost',async()=>{
+it('H1 the missing operational row stays unresolved without a new legacy seal or a balance change',async()=>{
  const f=fixture(),input=await f.issue(),r=f.requestA;
  const live=f.snapshot(),reservationPath=f.reservationPath(f.A);
- const stateBefore=await f.store.sealVideoReservation(r.identityKey,r.reservationId,r.seconds);
- expect(stateBefore).toMatchObject({state:'reserved',created:false});
+ await expect(f.store.sealVideoReservation(r.identityKey,r.reservationId,r.seconds)).resolves.toMatchObject({state:'reserved',created:false});
  expect(f.snapshot()).toEqual(live);
  f.drop(reservationPath);
- const missing=f.snapshot();
- expect(missing.has(f.originPath())).toBe(true);
- expect(missing.has(f.claimPath())).toBe(true);
- await expect(f.store.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'conflict'});
- await expect(f.store.admitVideoCallWithVoiceOrigin(f.scope,input)).rejects.toMatchObject({code:'not_found'});
- await expect(f.store.videoReservationResolution(r.identityKey,r.reservationId,r.seconds)).rejects.toMatchObject({code:'not_found'});
- expect(f.snapshot()).toEqual(missing);
-
- const reply=await f.store.sealVideoReservation(r.identityKey,r.reservationId,r.seconds);
- expect(reply).toMatchObject({state:'sealed',created:true});
- const after=f.snapshot(),changes=new Map(after);
- const tombPath='videoReservationTombstones/'+hash([f.A,r.reservationId]);
- expect(changes.delete(tombPath)).toBe(true);
- expect(changes).toEqual(missing);
- expect(f.data(tombPath)).toMatchObject({state:'sealed',seconds:3,ownerAccountId:f.A});
- expect(f.data('accounts/'+f.A)).toMatchObject({available:27,reserved:3,active:1,consumed:0});
- expect(after.get('accounts/'+f.B)).toEqual(live.get('accounts/'+f.B));
- expect([...after.keys()].filter(key=>key.startsWith('ledgerEntries/'))).toHaveLength(1);
- const retry=f.makeStore();
- await expect(retry.sealVideoReservation(r.identityKey,r.reservationId,r.seconds)).resolves.toMatchObject({state:'sealed',created:false});
- await expect(retry.videoReservationResolution(r.identityKey,r.reservationId,r.seconds)).resolves.toMatchObject({state:'sealed'});
+ const missing=f.snapshot(),retry=f.makeStore();
+ expect(missing.has(f.originPath())&&missing.has(f.claimPath())).toBe(true);
+ await expect(retry.sealVideoReservation(r.identityKey,r.reservationId,r.seconds)).rejects.toMatchObject({code:'conflict'});
+ await expect(retry.videoReservationResolution(r.identityKey,r.reservationId,r.seconds)).rejects.toMatchObject({code:'not_found'});
  await expect(retry.videoReservation(r.identityKey,r.reservationId)).rejects.toMatchObject({code:'not_found'});
  await expect(retry.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'conflict'});
- await expect(retry.admitVideoCallWithVoiceOrigin(f.scope,input)).rejects.toMatchObject({code:'conflict'});
- expect(f.snapshot()).toEqual(after);
+ await expect(retry.admitVideoCallWithVoiceOrigin(f.scope,input)).rejects.toMatchObject({code:'not_found'});
+ expect(f.snapshot()).toEqual(missing);
+ expect(f.data('accounts/'+f.A)).toMatchObject({available:27,reserved:3,active:1,consumed:0});
+ expect(missing.get('accounts/'+f.B)).toEqual(live.get('accounts/'+f.B));
+ expect([...missing.keys()].filter(path=>path.startsWith('ledgerEntries/'))).toHaveLength(1);
 });
 
 it('H1 a surviving v3 origin and debit must preclude a new legacy seal',async()=>{
@@ -433,28 +418,18 @@ it.each([
  expect(f.snapshot()).toEqual(before);
 });
 
-it('DS3 measures reserve replay, first admission and receipt replay after losing only the v3 ledger entry',async()=>{
- const f=fixture(),first=await f.issue(),r=f.requestA;
+it.each([false,true])('DS3 missing ledger blocks reserve, historical and new fragments with prior admission=%s',async admitted=>{
+ const f=fixture(),first=await f.issue();
+ if(admitted)await f.store.admitVideoCallWithVoiceOrigin(f.scope,first);
  const intact=f.snapshot(),ledgerPaths=[...intact.keys()].filter(path=>path.startsWith('ledgerEntries/'));
  expect(ledgerPaths).toHaveLength(1);
- const ledgerPath=ledgerPaths[0];
- f.drop(ledgerPath);
- const missing=f.snapshot(),reservationPath=f.reservationPath(f.A);
- expect(missing.has(f.originPath())&&missing.has(f.claimPath())&&missing.has(reservationPath)).toBe(true);
- const retry=f.makeStore();
- await expect(retry.reserveVideoWithVoiceOrigin(f.scope,r)).resolves.toMatchObject({created:false,state:'reserved',originRef:first.originRef});
- expect(f.snapshot()).toEqual(missing);
- await expect(retry.admitVideoCallWithVoiceOrigin(f.scope,first)).resolves.toMatchObject({created:true,receiptOnly:false});
- const after=f.snapshot();
- const receiptPath=reservationPath+'/providerCalls/'+hash(['provider-call-v2',first.callKey]);
- const fencePath=reservationPath+'/providerCallFences/first';
- expect([...after.keys()].filter(path=>!missing.has(path)).sort()).toEqual([fencePath,receiptPath].sort());
- expect([...missing.keys()].filter(path=>after.get(path)?.updated!==missing.get(path)?.updated)).toEqual([reservationPath]);
- expect(after.has(ledgerPath)).toBe(false);
- expect(after.get('accounts/'+f.A)).toEqual(intact.get('accounts/'+f.A));
- expect(after.get('accounts/'+f.B)).toEqual(intact.get('accounts/'+f.B));
- await expect(f.makeStore().admitVideoCallWithVoiceOrigin(f.scope,first)).resolves.toMatchObject({created:false,receiptOnly:true});
- expect(f.snapshot()).toEqual(after);
+ f.drop(ledgerPaths[0]);
+ const before=f.snapshot(),retry=f.makeStore();
+ await expect(retry.reserveVideoWithVoiceOrigin(f.scope,f.requestA)).rejects.toMatchObject({code:'conflict'});
+ for(const call of [first,{...first,callKey:'voice-chunk:0001',requestSha256:'c'.repeat(64)}]){
+  await expect(retry.admitVideoCallWithVoiceOrigin(f.scope,call)).rejects.toMatchObject({code:'conflict'});
+ }
+ expect(f.snapshot()).toEqual(before);
 });
 
 it('DS3 an absent reserve ledger should prevent a new fragment from being authorized as economically backed',async()=>{
@@ -467,4 +442,124 @@ it('DS3 an absent reserve ledger should prevent a new fragment from being author
    .then(response=>response.created?'created':'replay',()=> 'denied');
  expect({result,changes:f.snapshot().size-before.size,unchanged:f.snapshot().get(f.reservationPath(f.A))?.updated===before.get(f.reservationPath(f.A))?.updated})
    .toEqual({result:'denied',changes:0,unchanged:true});
+});
+
+
+it.each(['only slot','only ledger'])('a missing reservation with %s surviving cannot be sealed or recreated by v2',async survives=>{
+ const f=fixture(),input=await f.issue(),r=f.requestA;
+ f.drop(f.reservationPath(f.A));
+ const key=hash([f.A,r.reservationId]),slot='videoVoiceReservationSlots/'+key;
+ const ledger=[...f.snapshot().keys()].find(path=>path.startsWith('ledgerEntries/'))!;
+ f.drop(survives==='only slot'?ledger:slot);
+ const before=f.snapshot(),retry=f.makeStore();
+ await expect(retry.sealVideoReservation(r.identityKey,r.reservationId,r.seconds)).rejects.toMatchObject({code:'conflict'});
+ await expect(retry.reserveVideo(r.identityKey,r.reservationId,r.seconds)).rejects.toMatchObject({code:'conflict'});
+ await expect(retry.admitVideoCallWithVoiceOrigin(f.scope,input)).rejects.toMatchObject({code:'not_found'});
+ expect(f.snapshot()).toEqual(before);
+
+ // A stale tombstone from an older writer must not become an affirmative terminal response.
+ f.put('videoReservationTombstones/'+key,{ownerAccountId:f.A,identityKey:r.identityKey,reservationId:r.reservationId,
+  seconds:r.seconds,state:'sealed',createdAtMs:100});
+ const withTomb=f.snapshot();
+ await expect(retry.videoReservationResolution(r.identityKey,r.reservationId,r.seconds)).rejects.toMatchObject({code:'conflict'});
+ await expect(retry.sealVideoReservation(r.identityKey,r.reservationId,r.seconds)).rejects.toMatchObject({code:'conflict'});
+ expect(f.snapshot()).toEqual(withTomb);
+});
+
+it.each(['foreign owner','seconds','kind','origin','creation time','restoration','recreation'] as const)(
+ 'DS3 rejects an inconsistent reserve ledger after %s without changing either account',async damage=>{
+ const f=fixture(),first=await f.issue(),r=f.requestA;
+ await f.store.admitVideoCallWithVoiceOrigin(f.scope,first);
+ const ledger=[...f.snapshot().keys()].find(path=>path.startsWith('ledgerEntries/'))!;
+ const old=structuredClone(f.data(ledger));
+ if(damage==='recreation')f.drop(ledger);
+ const changes={
+  'foreign owner':{ownerAccountId:f.B},seconds:{seconds:r.seconds+1},kind:{kind:'video_release'},
+  origin:{originRef:randomUUID()},'creation time':{createdAtMs:101},restoration:{seconds:r.seconds+1},recreation:{},
+ };
+ f.put(ledger,{...old,...changes[damage]});
+ if(damage==='restoration')f.put(ledger,old);
+ const before=f.snapshot(),retry=f.makeStore();
+ await expect(retry.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'conflict'});
+ for(const call of [first,{...first,callKey:'voice-chunk:0001',requestSha256:'c'.repeat(64)}]){
+  await expect(retry.admitVideoCallWithVoiceOrigin(f.scope,call)).rejects.toMatchObject({code:'conflict'});
+ }
+ expect(f.snapshot()).toEqual(before);
+});
+
+it.each(['missing','foreign owner','identical recreation'] as const)('the v3 slot rejects %s and is never synthesized on replay',async damage=>{
+ const f=fixture(),first=await f.issue(),r=f.requestA,slot='videoVoiceReservationSlots/'+hash([f.A,r.reservationId]);
+ const old=f.data(slot);
+ f.drop(slot);
+ if(damage!=='missing')f.put(slot,damage==='foreign owner'?{...old,ownerAccountId:f.B}:old);
+ const before=f.snapshot(),retry=f.makeStore();
+ await expect(retry.reserveVideoWithVoiceOrigin(f.scope,r)).rejects.toMatchObject({code:'conflict'});
+ await expect(retry.admitVideoCallWithVoiceOrigin(f.scope,first)).rejects.toMatchObject({code:'conflict'});
+ expect(f.snapshot()).toEqual(before);
+});
+
+it('a genuine v2 reservation, its replay and a never-reserved legacy seal retain their shapes',async()=>{
+ const f=fixture(),{identityKey,reservationId,seconds}=f.requestA;
+ await expect(f.store.reserveVideo(identityKey,reservationId,seconds)).resolves.toMatchObject({state:'reserved',created:true});
+ const active=f.snapshot(),ledger=[...active.keys()].find(path=>path.startsWith('ledgerEntries/'))!;
+ expect(f.data(ledger)).toEqual({ownerAccountId:f.A,createdAtMs:100,seconds,kind:'video_reserve'});
+ expect([...active.keys()].some(path=>path.startsWith('videoVoiceReservationSlots/'))).toBe(false);
+ await expect(f.store.reserveVideo(identityKey,reservationId,seconds)).resolves.toMatchObject({state:'reserved',created:false});
+ await expect(f.store.sealVideoReservation(identityKey,reservationId,seconds)).resolves.toMatchObject({state:'reserved',created:false});
+ expect(f.snapshot()).toEqual(active);
+ const neverReserved=randomUUID();
+ await expect(f.store.sealVideoReservation(identityKey,neverReserved,seconds)).resolves.toMatchObject({state:'sealed',created:true});
+ const sealed=f.snapshot();
+ await expect(f.store.videoReservationResolution(identityKey,neverReserved,seconds)).resolves.toMatchObject({state:'sealed'});
+ await expect(f.store.sealVideoReservation(identityKey,neverReserved,seconds)).resolves.toMatchObject({state:'sealed',created:false});
+ expect(f.snapshot()).toEqual(sealed);
+});
+
+it('a ledger lost while a new v3 admission waits for commit makes the retry reject without a call receipt',async()=>{
+ const f=fixture(),first=await f.issue(),before=f.snapshot();
+ const path=[...before.keys()].find(key=>key.startsWith('ledgerEntries/'))!;
+ f.beforeCommit(()=>f.drop(path));
+ await expect(f.store.admitVideoCallWithVoiceOrigin(f.scope,first)).rejects.toMatchObject({code:'conflict'});
+ before.delete(path);
+ expect(f.snapshot()).toEqual(before);
+});
+
+it('a surviving slot observed on retry precludes a legacy tombstone even if its first read saw vacancy',async()=>{
+ const f=fixture(),r=f.requestA;
+ const path='videoVoiceReservationSlots/'+hash([f.A,r.reservationId]);
+ // Models a committed history restored before the caller can commit its initial vacancy read.
+ f.beforeCommit(()=>f.put(path,{ownerAccountId:f.A,reservationId:r.reservationId}));
+ const before=f.snapshot();
+ await expect(f.store.sealVideoReservation(r.identityKey,r.reservationId,r.seconds)).rejects.toMatchObject({code:'conflict'});
+ const after=f.snapshot();
+ expect(after.delete(path)).toBe(true);
+ expect(after).toEqual(before);
+});
+
+it('a competing genuine legacy seal and fresh v3 reserve cannot both acquire the same Account slot',async()=>{
+ const f=fixture(),r=f.requestA;
+ f.arrangeGrant(f.A);
+ const [reserve,seal]=await Promise.allSettled([
+  f.store.reserveVideoWithVoiceOrigin(f.scope,r),
+  f.makeStore().sealVideoReservation(r.identityKey,r.reservationId,r.seconds),
+ ]);
+ const state=f.snapshot(),ledger=[...state.keys()].filter(key=>key.startsWith('ledgerEntries/'));
+ const key=hash([f.A,r.reservationId]),tomb='videoReservationTombstones/'+key,slot='videoVoiceReservationSlots/'+key;
+ if(reserve.status==='fulfilled'){
+  expect(reserve.value.created).toBe(true);
+  expect(seal).toMatchObject({status:'fulfilled',value:{state:'reserved',created:false}});
+  expect(state.has(tomb)).toBe(false);
+  expect(state.has(slot)).toBe(true);
+  expect(ledger).toHaveLength(1);
+  expect(f.data('accounts/'+f.A)).toMatchObject({available:27,reserved:3});
+ }else{
+  expect(reserve.reason).toMatchObject({code:'conflict'});
+  expect(seal).toMatchObject({status:'fulfilled',value:{state:'sealed',created:true}});
+  expect(state.has(tomb)).toBe(true);
+  expect(state.has(slot)).toBe(false);
+  expect(state.has(f.reservationPath(f.A))).toBe(false);
+  expect(ledger).toHaveLength(0);
+  expect(f.data('accounts/'+f.A)).toMatchObject({available:30,reserved:0});
+ }
+ expect(f.data('accounts/'+f.B)).toMatchObject({available:30,reserved:0});
 });

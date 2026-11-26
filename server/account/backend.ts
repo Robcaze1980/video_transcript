@@ -327,6 +327,19 @@ export class AccountStore {
    return {unblocked:true as const,replayed:false as const,blocked:nextReviewed!==incidentCount};
   });
  }
+ private reservationEvidenceRefs(accountId:string,reservationId:string){
+  return {
+   slot:this.root.collection('videoVoiceReservationSlots').doc(hash([accountId,reservationId])),
+   ledger:this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,'reserve'])),
+  };
+ }
+ // The legacy seal knows the Account owner and reservation, not the scoped Video intent.
+ // Never treat a vanished operational row as a never-reserved slot while either witness survives.
+ private async assertNoReservationEvidence(tx:Transaction,accountId:string,reservationId:string){
+  const refs=this.reservationEvidenceRefs(accountId,reservationId);
+  const [slot,ledger]=await tx.getAll(refs.slot,refs.ledger);
+  if(slot.exists||ledger.exists)throw new AccountFault('conflict');
+ }
  /** Atomically prevent a future reserve or return the existing reservation's receipt. */
  async sealVideoReservation(identityKey:string,reservationId:string,seconds:number){
   id(reservationId);if(!integer(seconds,1)||seconds>600)bad();
@@ -345,6 +358,7 @@ export class AccountStore {
     const state=reservation.get('state');if(!['reserved','captured','released'].includes(state))invariant();
     return {state:state as 'reserved'|'captured'|'released',reservationId,seconds,created:false};
    }
+   await this.assertNoReservationEvidence(tx,accountId,reservationId);
    if(sealed)return {state:'sealed' as const,reservationId,seconds,created:false};
    if(!integer(time))invariant();
    tx.create(tombRef,{ownerAccountId:accountId,identityKey,reservationId,seconds,state:'sealed',createdAtMs:time});
@@ -380,18 +394,25 @@ export class AccountStore {
   if(!fieldsMatch(intent,grant))throw new AccountFault('conflict');
   return {claimRef,originRef,claim,origin,ownerAccountId,fields:{...grant,intentVersion:snapshotVersion(intent,'updateTime')}};
  }
- private verifyVoiceOrigin(voice:Awaited<ReturnType<AccountStore['readVoiceAuthority']>>,stored:DocumentSnapshot,reservation:DocumentSnapshot):VoiceOriginPin{
+ private async verifyVoiceOrigin(tx:Transaction,voice:Awaited<ReturnType<AccountStore['readVoiceAuthority']>>,stored:DocumentSnapshot,reservation:DocumentSnapshot):Promise<VoiceOriginPin>{
   const {origin,claim,fields}=voice;
   const originRef=claim.get('originRef'),reservationGeneration=origin.get('reservationGeneration');
   if(!origin.exists||!reservation.exists||typeof originRef!=='string'||
      typeof reservationGeneration!=='string'||!uuid.test(reservationGeneration)||
      !fieldsMatch(origin,{...fields,originRef,reservationGeneration,accountVersion:snapshotVersion(stored,'createTime')})||
      !fieldsMatch(reservation,{admissionProtocol:voiceOriginProtocol,originRef,reservationGeneration,bindingGeneration:fields.bindingGeneration}))throw new AccountFault('conflict');
-  // These three creates are issued together below. Check the original insertion, including
-  // restoration of an identical payload under the same path, independently of later updates.
+  const refs=this.reservationEvidenceRefs(voice.ownerAccountId,fields.reservationId);
+  const [slot,ledger]=await tx.getAll(refs.slot,refs.ledger);
+  const backing={ownerAccountId:voice.ownerAccountId,reservationId:fields.reservationId,originRef,reservationGeneration};
+  const createdAtMs=reservation.get('createdAtMs');
+  if(!integer(createdAtMs)||!fieldsMatch(slot,{...backing,scope:fields.scope,intentId:fields.intentId})||
+     !fieldsMatch(ledger,{...backing,kind:'video_reserve',seconds:fields.seconds,createdAtMs}))throw new AccountFault('conflict');
+  // These immutable documents are issued by the same transaction as the reservation.
+  // A matching value in a later generation cannot replace the original ledger or slot.
   const issued=snapshotVersion(origin,'createTime');
   if(snapshotVersion(claim,'createTime')!==issued||snapshotVersion(reservation,'createTime')!==issued||
-     snapshotVersion(origin,'updateTime')!==issued||snapshotVersion(claim,'updateTime')!==issued)throw new AccountFault('conflict');
+     snapshotVersion(origin,'updateTime')!==issued||snapshotVersion(claim,'updateTime')!==issued||
+     [slot,ledger].some(doc=>snapshotVersion(doc,'createTime')!==issued||snapshotVersion(doc,'updateTime')!==issued))throw new AccountFault('conflict');
   return {originRef,reservationGeneration,bindingGeneration:fields.bindingGeneration};
  }
  /** Reserve the verified source video's duration exactly once before provider dispatch. */
@@ -415,7 +436,7 @@ export class AccountStore {
    const [stored,reservation,tomb,guard]=await tx.getAll(accountRef,reservationRef,tombRef,guardRef);
    const current=accountRecord(stored,identityKey),blocked=billingHold(guard,accountId,identityKey),sealed=sealedReservation(tomb,accountId,identityKey,reservationId,seconds);
    if(reservation.exists&&sealed)invariant();
-   const pin=voice?.claim.exists?this.verifyVoiceOrigin(voice,stored,reservation):undefined;
+   const pin=voice?.claim.exists?await this.verifyVoiceOrigin(tx,voice,stored,reservation):undefined;
    if(reservation.exists){
     if((voice&&!pin)||(!voice&&reservation.get('admissionProtocol')===voiceOriginProtocol))throw new AccountFault('conflict');
     if(reservation.get('ownerAccountId')!==accountId||reservation.get('identityKey')!==identityKey||reservation.get('reservationId')!==reservationId||reservation.get('seconds')!==seconds)throw new AccountFault('conflict');
@@ -424,12 +445,16 @@ export class AccountStore {
     return {created:false,state:reservation.get('state'),seconds,account:view(accountId,current),...(pin?{originRef:pin.originRef}:{})};
    }
    if(sealed||blocked)throw new AccountFault('conflict');
+   await this.assertNoReservationEvidence(tx,accountId,reservationId);
    if(current.active>=maxActiveVideoReservations)throw new AccountFault('quota');
    if(current.available<seconds)throw new AccountFault('insufficient');
    const next={...current,available:current.available-seconds,reserved:current.reserved+seconds,active:current.active+1};
    if(![next.available,next.reserved,next.active].every(Number.isSafeInteger)||next.active<1)invariant();
    const issued=voice&&originCandidate?{...originCandidate,bindingGeneration:voice.fields.bindingGeneration}:undefined;
+   const refs=this.reservationEvidenceRefs(accountId,reservationId);
+   const backing=issued?{reservationId,originRef:issued.originRef,reservationGeneration:issued.reservationGeneration}:{};
    if(voice&&issued){
+    tx.create(refs.slot,{ownerAccountId:accountId,...backing,scope:voice.fields.scope,intentId:voice.fields.intentId});
     tx.create(voice.originRef,
       {...voice.fields,...issued,accountVersion:snapshotVersion(stored,'createTime')});
     tx.create(voice.claimRef,{originRef:issued.originRef});
@@ -437,7 +462,7 @@ export class AccountStore {
    tx.update(accountRef,next);
    tx.create(reservationRef,{ownerAccountId:accountId,identityKey,reservationId,seconds,state:'reserved',
     admissionProtocol:issued?voiceOriginProtocol:2,createdAtMs:time,updatedAtMs:time,...(issued?{...issued,voiceCallOrdinals:[]}: {})});
-   tx.create(this.root.collection('ledgerEntries').doc(ledgerId([accountId,reservationId,'reserve'])),{ownerAccountId:accountId,createdAtMs:time,seconds,kind:'video_reserve'});
+   tx.create(refs.ledger,{ownerAccountId:accountId,createdAtMs:time,seconds,kind:'video_reserve',...backing});
    return {created:true,state:'reserved' as const,seconds,account:view(accountId,next),...(issued?{originRef:issued.originRef}:{})};
   });
  }
@@ -477,7 +502,7 @@ export class AccountStore {
    const state=reservation.get('state');if(!['reserved','captured','released'].includes(state))invariant();
    // A missing version does not prove that an older worker never contacted the provider.
    if(reservation.get('admissionProtocol')!==(voice?voiceOriginProtocol:2))throw new AccountFault('conflict');
-   const pin=voice&&this.verifyVoiceOrigin(voice,stored,reservation);
+   const pin=voice&&await this.verifyVoiceOrigin(tx,voice,stored,reservation);
    const originReceipt=pin?{originRef:pin.originRef}:{};
    const previous=storedAdmission(reservation),capturedWith=reservation.get('captureAdmission');
    const ordinals=pin?storedVoiceOrdinals(reservation,previous!==null,callKey,call.exists):undefined;
@@ -601,7 +626,10 @@ export class AccountStore {
    const key=hash([accountId,reservationId]),[stored,reservation,tomb]=await tx.getAll(this.root.collection('accounts').doc(accountId),this.root.collection('videoReservations').doc(key),this.root.collection('videoReservationTombstones').doc(key));
    accountRecord(stored,identityKey);const sealed=sealedReservation(tomb,accountId,identityKey,reservationId,seconds);
    if(reservation.exists&&sealed)invariant();
-   if(sealed)return {reservationId,seconds,state:'sealed' as const};
+   if(sealed){
+    await this.assertNoReservationEvidence(tx,accountId,reservationId);
+    return {reservationId,seconds,state:'sealed' as const};
+   }
    if(!reservation.exists)throw new AccountFault('not_found');
    if(reservation.get('ownerAccountId')!==accountId||reservation.get('identityKey')!==identityKey||reservation.get('reservationId')!==reservationId||!integer(reservation.get('seconds'),1))invariant();
    if(reservation.get('seconds')!==seconds)throw new AccountFault('conflict');
