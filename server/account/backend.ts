@@ -224,6 +224,36 @@ export class AccountStore {
    invariant();
   });
  }
+ /** Recover the accepted generation of this exact decision, with the current Account hold status. */
+ async videoBillingUnblockReceipt(identityKey:string,incident:string,reviewRef:string){
+  incidentId(incident);if(!reviewRefValid(reviewRef))bad();
+  const identityRef=this.identityFromKey(identityKey);
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const [stored,guard,record,receipt]=await tx.getAll(
+    this.root.collection('accounts').doc(accountId),
+    this.root.collection('videoBillingGuards').doc(accountId),
+    this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])),
+    this.root.collection('videoBillingUnblocks').doc(hash([accountId,incident,'unblock'])),
+   );
+   accountRecord(stored,identityKey);const blocked=billingHold(guard,accountId,identityKey);
+   if(!record.exists)throw new AccountFault(receipt.exists?'invariant':'conflict');
+   if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
+   if(!receipt.exists){
+    // Only a consistent active incident can establish that the mutation is still pending.
+    if(!blocked||record.get('state')!=='active'||record.get('reviewedAtMs')!==undefined)invariant();
+    return {state:'pending' as const,incidentId:incident,reviewRef};
+   }
+   if(receipt.get('reviewRef')!==reviewRef)throw new AccountFault('conflict');
+   const epoch=receipt.get('epoch'),createdAtMs=receipt.get('createdAtMs'),unblockedAtMs=receipt.get('unblockedAtMs');
+   if(receipt.get('ownerAccountId')!==accountId||receipt.get('identityKey')!==identityKey||receipt.get('incidentId')!==incident||
+    !integer(epoch,1)||!integer(createdAtMs)||!integer(unblockedAtMs)||
+    record.get('state')!=='reviewed'||record.get('reviewedAtMs')!==unblockedAtMs)throw new AccountFault('invariant');
+   return {state:'confirmed' as const,incidentId:incident,reviewRef,epoch,createdAtMs,blocked};
+  });
+ }
  /**
   * The audited reopening of a blocked account: a human decision, executed once per incident, that DELETES the guard
   * (never writes `blocked:false`, which the `billingHold` reader above would reject as `invariant`). The caller must name

@@ -4,6 +4,21 @@ import {AccountBillingClient,AccountBillingFault,accountIdentityKey} from './acc
 
 const uid='firebase-user-fixture',identityKey=createHash('sha256').update(JSON.stringify(['firebase',uid])).digest('hex'),reservationId='00000000-0000-4000-8000-000000000001';
 describe('Account API balance bridge',()=>{
+ it('requires a matching durable unblock receipt or an explicit pending decision',async()=>{
+  const incidentId='b'.repeat(64),reviewRef='synthetic review';
+  const pending={incidentId,reviewRef,state:'pending'};
+  const confirmed={incidentId,reviewRef,state:'confirmed',epoch:2,createdAtMs:1_800_000_000_000,blocked:true};
+  const request=vi.fn(async()=>({data:confirmed})),client=new AccountBillingClient(undefined,{request});
+  await expect(client.unblockReceipt(identityKey,incidentId,reviewRef)).resolves.toEqual({state:'confirmed',epoch:confirmed.epoch,createdAtMs:confirmed.createdAtMs,blocked:true});
+  expect(request).toHaveBeenCalledWith(expect.objectContaining({method:'POST',url:expect.stringMatching(/\/billing-holds\/unblock-receipt$/),data:{identityKey,incidentId,reviewRef}}));
+  await expect(new AccountBillingClient(undefined,{request:async()=>({data:pending})}).unblockReceipt(identityKey,incidentId,reviewRef)).resolves.toEqual({state:'pending'});
+  for(const data of [
+   {...confirmed,incidentId:reservationId},{...confirmed,reviewRef:'other review'},{...confirmed,blocked:'true'},
+   {...confirmed,epoch:0},{...confirmed,createdAtMs:-1},{...confirmed,state:'pending'},{...pending,unknown:true},
+  ])await expect(new AccountBillingClient(undefined,{request:async()=>({data})}).unblockReceipt(identityKey,incidentId,reviewRef)).rejects.toMatchObject({code:'unavailable'});
+  const older=new AccountBillingClient(undefined,{request:async()=>{throw {response:{status:404}};}});
+  await expect(older.unblockReceipt(identityKey,incidentId,reviewRef)).rejects.toMatchObject({code:'not_found'});
+ });
  it('derives the same pseudonymous key as the account service',()=>expect(accountIdentityKey(uid)).toBe(identityKey));
  it('pins transport to the deployed Account API origin and validates calls before sending',async()=>{
   const request=vi.fn(async(value:any)=>({data:{reservationId:value.data.reservationId,state:'reserved',seconds:value.data.seconds}})),client=new AccountBillingClient(undefined,{request});

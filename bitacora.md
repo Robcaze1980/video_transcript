@@ -1878,3 +1878,9 @@ Para la fase de voz se preservó el informe de GLM como borrador no aceptado y s
 ## 2026-11-25 · LV-019.B · Prevención de consumo repetido de T3
 
 Verificamos los 127.557.451 tokens de entrada reportados en dos turnos de voz, con 98,9 % de lectura de caché y un turno parcial. Se detectaron 496 comandos y 271 fallos. Las revisiones estáticas pasan a una consulta de texto por revisor con evidencia reunida localmente. El respaldo conserva los modelos y la clave de Vistavo vinculados y pasó cuatro pruebas con el proveedor simulado. La verificación de esta sesión tuvo cero nuevas solicitudes al proveedor. [Consumo y procedimiento](docs/reviews/LV-019-B-consumo-t3-2026-11-25.md).
+
+## 2026-11-25 · LV-019.B · Recuperación del recibo de Cuenta
+
+La candidata de desbloqueo de Video (1.4b.2) recupera una confirmación perdida desde el recibo inmutable de Cuenta. La prueba reproduce el fallo en la base y demuestra que la lectura recupera la generación aceptada, conserva bloqueos posteriores y registra una sola conclusión. Pasaron 47 pruebas de desbloqueo, 33 de transporte, tipos y dos compilaciones de backend. Las tres variantes incorrectas fueron detectadas.
+
+La regresión financiera completa terminó con 458 aprobadas, 0 fallos y 5 omisiones previstas de voz en el emulador aislado. GLM y DeepSeek aprobaron su revisión estática. OpenRouter reportó US$0,03735814005 por cuatro consultas. El respaldo de trabajo va en `codex/vistavo-checkpoint-20261125`. El siguiente paso es la salida de reservas bajo bloqueo (1.4b.3). [Evidencia, límites y costos](docs/evidence/lv019-b-unblock-receipt-20261125/README.md).

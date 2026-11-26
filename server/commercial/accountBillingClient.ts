@@ -81,6 +81,21 @@ export class AccountBillingClient {
   if(typeof row.blocked!=='boolean'||typeof row.recorded!=='boolean'||row.recorded&&!row.blocked)throw new AccountBillingFault('unavailable');
   return {blocked:row.blocked,recorded:row.recorded};
  }
+ /** Read the durable result without resending an unblock whose outcome is unknown. */
+ async unblockReceipt(identityKey:string,incidentId:string,reviewRef:string){
+  if(!hex64.test(identityKey)||!incident(incidentId)||typeof reviewRef!=='string'||!/^[^\u0000-\u001f\u007f]{1,200}$/.test(reviewRef))throw new AccountBillingFault('invalid');
+  const value=await this.post('/api/internal/video/billing-holds/unblock-receipt',{identityKey,incidentId,reviewRef});
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountBillingFault('unavailable');
+  const row=value as Record<string,unknown>,keys=Object.keys(row).sort().join(',');
+  if(row.incidentId!==incidentId||row.reviewRef!==reviewRef)throw new AccountBillingFault('unavailable');
+  if(row.state==='pending'&&keys==='incidentId,reviewRef,state')return {state:'pending' as const};
+  if(row.state==='confirmed'&&keys==='blocked,createdAtMs,epoch,incidentId,reviewRef,state'&&typeof row.blocked==='boolean'&&
+   typeof row.epoch==='number'&&Number.isSafeInteger(row.epoch)&&row.epoch>=1&&
+   typeof row.createdAtMs==='number'&&Number.isSafeInteger(row.createdAtMs)&&row.createdAtMs>=0){
+   return {state:'confirmed' as const,epoch:row.epoch,createdAtMs:row.createdAtMs,blocked:row.blocked};
+  }
+  throw new AccountBillingFault('unavailable');
+ }
  /**
   * The audited reopening of a blocked account: an operator names the incident and the guard generation (epoch + createdAtMs),
   * and Account deletes the guard (never `blocked:false`). `reviewRef` is the durable reference to the reviewed evidence.

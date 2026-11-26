@@ -36,14 +36,22 @@ export function accountHttp(store:AccountStore,identity:IdentityVerifier,origin=
      if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');const b=await json(req,['identityKey']);
      if(caller.email!==internal.reservationCaller)throw new HttpFault(403,'forbidden');send(200,await store.videoBalance(b.identityKey as string));return;
     }
-    if(url.pathname==='/api/internal/video/billing-holds'||url.pathname==='/api/internal/video/billing-holds/status'||url.pathname==='/api/internal/video/billing-holds/unblock'){
+    if(url.pathname==='/api/internal/video/billing-holds'||url.pathname==='/api/internal/video/billing-holds/status'||
+     url.pathname==='/api/internal/video/billing-holds/unblock'||url.pathname==='/api/internal/video/billing-holds/unblock-receipt'){
      if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');
-     // A hold, its status and the audited unblock all belong to the settlement caller; only status is a read.
+     // Only the general hold status is also available to the reservation caller.
      if(!url.pathname.endsWith('/status')&&caller.email!==internal.settlementCaller)throw new HttpFault(403,'forbidden');
      if(url.pathname.endsWith('/unblock')){
       const b=await json(req,['identityKey','incidentId','epoch','createdAtMs','reviewRef']);
       if(typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey)||typeof b.incidentId!=='string'||!(uuid.test(b.incidentId)||/^[a-f0-9]{64}(?![\s\S])/.test(b.incidentId))||!Number.isSafeInteger(b.epoch)||(b.epoch as number)<1||!Number.isSafeInteger(b.createdAtMs)||(b.createdAtMs as number)<0||typeof b.reviewRef!=='string'||!/^[^\u0000-\u001f\u007f]{1,200}$/.test(b.reviewRef))throw new HttpFault(400,'invalid');
       const result=await store.unblockVideoBilling(b.identityKey,{incidentId:b.incidentId as string,epoch:b.epoch as number,createdAtMs:b.createdAtMs as number,reviewRef:b.reviewRef as string});send(200,result);return;
+     }
+     if(url.pathname.endsWith('/unblock-receipt')){
+      const b=await json(req,['identityKey','incidentId','reviewRef']);
+      if(typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey)||typeof b.incidentId!=='string'||
+       !(uuid.test(b.incidentId)||/^[a-f0-9]{64}(?![\s\S])/.test(b.incidentId))||typeof b.reviewRef!=='string'||
+       !/^[^\u0000-\u001f\u007f]{1,200}$/.test(b.reviewRef))throw new HttpFault(400,'invalid');
+      send(200,await store.videoBillingUnblockReceipt(b.identityKey,b.incidentId,b.reviewRef));return;
      }
      const b=await json(req,['identityKey','incidentId']);
      if(typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey)||typeof b.incidentId!=='string'||!(uuid.test(b.incidentId)||/^[a-f0-9]{64}(?![\s\S])/.test(b.incidentId)))throw new HttpFault(400,'invalid');

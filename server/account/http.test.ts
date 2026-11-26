@@ -5,6 +5,20 @@ import {validateAccountEnvironment,verifyDatabaseBoundary,validateAccountOidcAud
 import {AccountFault,type AccountStore} from './backend';
 async function api(test:(origin:string,calls:string[],details:Array<{method:string;args:unknown[]}>)=>Promise<void>){const calls:string[]=[],details:Array<{method:string;args:unknown[]}>=[],reserveCalls={value:0},store=new Proxy({}, {get:(_t,key)=>async(...args:unknown[])=>{calls.push(String(key));details.push({method:String(key),args});if(key==='reserveVideo')return {created:++reserveCalls.value===1,state:'reserved',seconds:60,account:{}};if(key==='unblockVideoBilling')return {unblocked:true,replayed:false,blocked:false};return {created:true,account:{},project:{}};}}) as AccountStore;const apiEmail='vistavo-files-api@vistavo-prod.iam.gserviceaccount.com',workerEmail='vistavo-runtime@vistavo-prod.iam.gserviceaccount.com',server=createServer((req,res)=>{void accountHttp(store,{verifyIdToken:async token=>{if(token==='revoked'||token==='disabled'||token==='expired'||token==='foreign')throw Error('denied');return {uid:token,email_verified:token!=='unverified'};}},'https://vistavo.app',{audience:'https://vistavo-account-api-test-1234567890-uc.a.run.app',allowedEmails:[apiEmail,workerEmail],reservationCaller:apiEmail,settlementCaller:workerEmail,verifier:{verifyIdToken:async(token,audience)=>{if(!['service','worker'].includes(token)||audience!=='https://vistavo-account-api-test-1234567890-uc.a.run.app')throw Error('denied');return {email:token==='service'?apiEmail:workerEmail,email_verified:true};}}})(req,res);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();if(!address||typeof address==='string')throw Error();try{await test('http://127.0.0.1:'+address.port,calls,details);}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}}
 describe('account transport trust boundary',()=>{
+ it('reads an unblock receipt only for the settlement caller and exact decision',async()=>api(async(origin,calls,details)=>{
+  const identityKey='a'.repeat(64),incidentId='b'.repeat(64),reviewRef='synthetic review';
+  const body={identityKey,incidentId,reviewRef},path='/api/internal/video/billing-holds/unblock-receipt';
+  const post=(token:string,value:unknown,url=path,headers:Record<string,string>={})=>fetch(origin+url,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...headers},body:JSON.stringify(value)});
+  expect((await post('good',body)).status).toBe(401);
+  expect((await post('service',body)).status).toBe(403);
+  expect((await post('worker',body,path,{Origin:'https://example.invalid'})).status).toBe(404);
+  expect((await post('worker',body,path+'?extra=1')).status).toBe(400);
+  expect((await post('worker',{...body,epoch:1})).status).toBe(400);
+  expect((await post('worker',{...body,reviewRef:'wrong\nformat'})).status).toBe(400);
+  expect(calls).toEqual([]);
+  expect((await post('worker',body)).status).toBe(200);
+  expect(details).toEqual([{method:'videoBillingUnblockReceipt',args:[identityKey,incidentId,reviewRef]}]);
+ }));
  it('permits the read-only resolution receipt only to the settlement identity',async()=>api(async(origin,calls,details)=>{
   const identityKey='a'.repeat(64),reservationId='00000000-0000-4000-8000-000000000001',path='/api/internal/video/reservations/'+reservationId+'/resolution',body={identityKey,seconds:7};
   const post=(token:string,value:unknown,url=path,headers:Record<string,string>={})=>fetch(origin+url,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...headers},body:JSON.stringify(value)});
