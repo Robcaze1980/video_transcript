@@ -40,6 +40,30 @@ describe('summarizeQueues',()=>{
     const text=JSON.stringify(await summarizeQueues(readOnlyRoot(seed().root as never),NOW));
     expect(text).not.toMatch(/11111111-1111|"i[1-6]"|"h[1-3]"|"o[1-3]"|"j[12]"|"t1"|createdAtMs|accountId|"id"/);
   });
+  it('read-only guard counts a damaged reference separately from the literal ID [object]',async()=>{
+    const foreign='22222222-2222-4222-8222-222222222222';
+    const s=stub({billingGuards:{
+      [ACC]:{blocked:true,accountId:ACC,epoch:1,createdAtMs:5,lastIncidentId:'[object]'},
+      [foreign]:{blocked:true,accountId:foreign,epoch:1,createdAtMs:5,lastIncidentId:'[object]',lastOutboxIncidentId:['synthetic-hidden']},
+    }});
+    const counts=await summarizeQueues(readOnlyRoot(s.root as never),NOW);
+    expect(s.writes).toEqual([]);
+    expect(JSON.stringify(counts)).not.toContain('synthetic-hidden');
+    expect(counts.report.byKind.guard).toMatchObject({total:2,needsReview:1,malformed:1});
+  });
+  it('read-only guard uses an aggregate bucket without exporting the incident ID or its generation',async()=>{
+    const foreign='22222222-2222-4222-8222-222222222222';
+    const references=['[object]','synthetic-opaque-for-guard-only'];
+    const s=stub({billingGuards:Object.fromEntries([ACC,foreign].map((id,index)=>[id,{
+      blocked:true,accountId:id,epoch:index+1,createdAtMs:13371337+index,lastIncidentId:references[index],
+    }])),billingHoldOutbox:{synthetic:{state:'pending',createdAtMs:NOW-1}}});
+    const counts=await summarizeQueues(readOnlyRoot(s.root as never),NOW);
+    const published=JSON.stringify(counts);
+    expect(counts.report.byKind.hold.byState).toEqual({pending:1});
+    expect(s.writes).toEqual([]);
+    expect(counts.report.byKind.guard).toMatchObject({total:2,needsReview:2,malformed:0,byState:{blocked:2}});
+    for(const value of [...references,ACC,foreign,'13371337','13371338'])expect(published).not.toContain(value);
+  });
   it('never writes',async()=>{
     const s=seed(),before=JSON.stringify([...s.store.entries()]);
     await summarizeQueues(readOnlyRoot(s.root as never),NOW);

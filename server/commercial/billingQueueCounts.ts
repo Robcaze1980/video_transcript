@@ -28,7 +28,9 @@ export async function summarizeQueues(root:ReadOnlyRoot,nowMs:number):Promise<Qu
   const byKind=Object.fromEntries(PENDING_SOURCES.map(source=>[source.kind,{total:0,byState:{},needsReview:0,malformed:0,unknownAge:0,oldestAgeMs:null}])) as Record<PendingKind,KindCounts>;
   const byLastErrorCode:Record<string,number>={};
   for(const row of report.rows){
-    const kind=byKind[row.kind];kind.total++;kind.byState[row.state]=(kind.byState[row.state]??0)+1;
+    // The internal guard state contains a generation and incident reference.
+    const state=row.kind==='guard'?'blocked':row.state;
+    const kind=byKind[row.kind];kind.total++;kind.byState[state]=(kind.byState[state]??0)+1;
     if(row.attention==='needs_review')kind.needsReview++;if(row.attention==='malformed')kind.malformed++;if(row.attention==='unknown_age')kind.unknownAge++;
     if(row.ageMs!==null&&(kind.oldestAgeMs===null||row.ageMs>kind.oldestAgeMs))kind.oldestAgeMs=row.ageMs;
     const code=row.lastErrorCode??'none';byLastErrorCode[code]=(byLastErrorCode[code]??0)+1;

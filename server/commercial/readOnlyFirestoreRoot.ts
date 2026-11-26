@@ -5,8 +5,8 @@
  * `limit(n)`, `startAfter(<a document this facade returned from the same collection>)`, `get()` and `count()`. There is no `doc`, no write,
  * no transaction, no listener and no reference to a document, so whatever credentials the process holds, code that only sees this object
  * cannot write, cannot read another collection and cannot probe fields the policy does not list.
- * Returned documents carry just an id and a frozen copy of the policy's exposed scalar fields (a non-scalar value is replaced by the string
- * `[object]`, or omitted for fields marked `dropIfNotScalar`), plus booleans for the fields the policy asks to expose only as present/absent.
+ * Returned documents carry just an id and a frozen copy of the policy's exposed scalar fields. A non-scalar value is replaced by `[object]`
+ * by default, omitted by `dropIfNotScalar` or replaced by null by `nullIfNotScalar`. The policy can also expose presence as a boolean.
  * Every read can be journalled as collection / operation / number of filters / documents returned (never a value). `maxDocs` caps the
  * documents read: each query is limited BEFORE it runs to what is left of the budget plus one, and reads and counts run one after another.
  * Concrete policies: billingReadOnlyRoot.ts (billing queues in the Video database) and accountReadOnlyRoot.ts (the Account database).
@@ -18,6 +18,7 @@ export interface CollectionPolicy{
   /** Fields a `select()` may name (and only these). */readonly select:readonly string[];
   /** Scalar fields exposed from each document. */readonly expose:readonly string[];
   /** Exposed fields omitted (instead of marked `[object]`) when the stored value is not a scalar. */readonly dropIfNotScalar?:readonly string[];
+  /** Exposed fields that keep a present non-scalar as null so it cannot be mistaken for a real string. */readonly nullIfNotScalar?:readonly string[];
   /** Source field -> name of a boolean that says whether the source is present and non-null; the value itself is never exposed. */readonly presence?:Readonly<Record<string,string>>;
   /** Equality filters allowed: field -> the exact values it may be compared with. */readonly where:Readonly<Record<string,readonly Scalar[]>>;
 }
@@ -50,7 +51,7 @@ function project(policy:CollectionPolicy,data:Record<string,unknown>|undefined):
     if(!has(data,key))continue;
     const value=data[key];
     if(isScalar(value))out[key]=value;
-    else if(!policy.dropIfNotScalar?.includes(key))out[key]='[object]'; // present, but not a usable scalar
+    else if(!policy.dropIfNotScalar?.includes(key))out[key]=policy.nullIfNotScalar?.includes(key)?null:'[object]';
   }
   for(const [source,name] of Object.entries(policy.presence??{}))out[name]=has(data,source)&&data[source]!==null&&data[source]!==undefined;
   return Object.freeze(out);
@@ -61,6 +62,7 @@ export function createReadOnlyRoot(root:DocumentReference,policyInput:ReadPolicy
   // The policy is copied and frozen: whoever built it cannot widen it afterwards.
   const policy:ReadPolicy=Object.freeze({collections:Object.freeze(Object.fromEntries(Object.entries(policyInput.collections).map(([name,c])=>[name,Object.freeze({
     select:Object.freeze([...c.select]),expose:Object.freeze([...c.expose]),dropIfNotScalar:Object.freeze([...(c.dropIfNotScalar??[])]),
+    nullIfNotScalar:Object.freeze([...(c.nullIfNotScalar??[])]),
     presence:Object.freeze({...(c.presence??{})}),where:Object.freeze(Object.fromEntries(Object.entries(c.where).map(([f,v])=>[f,Object.freeze([...v])]))),
   })])))});
   const raw=new WeakMap<object,{snap:RawSnap;collection:string}>();let read=0;

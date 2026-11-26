@@ -29,6 +29,44 @@ describe('the facade lets the real readers run and gives the same answers',()=>{
     expect(await readPendingReport(view(s) as never,NOW,{pageSize:1})).toEqual(await readPendingReport(s.root as never,NOW));
     expect(await readScheduleInventory(view(s) as never,NOW,{pageSize:1})).toEqual(await readScheduleInventory(s.root as never,NOW));
   });
+
+  it.each([
+    {field:'lastOutboxIncidentId',invalid:{value:'synthetic-map-hidden'},companion:'lastIncidentId',surviving:'legacy-opaque-ref'},
+    {field:'lastIncidentId',invalid:['synthetic-array-hidden'],companion:'lastOutboxIncidentId',surviving:'[object]'},
+  ])('read-only guard keeps damage distinct from opaque IDs in $field',async({field,invalid,companion,surviving})=>{
+    const id='33333333-3333-4333-8333-333333333333';
+    const s=stub({billingGuards:{[id]:{accountId:id,blocked:true,epoch:2,createdAtMs:5,
+      [field]:invalid,[companion]:surviving,unlisted:'synthetic-unlisted-hidden'}}});
+    const facade=view(s);
+    const rawReport=await readPendingReport(s.root as never,NOW);
+    expect(rawReport.rows).toEqual([expect.objectContaining({kind:'guard',id,accountId:null,
+      state:'blocked:2:5:'+surviving,malformed:true,attention:'malformed'})]);
+
+    const {docs}=await facade.collection('billingGuards').where('blocked','==',true).orderBy('__name__').limit(1).get();
+    const projected=docs[0].data()!;
+    expect(Object.keys(projected).sort()).toEqual(['accountId','blocked','createdAtMs','epoch',field,companion].sort());
+    expect(Object.isFrozen(projected)).toBe(true);
+    expect(JSON.stringify(projected)).not.toMatch(/synthetic-(?:map|array|unlisted)-hidden|unlisted/);
+    expect(s.writes).toEqual([]);
+    const projectedReport=await readPendingReport(facade as never,NOW);
+    expect({invalidProjection:projected[field],companion:projected[companion],rows:projectedReport.rows}).toEqual({
+      invalidProjection:null,companion:surviving,rows:rawReport.rows,
+    });
+  });
+
+  it('read-only guard preserves the literal opaque ID [object] and a missing companion',async()=>{
+    const id='33333333-3333-4333-8333-333333333333';
+    const s=stub({billingGuards:{[id]:{accountId:id,blocked:true,lastIncidentId:'[object]'}}});
+    const facade=view(s);
+    const {docs}=await facade.collection('billingGuards').orderBy('__name__').limit(1).get();
+    const data=docs[0].data()!;
+    expect(data.lastIncidentId).toBe('[object]');
+    expect(Object.hasOwn(data,'lastOutboxIncidentId')).toBe(false);
+    const report=await readPendingReport(facade as never,NOW);
+    expect(report.rows).toEqual([expect.objectContaining({kind:'guard',id,accountId:id,
+      state:'blocked:1:0:[object]',malformed:false,attention:'needs_review'})]);
+    expect(s.writes).toEqual([]);
+  });
 });
 
 describe('what the facade refuses',()=>{
