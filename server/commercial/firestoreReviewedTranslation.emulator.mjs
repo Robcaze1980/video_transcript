@@ -11,6 +11,9 @@ import { Firestore } from 'firebase-admin/firestore';
 import { FirestoreBackend } from './firestoreBackend.ts';
 import { FirestoreAi } from './firestoreAi.ts';
 import { AccountBillingClient } from './accountBillingClient.ts';
+import { ALERT_COLLECTION, clearResolvedAlerts, raisePendingAlerts } from './billingPendingAlerts.ts';
+import { readPendingReport } from './billingPendingReport.ts';
+import { LOCAL_VOICE_CONFLICT_ALERTS, readLocalVoiceConflictReport, raiseLocalVoiceConflictAlerts } from './localVoiceConflictReview.ts';
 import { AccountFault, AccountStore } from '../account/backend.ts';
 import { AI_CATALOG_VERSION, AI_STORAGE_LIMIT, AI_TEXT_WINDOW_MS } from './aiContracts.ts';
 import { cloudDiagnosticError, withCloudDiagnostics } from './cloudDiagnostics.ts';
@@ -24,7 +27,7 @@ const host = '127.0.0.1:8185';
 const project = 'demo-vistavo-ledger';
 const testCollection = 'vistavo_review_contract_synthetic';
 const voiceC1 = process.env.LV_VOICE_C1_FIXTURE === '1';
-const testCount = voiceC1 ? 60 : 28;
+const testCount = voiceC1 ? 74 : 28;
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const contexts = [];
 let verifiedCleanups = 0;
@@ -1151,6 +1154,19 @@ if (voiceC1) {
     await rows.docs[0].ref.update({fingerprint:'0'.repeat(64)});
   }
 
+  async function restoreVoiceMarkerAfterRewrite(c) {
+    const rows = await c.root.collection('reviewedVoiceMarkers').get();
+    assert.equal(rows.size,1);
+    const original = rows.docs[0];
+    await original.ref.update({fingerprint:'0'.repeat(64)});
+    await original.ref.set(original.data());
+    const restored = await original.ref.get();
+    assert.deepEqual(restored.data(),original.data());
+    assert.ok(restored.createTime.isEqual(original.createTime));
+    assert.ok(!restored.updateTime.isEqual(original.updateTime));
+    return restored;
+  }
+
   test('C1 voice reserves only for the owner, replays and keeps private source data out of records and logs', async () => {
     const f = await voiceFixture(), key = randomUUID(), logs = [];
     const privateUrl = 'https://synthetic.invalid/voice?key=private-storage-canary';
@@ -1703,10 +1719,11 @@ if (voiceC1) {
   for (const before of [true,false]) {
     test(`C1 does not classify insufficient beside conflicting ACK evidence recorded ${before?'before':'after'} NACK settlement`, async () => {
       const f = await voiceFixture(2), key = randomUUID(), balances = await f.balances();
-      async function recordConflictingAck() {
+      const id = sha(JSON.stringify([f.c.account,key])), intentRef = ref(f.c,'billingIntents',id);
+      async function recordConflictingAck(expected = 'recorded') {
         const {reservationId,seconds} = f.calls[0];
         const stored = await ref(f.c,'billingReserveAttempts',reservationId).get();
-        assert.equal(await f.c.backend.recordReserveAck(stored.data(),{reservationId,seconds,state:'reserved'}),'recorded');
+        assert.equal(await f.c.backend.recordReserveAck(stored.data(),{reservationId,seconds,state:'reserved'}),expected);
       }
       if (before) f.setResponseHook(async answer => {
         assert.equal(answer.state,'insufficient');
@@ -1714,19 +1731,333 @@ if (voiceC1) {
         return answer;
       });
       await assert.rejects(() => f.request(key),{code:before?'unknown':'insufficient'});
-      if (!before) await recordConflictingAck();
+      let originalNack;
+      if (!before) {
+        const beforeReport = await readPendingReport(f.c.root,Date.now());
+        assert.equal(beforeReport.rows.some(row => row.id===id),false,'An uncontradicted NACK stays terminal');
+        assert.equal((await intentRef.get()).get('state'),'insufficient');
+        originalNack = await ref(f.c,'localVoiceReserveNacks',f.calls[0].reservationId).get();
+        assert.ok(originalNack.exists);
+        await recordConflictingAck();
+      }
+      const attemptId = f.calls[0].reservationId;
+      const ackRef = ref(f.c,'billingReserveAckObservations',attemptId), originalAck = await ackRef.get();
+      assert.ok(originalAck.exists);
       await assert.rejects(() => f.request(key),{code:'unknown'});
+      await assert.rejects(() => f.request(key,f.c.foreignPrincipal),{code:'not_found'});
 
-      const intent = await ref(f.c,'billingIntents',sha(JSON.stringify([f.c.account,key]))).get();
-      assert.equal(intent.get('state'),before?'reserve_pending':'insufficient');
-      assert.equal((await f.c.root.collection('localVoiceReserveNacks').get()).size,before?0:1);
+      const disputed = await intentRef.get();
+      assert.equal(disputed.get('state'),'needs_review');
+      const nacks = await f.c.root.collection('localVoiceReserveNacks').get();
+      assert.equal(nacks.size,1);
+      if (originalNack) assert.ok(nacks.docs[0].updateTime.isEqual(originalNack.updateTime));
+      else originalNack = nacks.docs[0];
+      assert.equal(originalAck.get('source'),'reserve_ack');
+      assert.equal(originalAck.get('reservationId'),attemptId);
       assert.equal((await f.acks()).size,1);
       assert.equal(f.calls.length,1);
       assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
       assert.deepEqual(await f.balances(),balances);
       await assertNoVoiceWork(f);
+
+      {
+        await recordConflictingAck('already_recorded');
+        assert.ok((await intentRef.get()).updateTime.isEqual(disputed.updateTime));
+        const now = Date.now(), report = await readPendingReport(f.c.root,now);
+        const raised = await raisePendingAlerts(f.c.db,f.c.root,report,now);
+        const repeated = await raisePendingAlerts(f.c.db,f.c.root,await readPendingReport(f.c.root,now+1),now+1);
+        const cleared = await clearResolvedAlerts(f.c.db,f.c.root,report,now+2);
+        const open = (await f.c.root.collection(ALERT_COLLECTION).where('status','==','open').get()).docs;
+        const isDisputedAttempt = rowId => rowId===id || rowId===attemptId;
+        assert.ok((await ackRef.get()).updateTime.isEqual(originalAck.updateTime));
+        assert.ok((await originalNack.ref.get()).updateTime.isEqual(originalNack.updateTime));
+        assert.equal((await ref(f.c,'billingGuards',f.c.account).get()).exists,false);
+        assert.equal((await ref(f.c,'billingGuards',f.c.foreignPrincipal.accountId).get()).exists,false);
+        assert.equal((await f.c.root.collection('billingHoldOutbox').get()).size,0);
+        assert.equal(f.calls.length,1);
+        assert.deepEqual(await f.balances(),balances);
+        assert.deepEqual({
+          report:report.attention.filter(row => isDisputedAttempt(row.id) && row.attention==='needs_review').length,
+          firstAlert:raised.created,
+          repeatedAlert:repeated.seen,
+          cleared:cleared.cleared,
+          disputedOpen:open.filter(row => isDisputedAttempt(row.get('rowId')) && row.get('reason')==='needs_review').length,
+          foreignAlerts:open.filter(row => row.get('accountId')===f.c.foreignPrincipal.accountId).length,
+        },{report:1,firstAlert:1,repeatedAlert:1,cleared:0,disputedOpen:1,foreignAlerts:0});
+      }
     });
   }
+
+  for (const reserved of [true,false]) {
+    test(`C1 rejects a marker rewritten and restored while the Account ${reserved?'ACK':'NACK'} is in flight`, async () => {
+      const f = await voiceFixture(reserved?20:2), key = randomUUID(), balances = await f.balances();
+      let restored;
+      f.setResponseHook(async answer => {
+        assert.equal(answer.state,reserved?'reserved':'insufficient');
+        restored = await restoreVoiceMarkerAfterRewrite(f.c);
+        return answer;
+      });
+      const first = await observed(f.request(key));
+      assert.ok(restored,'The original marker content was restored before the response reached Video');
+      const retry = await observed(f.request(key));
+      await assert.rejects(() => f.request(key,f.c.foreignPrincipal),{code:'not_found'});
+
+      const [owner,other] = await f.balances(), ledger = await f.store.root.collection('ledgerEntries').get();
+      assert.equal(f.calls.length,1);
+      assert.equal(ledger.size,reserved?1:0);
+      assert.deepEqual(other,balances[1]);
+      if (reserved) assert.deepEqual([owner.available,owner.reserved,owner.consumed],[17,3,0]);
+      else assert.deepEqual(owner,balances[0]);
+      const acks = await f.acks(), nacks = await f.c.root.collection('localVoiceReserveNacks').get();
+      const allowed = reserved?['conflict','unknown']:['unknown'];
+      assert.deepEqual({
+        firstClosed:allowed.includes(first.error?.code),
+        replayClosed:allowed.includes(retry.error?.code),
+        jobs:(await f.voiceJobs()).length,
+        acks:acks.size,
+        nacks:nacks.size,
+      },{firstClosed:true,replayClosed:true,jobs:0,acks:reserved?1:0,nacks:0});
+      if (reserved) {
+        assert.equal(acks.docs[0].id,f.calls[0].reservationId);
+        assert.equal(acks.docs[0].get('attribution'),'unverified');
+      }
+      await assertNoVoiceWork(f);
+    });
+  }
+
+  test('C1 does not replay an insufficient NACK after its marker was rewritten and restored', async () => {
+    const f = await voiceFixture(2), key = randomUUID(), balances = await f.balances();
+    await assert.rejects(() => f.request(key),{code:'insufficient'});
+    const nackRef = ref(f.c,'localVoiceReserveNacks',f.calls[0].reservationId), original = await nackRef.get();
+    assert.ok(original.exists);
+    await restoreVoiceMarkerAfterRewrite(f.c);
+    const retry = await observed(f.request(key));
+    await assert.rejects(() => f.request(key,f.c.foreignPrincipal),{code:'not_found'});
+    assert.ok((await nackRef.get()).updateTime.isEqual(original.updateTime));
+    assert.equal((await f.acks()).size,0);
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+    assert.deepEqual(await f.balances(),balances);
+    await assertNoVoiceWork(f);
+    assert.equal(retry.error?.code,'unknown');
+  });
+
+  test('C1 no longer replays the same job after its admitted marker was rewritten and restored', async () => {
+    const f = await voiceFixture(), key = randomUUID(), [,otherBefore] = await f.balances();
+    const jobId = await f.request(key);
+    assert.equal(await f.request(key),jobId);
+    const [ack] = (await f.acks()).docs, job = await ref(f.c,'jobs',jobId).get();
+    await restoreVoiceMarkerAfterRewrite(f.c);
+    const replay = await observed(f.request(key));
+    await assert.rejects(() => f.request(key,f.c.foreignPrincipal),{code:'not_found'});
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,1);
+    const [owner,other] = await f.balances();
+    assert.deepEqual([owner.available,owner.reserved,owner.consumed],[17,3,0]);
+    assert.deepEqual(other,otherBefore);
+    assert.ok((await job.ref.get()).updateTime.isEqual(job.updateTime));
+    assert.ok((await ack.ref.get()).updateTime.isEqual(ack.updateTime));
+    assert.equal((await f.voiceJobs()).length,1);
+    assert.equal((await f.c.root.collection('outbox').get()).size,1);
+    assert.equal(replay.error?.code,'conflict');
+  });
+
+  for (const rewritten of [false,true]) {
+    test(`C1 late ACK following durable NACK keeps the conflict ${rewritten?'ownerless after the marker is rewritten and restored':'on the intent when the marker is intact'}`, async () => {
+      const f=await voiceFixture(2),key=randomUUID(),balances=await f.balances();
+      const intentId=sha(JSON.stringify([f.c.account,key])),intentRef=ref(f.c,'billingIntents',intentId);
+      const identityRef=ref(f.c,'identities',AccountStore.identityKey(f.c.uid));
+      await assert.rejects(()=>f.request(key),{code:'insufficient'});
+      const {reservationId,seconds}=f.calls[0],nackRef=ref(f.c,'localVoiceReserveNacks',reservationId);
+      const [nackBefore,intentBefore,identityBefore,prepared,markers]=await Promise.all([
+        nackRef.get(),intentRef.get(),identityRef.get(),ref(f.c,'billingReserveAttempts',reservationId).get(),
+        f.c.root.collection('reviewedVoiceMarkers').get(),
+      ]);
+      assert.ok(nackBefore.exists);assert.equal(intentBefore.get('state'),'insufficient');
+      assert.equal(identityBefore.get('accountId'),f.c.account);assert.equal(markers.size,1);
+      assert.equal((await f.acks()).size,0);
+      assert.equal((await f.c.root.collection('localVoiceReserveConflicts').get()).size,0);
+      const markerBefore=markers.docs[0];
+      const marker=rewritten?await restoreVoiceMarkerAfterRewrite(f.c):await markerBefore.ref.get();
+      assert.deepEqual(marker.data(),markerBefore.data());assert.ok(marker.createTime.isEqual(markerBefore.createTime));
+      assert.equal(marker.updateTime.isEqual(markerBefore.updateTime),!rewritten);
+
+      const record=()=>f.c.backend.recordReserveAck(prepared.data(),{reservationId,seconds,state:'reserved'});
+      assert.equal(await record(),'recorded');
+      const [ack]=(await f.acks()).docs;assert.ok(ack);assert.equal(ack.get('attribution'),'unverified');
+      assert.equal(ack.get('reservationId'),reservationId);assert.equal(ack.get('seconds'),seconds);
+      const intentAfterAck=await intentRef.get();
+      assert.equal(await record(),'already_recorded');
+      await assert.rejects(()=>f.request(key),{code:'unknown'});
+      await assert.rejects(()=>f.request(key,f.c.foreignPrincipal),{code:'not_found'});
+
+      const now=Date.now(),report=await readPendingReport(f.c.root,now);
+      const ordinary=await raisePendingAlerts(f.c.db,f.c.root,report,now);
+      const ordinaryRepeat=await raisePendingAlerts(f.c.db,f.c.root,await readPendingReport(f.c.root,now+1),now+1);
+      const local=await raiseLocalVoiceConflictAlerts(f.c.db,f.c.root,await readLocalVoiceConflictReport(f.c.root),now);
+      const localRepeat=await raiseLocalVoiceConflictAlerts(f.c.db,f.c.root,await readLocalVoiceConflictReport(f.c.root),now+1);
+      const cleared=await clearResolvedAlerts(f.c.db,f.c.root,report,now+2);
+      const alertsFor=name=>f.c.root.collection(name).where('status','==','open').get();
+      const [ordinaryAlerts,localAlerts,conflicts]=await Promise.all([
+        alertsFor(ALERT_COLLECTION),alertsFor(LOCAL_VOICE_CONFLICT_ALERTS),f.c.root.collection('localVoiceReserveConflicts').get(),
+      ]);
+      const observations=snap=>snap.docs.map(doc=>[doc.get('kind'),doc.get('rowId'),doc.get('accountId'),doc.get('reason'),doc.get('seenCount')]);
+      assert.equal(cleared.cleared,0);
+      assert.ok((await nackRef.get()).updateTime.isEqual(nackBefore.updateTime));
+      assert.ok((await ack.ref.get()).updateTime.isEqual(ack.updateTime));
+      assert.ok((await intentRef.get()).updateTime.isEqual(intentAfterAck.updateTime));
+      assert.ok((await identityRef.get()).updateTime.isEqual(identityBefore.updateTime));
+      assert.ok((await marker.ref.get()).updateTime.isEqual(marker.updateTime));
+      assert.equal((await f.acks()).size,1);assert.equal((await f.c.root.collection('localVoiceReserveNacks').get()).size,1);
+      assert.equal((await f.c.root.collection('billingGuards').get()).size,0);
+      assert.equal((await f.c.root.collection('billingHoldOutbox').get()).size,0);
+      assert.equal(f.calls.length,1);assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+      assert.deepEqual(await f.balances(),balances);await assertNoVoiceWork(f);
+      assert.deepEqual({
+        intent:intentAfterAck.get('state'),originalIntent:intentBefore.updateTime.isEqual(intentAfterAck.updateTime),
+        conflicts:conflicts.docs.map(doc=>[doc.id,doc.get('accountId')??null]),
+        ordinary:[ordinary.created,ordinaryRepeat.seen,observations(ordinaryAlerts)],
+        local:[local.created,localRepeat.seen,observations(localAlerts)],
+      },rewritten?{
+        intent:'insufficient',originalIntent:true,conflicts:[[reservationId,null]],
+        ordinary:[0,0,[]],local:[1,1,[['voice_reserve_conflict',reservationId,null,'needs_review',2]]],
+      }:{
+        intent:'needs_review',originalIntent:false,conflicts:[],
+        ordinary:[1,1,[['intent',intentId,f.c.account,'needs_review',2]]],local:[0,0,[]],
+      });
+    });
+  }
+
+  const unverifiedHistoryChanges = [
+    ['project revision', (f) => ref(f.c,'projects',f.c.input).update({revision:f.revision+1})],
+    ['identity reassignment', (f) => ref(f.c,'identities',AccountStore.identityKey(f.c.uid)).update({accountId:f.c.foreign})],
+    ['origin witness', (f,id) => ref(f.c,'billingIntentWitnesses',id).update({reservationId:randomUUID()})],
+  ];
+  for (const [history,change] of unverifiedHistoryChanges) {
+    for (const ackFirst of [true,false]) {
+      test(`C1 keeps both responses and alerts without an owner when ${history} changes with the ${ackFirst?'ACK':'NACK'} already durable`, async () => {
+        const f = await voiceFixture(2), key = randomUUID(), balances = await f.balances();
+        const id = sha(JSON.stringify([f.c.account,key])), intentRef = ref(f.c,'billingIntents',id);
+        let atChange, firstReceipt;
+        async function recordAck(expected) {
+          const {reservationId,seconds} = f.calls[0];
+          const prepared = await ref(f.c,'billingReserveAttempts',reservationId).get();
+          assert.equal(await f.c.backend.recordReserveAck(prepared.data(),{reservationId,seconds,state:'reserved'}),expected);
+        }
+        if (ackFirst) f.setResponseHook(async answer => {
+          assert.equal(answer.state,'insufficient');
+          await recordAck('recorded');
+          firstReceipt = await ref(f.c,'billingReserveAckObservations',f.calls[0].reservationId).get();
+          await change(f,id);
+          atChange = await intentRef.get();
+          return answer;
+        });
+        await assert.rejects(() => f.request(key),{code:ackFirst?'unknown':'insufficient'});
+        if (!ackFirst) {
+          firstReceipt = await ref(f.c,'localVoiceReserveNacks',f.calls[0].reservationId).get();
+          await change(f,id);
+          atChange = await intentRef.get();
+          await recordAck('recorded');
+        }
+        assert.ok(atChange&&firstReceipt?.exists,'The history change must follow a durable response');
+        assert.equal(atChange.get('state'),ackFirst?'reserve_pending':'insufficient');
+        await recordAck('already_recorded');
+        const retry = await observed(f.request(key));
+        assert.ok(['unknown','not_found','conflict'].includes(retry.error?.code));
+        await assert.rejects(() => f.request(key,f.c.foreignPrincipal),{code:'not_found'});
+
+        const attemptId = f.calls[0].reservationId;
+        const ack = await ref(f.c,'billingReserveAckObservations',attemptId).get();
+        const nack = await ref(f.c,'localVoiceReserveNacks',attemptId).get();
+        const conflicts = await f.c.root.collection('localVoiceReserveConflicts').get();
+        const now = Date.now(), ordinaryQueries = [];
+        const observedRoot = { collection(name) { ordinaryQueries.push(name); return f.c.root.collection(name); } };
+        const ordinary = await readPendingReport(observedRoot,now);
+        assert.ok(!ordinaryQueries.includes('localVoiceReserveConflicts'));
+        assert.ok(!ordinary.rows.some(row => row.kind==='voice_reserve_conflict'));
+        assert.deepEqual(Object.keys(ordinary.byKind).sort(),['guard','hold','intent','job_unknown','outbox','terminal_recovery']);
+        const report = await readLocalVoiceConflictReport(f.c.root);
+        const firstSweep = await raiseLocalVoiceConflictAlerts(f.c.db,f.c.root,report,now);
+        const secondSweep = await raiseLocalVoiceConflictAlerts(f.c.db,f.c.root,await readLocalVoiceConflictReport(f.c.root),now+1);
+        const clearing = await clearResolvedAlerts(f.c.db,f.c.root,ordinary,now+2);
+        const open = (await f.c.root.collection(LOCAL_VOICE_CONFLICT_ALERTS).where('status','==','open').get()).docs;
+        assert.equal((await f.c.root.collection(ALERT_COLLECTION).get()).size,0);
+
+        assert.equal(ack.get('attribution'),'unverified');
+        assert.equal(ack.get('reservationId'),attemptId);
+        assert.ok((await firstReceipt.ref.get()).updateTime.isEqual(firstReceipt.updateTime));
+        assert.ok((await intentRef.get()).updateTime.isEqual(atChange.updateTime),'The live intent is not assigned or rewritten');
+        assert.equal((await f.c.root.collection('billingGuards').get()).size,0);
+        assert.equal((await f.c.root.collection('billingHoldOutbox').get()).size,0);
+        assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+        assert.equal(f.calls.length,1);
+        assert.deepEqual(await f.balances(),balances);
+        await assertNoVoiceWork(f);
+        assert.deepEqual({
+          nack:nack.exists, nackAttempt:nack.get('attemptId'),
+          conflicts:conflicts.size, conflictOwner:conflicts.docs[0]?.get('accountId')??null,
+          review:report.attention.filter(row => row.kind==='voice_reserve_conflict'&&row.attention==='needs_review'&&row.accountId===null).length,
+          firstSweep:firstSweep.created, secondSweep:secondSweep.seen, cleared:clearing.cleared,
+          alerts:open.map(alert => [alert.get('kind'),alert.get('rowId'),alert.get('accountId'),alert.get('reason')]),
+        },{
+          nack:true,nackAttempt:attemptId,
+          conflicts:1,conflictOwner:null,review:1,firstSweep:1,secondSweep:1,cleared:0,
+          alerts:[['voice_reserve_conflict',attemptId,null,'needs_review']],
+        });
+      });
+    }
+  }
+
+  test('C1 refuses an insufficient response carrying a contradictory reservation tuple', async () => {
+    const f = await voiceFixture(2), key = randomUUID(), balances = await f.balances();
+    f.setResponseHook(async answer => {
+      assert.equal(answer.state,'insufficient');
+      return {...answer,reservationId:randomUUID(),seconds:4};
+    });
+    const first = await observed(f.request(key)), retry = await observed(f.request(key));
+    await assert.rejects(() => f.request(key,f.c.foreignPrincipal),{code:'not_found'});
+    const intent = await ref(f.c,'billingIntents',sha(JSON.stringify([f.c.account,key]))).get();
+    assert.equal(f.calls.length,1);
+    assert.equal((await f.acks()).size,0);
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+    assert.deepEqual(await f.balances(),balances);
+    await assertNoVoiceWork(f);
+    assert.deepEqual({
+      first:first.error?.code, retry:retry.error?.code, intent:intent.get('state'),
+      nacks:(await f.c.root.collection('localVoiceReserveNacks').get()).size,
+    },{first:'unknown',retry:'unknown',intent:'reserve_pending',nacks:0});
+  });
+
+  test('C1 refuses a marker deleted and recreated with identical contents before preflight', async () => {
+    const f = await voiceFixture(), key = randomUUID(), balances = await f.balances();
+    const prepare = f.c.backend.prepareReserveAttempt.bind(f.c.backend);
+    let recreated;
+    f.c.backend.prepareReserveAttempt = async (...args) => {
+      if (!recreated) {
+        const entries = await f.c.root.collection('reviewedVoiceMarkers').get();
+        assert.equal(entries.size,1);
+        const original = entries.docs[0];
+        await original.ref.delete();
+        await original.ref.create(original.data());
+        recreated = await original.ref.get();
+        assert.deepEqual(recreated.data(),original.data());
+        assert.ok(!recreated.createTime.isEqual(original.createTime));
+        assert.ok(recreated.createTime.isEqual(recreated.updateTime));
+      }
+      return prepare(...args);
+    };
+    const first = await observed(f.request(key)), retry = await observed(f.request(key));
+    await assert.rejects(() => f.request(key,f.c.foreignPrincipal),{code:'not_found'});
+    assert.ok(recreated,'The identical marker must be written before preflight');
+    assert.deepEqual({
+      first:first.error?.code, retry:retry.error?.code, calls:f.calls.length,
+      attempts:(await f.c.root.collection('billingReserveAttempts').get()).size,
+      acks:(await f.acks()).size,
+    },{first:'conflict',retry:'conflict',calls:0,attempts:0,acks:0});
+    assert.equal((await f.store.root.collection('ledgerEntries').get()).size,0);
+    assert.deepEqual(await f.balances(),balances);
+    await assertNoVoiceWork(f);
+  });
 
   test('historical external text v1 uses distinct literal key casing and never reserves again for exact replays', async () => {
     const f = await voiceFixture(), text = localTextAi(f), key = 'ab' + randomUUID().slice(2);

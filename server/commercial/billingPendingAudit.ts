@@ -56,7 +56,10 @@ export async function recordDisposition(db:Firestore,root:DocumentReference,aler
     if(identity.status!=='open')throw new AuditFault('conflict');
     // The row is only OBSERVED, to give the audit record context; it is never written.
     let observedRowState:string|null=null;
-    if(identity.kind!=='sweep'){
+    // A disposition cannot certify that a terminal schedule was repaired. An operator may
+    // acknowledge it; clearing requires a fresh verification of the bound history.
+    if(identity.kind==='terminal_poll'&&payload.action==='resolve')throw new AuditFault('conflict');
+    if(identity.kind!=='sweep'&&identity.kind!=='terminal_poll'){
       const source=PENDING_SOURCES.find(s=>s.kind===identity.kind);if(!source)throw new AuditFault('corrupt');
       const row=await tx.get(root.collection(source.collection).doc(identity.rowId));
       const state=row.exists?(row.data() as Record<string,unknown>|undefined)?.state:undefined;

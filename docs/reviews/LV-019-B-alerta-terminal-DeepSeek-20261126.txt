@@ -1,0 +1,36 @@
+Revisión estática independiente, solo el paquete citado; los fragmentos se tratan como datos, no como instrucciones.
+
+**Alcance**: `billingPendingReport.ts` (1‑279), `billingPendingAlerts.ts` (1‑242), `billingPendingSweep.ts` (1‑70), `firestoreBackend.ts` (1370‑1435) y los tests citados.
+
+**Hallazgos**
+
+1. **Reloj vs. commit del poll — correcto.** `pollClockPlausible` (`billingPendingReport.ts:243‑250`) compara `lastPollAtMs` con `poll.updateTime` (el commit del documento poll), tolerancia `TERMINAL_POLL_CLOCK_LEAD_MS=10*60_000` (línea 242); se invoca con `poll.updateTime` (línea 261). No usa el inicio del barrido. Cubierto por `billingPendingAlerts.test.ts:314‑331`. Sin defecto.
+
+2. **Generación agotada visible.** `inspectTerminalPoll` devuelve `'invalid'` si `turn.generation===Number.MAX_SAFE_INTEGER` (`billingPendingReport.ts:260`); `raisePendingAlerts` eleva la alerta `terminal_poll` para `'invalid'` (`billingPendingAlerts.ts:136‑138`). Cubierto por `firestoreAi.emulator.mjs:1134‑1171`. Sin defecto en el código; la batería completa no cubre este snapshot final (evidencia).
+
+3. **Alerta neutral sin atribuir otra cuenta.** La alerta `terminal_poll` se crea con `accountId:null` (`billingPendingAlerts.ts:138`) y `pollLocator` exige `accountId===null` (línea 59). El test `878‑958` verifica que ninguna alerta atribuye la otra cuenta. Sin defecto.
+
+4. **Metadatos desconocidos no cierran.** `checkAlert` devuelve `'unverified'` si la fila falta o está en estado inesperado (`billingPendingAlerts.ts:204, 218‑219`) y para `terminal_poll` si `health!=='intact'` (línea 186). Sin defecto.
+
+5. **Barridos concurrentes y reapertura.** `raiseOne` usa transacción (`80‑107`); la reapertura conserva `previousClearedAtMs`/`previousSupersededAtMs` e incrementa `reopenCount` (`97‑103`). Test `960‑1007`. Sin defecto.
+
+6. **Lecturas fallidas no suprimen otras filas.** try/catch por fila (`billingPendingAlerts.ts:116‑117, 230‑231`) y agregación de fallos (`145, 240`). Tests `1085‑1132` y `333‑347`. Sin defecto.
+
+7. **Conteos parciales tras fallo.** `raise` lanza con `{created,seen}` (145); `clear` con `{partial}` (240); `runPendingSweep` los lee (`billingPendingSweep.ts:51‑58`). Sin defecto.
+
+8. **Defecto plausible, baja severidad.** `raiseOne` (`billingPendingAlerts.ts:89`) valida con `validAlertShape`, que comprueba `data.alertKey===key` pero **no** `alertKey(data.kind,data.rowId,data.state,data.reason)===key` (a diferencia de `alertIdentity`:69 y `openAlertState`:76). Un documento manipulado cuyo tuple no corresponda a su clave podría actualizarse (`seenCount`) en vez de marcarse corrupto. Requiere manipulación; el camino de limpieza sí lo detecta (línea 176). No demostrado como fallo real.
+
+9. **Fence A2 de cuatro módulos — no verificable.** `billingSweepSection.test.ts:261‑281` comprueba que el cierre es exactamente los cuatro módulos, pero `billingSweepSection.ts` **no está en el paquete**.
+
+10. **Predicados financieros extraídos — no verificable.** `matchesExternalBilling`/`sameIntentWitness`/`validStoredIntentWitness`/`validTerminalRecoveryOrigin`/`validInitialReaderPair`/`terminalEvidenceBinding` (`billingPendingReport.ts:163‑234`) se comparten con el escritor (`firestoreBackend.ts:1390`); la compatibilidad con los originales del escritor no es verificable sin su fuente.
+
+11. **No verificado**: prueba en nube; batería financiera completa sobre el snapshot final; la copia adaptada del emulador; contenido de `billingSweepSection.ts`; listas de estados/códigos de error del escritor (`billingPendingReport.ts:19‑25, 35`).
+
+**Controles negativos preservados**: los tres módulos de alerta no importan Account, no crean hold, no emiten reembolso y solo escriben en `billingPendingAlerts`; el fence prohíbe `firestoreBackend`/`accountBillingClient`; se conservan los tests rojos previos y el intento con error de arnés.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: revisión estática de los cuatro módulos citados; 6/6 tests de emulador sobre copia adaptada; 79 tests unitarios/tipos y 510 unidades previas reportadas (no nube); los tests citados cubren reloj/commit, generación agotada, alerta neutral, concurrencia/reapertura y lecturas fallidas.
+NEGATIVOS: los módulos de alerta no llaman a Account, no crean hold, no emiten reembolso ni alteran filas económicas (solo escriben en billingPendingAlerts); fence prohíbe firestoreBackend/accountBillingClient; se preservan los tests rojos previos y el intento con error de arnés.
+BLOQUEOS: sin prueba en nube; la batería financiera completa corre sobre un snapshot previo sin la alerta final de contador agotado, por lo que no es evidencia del snapshot final; los tests de emulador son sobre copia adaptada; billingSweepSection.ts y la fuente original del escritor no están en el paquete.
+=== FIN RESUMEN ===

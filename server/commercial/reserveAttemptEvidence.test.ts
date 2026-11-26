@@ -350,7 +350,7 @@ describe('reviewed voice evidence for an external reserve attempt', () => {
   }
 
   const create = (fixture = voiceFixture()) =>
-    createReviewedVoiceReserveAttempt(fixture.attemptId, fixture.witness, fixture.versions, fixture.binding, key);
+    createReviewedVoiceReserveAttempt(fixture.attemptId, fixture.witness, fixture.versions, fixture.binding, key, timestamp());
 
   it('persists the attempt and direct ACK without storing private text or inventing a third record', async () => {
     const f = fakeTransaction(), voice = create();
@@ -370,15 +370,15 @@ describe('reviewed voice evidence for an external reserve attempt', () => {
     const versionChanged = (field: 'review' | 'receipt') => ({
       ...f.binding, versions: {...f.binding.versions, [field]: timestamp('2:000000000')},
     });
-    expect(matchesReviewedVoiceReserveSource(voice, versionChanged('review'), key)).toBe(false);
-    expect(matchesReviewedVoiceReserveSource(voice, versionChanged('receipt'), key)).toBe(false);
-    expect(matchesReviewedVoiceReserveSource(voice, {...f.binding, voiceTextSha256: '1'.repeat(64)}, key)).toBe(false);
-    expect(matchesReviewedVoiceReserveSource(voice, f.binding, key + '-other')).toBe(false);
-    expect(matchesReviewedVoiceReserveSource(voice, f.binding, key)).toBe(true);
+    expect(matchesReviewedVoiceReserveSource(voice, versionChanged('review'), key, timestamp())).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, versionChanged('receipt'), key, timestamp())).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, {...f.binding, voiceTextSha256: '1'.repeat(64)}, key, timestamp())).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, f.binding, key + '-other', timestamp())).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, f.binding, key, timestamp())).toBe(true);
     const balanceChanged = {...f.binding, versions: {...f.binding.versions, account: timestamp('2:000000000')}};
-    expect(matchesReviewedVoiceReserveSource(voice, balanceChanged, key)).toBe(true);
+    expect(matchesReviewedVoiceReserveSource(voice, balanceChanged, key, timestamp())).toBe(true);
     const accountRecreated = {...f.binding, versions: {...f.binding.versions, account: {exists:true, createTime:'2:000000000', updateTime:'2:000000000'}}};
-    expect(matchesReviewedVoiceReserveSource(voice, accountRecreated, key)).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, accountRecreated, key, timestamp())).toBe(false);
   });
 
   it('binds the intended account, input, identity, revision, seconds and reservation ID before preparing a write', () => {
@@ -402,8 +402,8 @@ describe('reviewed voice evidence for an external reserve attempt', () => {
     const versions = {...f.binding.versions, reserveMovement:missing, billingOutbox:timestamp(), external};
     const binding = {...f.binding, versions};
     const voice = create({...f, binding});
-    expect(matchesReviewedVoiceReserveSource(voice, binding, key)).toBe(true);
-    expect(matchesReviewedVoiceReserveSource(voice, {...binding, versions:{...versions, external:{...external, origin:timestamp('2:000000000')}}}, key)).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, binding, key, timestamp())).toBe(true);
+    expect(matchesReviewedVoiceReserveSource(voice, {...binding, versions:{...versions, external:{...external, origin:timestamp('2:000000000')}}}, key, timestamp())).toBe(false);
     expect(() => create({...f, binding:{...binding, versions:{...versions, external:{...external, origin:missing}}}})).toThrow(expect.objectContaining(invalid));
     expect(() => create({...f, binding:{...binding, versions:{...versions, reserveMovement:timestamp()}}})).toThrow(expect.objectContaining(invalid));
   });
@@ -455,14 +455,19 @@ describe('reviewed voice evidence for an external reserve attempt', () => {
   it('verifies both durable rows before a replay can return existing work', async () => {
     const f = fakeTransaction(), fixture = voiceFixture();
     const voice = create(fixture);
-    const check = (binding = fixture.binding, selected = selectedVoice) =>
-      verifyReviewedVoiceReserveReplay(f.store.get(preparedPath(voice)), f.store.get(ackPath(voice)), binding, key, selected);
+    const check = (binding = fixture.binding, selected = selectedVoice, marker = timestamp()) =>
+      verifyReviewedVoiceReserveReplay(f.store.get(preparedPath(voice)), f.store.get(ackPath(voice)), binding, key, selected, marker);
     await prepareReserveAttemptInTransaction(f.tx, f.root, voice);
     expect(check()).toBe(false);
     await recordReserveAckInTransaction(f.tx, f.root, voice, response(voice));
     expect(check()).toBe(true);
+    expect(check(fixture.binding,selectedVoice,timestamp('2:000000000'))).toBe(false);
+    expect(check(fixture.binding,selectedVoice,{...timestamp('2:000000000'),createTime:'2:000000000'})).toBe(false);
     expect(check(fixture.binding,'narration:en:male')).toBe(false);
     expect(check({...fixture.binding, versions:{...fixture.binding.versions, receipt:timestamp('2:000000000')}})).toBe(false);
     expect(check({...fixture.binding, identityKey:'1'.repeat(64)})).toBe(false);
+    const {markerVersion:_,...oldVoice}=voice.voice;
+    f.store.set(preparedPath(voice),{...voice,voice:oldVoice});
+    expect(check()).toBe(false);
   });
 });

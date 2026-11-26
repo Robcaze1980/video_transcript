@@ -1,0 +1,16 @@
+# LV-019.B · Auditoría local de la alerta de sondeo
+
+**26 nov 2026. Resultado: FALLA para el corte auditado; corrección pendiente.** La auditoría es independiente de quien implementó la alerta. El parche se probó solo en emulador con cuentas ficticias y no se desplegó.
+
+La candidata que detecta un sondeo corrupto bajo una guardia legítima pasó **3/3** en el emulador de la copia de diagnóstico, y el checkpoint equivalente pasó **83 unitarias** y tipos. Esas pruebas verifican, entre otras cosas, una alerta sin dueño y que otra cuenta pueda liberar su reserva. La frontera A2 conserva sus cuatro módulos. [Contrato del sondeo](../specs/LV-019-B-alerta-sondeo-corrupto.md).
+
+La revisión preparó dos controles adicionales. Ambos fallaron sobre la misma implementación:
+
+1. Una fecha del sondeo cinco años adelantada, con el resto de la tupla coherente, no activó la alerta y permitió cerrar una alerta ya abierta. El control de desfase de un segundo sí pasó; la reserva y el saldo permanecieron intactos. El escritor normal toma la hora de su servidor. El caso de cinco años presupone corrupción o un reloj gravemente desviado, no una condición demostrada en producción.
+2. Si la primera lectura de limpieza falla, se conserva esa alerta y se registra `sweep_failed`, pero se interrumpe la revisión de alertas posteriores. Este comportamiento de parada ya existía; la nueva verificación añade lecturas que pueden provocarlo. El contrato anterior no exigía expresamente continuar la limpieza, por lo que la mejora debe declararse y probarse sin ocultar el fallo parcial.
+
+Las dos pruebas usaron raíces sintéticas separadas, perfiles limpios y protección de red hacia el emulador. No hubo cambios de saldo ni solicitudes reales. El TAP local ignorado por Git es `vistavo-poll-neutral-negatives-20261126/outputs/lv019-b-financial-runs/run-134b2cbe-896c-4f27-b673-67206d0ae32b/fixture.stdout.tap`, SHA-256 `787567879de98c04c2bef0e4299281567691a04affe1e122169fbbf2963e0ad3`. La fixture diagnóstica tiene SHA-256 `5cd9c590c9eaee5abb47fccbd6778b032a87cf438299a8b5c44036945adb4219`. Los outputs no viajan con Git.
+
+Ese corte no certificaba la regresión financiera completa, el funcionamiento del barrido bajo volumen real, las cuotas ni los permisos de producción. Entonces estaban pendientes la reparación y la repetición de los controles; el seguimiento siguiente indica su resultado.
+
+**Seguimiento.** La reparación de reloj y limpieza pasó los dos negativos y tres controles previos. Otro negativo reprodujo que un contador de sondeo agotado podía impedir el progreso sin alerta; es un escenario de corrupción o escritura privilegiada, no una conducta normal demostrada de clientes. La corrección local detecta esa condición sin mover saldo y pasó **6/6** casos focales en total. TAP local: `vistavo-finance-diagnostic-20261126/outputs/lv019-b-financial-runs/run-79eaa37a-3f56-4051-a475-4c1cd7d1fc7e/fixture.stdout.tap`, SHA-256 `6cce8290ba81fd9ed68118b98483d61186493df912640011f08d0cb05f0b530a`. El guard de red indicó PASS y las limpiezas de las fixtures terminaron sin fallo; esta ejecución focal no capturó un inventario independiente anterior y posterior. La batería completa en curso empezó sobre el corte anterior a esta última corrección y no certifica por sí sola el corte final.

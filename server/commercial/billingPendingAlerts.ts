@@ -6,13 +6,14 @@
  * Design: docs/specs/LV-019-B-conciliacion-fase2-barrido-diseno.md
  */
 import {createHash} from 'node:crypto';
-import type {DocumentReference,DocumentSnapshot,Firestore} from 'firebase-admin/firestore';
-import {PENDING_SOURCES,buildPendingReport,normalizePending,type PendingKind,type PendingReport,type ReportRow} from './billingPendingReport';
+import type {DocumentReference,DocumentSnapshot,Firestore,QueryDocumentSnapshot,Transaction} from 'firebase-admin/firestore';
+import {PENDING_SOURCES,buildPendingReport,inspectTerminalPoll,intentTerminalKey,normalizePending,validPollIntentId,
+  type PendingKind,type PendingReport,type PollReadSnapshot,type ReportRow} from './billingPendingReport';
 
 export const ALERT_COLLECTION='billingPendingAlerts';
 /** Page size used when walking open alerts (a paging bound, not a policy). */
 export const ALERT_PAGE_SIZE=200;
-export type AlertKind=PendingKind|'sweep';
+export type AlertKind=PendingKind|'sweep'|'terminal_poll';
 export type AlertReason='needs_review'|'malformed'|'unknown_age'|'age'|'sweep_failed'|'sweep_review';
 export const SWEEP_REASONS=['sweep_failed','sweep_review'] as const;
 export interface AlertPolicy{/** Owner-chosen, positive integer milliseconds. Absent = no age alerts. */ageThresholdMs?:number}
@@ -29,8 +30,37 @@ function reasonFor(row:ReportRow,threshold:number|undefined):AlertReason|null{
 }
 /** A row id is read back into a document path, so it must be a plain document id: never a path or a dot segment. */
 const safeDocId=(value:unknown):value is string=>typeof value==='string'&&value.length>=1&&Buffer.byteLength(value)<=1500&&!/[\/\u0000-\u001f\u007f]/.test(value)&&value!=='.'&&value!=='..';
+type PollLocator={pollIntentId:string;pollAction:'release'|'seal'};
+/** Strip SDK references/methods and non-scalar field values before handing data to the read-only verifier.
+ * The one nested protocol field is the terminalRecovery marker. Keep unknown keys so strict shape checks still fail. */
+function pollReadSnapshot(doc:DocumentSnapshot):PollReadSnapshot{
+  const source=doc.data();
+  const scalar=(v:unknown)=>typeof v==='string'||typeof v==='number'||typeof v==='boolean'?v:null;
+  const values=source&&Object.freeze(Object.fromEntries(Object.entries(source).map(([k,v])=>[k,
+    k==='terminalRecovery'&&v&&typeof v==='object'&&(Object.getPrototypeOf(v)===Object.prototype||Object.getPrototypeOf(v)===null)?
+      Object.freeze(Object.fromEntries(Object.entries(v).map(([field,value])=>[field,scalar(value)]))):scalar(v)])));
+  return Object.freeze({id:doc.id,exists:doc.exists,createTime:doc.createTime,updateTime:doc.updateTime,
+    get:(field:unknown)=>typeof field==='string'?values?.[field]:undefined,data:()=>values});
+}
+async function checkPoll(tx:Pick<Transaction,'getAll'>,root:DocumentReference,intentId:string,action:'release'|'seal'){
+  if(!validPollIntentId(intentId)||(action!=='release'&&action!=='seal'))throw new RangeError('invalid terminal locator');
+  const id=intentTerminalKey(intentId,action);
+  const [parent,poll]=await tx.getAll(root.collection('billingIntents').doc(intentId),root.collection('billingIntentResolutionPolls').doc(id));
+  return inspectTerminalPoll(intentId,action,pollReadSnapshot(parent),pollReadSnapshot(poll),async()=>{
+    const [origin,terminal,recovery,proof,dispatch]=await tx.getAll(root.collection('billingIntentWitnesses').doc(intentId),
+      root.collection('billingIntentTerminalWitnesses').doc(id),root.collection('billingIntentTerminalRecovery').doc(id),
+      root.collection('billingIntentPreparationProofs').doc(id),root.collection('billingIntentDispatchClaims').doc(id));
+    return [pollReadSnapshot(origin),pollReadSnapshot(terminal),pollReadSnapshot(recovery),pollReadSnapshot(proof),pollReadSnapshot(dispatch)];
+  });
+}
+function pollLocator(data:Record<string,unknown>):PollLocator|null{
+  const {pollIntentId,pollAction}=data;
+  if(!validPollIntentId(pollIntentId)||(pollAction!=='release'&&pollAction!=='seal')||
+    data.state!=='invalid'||data.reason!=='malformed'||data.accountId!==null||data.rowId!==intentTerminalKey(pollIntentId,pollAction))return null;
+  return {pollIntentId,pollAction};
+}
 function validAlertShape(data:Record<string,unknown>|undefined,key:string){
-  return !!data&&data.alertKey===key&&safeDocId(data.rowId)&&['open','cleared','superseded','dispositioned'].includes(String(data.status))&&nonNegativeInteger(data.seenCount)&&data.seenCount>=1&&nonNegativeInteger(data.firstSeenAtMs)&&nonNegativeInteger(data.lastSeenAtMs)&&data.lastSeenAtMs>=data.firstSeenAtMs;
+  return !!data&&(data.kind!=='terminal_poll'||pollLocator(data)!==null)&&data.alertKey===key&&safeDocId(data.rowId)&&['open','cleared','superseded','dispositioned'].includes(String(data.status))&&nonNegativeInteger(data.seenCount)&&data.seenCount>=1&&nonNegativeInteger(data.firstSeenAtMs)&&nonNegativeInteger(data.lastSeenAtMs)&&data.lastSeenAtMs>=data.firstSeenAtMs;
 }
 /** Identity of a stored alert, or null when its content does not match its key or its shape is invalid. */
 export function alertIdentity(snap:{exists:boolean;id:string;data():unknown}):{kind:AlertKind;rowId:string;state:string;reason:AlertReason;status:string;accountId:string|null}|null{
@@ -47,16 +77,16 @@ function openAlertState(snap:{exists:boolean;id:string;data():unknown}):'open'|'
   return 'open';
 }
 /** One transaction per alert: under concurrency exactly one writer creates it, the others count a sighting. */
-async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKind;rowId:string;state:string;reason:AlertReason;accountId:string|null},nowMs:number):Promise<'created'|'seen'>{
+async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKind;rowId:string;state:string;reason:AlertReason;accountId:string|null}&Partial<PollLocator>,nowMs:number,existingTx?:Transaction):Promise<'created'|'seen'>{
   const key=alertKey(fields.kind,fields.rowId,fields.state,fields.reason),ref=root.collection(ALERT_COLLECTION).doc(key);
-  return db.runTransaction(async tx=>{
+  const put=async(tx:Transaction)=>{
     const snap=await tx.get(ref);
     if(!snap.exists){
       tx.create(ref,{alertKey:key,...fields,status:'open',seenCount:1,firstSeenAtMs:nowMs,lastSeenAtMs:nowMs});
       return 'created' as const;
     }
     const data=snap.data() as Record<string,unknown>|undefined;
-    if(!validAlertShape(data,key))throw new Error('Corrupt alert document');
+    if(!validAlertShape(data,key)||fields.kind==='terminal_poll'&&(data?.kind!==fields.kind||data.rowId!==fields.rowId||!pollLocator(data)))throw new Error('Corrupt alert document');
     // A malformed intent or guard may carry a stale account hint. A later
     // sighting for the same alert can withdraw it while preserving audit identity.
     const dropAccountHint=(fields.kind==='intent'||fields.kind==='guard')&&fields.reason==='malformed'&&fields.accountId===null&&
@@ -72,7 +102,8 @@ async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKi
         clearedAtMs:null,observedState:null,supersededAtMs:null,supersededByKey:null});
     }else tx.update(ref,base);
     return 'seen' as const;
-  });
+  };
+  return existingTx?put(existingTx):db.runTransaction(put);
 }
 /** Every row that needs attention gets one open alert; all rows are processed even if one alert document is corrupt. */
 export async function raisePendingAlerts(db:Firestore,root:DocumentReference,report:PendingReport,nowMs:number,policy:AlertPolicy={}):Promise<{created:number;seen:number}>{
@@ -84,6 +115,32 @@ export async function raisePendingAlerts(db:Firestore,root:DocumentReference,rep
     const reason=reasonFor(row,threshold);if(!reason)continue;
     try{(await raiseOne(db,root,{kind:row.kind,rowId:row.id,state:row.state,reason,accountId:row.accountId},nowMs))==='created'?created++:seen++;}
     catch(error){failures.push(error);}
+  }
+  // The pending report paginates parent intents. Probe deterministic child refs in bounded batches,
+  // requesting existence only. No document field from a schedule becomes a path or a public value.
+  const pending=report.rows.filter(row=>row.kind==='intent'&&row.state==='release_pending'&&validPollIntentId(row.id));
+  for(let start=0;start<pending.length;start+=100){
+    const terminals=new Map<string,PollLocator>();
+    for(const intent of pending.slice(start,start+100)){
+      for(const pollAction of ['release','seal'] as const)terminals.set(intentTerminalKey(intent.id,pollAction),{pollIntentId:intent.id,pollAction});
+    }
+    const refs=Array.from(terminals.keys(),id=>root.collection('billingIntentResolutionPolls').doc(id));
+    let found:DocumentSnapshot[];
+    try{found=await db.getAll(...refs,{fieldMask:[]});}
+    catch(error){failures.push(error);continue;}
+    for(const document of found){
+      if(!document.exists)continue;
+      const locator=terminals.get(document.id)!;
+      try{
+        const result=await db.runTransaction(async tx=>{
+          const health=await checkPoll(tx,root,locator.pollIntentId,locator.pollAction);
+          if(health!=='invalid')return null;
+          return raiseOne(db,root,{kind:'terminal_poll',rowId:document.id,state:'invalid',reason:'malformed',accountId:null,...locator},nowMs,tx);
+        });
+        if(result==='created')created++;
+        if(result==='seen')seen++;
+      }catch(error){failures.push(error);}
+    }
   }
   if(failures.length)throw Object.assign(new AggregateError(failures,`${failures.length} alert(s) could not be raised`),{created,seen});
   return {created,seen};
@@ -98,7 +155,7 @@ export interface ClearResult{
   /** Closed after a read INSIDE the closing transaction showed a known terminal state. */cleared:number;
   /** Closed because the row is still reported under a different state/reason whose own alert is already open. */superseded:number;
   /** Left open on purpose, no check possible or needed: sweep alerts, jobs (no verifiable terminal set), unchanged reported rows. */kept:number;
-  /** Left open because the row could not be verified terminal (missing, unexpected or listed state) or no successor alert exists. */unverified:number;
+  /** Left open because the row could not be verified terminal (missing, unexpected or listed state) or no successor alert exists, or its verification transaction did not confirm. */unverified:number;
   /** Left open because another writer changed the alert first. */raced:number;
   /** Alert documents whose key does not match their content; never modified. */corrupt:number;
 }
@@ -113,6 +170,56 @@ export async function clearResolvedAlerts(db:Firestore,root:DocumentReference,re
   if(threshold!==undefined&&(!Number.isSafeInteger(threshold)||threshold<1))throw new RangeError('invalid age threshold');
   const reported=new Map(report.rows.map(r=>[r.kind+' '+r.id,r]));
   const out:ClearResult={cleared:0,superseded:0,kept:0,unverified:0,raced:0,corrupt:0};
+  const failures:unknown[]=[];
+  const checkAlert=async(doc:QueryDocumentSnapshot):Promise<keyof ClearResult>=>{
+    const alert=doc.data() as Record<string,unknown>,kind=alert.kind as AlertKind,rowId=alert.rowId,state=alert.state,reason=alert.reason;
+    if(typeof rowId!=='string'||typeof state!=='string'||typeof reason!=='string'||doc.id!==alertKey(kind,rowId,state,reason as AlertReason)||!validAlertShape(alert,doc.id))return 'corrupt';
+    if(kind==='sweep')return 'kept';
+    if(kind==='terminal_poll'){
+      return db.runTransaction(async tx=>{
+        const mine=await tx.get(doc.ref),fresh=openAlertState(mine);
+        if(fresh!=='open')return fresh;
+        const locator=pollLocator(mine.data()!);
+        if(!locator)return 'corrupt' as const;
+        const health=await checkPoll(tx,root,locator.pollIntentId,locator.pollAction);
+        if(health==='invalid')return 'kept' as const;
+        if(health!=='intact')return 'unverified' as const;
+        tx.update(doc.ref,{status:'cleared',clearedAtMs:nowMs,observedState:'poll_verified'});
+        return 'cleared' as const;
+      });
+    }
+    const current=reported.get(kind+' '+rowId);
+    if(current){
+      const now=reasonFor(current,threshold);
+      if(now===null||(current.state===state&&now===reason))return 'kept';
+      const successorRef=root.collection(ALERT_COLLECTION).doc(alertKey(kind,rowId,current.state,now));
+      const source=PENDING_SOURCES.find(x=>x.kind===kind)!,rowRef=root.collection(source.collection).doc(rowId);
+      return db.runTransaction(async tx=>{
+        const mine=await tx.get(doc.ref),successor=await tx.get(successorRef),rowSnap=await tx.get(rowRef);
+        const fresh=openAlertState(mine);if(fresh!=='open')return fresh;
+        const sd=successor.data() as Record<string,unknown>|undefined;
+        // The successor must be a well-formed open alert for exactly this row, state and reason; otherwise attention could be lost.
+        if(!successor.exists||openAlertState(successor)!=='open'||sd!.kind!==kind||sd!.rowId!==rowId||sd!.state!==current.state||sd!.reason!==now)return 'unverified' as const;
+        // The row is re-read here: it must STILL be in the state and reason the successor describes.
+        if(!rowSnap.exists)return 'unverified' as const;
+        const live=buildPendingReport([normalizePending(kind as PendingKind,rowId,rowSnap.data() as Record<string,unknown>|undefined)],report.generatedAtMs).rows[0];
+        if(live.state!==current.state||reasonFor(live,threshold)!==now)return 'unverified' as const;
+        tx.update(doc.ref,{status:'superseded',supersededAtMs:nowMs,supersededByKey:successorRef.id});return 'superseded' as const;
+      });
+    }
+    const source=PENDING_SOURCES.find(s=>s.kind===kind);
+    if(!source||source.terminalStates===null)return 'kept';
+    // The decisive read of the row happens INSIDE the transaction, together with the alert: a row that went back
+    // to a listed state (and an alert re-raised meanwhile) can never be closed by a stale earlier read.
+    const rowRef=root.collection(source.collection).doc(rowId);
+    return db.runTransaction(async tx=>{
+      const mine=await tx.get(doc.ref),rowSnap=await tx.get(rowRef);
+      const fresh=openAlertState(mine);if(fresh!=='open')return fresh;
+      const observed=rowSnap.exists?(rowSnap.data() as Record<string,unknown>|undefined)?.state:undefined;
+      if(typeof observed!=='string'||!source.terminalStates!.includes(observed)||source.states.includes(observed))return 'unverified' as const;
+      tx.update(doc.ref,{status:'cleared',clearedAtMs:nowMs,observedState:observed});return 'cleared' as const;
+    });
+  };
   let last:DocumentSnapshot|null=null;
   try{
   for(;;){
@@ -120,49 +227,16 @@ export async function clearResolvedAlerts(db:Firestore,root:DocumentReference,re
     if(last)query=query.startAfter(last);
     const page=await query.limit(ALERT_PAGE_SIZE).get();
     for(const doc of page.docs){
-      const alert=doc.data() as Record<string,unknown>,kind=alert.kind as AlertKind,rowId=alert.rowId,state=alert.state,reason=alert.reason;
-      if(typeof rowId!=='string'||typeof state!=='string'||typeof reason!=='string'||doc.id!==alertKey(kind,rowId,state,reason as AlertReason)||!validAlertShape(alert,doc.id)){out.corrupt++;continue;}
-      if(kind==='sweep'){out.kept++;continue;}
-      const current=reported.get(kind+' '+rowId);
-      if(current){
-        const now=reasonFor(current,threshold);
-        if(now===null||(current.state===state&&now===reason)){out.kept++;continue;}
-        const successorRef=root.collection(ALERT_COLLECTION).doc(alertKey(kind,rowId,current.state,now));
-        const source=PENDING_SOURCES.find(x=>x.kind===kind)!,rowRef=root.collection(source.collection).doc(rowId);
-        const result=await db.runTransaction(async tx=>{
-          const mine=await tx.get(doc.ref),successor=await tx.get(successorRef),rowSnap=await tx.get(rowRef);
-          const fresh=openAlertState(mine);if(fresh!=='open')return fresh;
-          const sd=successor.data() as Record<string,unknown>|undefined;
-          // The successor must be a well-formed open alert for exactly this row, state and reason; otherwise attention could be lost.
-          if(!successor.exists||openAlertState(successor)!=='open'||sd!.kind!==kind||sd!.rowId!==rowId||sd!.state!==current.state||sd!.reason!==now)return 'unverified' as const;
-          // The row is re-read here: it must STILL be in the state and reason the successor describes.
-          if(!rowSnap.exists)return 'unverified' as const;
-          const live=buildPendingReport([normalizePending(kind as PendingKind,rowId,rowSnap.data() as Record<string,unknown>|undefined)],report.generatedAtMs).rows[0];
-          if(live.state!==current.state||reasonFor(live,threshold)!==now)return 'unverified' as const;
-          tx.update(doc.ref,{status:'superseded',supersededAtMs:nowMs,supersededByKey:successorRef.id});return 'superseded' as const;
-        });
-        out[result]++;continue;
-      }
-      const source=PENDING_SOURCES.find(s=>s.kind===kind);
-      if(!source||source.terminalStates===null){out.kept++;continue;}
-      // The decisive read of the row happens INSIDE the transaction, together with the alert: a row that went back
-      // to a listed state (and an alert re-raised meanwhile) can never be closed by a stale earlier read.
-      const rowRef=root.collection(source.collection).doc(rowId);
-      const result=await db.runTransaction(async tx=>{
-        const mine=await tx.get(doc.ref),rowSnap=await tx.get(rowRef);
-        const fresh=openAlertState(mine);if(fresh!=='open')return fresh;
-        const observed=rowSnap.exists?(rowSnap.data() as Record<string,unknown>|undefined)?.state:undefined;
-        if(typeof observed!=='string'||!source.terminalStates!.includes(observed)||source.states.includes(observed))return 'unverified' as const;
-        tx.update(doc.ref,{status:'cleared',clearedAtMs:nowMs,observedState:observed});return 'cleared' as const;
-      });
-      out[result]++;
+      try{out[await checkAlert(doc)]++;}
+      catch(error){failures.push(error);out.unverified++;}
     }
     if(page.docs.length<ALERT_PAGE_SIZE)break;
     last=page.docs[page.docs.length-1];
   }
   }catch(error){
-    // What was already closed is real: the counters travel on the error so a caller never reports less than happened.
-    throw Object.assign(error instanceof Error?error:new Error('clear failed'),{partial:{...out}});
+    // Without a page the cursor cannot safely advance; preserve prior per-row failures.
+    failures.push(error);
   }
+  if(failures.length)throw Object.assign(new AggregateError(failures,'Open alerts could not all be checked'),{partial:{...out}});
   return out;
 }

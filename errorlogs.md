@@ -877,3 +877,19 @@ Una guardia `billingGuards/A` que contenía el ID de B producía una alerta atri
 Una prueba sintética con un sondeo corrupto bajo bloqueo legítimo reprodujo que falta una alerta propia. La cuenta ajena pudo liberar su reserva. La reparación sigue aislada; no se tocó saldo real. TAP local: `vistavo-guard-8186/outputs/lv019-b-financial-runs/run-954cac8e-5ea4-4fe5-884b-a36b1b746d80/fixture.stdout.tap`.
 
 En voz C1, la suite ampliada obtuvo 59/63: no se alertó un par ACK/NACK contradictorio y tres cambios restaurados de la marca no se detectaron. La reparación se está probando con el proveedor cerrado. [Auditoría](docs/reviews/LV-019-B-voz-c1-nack-auditoria-interna-20261126.md).
+
+## 2026-11-26 · LV-019.B · Frontera de mantenimiento
+
+La candidata aislada de alerta para sondeo corrupto pasó 3/3 pruebas de emulador, pero importaba `firestoreBackend` desde el submanejador de alertas. La prueba de frontera quedó en **26/28** en la copia diagnóstica; las dos fallas señalan la clausura ampliada y el import prohibido. En el checkpoint anterior la misma suite pasó **28/28**. La candidata no se integró. Se prepara una alternativa de solo lectura sin debilitar la barrera.
+
+## 2026-11-26 · LV-019.B · C1 con historia alterada
+
+En la candidata aislada que pasó 64/64, una suite posterior reprodujo ocho fallos: seis combinaciones de respuestas contradictorias con historial alterado, un NACK con tupla divergente y la recreación de la marca antes de preparar. Resultado **64/72**, limpieza completa, sin llamadas reales ni saldos reales. Se desarrolla la reparación con alertas sin atribución cuando no se demuestra el dueño. [Auditoría](docs/reviews/LV-019-B-voz-c1-auditoria-marcador-20261126.md).
+
+## 2026-11-26 · LV-019.B · Reloj del sondeo y continuación de limpieza
+
+Dos negativos reprodujeron una alerta cerrada con un reloj adelantado cinco años y la detención de limpieza tras una lectura fallida. La corrección local pasó esos dos casos y otros tres controles: **5/5** focales. Falta la batería financiera y la revisión del conjunto. [Auditoría](docs/reviews/LV-019-B-sondeo-alerta-auditoria-local-20261126.md).
+
+## 2026-11-26 · LV-019.B · Frontera A2 y clasificación de ACK tardío de voz
+
+La candidata C1 que pasó 72/72 amplió la frontera A2 y falló 1/28. La variante que separa el alertador de prueba pasó 32/32 unitarias relacionadas y 72/72 en emulador; falta integrarla con saldo y revisarla. El control adicional de marca y ACK tardío pasó 1/2; no demostró doble cargo ni atribución a otra cuenta. [Diagnóstico](docs/reviews/LV-019-B-voz-c1-marca-ack-tardio-20261126.md).

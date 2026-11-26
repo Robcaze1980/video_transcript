@@ -2,6 +2,8 @@
 // In-memory stub of Firestore (get/create/update inside transactions, equality queries). Concurrency and the real
 // query semantics are checked separately against the emulator (scripts/checkBillingPendingAlertsEmulator.mjs).
 import {describe,expect,it} from 'vitest';
+import {createHash} from 'node:crypto';
+import {AI_CATALOG_VERSION} from './aiContracts';
 import {buildPendingReport,type PendingRow} from './billingPendingReport';
 import {ALERT_COLLECTION,alertKey,clearResolvedAlerts,raisePendingAlerts,raiseSweepAlert} from './billingPendingAlerts';
 import {stub} from './billingFirestoreStub';
@@ -220,4 +222,126 @@ describe('raiseSweepAlert',()=>{
     expect(alerts(s)).toHaveLength(1);expect(alerts(s)[0][1]).toMatchObject({kind:'sweep',seenCount:2,reason:'sweep_failed',status:'open'});
     await expect(raiseSweepAlert(s.db as never,s.root as never,'free text with secrets',NOW)).rejects.toThrow();
   });
+});
+
+// The server-side audit receives a bounded read capability. Independently reconstruct a real legacy wire binding.
+function pollAuditFixture(){
+  const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const accountId='11111111-1111-4111-8111-111111111111',inputId='22222222-2222-4222-8222-222222222222';
+  const requestKey='test-request',intentId=hash([accountId,requestKey]),action='release';
+  const witness={intentId,accountId,inputId,operation:'translation:en',revision:1,profile:AI_CATALOG_VERSION,provider:'account_seconds',
+    identityKey:'f'.repeat(64),reservationId:'33333333-3333-4333-8333-333333333333',seconds:2};
+  const terminalId=hash(['billing-intent-terminal-v1',intentId,action]),version={exists:true,createTime:'1:000000000',updateTime:'1:000000000'};
+  const binding=hash([witness,action,version,version,{exists:false},{exists:false}]);
+  const turn={terminalId,intentId,action,binding,generation:1,token:'44444444-4444-4444-8444-444444444444',lastPollAtMs:10,nextAttemptAt:2010};
+  const data=new Map<string,Record<string,unknown>>([
+    ['billingIntents/'+intentId,{id:intentId,...witness,state:'release_pending',requestKey}],
+    ['billingIntentResolutionPolls/'+terminalId,turn],
+    ['billingIntentWitnesses/'+intentId,{...witness,historyProtocol:1,baseline:'before_reservation',createdAtMs:1,
+      terminalRecovery:{protocol:1,sealPrepared:false,releasePrepared:true}}],
+    ['billingIntentTerminalWitnesses/'+terminalId,{...witness,action,historyProtocol:1,stage:'prepared',createdAtMs:1}],
+    ['billingIntentTerminalRecovery/'+terminalId,{terminalId,protocol:1,state:'pending',generation:0,attempts:0,createdAtMs:1,nextAttemptAt:1}],
+  ]);
+  const evidence=['billingIntentWitnesses/'+intentId,'billingIntentTerminalWitnesses/'+terminalId,
+    'billingIntentTerminalRecovery/'+terminalId,'billingIntentPreparationProofs/'+terminalId,'billingIntentDispatchClaims/'+terminalId];
+  const sources=['billingIntents/'+intentId,'billingIntentResolutionPolls/'+terminalId,...evidence],read:string[]=[],writes:string[]=[];
+  const allowed=new Set([...sources,'billingIntentResolutionPolls/'+hash(['billing-intent-terminal-v1',intentId,'seal'])]);
+  const alert=alertKey('terminal_poll',terminalId,'invalid','malformed'),alertPath=ALERT_COLLECTION+'/'+alert;
+  const root={collection:(col:string)=>({doc:(id:string)=>{
+    const path=col+'/'+id;
+    if(path!==alertPath&&!allowed.has(path))throw Error('unexpected lookup');
+    return Object.freeze({id,path});
+  }})};
+  type Ref={id:string;path:string};
+  const stamp={seconds:1,nanoseconds:0,isEqual:(other:unknown)=>other===stamp};
+  let denied='',pollCommit:unknown=stamp;
+  const snapshot=(ref:Ref)=>{
+    if(ref.path===denied)throw Error('read denied');
+    return {id:ref.id,createTime:stamp,updateTime:ref.path===sources[1]?pollCommit:stamp,exists:data.has(ref.path),data:()=>data.get(ref.path),get:(k:string)=>data.get(ref.path)?.[k]};
+  };
+  const write=(ref:Ref,value:Record<string,unknown>)=>{
+    if(ref.path!==alertPath)throw Error('source write denied');
+    writes.push(ref.path);data.set(ref.path,{...data.get(ref.path),...value});
+  };
+  const tx={getAll:async(...refs:Ref[])=>{const paths=refs.map(r=>r.path);
+    if(JSON.stringify(paths)!==JSON.stringify(sources.slice(0,2))&&JSON.stringify(paths)!==JSON.stringify(evidence))throw Error('unexpected evidence access');
+    read.push(...paths);return refs.map(snapshot);
+  },get:async(ref:Ref)=>{if(ref.path!==alertPath)throw Error('unexpected alert access');return snapshot(ref);},create:write,update:write};
+  const db={runTransaction:<T>(work:(txArg:typeof tx)=>Promise<T>)=>work(tx),getAll:async(...args:unknown[])=>{
+    expect(args.pop()).toEqual({fieldMask:[]});const refs=args as Ref[];
+    if(refs.length!==2||refs.some(r=>!r.path.startsWith('billingIntentResolutionPolls/')||!allowed.has(r.path)))throw Error('unexpected projection');
+    return refs.map(snapshot);
+  }};
+  const snapshotReport=report([row({kind:'intent',id:intentId,state:'release_pending',accountId:null})]);
+  return {data,turn,sources,read,writes,alertPath,tx,root,setPollCommit:(value:unknown)=>{pollCommit=value;},deny:(path:string)=>{denied=path;},
+    sweep:()=>raisePendingAlerts(db as never,root as never,snapshotReport,NOW)};
+}
+describe('terminal poll evidence stays behind a read-only capability',()=>{
+  it('reads only the seven deterministic sources and writes exclusively the derived alert',async()=>{
+    const s=pollAuditFixture();
+    const parent=s.root.collection('billingIntents').doc(s.turn.intentId);
+    expect(()=>s.tx.update(parent,{})).toThrow('source write denied');
+    expect(()=>s.root.collection('billingGuards').doc(s.turn.intentId)).toThrow('unexpected lookup');
+    expect(await s.sweep()).toEqual({created:0,seen:0});expect(s.read).toEqual(s.sources);expect(s.writes).toEqual([]);
+    s.data.set(s.sources[1],{...s.turn,binding:'b'.repeat(64)});
+    expect(await s.sweep()).toEqual({created:1,seen:0});expect(s.writes).toEqual([s.alertPath]);
+    expect(s.data.get(s.alertPath)?.accountId).toBe(null);
+  });
+  it('alerts only once for a saturated generation and accepts the last incrementable generation',async()=>{
+    const s=pollAuditFixture(),turn={...s.turn,generation:Number.MAX_SAFE_INTEGER-1,nextAttemptAt:s.turn.lastPollAtMs+15*60_000};
+    s.data.set(s.sources[1],turn);
+    expect(await s.sweep()).toEqual({created:0,seen:0});
+    s.data.set(s.sources[1],{...turn,generation:Number.MAX_SAFE_INTEGER});
+    expect(await s.sweep()).toEqual({created:1,seen:0});
+    expect(await s.sweep()).toEqual({created:0,seen:1});
+    expect(s.data.get(s.alertPath)).toMatchObject({status:'open',accountId:null});
+    expect(s.writes.every(path=>path===s.alertPath)).toBe(true);
+  });
+  it('propagates an inaccessible evidence document without writing financial data or reporting a clean inspection',async()=>{
+    const s=pollAuditFixture();s.deny(s.sources[5]);
+    await expect(s.sweep()).rejects.toMatchObject({created:0,seen:0});
+    expect(s.writes).toEqual([]);expect(s.data.has(s.alertPath)).toBe(false);
+  });
+  it('does not follow a document reference or coerce a method embedded in poll data',async()=>{
+    const s=pollAuditFixture();let invoked=false;
+    const foreign={set:()=>{invoked=true;},toString:()=>{invoked=true;throw Error('coercion');}};
+    s.data.set(s.sources[1],{...s.turn,binding:foreign});
+    expect(await s.sweep()).toEqual({created:1,seen:0});expect(invoked).toBe(false);
+    expect(s.read).toEqual(s.sources.slice(0,2));expect(s.writes).toEqual([s.alertPath]);
+  });
+});
+
+describe('terminal schedule writer clock compared with the recorded Firestore commit',()=>{
+  // This authoritative commit lands after the report was taken; the report clock cannot judge the turn.
+  const commitMs=NOW+24*60*60_000,stamp={seconds:Math.floor(commitMs/1000),nanoseconds:999_999};
+  it.each([[-60*60_000,false],[1000,false],[10*60_000,false],[10*60_000+1,true],[5*365*24*60*60_000,true]] as const)(
+    'a writer offset of %i ms has a malformed alert = %s',async(offset,alerted)=>{
+      const s=pollAuditFixture(),lastPollAtMs=commitMs+offset;
+      s.setPollCommit(stamp);
+      s.data.set(s.sources[1],{...s.turn,lastPollAtMs,nextAttemptAt:lastPollAtMs+2000});
+      expect(await s.sweep()).toEqual({created:alerted?1:0,seen:0});
+      expect(s.data.has(s.alertPath)).toBe(alerted);expect(s.writes).toEqual(alerted?[s.alertPath]:[]);
+    });
+  it.each([undefined,{seconds:1,nanoseconds:-1},{seconds:Number.MAX_SAFE_INTEGER,nanoseconds:0}])(
+    'an unusable commit time prevents a successful audit',async(invalid)=>{
+      const s=pollAuditFixture();s.setPollCommit(invalid);
+      await expect(s.sweep()).rejects.toMatchObject({created:0,seen:0});
+      expect(s.writes).toEqual([]);
+    });
+});
+
+it('keeps the first unreadable alert open and clears independent rows through the final page',async()=>{
+  const s=stub(),rows=Array.from({length:201},(_,n)=>row({id:'h'+n}));
+  await raisePendingAlerts(s.db as never,s.root as never,report(rows),NOW);
+  for(const item of rows)s.store.set('billingHoldOutbox/'+item.id,{state:'applied'});
+  const [first]=alerts(s).map(([path])=>path).sort();
+  const fault=Error('unavailable read'),run=s.db.runTransaction.bind(s.db);
+  const adapter={runTransaction:(fn:(tx:unknown)=>Promise<unknown>)=>run(async tx=>{
+    const source=tx as {get:(ref:{path:string})=>Promise<unknown>};
+    return fn({...source,get:(ref:{path:string})=>{if(ref.path===first)throw fault;return source.get(ref);}});
+  })};
+  const failed=await clearResolvedAlerts(adapter as never,s.root as never,report([]),NOW+1).then(()=>null,e=>e);
+  expect(failed).toBeInstanceOf(AggregateError);expect(failed.errors).toEqual([fault]);
+  expect(failed.partial).toEqual(R({cleared:200,unverified:1}));
+  expect(s.store.get(first)?.status).toBe('open');expect(alerts(s).filter(([,data])=>data.status==='cleared')).toHaveLength(200);
 });

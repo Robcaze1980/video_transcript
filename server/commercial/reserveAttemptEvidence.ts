@@ -32,7 +32,10 @@ export type ReserveAttemptEvidenceV1 = Readonly<{
 }>;
 type ReviewedVoiceOperation = 'narration:en:female' | 'narration:en:male';
 type ReserveAttemptWitnessV2 = Readonly<Omit<ReserveAttemptWitnessV1, 'operation'> & {operation:ReviewedVoiceOperation}>;
-type ReviewedVoiceReserveProof = Readonly<{markerId:string; markerFingerprint:string; sourceVersionsSha256:string}>;
+type ReviewedVoiceReserveProof = Readonly<{
+  markerId:string; markerFingerprint:string; markerVersion:Extract<ReserveAttemptDocumentVersion,{exists:true}>;
+  sourceVersionsSha256:string;
+}>;
 export type ReserveAttemptEvidenceV2 = Readonly<{
   version:2; attemptId:string; witness:ReserveAttemptWitnessV2; versions:ReserveAttemptVersions; voice:ReviewedVoiceReserveProof;
 }>;
@@ -121,10 +124,13 @@ function voiceOperation(value:unknown):ReviewedVoiceOperation {
 }
 
 function voiceProof(value:unknown):ReviewedVoiceReserveProof {
-  const {markerId, markerFingerprint, sourceVersionsSha256} = exact(value, ['markerId','markerFingerprint','sourceVersionsSha256']);
+  const {markerId, markerFingerprint, markerVersion, sourceVersionsSha256} =
+    exact(value, ['markerId','markerFingerprint','markerVersion','sourceVersionsSha256']);
   if (typeof markerId !== 'string' || !hex64.test(markerId) || typeof markerFingerprint !== 'string' ||
       !hex64.test(markerFingerprint) || typeof sourceVersionsSha256 !== 'string' || !hex64.test(sourceVersionsSha256)) return invalid();
-  return Object.freeze({markerId, markerFingerprint, sourceVersionsSha256});
+  const recordedVersion = version(markerVersion);
+  if (!recordedVersion.exists || recordedVersion.createTime !== recordedVersion.updateTime) return invalid();
+  return Object.freeze({markerId, markerFingerprint, markerVersion:recordedVersion, sourceVersionsSha256});
 }
 
 const requiredVoiceSources = [
@@ -176,7 +182,7 @@ function reviewedSourceHistory(binding:ReviewedVoiceBinding, preflight?:ReserveA
  * attempt journal; it cannot authenticate a principal or make a reservation.
  */
 export function createReviewedVoiceReserveAttempt(attemptId:unknown, value:unknown, sourceVersions:unknown,
-  binding:ReviewedVoiceBinding, requestKey:string):ReserveAttemptEvidenceV2 {
+  binding:ReviewedVoiceBinding, requestKey:string, markerVersion:unknown):ReserveAttemptEvidenceV2 {
   try {
     const operation = voiceOperation(value);
     const witness = copyWitness(value, operation, 2), versions = copyVersions(sourceVersions);
@@ -185,9 +191,10 @@ export function createReviewedVoiceReserveAttempt(attemptId:unknown, value:unkno
         witness.identityKey !== marker.identityKey || witness.revision !== marker.revision ||
         witness.seconds !== marker.billableSeconds || witness.intentId !== hash([marker.accountId, requestKey]) ||
         witness.reservationId !== videoReservationId(marker.accountId, marker.identityKey, marker.inputId, operation, marker.revision, requestKey)) return invalid();
-    const voice = {markerId:marker.markerId, markerFingerprint:marker.fingerprint, sourceVersionsSha256:reviewedSourceHistory(binding, versions)};
+    const voice = voiceProof({markerId:marker.markerId, markerFingerprint:marker.fingerprint, markerVersion,
+      sourceVersionsSha256:reviewedSourceHistory(binding, versions)});
     if (attemptId !== witness.reservationId) return invalid();
-    return Object.freeze({version:2, attemptId, witness, versions, voice:Object.freeze(voice)});
+    return Object.freeze({version:2, attemptId, witness, versions, voice});
   } catch (error) {
     if (error instanceof ReserveAttemptEvidenceFault) throw error;
     return invalid();
@@ -197,15 +204,18 @@ export function createReviewedVoiceReserveAttempt(attemptId:unknown, value:unkno
 /**
  * Compare the original history to a fresh authorized reading before work is
  * committed. The caller must separately check the financial preflight window,
- * the persisted marker and the authority of the direct Account response.
+ * the persisted marker's contents and the authority of the direct Account response.
  */
-export function matchesReviewedVoiceReserveSource(value:ReserveAttemptEvidenceV2, binding:ReviewedVoiceBinding, requestKey:string):boolean {
+export function matchesReviewedVoiceReserveSource(value:ReserveAttemptEvidenceV2, binding:ReviewedVoiceBinding,
+  requestKey:string, markerVersion:unknown):boolean {
   try {
     const attempt = copyAttempt(value);
     if (attempt.version !== 2) return false;
     const marker = createReviewedVoiceMarker(binding, requestKey, attempt.witness.operation);
-    const {witness, voice} = attempt;
+    const {witness, voice} = attempt, currentMarker = version(markerVersion);
     return voice.markerId === marker.markerId && voice.markerFingerprint === marker.fingerprint &&
+      currentMarker.exists && voice.markerVersion.createTime === currentMarker.createTime &&
+      voice.markerVersion.updateTime === currentMarker.updateTime &&
       witness.accountId === marker.accountId && witness.inputId === marker.inputId &&
       witness.identityKey === marker.identityKey && witness.revision === marker.revision && witness.seconds === marker.billableSeconds &&
       witness.intentId === hash([marker.accountId, requestKey]) &&
@@ -267,13 +277,17 @@ function equalObservation(actual:unknown, attempt:ReserveAttemptEvidence):boolea
     return JSON.stringify(reconstructed) === JSON.stringify(attempt);
   } catch { return false; }
 }
+/** Correlation of detached evidence does not authorize replay or attribute an owner. */
+export function matchesReviewedVoiceReserveAck(prepared:ReserveAttemptEvidenceV2,ack:unknown):boolean {
+  try{return equalObservation(ack,copyAttempt(prepared));}catch{return false;}
+}
 /** A replay may disclose existing work only after reading both durable records. */
 export function verifyReviewedVoiceReserveReplay(prepared:unknown, ack:unknown, binding:ReviewedVoiceBinding,
-  requestKey:string, operation:string):boolean {
+  requestKey:string, operation:string, markerVersion:unknown):boolean {
   try {
     const attempt = copyAttempt(prepared);
     return attempt.version === 2 && attempt.witness.operation === operation &&
-      matchesReviewedVoiceReserveSource(attempt,binding,requestKey) && equalObservation(ack,attempt);
+      matchesReviewedVoiceReserveSource(attempt,binding,requestKey,markerVersion) && equalObservation(ack,attempt);
   } catch {
     return false;
   }

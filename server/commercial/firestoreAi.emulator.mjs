@@ -15,7 +15,9 @@ import {AI_TEXT_BUDGET,AI_CATALOG_VERSION} from './aiContracts.ts';
 import {AccountBillingClient,AccountBillingFault,accountIdentityKey} from './accountBillingClient.ts';
 import {AccountStore} from '../account/backend.ts';
 import {readPendingReport} from './billingPendingReport.ts';
-import {ALERT_COLLECTION,raisePendingAlerts} from './billingPendingAlerts.ts';
+import {recordDisposition} from './billingPendingAudit.ts';
+import {runPendingSweep} from './billingPendingSweep.ts';
+import {ALERT_COLLECTION,alertKey,raisePendingAlerts,clearResolvedAlerts} from './billingPendingAlerts.ts';
 import {prepareFinancialFixture,cleanupFinancialFixture} from './financialFixtureSafety.mjs';
 const sha=value=>createHash('sha256').update(value).digest('hex'),contexts=[];
 function reservationFor(account,identity,input,operation,revision,key){const bytes=createHash('sha256').update(JSON.stringify(['vistavo-video-reservation-v1',account,identity,input,operation,revision,key])).digest().subarray(0,16);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const h=bytes.toString('hex');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;}
@@ -871,6 +873,301 @@ test('an invalid terminal poll suppresses remote calls and the overdue intent ra
  assert.equal((await intent.get()).get('reviewReason'),'max_age');assert.equal((await poll.get()).updateTime.isEqual(broken.updateTime),true);
  assert.equal((await ref(c,'billingIntentDispatchClaims',terminalId(p,'release')).get()).get('state'),'possibly_sent');
  assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);assert.deepEqual(remote.unexpected,[]);
+});
+
+test('a corrupt terminal poll under a verified active guard raises a separate durable alert and another account can release',{timeout:60000},async t=>{
+ const c=await fixture(),a=await fencedIntent(c),intent=ref(c,'billingIntents',a.witness.intentId);
+ const remote=await syntheticReleaseAccount(c,a.identityKey,a.reservationId,'before_apply');
+ const first=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ assert.equal((await first.drainExternalBilling()).intentsFailed,1);
+ const pending=await intent.get();let now=pending.get('nextAttemptAt');t.mock.method(Date,'now',()=>now);
+ await first.drainExternalBilling();
+ const poll=ref(c,'billingIntentResolutionPolls',terminalId(a,'release')),genuine=await poll.get();
+ assert.equal(genuine.get('outcome'),'reserved');assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);
+
+ // A different reservation on A produces a real mismatched observation and hence the guard.
+ const incident=await fencedIntent(c);
+ await remote.store.reserveVideo(incident.identityKey,incident.reservationId,3);
+ const snapshot=await directSnapshot(c,incident,'status'),observed=await remote.store.videoReservation(incident.identityKey,incident.reservationId);
+ assert.equal(observed.seconds,3);
+ const review=await c.backend.recordExternalBillingReview(c.account,incident.requestKey,incident.billing,observed,snapshot);
+ assert.equal(review.state,'needs_review');
+ const guard=ref(c,'billingGuards',c.account),blocked=await guard.get();
+ assert.equal(blocked.get('blocked'),true);assert.equal(blocked.get('lastIncidentId'),incident.witness.intentId);
+ assert.notEqual(incident.witness.intentId,a.witness.intentId);
+
+ const upload=await c.files.begin(c.foreign,'other-account.mp4',c.source.length,sha(c.source),randomUUID());
+ for(let i=0;i<c.source.length;i+=4)await c.files.append(c.foreign,upload.id,i,c.source.subarray(i,i+4));
+ await c.files.complete(c.foreign,upload.id);
+ await c.files.work(upload.id,'validate',{inspect:async()=>({sha256:sha(c.source),video:{duration:2,width:320,height:180,audioTracks:1}})});
+ await c.files.work(upload.id,'cleanup');await c.backend.saveProject(c.foreign,upload.id,0,'Synthetic separate account.');
+ const b=await fencedIntent({...c,account:c.foreign,uid:c.foreignUid,input:upload.id});
+ await remote.store.reserveVideo(b.identityKey,b.reservationId,2);
+ const calls=[],holds=[];
+ const client=new AccountBillingClient(undefined,{request:async request=>{
+  const path=new URL(request.url).pathname;
+  if(path==='/api/internal/video/billing-holds'){
+   holds.push(request.data);return {data:await remote.store.blockVideoBilling(request.data.identityKey,request.data.incidentId)};
+  }
+  calls.push({path,identityKey:request.data.identityKey});
+  assert.equal(request.data.identityKey,b.identityKey);
+  if(path===`/api/internal/video/reservations/${b.reservationId}/status`)return {data:await remote.store.videoReservation(b.identityKey,b.reservationId)};
+  assert.equal(path,`/api/internal/video/reservations/${b.reservationId}/release`);assert.equal(request.data.seconds,2);
+  return {data:{reservationId:b.reservationId,...await remote.store.settleVideo(b.identityKey,b.reservationId,'release',2)}};
+ }});
+ const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,client);
+ assert.deepEqual(await ai.drainExternalHolds(),{applied:1,failed:0,review:0});
+ assert.equal(holds.length,1);assert.equal(holds[0].identityKey,a.identityKey);
+ assert.deepEqual(await remote.store.videoBillingHold(a.identityKey,holds[0].incidentId),{blocked:true,recorded:true});
+ const beforeBalance=await remote.store.videoBalance(a.identityKey);
+ const sweep=async clock=>{
+  await c.backend.escalateStaleBillingRows({now:clock,limit:25});
+  const report=await readPendingReport(c.root,clock);await raisePendingAlerts(c.db,c.root,report,clock);
+  return (await c.root.collection(ALERT_COLLECTION).get()).docs;
+ };
+ // Record the existing guard alert first so it cannot satisfy the new failure.
+ const before=await sweep(now),priorIds=new Set(before.map(doc=>doc.id));
+ const guardAlerts=before.filter(doc=>doc.get('kind')==='guard'&&doc.get('rowId')===c.account&&doc.get('status')==='open');
+ assert.equal(guardAlerts.length,1);assert.ok(guardAlerts[0].get('state').endsWith(':'+incident.witness.intentId));
+ await poll.update({generation:-1,accountId:c.foreign});const damaged=await poll.get();
+ now=genuine.get('nextAttemptAt')+1;
+ assert.equal((await ai.drainExternalBilling()).intentsRecovered,1);
+ assert.deepEqual(calls.map(call=>call.path.split('/').at(-1)),['status','release']);assert.ok(calls.every(call=>call.identityKey===b.identityKey));
+ assert.equal((await remote.store.videoReservation(b.identityKey,b.reservationId)).state,'released');
+ assert.equal((await ref(c,'billingIntents',b.witness.intentId).get()).get('releaseConfirmed'),true);
+ assert.equal((await ref(c,'billingGuards',c.foreign).get()).exists,false);
+
+ const maxAge=48*60*60*1000,created=pending.get('createdAtMs'),seen=[];
+ for(const clock of [created+maxAge+1,created+2*maxAge,created+4*maxAge]){
+  const alerts=await sweep(clock);await ai.drainExternalBilling();
+  const specific=alerts.filter(doc=>!priorIds.has(doc.id)&&doc.get('status')==='open'&&doc.get('reason')==='malformed'&&
+    (doc.get('rowId')===poll.id||doc.get('terminalId')===poll.id));
+  for(const alert of specific){assert.equal(alert.get('kind'),'terminal_poll');assert.equal(alert.get('accountId'),null);}
+  assert.ok(alerts.every(doc=>doc.get('accountId')!==c.foreign),'the malformed poll must not generate an alert for B');
+  seen.push(specific.map(doc=>doc.id));
+  assert.equal((await intent.get()).get('state'),'release_pending');assert.equal((await intent.get()).get('releaseConfirmed'),undefined);
+  assert.equal((await guard.get()).updateTime.isEqual(blocked.updateTime),true);assert.equal((await poll.get()).updateTime.isEqual(damaged.updateTime),true);
+ }
+ assert.deepEqual(await remote.store.videoBillingHold(a.identityKey,holds[0].incidentId),{blocked:true,recorded:true});
+ assert.deepEqual(await remote.store.videoBalance(a.identityKey),beforeBalance);assert.equal((await remote.store.videoReservation(a.identityKey,a.reservationId)).state,'reserved');
+ assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);assert.deepEqual(remote.unexpected,[]);assert.equal(calls.length,2);
+ assert.equal((await ref(c,'billingIntentDispatchClaims',poll.id).get()).get('state'),'possibly_sent');
+ assert.equal((await remote.root.collection('ledgerEntries').where('kind','==','video_release').get()).size,1);
+ assert.equal(seen[0].length,1,'the default sweep must raise a durable malformed alert for the specific terminal while the legitimate guard remains active');
+ assert.deepEqual(seen,[seen[0],seen[0],seen[0]],'the same alert must survive subsequent sweeps without duplication');
+});
+
+test('terminal poll alerts verify the actual binding, survive concurrent sweeps and clear only after a live repair',{timeout:60000},async t=>{
+ const c=await fixture(),a=await fencedIntent(c),id=a.witness.intentId,action='release';
+ const remote=await syntheticReleaseAccount(c,a.identityKey,a.reservationId,'before_apply');
+ const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ const intent=ref(c,'billingIntents',id),poll=ref(c,'billingIntentResolutionPolls',terminalId(a,action));
+ await ai.drainExternalBilling();const intentBefore=await intent.get(),now=intentBefore.get('nextAttemptAt');t.mock.method(Date,'now',()=>now);
+ await ai.drainExternalBilling();const genuine=(await poll.get()).data(),calls=[...remote.calls];assert.equal(genuine.outcome,'reserved');
+ const corrupt={...genuine,binding:genuine.binding==='f'.repeat(64)?'e'.repeat(64):'f'.repeat(64)};
+ const alert=ref(c,ALERT_COLLECTION,alertKey('terminal_poll',poll.id,'invalid','malformed'));
+ const report=await readPendingReport(c.root,now,{pageSize:1});
+ await raisePendingAlerts(c.db,c.root,report,now);assert.equal((await alert.get()).exists,false);
+ await poll.set(corrupt);
+ await Promise.all([raisePendingAlerts(c.db,c.root,report,now),raisePendingAlerts(c.db,c.root,report,now)]);
+ const raised=await alert.get();assert.equal(raised.get('seenCount'),2);assert.equal(raised.get('accountId'),null);
+ assert.deepEqual(Object.keys(raised.data()).sort(),['accountId','alertKey','firstSeenAtMs','kind','lastSeenAtMs','pollAction','pollIntentId','reason','rowId','seenCount','state','status'].sort());
+ assert.equal(raised.get('pollIntentId'),id);assert.equal(raised.get('pollAction'),action);
+ await recordDisposition(c.db,c.root,alert.id,'acknowledge',{authorizedBy:'test-auditor'},now);
+ await assert.rejects(recordDisposition(c.db,c.root,alert.id,'resolve',{authorizedBy:'test-auditor',evidenceRef:'synthetic'},now),error=>error.code==='conflict');
+ await poll.delete();const missing=await clearResolvedAlerts(c.db,c.root,report,now);
+ assert.ok(missing.unverified>=1);assert.equal((await alert.get()).get('status'),'open');
+ await poll.set(genuine);const repairedReport=await readPendingReport(c.root,now);
+ await poll.set(corrupt);await clearResolvedAlerts(c.db,c.root,repairedReport,now);
+ assert.equal((await alert.get()).get('status'),'open','an old report cannot clear fresh damage');
+ await poll.set(genuine);
+ const cleared=await Promise.all([clearResolvedAlerts(c.db,c.root,report,now+1),clearResolvedAlerts(c.db,c.root,report,now+1)]);
+ assert.equal(cleared.reduce((sum,item)=>sum+item.cleared,0),1);assert.equal((await alert.get()).get('observedState'),'poll_verified');
+ await poll.set(corrupt);await raisePendingAlerts(c.db,c.root,report,now+2);
+ const reopened=await alert.get();assert.equal(reopened.get('status'),'open');assert.equal(reopened.get('previousClearedAtMs'),now+1);
+ assert.equal(reopened.get('reopenCount'),1);assert.equal(reopened.get('acknowledgedBy'),'test-auditor');
+ // A genuine stored binding does not validate a changed evidence version, even with identical user fields.
+ await poll.set(genuine);
+ const recovery=ref(c,'billingIntentTerminalRecovery',poll.id),original=await recovery.get();
+ await recovery.update({attempts:1});await recovery.set(original.data());
+ assert.equal((await recovery.get()).updateTime.isEqual(original.updateTime),false);
+ await clearResolvedAlerts(c.db,c.root,report,now+3);assert.equal((await alert.get()).get('status'),'open');
+ const partial={getAll:c.db.getAll.bind(c.db),runTransaction:work=>c.db.runTransaction(tx=>work(new Proxy(tx,{get(target,key){
+  if(key==='getAll')return (...refs)=>{
+   if(refs.some(ref=>ref.parent.id==='billingIntentPreparationProofs'))throw new Error('synthetic read failure');
+   return target.getAll(...refs);
+  };
+  const method=target[key];return typeof method==='function'?method.bind(target):method;
+ }})))};
+ await assert.rejects(runPendingSweep(partial,c.root,now+4),error=>error.alerted&&error.summary.ok===false&&
+  error.summary.failures.includes('raise')&&error.summary.failures.includes('clear'));
+ assert.equal((await alert.get()).get('status'),'open');
+ assert.equal((await intent.get()).updateTime.isEqual(intentBefore.updateTime),true);assert.deepEqual(remote.calls,calls);
+ assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);assert.equal((await ref(c,'billingGuards',c.account).get()).exists,false);
+});
+
+test('a failed poll audit batch leaves a sweep failure and checks subsequent paged intents without following malformed IDs',{timeout:60000},async t=>{
+ const c=await fixture(),a=await fencedIntent(c),intent=ref(c,'billingIntents',a.witness.intentId);
+ const remote=await syntheticReleaseAccount(c,a.identityKey,a.reservationId,'before_apply'),ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ await ai.drainExternalBilling();const now=(await intent.get()).get('nextAttemptAt');t.mock.method(Date,'now',()=>now);
+ await ai.drainExternalBilling();const poll=ref(c,'billingIntentResolutionPolls',terminalId(a,'release'));await poll.update({token:'bad'});
+ const batch=c.db.batch(),ids=Array.from({length:100},(_,index)=>index.toString(16).padStart(64,'0'));
+ assert.ok(!ids.includes(intent.id)); // synthetic older intents occupy the entire first lookup batch
+ for(const id of [...ids,'not-an-intent'])batch.set(ref(c,'billingIntents',id),{state:'release_pending',createdAtMs:0});
+ await batch.commit();
+ const attempts=[],faulty={runTransaction:c.db.runTransaction.bind(c.db),getAll:async(...args)=>{
+  const refs=args.slice(0,-1);attempts.push(refs.map(ref=>ref.id));assert.deepEqual(args.at(-1),{fieldMask:[]});
+  if(attempts.length===1)throw new Error('synthetic access denied');return c.db.getAll(...args);
+ }};
+ await assert.rejects(runPendingSweep(faulty,c.root,now,{pageSize:17}),error=>error.stage==='raise'&&error.alerted===true&&error.summary.ok===false);
+ assert.deepEqual(attempts.map(group=>group.length),[200,2]);assert.ok(attempts[1].includes(poll.id));
+ const alerts=(await c.root.collection(ALERT_COLLECTION).get()).docs;
+ assert.ok(alerts.some(doc=>doc.get('kind')==='sweep'&&doc.get('reason')==='sweep_failed'&&doc.get('status')==='open'));
+ assert.ok(alerts.some(doc=>doc.get('kind')==='terminal_poll'&&doc.get('rowId')===poll.id&&doc.get('status')==='open'&&doc.get('accountId')===null));
+ assert.equal((await intent.get()).get('state'),'release_pending');assert.equal(remote.releases(),1);assert.equal(remote.applied(),0);
+});
+
+test('a coherent poll years ahead of its commit raises and retains a neutral alert despite an active guard',{timeout:60000},async t=>{
+ const c=await fixture(),p=await fencedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'before_apply');
+ const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ assert.equal((await ai.drainExternalBilling()).intentsFailed,1);
+ const pending=await intent.get(),now=pending.get('nextAttemptAt');t.mock.method(Date,'now',()=>now);
+ await ai.drainExternalBilling();
+ const poll=ref(c,'billingIntentResolutionPolls',terminalId(p,'release')),genuine=await poll.get();
+ assert.equal(genuine.get('outcome'),'reserved');
+ const calls=[...remote.calls];
+
+ // The guard belongs to a separate incident. It must not act as the alert for this turn.
+ const incident=await fencedIntent(c);
+ await remote.store.reserveVideo(incident.identityKey,incident.reservationId,3);
+ const observed=await remote.store.videoReservation(incident.identityKey,incident.reservationId);
+ const status=await directSnapshot(c,incident,'status');
+ assert.equal((await c.backend.recordExternalBillingReview(c.account,incident.requestKey,incident.billing,observed,status)).state,'needs_review');
+ const guard=ref(c,'billingGuards',c.account),blocked=await guard.get();
+ assert.equal(blocked.get('blocked'),true);assert.equal(blocked.get('lastIncidentId'),incident.witness.intentId);
+ const rowBefore=await snapshots([intent,guard,ref(c,'billingIntentDispatchClaims',poll.id)]);
+ const balance=await remote.store.videoBalance(p.identityKey);
+ const expired=pending.get('createdAtMs')+48*60*60*1000+1;
+ await c.backend.escalateStaleBillingRows({now:expired,limit:25});
+ assert.equal((await intent.get()).get('state'),'release_pending');
+ const report=await readPendingReport(c.root,expired),alert=ref(c,ALERT_COLLECTION,alertKey('terminal_poll',poll.id,'invalid','malformed'));
+ const delay=genuine.get('nextAttemptAt')-genuine.get('lastPollAtMs');
+ const schedule=lastPollAtMs=>({lastPollAtMs,nextAttemptAt:lastPollAtMs+delay});
+ const observedClock=Math.floor((await poll.get()).updateTime.toMillis());
+ await poll.update(schedule(observedClock+1000)); // ordinary clock with one second of lead at its last observed commit
+ await raisePendingAlerts(c.db,c.root,report,expired);
+ assert.equal((await alert.get()).exists,false,'small clock skew does not make a bound turn malformed');
+
+ const yearMs=365*24*60*60*1000,future=schedule(observedClock+5*yearMs);
+ await poll.update(future);const displaced=await poll.get();
+ assert.ok(displaced.get('lastPollAtMs')-displaced.updateTime.toMillis()>4*yearMs);
+ assert.equal(displaced.get('binding'),genuine.get('binding'));
+ assert.equal(displaced.get('nextAttemptAt')-displaced.get('lastPollAtMs'),delay);
+ await raisePendingAlerts(c.db,c.root,report,expired);
+ const freshAlert=await alert.get();
+
+ // Seed the same alert independently to test its retention even if new discovery misses this case.
+ await poll.update({token:'invalid'});await raisePendingAlerts(c.db,c.root,report,expired);
+ const opened=await alert.get();assert.equal(opened.get('status'),'open');assert.equal(opened.get('accountId'),null);
+ await poll.update({token:genuine.get('token')});const beforeClear=await poll.get();
+ await clearResolvedAlerts(c.db,c.root,report,expired+1);
+ const afterClear=await alert.get();
+ assert.equal((await poll.get()).updateTime.isEqual(beforeClear.updateTime),true);
+ assert.deepEqual(await snapshots([intent,guard,ref(c,'billingIntentDispatchClaims',poll.id)]),rowBefore);
+ assert.deepEqual(remote.calls,calls);assert.equal(remote.applied(),0);assert.deepEqual(remote.unexpected,[]);
+ assert.deepEqual(await remote.store.videoReservation(p.identityKey,p.reservationId),{reservationId:p.reservationId,state:'reserved',seconds:2});
+ assert.deepEqual(await remote.store.videoBalance(p.identityKey),balance);
+ assert.deepEqual([freshAlert.get('status'),freshAlert.get('accountId'),afterClear.get('status'),afterClear.get('accountId')],
+  ['open',null,'open',null],'an incoherent commit clock must be discovered and cannot verify an existing alert for clearance');
+});
+
+test('a failed terminal evidence read leaves its alert open while cleanup checks the next alert',{timeout:60000},async()=>{
+ const c=await fixture(),turns=[];
+ for(let i=0;i<2;i++){
+  const p=await preparedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);
+  const poll=ref(c,'billingIntentResolutionPolls',terminalId(p,'release'));
+  const permit=await c.backend.beginTerminalResolutionPoll(p.witness,p.requestKey,poll.id);assert.ok(permit);
+  assert.equal(await c.backend.finishTerminalResolutionPoll(p.witness,permit,'reserved'),true);
+  const original=await poll.get(),alert=ref(c,ALERT_COLLECTION,alertKey('terminal_poll',poll.id,'invalid','malformed'));
+  await poll.update({token:'invalid'});turns.push({intent,poll,alert,original});
+ }
+ const now=Date.now(),report=await readPendingReport(c.root,now);
+ await raisePendingAlerts(c.db,c.root,report,now);
+ for(const {poll,alert,original} of turns){
+  assert.equal((await alert.get()).get('status'),'open');await poll.update({token:original.get('token')});
+ }
+ // The cleanup query orders by alert key. Inject the fault in its first transaction, after it reads the alert.
+ turns.sort((a,b)=>a.alert.id<b.alert.id?-1:1);
+ const [failed,healthy]=turns,reads=[],before=await snapshots(turns.flatMap(x=>[x.intent,x.poll]));
+ const adapter={getAll:c.db.getAll.bind(c.db),runTransaction:work=>c.db.runTransaction(tx=>{
+  let checking;
+  return work(new Proxy(tx,{get(target,key){
+   if(key==='get')return doc=>{
+    const entry=turns.find(x=>x.alert.path===doc.path);
+    if(entry)checking=entry;
+    return target.get(doc);
+   };
+   if(key==='getAll')return (...docs)=>{
+    if(checking&&docs.some(doc=>doc.parent.id==='billingIntentPreparationProofs'&&doc.id===checking.poll.id)){
+     reads.push(checking.alert.id);
+     if(checking===failed)throw new Error('synthetic unavailable evidence');
+    }
+    return target.getAll(...docs);
+   };
+   const method=target[key];return typeof method==='function'?method.bind(target):method;
+  }}));
+ })};
+ let summary;
+ await assert.rejects(runPendingSweep(adapter,c.root,now+1),error=>{
+  summary=error.summary;
+  return error.code==='sweep_failed'&&error.alerted===true&&error.stage==='clear'&&summary?.ok===false;
+ });
+ const failure=await ref(c,ALERT_COLLECTION,alertKey('sweep','sweep','sweep_failed','sweep_failed')).get();
+ assert.equal(failure.get('status'),'open');
+ assert.equal((await failed.alert.get()).get('status'),'open');
+ assert.deepEqual(await snapshots(turns.flatMap(x=>[x.intent,x.poll])),before);
+ assert.deepEqual({reads,cleared:summary.cleared,status:(await healthy.alert.get()).get('status')},
+  {reads:[failed.alert.id,healthy.alert.id],cleared:1,status:'cleared'},'a local read fault must not stop a later independent repair');
+});
+
+test('a due terminal poll with an exhausted generation fails closed and raises a neutral alert',{timeout:60000},async t=>{
+ const c=await fixture(),p=await fencedIntent(c),intent=ref(c,'billingIntents',p.witness.intentId);
+ const remote=await syntheticReleaseAccount(c,p.identityKey,p.reservationId,'before_apply');
+ const ai=new FirestoreAi(c.db,c.root,c.backend,c.objects,undefined,remote.client);
+ assert.equal((await ai.drainExternalBilling()).intentsFailed,1);
+ const now=(await intent.get()).get('nextAttemptAt');t.mock.method(Date,'now',()=>now);
+ await ai.drainExternalBilling();
+ const poll=ref(c,'billingIntentResolutionPolls',terminalId(p,'release')),genuine=await poll.get();
+ assert.equal(genuine.get('outcome'),'reserved');
+ assert.equal(genuine.get('generation'),1);assert.equal(remote.releases(),1);
+ const alert=ref(c,ALERT_COLLECTION,alertKey('terminal_poll',poll.id,'invalid','malformed'));
+ await runPendingSweep(c.db,c.root,now);assert.equal((await alert.get()).exists,false);
+
+ // Synthetic Admin corruption of a due turn. Keep the clock stable for the Firestore client.
+ const nextAttemptAt=now-1,lastPollAtMs=nextAttemptAt-15*60_000;
+ const exhausted={generation:Number.MAX_SAFE_INTEGER,lastPollAtMs,nextAttemptAt};
+ await poll.update(exhausted);
+ assert.deepEqual((await poll.get()).data(),{...genuine.data(),...exhausted});
+ const guards=[ref(c,'billingGuards',c.account),ref(c,'billingGuards',c.foreign)];
+ const documents=[intent,poll,originFor(c,p),terminalPair(c,p,'release').terminal,
+  terminalPair(c,p,'release').recovery,ref(c,'billingIntentDispatchClaims',poll.id),...guards];
+ const before=await snapshots(documents),calls=[...remote.calls];
+ const balances=()=>Promise.all([c.backend.readBalance(c.account),c.backend.readBalance(c.foreign),
+  remote.store.videoBalance(p.identityKey),remote.store.videoBalance(accountIdentityKey(c.foreignUid))]);
+ const beforeBalance=await balances();assert.ok(before.slice(-2).every(guard=>!guard.exists));
+ const selected=(await c.backend.pendingExternalBillingIntents(1)).some(row=>row.id===intent.id&&row.resolutionPollId===poll.id);
+ assert.equal(await c.backend.beginTerminalResolutionPoll(p.witness,p.requestKey,poll.id),null);
+ assert.equal((await ai.drainExternalBilling()).intentsRecovered,0);
+ await runPendingSweep(c.db,c.root,now);
+ assert.deepEqual(await snapshots(documents),before);
+ assert.deepEqual(await balances(),beforeBalance);
+ assert.deepEqual(remote.calls,calls);assert.equal(remote.applied(),0);assert.deepEqual(remote.unexpected,[]);
+ assert.deepEqual(await remote.store.videoReservation(p.identityKey,p.reservationId),{reservationId:p.reservationId,seconds:2,state:'reserved'});
+ assert.equal((await intent.get()).get('state'),'release_pending');
+ const raised=await alert.get();
+ assert.equal(raised.get('status'),'open',`generation cannot advance and must be visible (selected as due: ${selected})`);
+ assert.equal(raised.get('accountId'),null);assert.equal(raised.get('pollIntentId'),intent.id);
 });
 
 test('a selected terminal poll yields to the age sweep before calling Account',{timeout:60000},async t=>{

@@ -1932,3 +1932,11 @@ La suite ampliada C1 obtuvo 59 aprobadas y cuatro fallos: recibos contradictorio
 ## 2026-11-26 · LV-019.B · C1 y segunda revisión
 
 Una reparación aislada pasó **64/64** tras los cuatro negativos de la suite anterior. Una revisión independiente posterior encontró dos ventanas adicionales: recibos contradictorios sin alerta cuando cambió la historia y recreación de la marca antes de preparar la reserva. Se preparan pruebas para ambas; no se integró esa reparación ni se habilitó el proveedor. [Auditoría](docs/reviews/LV-019-B-voz-c1-auditoria-marcador-20261126.md).
+
+## 2026-11-26 · LV-019.B · Alertas, C1 y prototipo C2
+
+La corrección del sondeo y la limpieza pasó 5/5 focales tras dos negativos iniciales. La batería completa y las dos revisiones externas del corte integrado siguen pendientes. [Auditoría](docs/reviews/LV-019-B-sondeo-alerta-auditoria-local-20261126.md).
+
+C1 pasó 72/72 en emulador aislado, pero falló 1/28 de frontera; una variante separada pasó 32/32 unitarias de frontera y procedencia y está en ensayo. Un control adicional de ACK tardío y marca quedó 1/2, sin doble cargo ni cuenta ajena demostrados. [Diagnóstico](docs/reviews/LV-019-B-voz-c1-marca-ack-tardio-20261126.md).
+
+El puente C2 en memoria pasó 15/15 unitarias propias, sin adaptador real. DeepSeek respondió FALLA y GLM INCONCLUYENTE; las conclusiones se contrastan. Se respaldaron cortes WIP de C1, C2 y los negativos financieros en ramas separadas, sin publicar procesamiento. [DeepSeek](docs/reviews/LV-019-B-voz-c2-memoria-DeepSeek-20261126.txt) · [GLM](docs/reviews/LV-019-B-voz-c2-memoria-GLM-20261126.txt).

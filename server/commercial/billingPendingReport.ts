@@ -6,6 +6,7 @@
  * hidden behind future rows the way the batched selectors can.
  * Design: docs/specs/LV-019-B-conciliacion-fase2-barrido-diseno.md
  */
+import {createHash} from 'node:crypto';
 import type {DocumentReference,DocumentSnapshot} from 'firebase-admin/firestore';
 
 export type PendingKind='intent'|'terminal_recovery'|'hold'|'outbox'|'job_unknown'|'guard';
@@ -148,4 +149,131 @@ export async function readPendingReport(root:DocumentReference,nowMs:number,opti
     }
   }
   return buildPendingReport(rows,nowMs);
+}
+
+/** Read-only terminal evidence used by the private alert sweep and the financial reader. */
+export type ExternalVideoBilling = {provider:'account_seconds';identityKey:string;reservationId:string;seconds:number};
+export type TerminalRecoveryDocumentVersion = {exists:false}|{exists:true;createTime:string;updateTime:string};
+export type TerminalPollTurn={terminalId:string;intentId:string;action:'release'|'seal';binding:string;generation:number;token:string;lastPollAtMs:number;nextAttemptAt:number;outcome?:'reserved'|'not_found'|'captured'|'unavailable'|'unverified'};
+// Wire profile of terminal recovery protocol 1. A catalog change also requires a versioned reader.
+type TerminalWitness=ExternalVideoBilling&{intentId:string;accountId:string;inputId:string;operation:string;revision:number;profile:'ai-candidate-v1'};
+export type PollReadSnapshot=Readonly<Pick<DocumentSnapshot,'id'|'exists'|'get'|'data'|'createTime'|'updateTime'>>;
+const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const terminalUuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}(?![\s\S])/i;
+export function matchesExternalBilling(value:unknown,expected:ExternalVideoBilling){
+  if(!value||typeof value!=='object')return false;
+  const actual=value as Partial<ExternalVideoBilling>;
+  return actual.provider===expected.provider&&actual.identityKey===expected.identityKey&&actual.reservationId===expected.reservationId&&actual.seconds===expected.seconds;
+}
+export function sameIntentWitness(value:unknown,expected:TerminalWitness){
+  if(!value||typeof value!=='object')return false;const row=value as Partial<TerminalWitness>;
+  return row.intentId===expected.intentId&&row.accountId===expected.accountId&&row.inputId===expected.inputId&&row.operation===expected.operation&&row.revision===expected.revision&&row.profile===expected.profile&&matchesExternalBilling(row,expected);
+}
+export function validStoredIntentWitness(doc:PollReadSnapshot,expected:TerminalWitness){
+  return doc.exists&&sameIntentWitness(doc.data(),expected)&&doc.get('historyProtocol')===1&&doc.get('baseline')==='before_reservation'&&Number.isSafeInteger(doc.get('createdAtMs'))&&doc.get('createdAtMs')>=0;
+}
+export function validTerminalRecoveryOrigin(doc:PollReadSnapshot,expected:TerminalWitness){
+  if(!validStoredIntentWitness(doc,expected))return false;
+  const row=doc.data()!,fields=['intentId','accountId','inputId','operation','revision','profile','provider','identityKey','reservationId','seconds','historyProtocol','baseline','createdAtMs','terminalRecovery'];
+  if(Object.keys(row).length!==fields.length||fields.some(field=>!Object.hasOwn(row,field)))return false;
+  const marker=row.terminalRecovery;
+  return !!marker&&typeof marker==='object'&&!Array.isArray(marker)&&Object.keys(marker).length===3&&
+    ['protocol','sealPrepared','releasePrepared'].every(field=>Object.hasOwn(marker,field))&&marker.protocol===1&&
+    typeof marker.sealPrepared==='boolean'&&typeof marker.releasePrepared==='boolean';
+}
+export function intentTerminalKey(intentId:string,action:'release'|'seal'){return hash(['billing-intent-terminal-v1',intentId,action]);}
+export function validInitialTerminalRecovery(value:unknown,terminalId:string,createdAtMs:unknown){
+  if(!value||typeof value!=='object'||Array.isArray(value))return false;
+  const row=value as Record<string,unknown>;
+  const fields=['terminalId','protocol','state','generation','attempts','createdAtMs','nextAttemptAt'];
+  return Object.keys(row).length===fields.length&&fields.every(field=>Object.hasOwn(row,field))&&
+    row.terminalId===terminalId&&row.protocol===1&&row.state==='pending'&&row.generation===0&&row.attempts===0&&
+    Number.isSafeInteger(row.createdAtMs)&&Number(row.createdAtMs)>=0&&row.createdAtMs===createdAtMs&&row.nextAttemptAt===row.createdAtMs;
+}
+export function validInitialReaderPair(prepared:boolean,terminal:PollReadSnapshot,recovery:PollReadSnapshot,witness:TerminalWitness,action:'seal'|'release'){
+  if(!prepared)return !terminal.exists&&!recovery.exists;
+  const id=intentTerminalKey(witness.intentId,action),row=terminal.data();
+  if(!terminal.exists||!recovery.exists||terminal.id!==id||recovery.id!==id||!row)return false;
+  const fields=['intentId','accountId','inputId','operation','revision','profile','provider','identityKey','reservationId','seconds','action','historyProtocol','stage','createdAtMs'];
+  return Object.keys(row).length===fields.length&&fields.every(field=>Object.hasOwn(row,field))&&
+    sameIntentWitness(row,witness)&&row.action===action&&row.historyProtocol===1&&row.stage==='prepared'&&
+    Number.isSafeInteger(row.createdAtMs)&&row.createdAtMs>=0&&validInitialTerminalRecovery(recovery.data(),id,row.createdAtMs);
+}
+export function terminalDocumentVersion(doc:PollReadSnapshot):TerminalRecoveryDocumentVersion|null{
+  if(!doc.exists)return {exists:false};
+  const encode=(value:DocumentSnapshot['createTime'])=>value&&Number.isSafeInteger(value.seconds)&&value.seconds>=0&&Number.isSafeInteger(value.nanoseconds)&&value.nanoseconds>=0&&value.nanoseconds<1_000_000_000?`${value.seconds}:${String(value.nanoseconds).padStart(9,'0')}`:null;
+  const createTime=encode(doc.createTime),updateTime=encode(doc.updateTime);
+  return createTime&&updateTime?{exists:true,createTime,updateTime}:null;
+}
+/** LV-019.B: the shared growing wait of every billing retry, `min(15 min, 1 s * 2^min(attempts,10))`. */
+export function billingAttemptDelay(attempts:number){return Math.min(15*60_000,1000*2**Math.min(attempts,10));}
+/** The poll coordinates reads only. It is deliberately outside the documents authenticated by a direct ACK. */
+export function validTerminalPoll(row:FirebaseFirestore.DocumentData|undefined,intentId:string,action:'release'|'seal'):row is TerminalPollTurn{
+  if(!row)return false;
+  const fields=['terminalId','intentId','action','binding','generation','token','lastPollAtMs','nextAttemptAt'];
+  if(Object.hasOwn(row,'outcome')){
+    if(!['reserved','not_found','captured','unavailable','unverified'].includes(row.outcome))return false;
+    fields.push('outcome');
+  }
+  if(Object.keys(row).length!==fields.length||fields.some(field=>!Object.hasOwn(row,field)))return false;
+  return row.intentId===intentId&&row.action===action&&row.terminalId===intentTerminalKey(intentId,action)&&
+    typeof row.binding==='string'&&/^[a-f0-9]{64}(?![\s\S])/.test(row.binding)&&typeof row.token==='string'&&terminalUuid.test(row.token)&&
+    Number.isSafeInteger(row.generation)&&row.generation>0&&Number.isSafeInteger(row.lastPollAtMs)&&row.lastPollAtMs>=0&&
+    Number.isSafeInteger(row.nextAttemptAt)&&row.nextAttemptAt===row.lastPollAtMs+billingAttemptDelay(row.generation);
+}
+export function terminalEvidenceBinding(witness:TerminalWitness,action:'release'|'seal',witnessDoc:PollReadSnapshot,recovery:PollReadSnapshot,proof:PollReadSnapshot,dispatch:PollReadSnapshot){
+  // A legacy pair has neither dispatch record. Both forms still authorize only a read.
+  if(proof.exists||dispatch.exists){
+    if(!proof.exists||!dispatch.exists||!proof.createTime?.isEqual(proof.updateTime!)||!dispatch.createTime?.isEqual(proof.createTime!)||
+      !witnessDoc.createTime?.isEqual(proof.createTime!)||!recovery.createTime?.isEqual(proof.createTime!)||
+      typeof proof.get('transitioned')!=='boolean'||!/^[a-f0-9]{64}(?![\s\S])/.test(proof.get('history'))||
+      !terminalUuid.test(dispatch.get('attemptId'))||!/^[a-f0-9]{64}(?![\s\S])/.test(dispatch.get('history'))||
+      dispatch.get('terminalId')!==intentTerminalKey(witness.intentId,action)||dispatch.get('action')!==action||dispatch.get('state')!=='possibly_sent')return null;
+  }
+  return hash([witness,action,terminalDocumentVersion(witnessDoc),terminalDocumentVersion(recovery),terminalDocumentVersion(dispatch),terminalDocumentVersion(proof)]);
+}
+
+/** The auditor follows only keys derived from the authoritative intent document ID. */
+export function validPollIntentId(value:unknown):value is string{
+  return typeof value==='string'&&/^[a-f0-9]{64}(?![\s\S])/.test(value);
+}
+/** Audit-only tolerance for the writer clock running ahead of this document's Firestore commit.
+ * Compare to updateTime even on a sweep whose own start preceded this commit. */
+export const TERMINAL_POLL_CLOCK_LEAD_MS=10*60_000;
+function pollClockPlausible(lastPollAtMs:number,updated:PollReadSnapshot['updateTime']){
+  if(!updated||!Number.isSafeInteger(updated.seconds)||updated.seconds<0||
+    !Number.isSafeInteger(updated.nanoseconds)||updated.nanoseconds<0||updated.nanoseconds>=1_000_000_000)
+    throw new Error('Unavailable terminal poll commit time');
+  const commitMs=updated.seconds*1000+Math.floor(updated.nanoseconds/1_000_000);
+  if(!Number.isSafeInteger(commitMs))throw new Error('Invalid terminal poll commit time');
+  return lastPollAtMs-commitMs<=TERMINAL_POLL_CLOCK_LEAD_MS;
+}
+/** The caller provides snapshots without document references and a read-only capability for exactly five evidence records. */
+export async function inspectTerminalPoll(intentId:string,action:'release'|'seal',parent:PollReadSnapshot,poll:PollReadSnapshot,
+  readEvidence:()=>Promise<readonly [PollReadSnapshot,PollReadSnapshot,PollReadSnapshot,PollReadSnapshot,PollReadSnapshot]>){
+  if(!validPollIntentId(intentId)||(action!=='seal'&&action!=='release'))throw new RangeError('invalid terminal locator');
+  if(parent.id!==intentId||poll.id!==intentTerminalKey(intentId,action))return 'invalid' as const;
+  if(!parent.exists||parent.get('state')!=='release_pending'||!poll.exists)return 'unverified' as const;
+  const turn=poll.data();
+  if(!validTerminalPoll(turn,intentId,action))return 'invalid' as const;
+  // The financial writer requires a safe generation + 1 before a read-only polling turn.
+  if(turn.generation===Number.MAX_SAFE_INTEGER)return 'invalid' as const;
+  if(!pollClockPlausible(turn.lastPollAtMs,poll.updateTime))return 'invalid' as const;
+  const row=parent.data()!;
+  const {requestKey,accountId,inputId,operation,revision,provider,identityKey,reservationId,seconds}=row;
+  const validText=(value:unknown):value is string=>typeof value==='string'&&!!value.trim()&&value.length<=200;
+  if(row.id!==intentId||!validText(requestKey)||typeof accountId!=='string'||!terminalUuid.test(accountId)||
+    typeof inputId!=='string'||!terminalUuid.test(inputId)||!validText(operation)||!Number.isSafeInteger(revision)||revision<1||
+    provider!=='account_seconds'||!validPollIntentId(identityKey)||typeof reservationId!=='string'||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/i.test(reservationId)||
+    !Number.isSafeInteger(seconds)||seconds<1||seconds>600||hash([accountId,requestKey])!==intentId)return 'invalid' as const;
+  const witness:TerminalWitness={intentId,accountId,inputId,operation,revision,profile:'ai-candidate-v1',provider,identityKey,reservationId,seconds};
+  const [origin,terminal,recovery,proof,dispatch]=await readEvidence();
+  if(origin.id!==intentId||[terminal,recovery,proof,dispatch].some(doc=>doc.id!==poll.id))return 'invalid' as const;
+  if(!validTerminalRecoveryOrigin(origin,witness)||origin.get('terminalRecovery')[action==='seal'?'sealPrepared':'releasePrepared']!==true||
+    !validInitialReaderPair(true,terminal,recovery,witness,action))return 'invalid' as const;
+  // A binding authenticates the selected evidence versions. This check grants no financial permission.
+  if([terminal,recovery,proof,dispatch].some(doc=>!terminalDocumentVersion(doc)))return 'invalid' as const;
+  const binding=terminalEvidenceBinding(witness,action,terminal,recovery,proof,dispatch);
+  return binding===turn.binding?'intact' as const:'invalid' as const;
 }

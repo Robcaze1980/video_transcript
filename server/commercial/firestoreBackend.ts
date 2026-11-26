@@ -1,6 +1,11 @@
-import type {FirestoreReviewedTranslation,ReviewedTranslationPrincipal} from './firestoreReviewedTranslation';
-import {createReviewedVoiceMarker,validateReviewedVoiceMarkerReplay,ReviewedVoiceMarkerFault,type ReviewedVoiceMarker} from './reviewedVoiceMarker';
+import {billingAttemptDelay,intentTerminalKey,matchesExternalBilling,sameIntentWitness,terminalDocumentVersion,terminalEvidenceBinding,
+  validInitialReaderPair,validInitialTerminalRecovery,validStoredIntentWitness,validTerminalPoll,validTerminalRecoveryOrigin,
+  type ExternalVideoBilling,type TerminalPollTurn,type TerminalRecoveryDocumentVersion} from './billingPendingReport';
+export type {ExternalVideoBilling,TerminalRecoveryDocumentVersion} from './billingPendingReport';
+import {ReviewedTranslationFault,type FirestoreReviewedTranslation,type ReviewedTranslationPrincipal} from './firestoreReviewedTranslation';
+import {createReviewedVoiceMarker,validateReviewedVoiceMarker,validateReviewedVoiceMarkerReplay,ReviewedVoiceMarkerFault,type ReviewedVoiceMarker} from './reviewedVoiceMarker';
 import {videoReservationId} from './videoReservationId';
+import {isLocalVoiceFixtureTarget,isMarkedLocalVoiceRoot,LOCAL_VOICE_CONFLICTS,LOCAL_VOICE_PROJECT,LOCAL_VOICE_ROOT_PURPOSE,localVoiceRequestUuid} from './localVoiceFixture';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {accountHoldId,holdId,legacyHoldId,type HoldGeneration} from './billingHoldIdentity';
@@ -12,7 +17,7 @@ import {textModel} from './pipelineTextProvider';
 import {AI_CATALOG_VERSION,AI_TEXT_WINDOW_MS,AI_TEXT_MAX_DURATION_MS,AI_TEXT_MAX_WINDOWS,AI_VOICE_BUDGET,artifactPlan,artifactPlanHash,simulatedAiPrice,storageQuota,validateArtifactManifest,type AiArtifactPlan,type AiArtifactReceipt} from './aiContracts';
 import {validateDigitalSilenceProof,digitalSilenceProofHash} from './digitalSilence';
 import {validResolution,UNKNOWN_RESOLUTION_MIN_AGE_MS,type ResolutionKind,type VideoResolution} from '../account/settlementContract';
-import {RESERVE_ATTEMPT_DOCUMENTS,RESERVE_ATTEMPT_PROFILE_V1,ReserveAttemptEvidenceFault,createReviewedVoiceReserveAttempt,matchesReviewedVoiceReserveSource,verifyReviewedVoiceReserveReplay,prepareReserveAttemptInTransaction,recordReserveAckInTransaction,stageReserveAck,type ReserveAck,type ReserveAttemptDocumentName,type ReserveAttemptEvidence,type ReserveAttemptEvidenceV1,type ReserveAttemptEvidenceV2,type ReserveAttemptWitnessV1} from './reserveAttemptEvidence';
+import {RESERVE_ATTEMPT_DOCUMENTS,RESERVE_ATTEMPT_PROFILE_V1,ReserveAttemptEvidenceFault,createReviewedVoiceReserveAttempt,matchesReviewedVoiceReserveAck,matchesReviewedVoiceReserveSource,verifyReviewedVoiceReserveReplay,prepareReserveAttemptInTransaction,recordReserveAckInTransaction,stageReserveAck,type ReserveAck,type ReserveAttemptDocumentName,type ReserveAttemptEvidence,type ReserveAttemptEvidenceV1,type ReserveAttemptEvidenceV2,type ReserveAttemptWitnessV1} from './reserveAttemptEvidence';
 import {RESERVE_ATTEMPT_IMMUTABLE_DOCUMENTS,reserveAttemptVersions,reserveAttemptWindowChanged,type ReserveAttemptWindowDocuments} from './reserveAttemptWindow';
 
 // Server-only persistence for the cloud candidate; the public application remains separate.
@@ -20,11 +25,9 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 /** LV-019.B C2a: `reconcile` evidence is already a bounded text string, so its hash is over the raw bytes (never JSON-quoted). */
 const textHash = (value: string) => createHash('sha256').update(value).digest('hex');
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}(?![\s\S])/i;
-const localVoiceRequestUuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/i;
 type State = 'queued' | 'running' | 'unknown' | 'succeeded' | 'failed' | 'cancelled';
 type Balance = { credited: number; available: number; reserved: number; consumed: number; active: number };
 export type ProjectSnapshot = {accountId: string; inputId: string; revision: number; draft: string; updatedAtMs: number};
-export type ExternalVideoBilling = {provider:'account_seconds';identityKey:string;reservationId:string;seconds:number};
 export type ExternalBillingIntent = ExternalVideoBilling & {id:string;accountId:string;inputId:string;requestKey:string;operation:string;revision:number;state:'reserve_pending'|'release_pending'|'needs_review'|'job_created'|'insufficient'|'closed';jobId?:string};
 export type ExternalBillingObservation = {reservationId:string;state:'reserved'|'captured'|'released';seconds:number};
 export type ExternalBillingReleaseFence = {state:'release_pending'}|{state:'job_created';jobId:string};
@@ -33,12 +36,10 @@ export type ExternalBillingReviewReason = 'captured_without_job'|'seconds_mismat
 export type ExternalBillingReviewResult = {state:'needs_review';reason:ExternalBillingReviewReason}|{state:'job_created';jobId:string};
 export type ExternalBillingHold = {id:string;accountId:string;identityKey:string;sourceKind:'intent'|'outbox';sourceId:string;epoch?:number;createdAtMs?:number};
 export type ExternalBillingIntentWitness = ExternalVideoBilling & {intentId:string;accountId:string;inputId:string;operation:string;revision:number;profile:typeof AI_CATALOG_VERSION};
-export type TerminalRecoveryDocumentVersion = {exists:false}|{exists:true;createTime:string;updateTime:string};
 export type TerminalRecoveryReadSnapshot = {intentId:string;action:'seal'|'release';origin:TerminalRecoveryDocumentVersion;sealWitness:TerminalRecoveryDocumentVersion;sealRecovery:TerminalRecoveryDocumentVersion;releaseWitness:TerminalRecoveryDocumentVersion;releaseRecovery:TerminalRecoveryDocumentVersion};
 const directDocumentNames=['account','identity','input','project','intent','origin','guard','intentGuard','request','jobMarker','sealWitness','sealRecovery','releaseWitness','releaseRecovery'] as const;
 type DirectDocumentName=typeof directDocumentNames[number];
 type TerminalReason='status_not_found'|'status_reserved'|'seal_reserved';
-type TerminalPollTurn={terminalId:string;intentId:string;action:'release'|'seal';binding:string;generation:number;token:string;lastPollAtMs:number;nextAttemptAt:number;outcome?:'reserved'|'not_found'|'captured'|'unavailable'|'unverified'};
 export type DirectObservationSnapshot={attemptId:string;source:'status'|'seal'|'release';witness:ExternalBillingIntentWitness;versions:Record<DirectDocumentName,TerminalRecoveryDocumentVersion>};
 export type ExternalBillingIntentLease = {leaseToken:string;leaseOwner:string;generation:number;leaseUntil:number};
 export type ExternalBillingIntentFailureEvidence = {snapshotVersion:string;intentGuardVersion:string;state:'reserve_pending'|'release_pending';witness:ExternalBillingIntentWitness}&(
@@ -130,63 +131,18 @@ export function copyIntentWitness(witness:ExternalBillingIntentWitness):External
   return {intentId:witness.intentId,accountId:witness.accountId,inputId:witness.inputId,operation:witness.operation,
     revision:witness.revision,profile:witness.profile,...copyExternalBilling(witness)};
 }
-function matchesExternalBilling(value:unknown,expected:ExternalVideoBilling){
-  if(!value||typeof value!=='object')return false;
-  const actual=value as Partial<ExternalVideoBilling>;
-  return actual.provider===expected.provider&&actual.identityKey===expected.identityKey&&actual.reservationId===expected.reservationId&&actual.seconds===expected.seconds;
-}
 function validIntentWitness(value:ExternalBillingIntentWitness){
   if(!value||typeof value!=='object')throw new LedgerFault('invalid');
   identifier(value.accountId);identifier(value.inputId);text(value.operation);integer(value.revision,true);validExternalBilling(value);
   if(typeof value.intentId!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(value.intentId)||value.profile!==AI_CATALOG_VERSION)throw new LedgerFault('invalid');
 }
-function sameIntentWitness(value:unknown,expected:ExternalBillingIntentWitness){
-  if(!value||typeof value!=='object')return false;const row=value as Partial<ExternalBillingIntentWitness>;
-  return row.intentId===expected.intentId&&row.accountId===expected.accountId&&row.inputId===expected.inputId&&row.operation===expected.operation&&row.revision===expected.revision&&row.profile===expected.profile&&matchesExternalBilling(row,expected);
-}
 function intentWitness(accountId:string,inputId:string,requestKey:string,operation:string,revision:number,billing:ExternalVideoBilling):ExternalBillingIntentWitness{
   const result={intentId:hash([accountId,requestKey]),accountId,inputId,operation,revision,profile:AI_CATALOG_VERSION,...copyExternalBilling(billing)};validIntentWitness(result);return result;
-}
-function validStoredIntentWitness(doc:DocumentSnapshot,expected:ExternalBillingIntentWitness){
-  return doc.exists&&sameIntentWitness(doc.data(),expected)&&doc.get('historyProtocol')===1&&doc.get('baseline')==='before_reservation'&&Number.isSafeInteger(doc.get('createdAtMs'))&&doc.get('createdAtMs')>=0;
 }
 /** A missing or unrecognized guard for an existing intent is not a clean history. */
 export function validClearIntentAdmissionGuard(doc:DocumentSnapshot,intentId:string){
   const row=doc.data();return !!row&&Object.keys(row).length===4&&['protocol','intentId','state','createdAtMs'].every(field=>Object.hasOwn(row,field))&&
     row.protocol===1&&row.intentId===intentId&&row.state==='clear'&&Number.isSafeInteger(row.createdAtMs)&&row.createdAtMs>=0;
-}
-function validTerminalRecoveryOrigin(doc:DocumentSnapshot,expected:ExternalBillingIntentWitness){
-  if(!validStoredIntentWitness(doc,expected))return false;
-  const row=doc.data()!,fields=['intentId','accountId','inputId','operation','revision','profile','provider','identityKey','reservationId','seconds','historyProtocol','baseline','createdAtMs','terminalRecovery'];
-  if(Object.keys(row).length!==fields.length||fields.some(field=>!Object.hasOwn(row,field)))return false;
-  const marker=row.terminalRecovery;
-  return !!marker&&typeof marker==='object'&&!Array.isArray(marker)&&Object.keys(marker).length===3&&
-    ['protocol','sealPrepared','releasePrepared'].every(field=>Object.hasOwn(marker,field))&&marker.protocol===1&&
-    typeof marker.sealPrepared==='boolean'&&typeof marker.releasePrepared==='boolean';
-}
-function intentTerminalKey(intentId:string,action:'release'|'seal'){return hash(['billing-intent-terminal-v1',intentId,action]);}
-function validInitialTerminalRecovery(value:unknown,terminalId:string,createdAtMs:unknown){
-  if(!value||typeof value!=='object'||Array.isArray(value))return false;
-  const row=value as Record<string,unknown>;
-  const fields=['terminalId','protocol','state','generation','attempts','createdAtMs','nextAttemptAt'];
-  return Object.keys(row).length===fields.length&&fields.every(field=>Object.hasOwn(row,field))&&
-    row.terminalId===terminalId&&row.protocol===1&&row.state==='pending'&&row.generation===0&&row.attempts===0&&
-    Number.isSafeInteger(row.createdAtMs)&&Number(row.createdAtMs)>=0&&row.createdAtMs===createdAtMs&&row.nextAttemptAt===row.createdAtMs;
-}
-function validInitialReaderPair(prepared:boolean,terminal:DocumentSnapshot,recovery:DocumentSnapshot,witness:ExternalBillingIntentWitness,action:'seal'|'release'){
-  if(!prepared)return !terminal.exists&&!recovery.exists;
-  const id=intentTerminalKey(witness.intentId,action),row=terminal.data();
-  if(!terminal.exists||!recovery.exists||terminal.id!==id||recovery.id!==id||!row)return false;
-  const fields=['intentId','accountId','inputId','operation','revision','profile','provider','identityKey','reservationId','seconds','action','historyProtocol','stage','createdAtMs'];
-  return Object.keys(row).length===fields.length&&fields.every(field=>Object.hasOwn(row,field))&&
-    sameIntentWitness(row,witness)&&row.action===action&&row.historyProtocol===1&&row.stage==='prepared'&&
-    Number.isSafeInteger(row.createdAtMs)&&row.createdAtMs>=0&&validInitialTerminalRecovery(recovery.data(),id,row.createdAtMs);
-}
-function terminalDocumentVersion(doc:DocumentSnapshot):TerminalRecoveryDocumentVersion|null{
-  if(!doc.exists)return {exists:false};
-  const encode=(value:DocumentSnapshot['createTime'])=>value&&Number.isSafeInteger(value.seconds)&&value.seconds>=0&&Number.isSafeInteger(value.nanoseconds)&&value.nanoseconds>=0&&value.nanoseconds<1_000_000_000?`${value.seconds}:${String(value.nanoseconds).padStart(9,'0')}`:null;
-  const createTime=encode(doc.createTime),updateTime=encode(doc.updateTime);
-  return createTime&&updateTime?{exists:true,createTime,updateTime}:null;
 }
 function copyTerminalDocumentVersion(value:unknown):TerminalRecoveryDocumentVersion|null{
   if(!value||typeof value!=='object'||Array.isArray(value))return null;const item=value as Record<string,unknown>;
@@ -348,22 +304,6 @@ function outboxVersion(doc:DocumentSnapshot){
   const time=doc.updateTime;if(!time||!Number.isSafeInteger(time.seconds)||time.seconds<0||!Number.isSafeInteger(time.nanoseconds)||time.nanoseconds<0||time.nanoseconds>=1_000_000_000)return null;
   return `${time.seconds}:${String(time.nanoseconds).padStart(9,'0')}`;
 }
-/** LV-019.B: the shared growing wait of every billing retry, `min(15 min, 1 s * 2^min(attempts,10))`. */
-function billingAttemptDelay(attempts:number){return Math.min(15*60_000,1000*2**Math.min(attempts,10));}
-/** The poll coordinates reads only. It is deliberately outside the documents authenticated by a direct ACK. */
-function validTerminalPoll(row:FirebaseFirestore.DocumentData|undefined,intentId:string,action:'release'|'seal'):row is TerminalPollTurn{
-  if(!row)return false;
-  const fields=['terminalId','intentId','action','binding','generation','token','lastPollAtMs','nextAttemptAt'];
-  if(Object.hasOwn(row,'outcome')){
-    if(!['reserved','not_found','captured','unavailable','unverified'].includes(row.outcome))return false;
-    fields.push('outcome');
-  }
-  if(Object.keys(row).length!==fields.length||fields.some(field=>!Object.hasOwn(row,field)))return false;
-  return row.intentId===intentId&&row.action===action&&row.terminalId===intentTerminalKey(intentId,action)&&
-    typeof row.binding==='string'&&/^[a-f0-9]{64}(?![\s\S])/.test(row.binding)&&typeof row.token==='string'&&uuid.test(row.token)&&
-    Number.isSafeInteger(row.generation)&&row.generation>0&&Number.isSafeInteger(row.lastPollAtMs)&&row.lastPollAtMs>=0&&
-    Number.isSafeInteger(row.nextAttemptAt)&&row.nextAttemptAt===row.lastPollAtMs+billingAttemptDelay(row.generation);
-}
 /** At most `limit` items taken alternately from `first` and `second` (starting with `first`); when one runs out the other fills the rest. */
 function interleave<T>(first:readonly T[],second:readonly T[],limit:number):T[]{
   const out:T[]=[];
@@ -506,8 +446,6 @@ type LocalReviewedVoice = Readonly<{
 }>;
 type LocalVoiceReserveResponse = ReserveAck | Readonly<{state:'insufficient'}>;
 const LOCAL_VOICE_INTENT_NOT_DUE = Number.MAX_SAFE_INTEGER;
-const LOCAL_VOICE_ROOT_PURPOSE = 'review-contract-synthetic-v1';
-const LOCAL_VOICE_PROJECT = 'demo-vistavo-ledger';
 type LocalRequestKeyAnchor = 'billingIntents'|'requests';
 type LocalRequestKeyClaim = Readonly<{
   doc:DocumentSnapshot;
@@ -518,7 +456,6 @@ class LocalVoiceReserveUnknown extends Error {
   readonly code = 'unknown';
   constructor() { super('reviewed_voice_reserve_unknown'); }
 }
-
 function rethrowLocalVoiceMarkerError(error:unknown):never {
   if(error instanceof ReviewedVoiceMarkerFault)throw new LedgerFault('conflict');
   throw error;
@@ -710,14 +647,7 @@ export class FirestoreBackend {
     return {prepared:this.ref('billingReserveAttempts',attemptId),ack:this.ref('billingReserveAckObservations',attemptId)};
   }
   private localVoiceFixtureTarget(){
-    if(process.env.NODE_ENV!=='test'||process.env.LV_VOICE_C1_FIXTURE!=='1'||
-      process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8185')return false;
-    const client=this.db as unknown as {
-      projectId?:string; databaseId?:string; _settings?:{servicePath?:string;port?:number;ssl?:boolean};
-    };
-    return client.projectId===LOCAL_VOICE_PROJECT&&client.databaseId==='(default)'&&
-      client._settings?.servicePath==='127.0.0.1'&&client._settings.port===8185&&client._settings.ssl===false&&
-      this.root.parent.path==='vistavo_review_contract_synthetic'&&uuid.test(this.root.id);
+    return isLocalVoiceFixtureTarget(this.db,this.root);
   }
   /**
    * Only the isolated fixture owns a new UUID root and can verify it before
@@ -738,8 +668,7 @@ export class FirestoreBackend {
     }
     const key=requestKey.toLowerCase(),id=hash(['local-video-request-key-v1',accountId,key]);
     const [root,doc]=await tx.getAll(this.root,this.ref('localVideoRequestKeys',id));
-    if(!root.exists||root.get('purpose')!==LOCAL_VOICE_ROOT_PURPOSE||root.get('project')!==LOCAL_VOICE_PROJECT||
-      root.get('localRequestKeyIndex')!==1||!localVoiceRequestUuid.test(root.get('marker')))throw new LedgerFault('conflict');
+    if(!isMarkedLocalVoiceRoot(root))throw new LedgerFault('conflict');
     const voiceMarkerRef=this.ref('reviewedVoiceMarkers',hash(['reviewed-voice-marker-id-v1',accountId,key]));
     if(doc.exists){
       const data=doc.data()!, {createTime,updateTime}=doc;
@@ -811,7 +740,14 @@ export class FirestoreBackend {
     if(attempt.version!==2)throw new LedgerFault('invariant');
     const {identityKey,reservationId,seconds}=attempt.witness;
     let ack:LocalVoiceReserveResponse;
-    try{ack=await reserveInEmulator(identityKey,reservationId,seconds);}catch{throw new LocalVoiceReserveUnknown();}
+    try{
+      ack=await reserveInEmulator(identityKey,reservationId,seconds);
+      if(ack?.state==='insufficient'){
+        const descriptor=Object.getOwnPropertyDescriptor(ack,'state');
+        if(Object.getPrototypeOf(ack)!==Object.prototype||Reflect.ownKeys(ack).length!==1||
+          !descriptor||descriptor.value!=='insufficient')throw new LocalVoiceReserveUnknown();
+      }
+    }catch{throw new LocalVoiceReserveUnknown();}
     if(ack?.state==='insufficient'){
       const committed=await this.settleLocalVoiceNack(voice,requestKey,attempt).catch(()=>false);
       if(!committed&&!await this.readCommittedLocalVoiceNack(voice,requestKey,attempt).catch(()=>false))throw new LocalVoiceReserveUnknown();
@@ -826,6 +762,17 @@ export class FirestoreBackend {
       rethrowLocalVoiceMarkerError(error);
     }
   }
+  private localVoiceNackProof(witness:ExternalBillingIntentWitness,prepared:DocumentSnapshot){
+    const preparedVersion=terminalDocumentVersion(prepared);
+    if(!preparedVersion?.exists||preparedVersion.createTime!==preparedVersion.updateTime)return null;
+    return {protocol:1,state:'insufficient',attemptId:witness.reservationId,intentId:witness.intentId,preparedVersion};
+  }
+  private matchesCommittedLocalVoiceNack(intent:DocumentSnapshot,nack:DocumentSnapshot,proof:unknown){
+    // This pair is authored by settleLocalVoiceNack in the isolated fixture.
+    // Timestamps cross-check its atomic write; they cannot authenticate a writer.
+    return !!intent.updateTime&&!!nack.createTime&&!!nack.updateTime&&
+      nack.createTime.isEqual(nack.updateTime)&&nack.createTime.isEqual(intent.updateTime)&&isDeepStrictEqual(nack.data(),proof);
+  }
   /** Validate the original local reservation history before recording or replaying its NACK. */
   private async localVoiceNackTarget(tx:Transaction,voice:LocalReviewedVoice,requestKey:string,
     witness:ExternalBillingIntentWitness,state:'reserve_pending'|'insufficient',expected?:ReserveAttemptEvidenceV2){
@@ -836,47 +783,117 @@ export class FirestoreBackend {
       this.directObservationDocs(tx,witness),tx.getAll(refs.prepared,refs.ack,nackRef),
     ]);
     const {intent,origin,guard,intentGuard}=docs,attempt=prepared.data() as ReserveAttemptEvidenceV2|undefined;
+    const proof=this.localVoiceNackProof(witness,prepared);
     if(!attempt||attempt.version!==2||attempt.attemptId!==attemptId||!sameIntentWitness(attempt.witness,witness)||
-      expected&&!isDeepStrictEqual(attempt,expected)||!prepared.createTime||!prepared.updateTime||!prepared.createTime.isEqual(prepared.updateTime)||
+      expected&&!isDeepStrictEqual(attempt,expected)||!proof||
       !intent.exists||!intent.updateTime||intent.get('state')!==state||intent.get('localVoiceAttemptId')!==attemptId||
-      intent.get('nextAttemptAt')!==LOCAL_VOICE_INTENT_NOT_DUE||ack.exists||
+      intent.get('nextAttemptAt')!==LOCAL_VOICE_INTENT_NOT_DUE||state==='insufficient'&&ack.exists||
       !validStoredIntentWitness(origin,witness)||this.billingBlocked(guard,accountId)||!validClearIntentAdmissionGuard(intentGuard,intentId))return null;
     const row=this.billingIntent(intent,accountId,requestKey,witness);
     if(row.inputId!==inputId||row.operation!==operation||row.revision!==revision||row.jobId!==undefined)return null;
     const claim=await this.readLocalRequestKeyClaim(tx,accountId,requestKey,'voice','billingIntents',true);
     this.localRequestClaimLink(claim,intent);
     const source=await this.currentVoiceSource(tx,voice,inputId,revision);
-    if(!matchesReviewedVoiceReserveSource(attempt,source,requestKey))return null;
     const marker=createReviewedVoiceMarker(source,requestKey,operation);
     const storedMarker=await tx.get(this.ref('reviewedVoiceMarkers',marker.markerId));
     validateReviewedVoiceMarkerReplay(storedMarker.data(),source,accountId,requestKey,operation);
+    const markerVersion=terminalDocumentVersion(storedMarker);
+    if(!matchesReviewedVoiceReserveSource(attempt,source,requestKey,markerVersion)||
+      ack.exists&&!matchesReviewedVoiceReserveAck(attempt,ack.data()))return null;
 
     // Preparation placed the attempt ID on the original intent. Require its
     // write version before settling and the linked NACK commit after.
-    const intentVersion=terminalDocumentVersion(intent),preparedVersion=terminalDocumentVersion(prepared);
+    const intentVersion=terminalDocumentVersion(intent);
     if(!intentVersion?.exists||!attempt.versions.intent.exists||
-      intentVersion.createTime!==attempt.versions.intent.createTime||!preparedVersion?.exists||
+      intentVersion.createTime!==attempt.versions.intent.createTime||
       !RESERVE_ATTEMPT_IMMUTABLE_DOCUMENTS.every(name=>sameTerminalDocumentVersion(docs[name],attempt.versions[name])))return null;
-    const proof={protocol:1,state:'insufficient',attemptId,intentId,preparedVersion};
     const valid=state==='reserve_pending'
-      ? !nack.exists&&prepared.createTime.isEqual(intent.updateTime)
-      : !!nack.createTime&&!!nack.updateTime&&nack.createTime.isEqual(nack.updateTime)&&
-        nack.createTime.isEqual(intent.updateTime)&&isDeepStrictEqual(nack.data(),proof);
-    return valid?{intent,nackRef,proof}:null;
+      ? !nack.exists&&proof.preparedVersion.createTime===intentVersion.updateTime
+      : this.matchesCommittedLocalVoiceNack(intent,nack,proof);
+    return valid?{intent,nackRef,proof,conflictingAck:ack.exists}:null;
   }
   private async settleLocalVoiceNack(voice:LocalReviewedVoice,requestKey:string,attempt:ReserveAttemptEvidenceV2):Promise<boolean>{
+    if(!this.localVoiceFixtureTarget())return false;
     return this.db.runTransaction(async tx=>{
-      const target=await this.localVoiceNackTarget(tx,voice,requestKey,attempt.witness,'reserve_pending',attempt);
-      if(!target)return false;
+      const target=await this.localVoiceNackTarget(tx,voice,requestKey,attempt.witness,'reserve_pending',attempt)
+        .catch(error=>{
+          if(error instanceof LedgerFault||error instanceof ReviewedVoiceMarkerFault||error instanceof ReviewedTranslationFault)return null;
+          throw error;
+        });
+      if(!target){
+        await this.preserveUnattributedLocalVoiceNack(tx,attempt);
+        return false;
+      }
       tx.create(target.nackRef,target.proof);
-      tx.update(target.intent.ref,{state:'insufficient',updatedAtMs:Date.now()});
-      return true;
+      if(target.conflictingAck)this.reviewLocalVoiceReserveConflict(tx,target.intent);
+      else tx.update(target.intent.ref,{state:'insufficient',updatedAtMs:Date.now()});
+      return !target.conflictingAck;
     });
   }
   /** Recover a lost local commit response by reading the exact NACK target. */
   private async readCommittedLocalVoiceNack(voice:LocalReviewedVoice,requestKey:string,attempt:ReserveAttemptEvidenceV2):Promise<boolean>{
     return this.db.runTransaction(async tx=>
       !!await this.localVoiceNackTarget(tx,voice,requestKey,attempt.witness,'insufficient',attempt),{readOnly:true});
+  }
+  private reviewLocalVoiceReserveConflict(tx:Transaction,intent:DocumentSnapshot){
+    // The existing pending report picks this up even without an age policy.
+    // It remains outside the drain and involves no guard, hold or new POST.
+    tx.update(intent.ref,{state:'needs_review',lastErrorCode:'conflict',updatedAtMs:Date.now()});
+  }
+  private stageUnattributedLocalVoiceConflict(tx:Transaction,incident:DocumentSnapshot){
+    if(!incident.exists)tx.create(incident.ref,{protocol:1,state:'needs_review',lastErrorCode:'conflict',createdAtMs:Date.now()});
+  }
+  private async preserveUnattributedLocalVoiceNack(tx:Transaction,attempt:ReserveAttemptEvidenceV2){
+    if(!isMarkedLocalVoiceRoot(await tx.get(this.root)))return;
+    const {attemptId,witness}=attempt,refs=this.reserveAttemptRefs(attemptId);
+    const [prepared,ack,nack,incident]=await tx.getAll(refs.prepared,refs.ack,
+      this.ref('localVoiceReserveNacks',attemptId),this.ref(LOCAL_VOICE_CONFLICTS,attemptId));
+    const proof=this.localVoiceNackProof(witness,prepared);
+    if(!proof||nack.exists||!isDeepStrictEqual(prepared.data(),attempt)||!matchesReviewedVoiceReserveAck(attempt,ack.data()))return;
+    tx.create(nack.ref,{...proof,observationOnly:true});
+    this.stageUnattributedLocalVoiceConflict(tx,incident);
+  }
+  private async localVoiceNackConflictTarget(tx:Transaction,attempt:ReserveAttemptEvidenceV2){
+    const {attemptId,witness}=attempt,{accountId,intentId}=witness;
+    const nack=await tx.get(this.ref('localVoiceReserveNacks',attemptId));
+    if(!nack.exists||!nack.createTime||!nack.updateTime||!nack.createTime.isEqual(nack.updateTime))return null;
+    const [prepared,incident]=await tx.getAll(this.reserveAttemptRefs(attemptId).prepared,this.ref(LOCAL_VOICE_CONFLICTS,attemptId));
+    const proof=this.localVoiceNackProof(witness,prepared);
+    if(!proof||!isDeepStrictEqual(prepared.data(),attempt)||
+      !isDeepStrictEqual(nack.data(),proof)&&!isDeepStrictEqual(nack.data(),{...proof,observationOnly:true}))return null;
+    const target=await this.attributedLocalVoiceNackConflictTarget(tx,attempt,nack,proof);
+    return {intent:target,incident};
+  }
+  private async attributedLocalVoiceNackConflictTarget(tx:Transaction,attempt:ReserveAttemptEvidenceV2,nack:DocumentSnapshot,proof:unknown){
+    const {attemptId,witness}=attempt,{accountId,intentId}=witness;
+    const docs=await this.directObservationDocs(tx,witness),{intent,origin,intentGuard}=docs;
+    const requestKey=intent.get('requestKey'),version=terminalDocumentVersion(intent);
+    if(!version?.exists||!attempt.versions.intent.exists||
+      version.createTime!==attempt.versions.intent.createTime||intent.get('state')!=='insufficient'||
+      intent.get('localVoiceAttemptId')!==attemptId||intent.get('nextAttemptAt')!==LOCAL_VOICE_INTENT_NOT_DUE||
+      !this.matchesCommittedLocalVoiceNack(intent,nack,proof)||!validStoredIntentWitness(origin,witness)||
+      !validClearIntentAdmissionGuard(intentGuard,intentId)||
+      !RESERVE_ATTEMPT_IMMUTABLE_DOCUMENTS.every(name=>sameTerminalDocumentVersion(docs[name],attempt.versions[name]))||
+      typeof requestKey!=='string'||!localVoiceRequestUuid.test(requestKey)||hash([accountId,requestKey])!==intentId)return null;
+    try{
+      const row=this.billingIntent(intent,accountId,requestKey,witness);
+      if(row.inputId!==witness.inputId||row.operation!==witness.operation||row.revision!==witness.revision||row.jobId!==undefined)return null;
+      const claim=await this.readLocalRequestKeyClaim(tx,accountId,requestKey,'voice','billingIntents',true);
+      this.localRequestClaimLink(claim,intent);
+      // The current identity alone cannot attribute a conflict to a voice attempt
+      // whose marker was replaced or restored after preparation.
+      const voice=attempt.voice;
+      if(typeof voice?.markerId!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(voice.markerId)||voice.markerVersion?.exists!==true)return null;
+      const storedMarker=await tx.get(this.ref('reviewedVoiceMarkers',voice.markerId));
+      if(!sameTerminalDocumentVersion(storedMarker,voice.markerVersion))return null;
+      const marker=validateReviewedVoiceMarker(storedMarker.data(),accountId,requestKey,witness.operation);
+      if(marker.markerId!==voice.markerId||marker.fingerprint!==voice.markerFingerprint)return null;
+      return intent;
+    }catch(error){
+      // A legitimate ACK can still be kept unverified when attribution fails.
+      if(error instanceof LedgerFault||error instanceof ReviewedVoiceMarkerFault)return null;
+      throw error;
+    }
   }
   /**
    * Step 1.3b. Before the Account POST, in one transaction: re-read every source
@@ -941,11 +958,18 @@ export class FirestoreBackend {
           const marker=createReviewedVoiceMarker(source,requestKey,operation);
           const storedMarker=await tx.get(this.ref('reviewedVoiceMarkers',marker.markerId));
           validateReviewedVoiceMarkerReplay(storedMarker.data(),source,accountId,requestKey,operation);
+          const markerVersion=terminalDocumentVersion(storedMarker);
+          // The trusted fixture writer creates these anchors and the marker together.
+          // Compare within this transaction; equal timestamps do not authenticate Admin writers.
+          if(claim?.data.anchorCollection!=='billingIntents'||claim.data.anchorId!==docs.intent.id||
+            !markerVersion?.exists||!versions.intent.exists||!versions.origin.exists||
+            markerVersion.createTime!==versions.intent.createTime||markerVersion.createTime!==versions.origin.createTime||
+            markerVersion.updateTime!==markerVersion.createTime)throw new LedgerFault('conflict');
           const asset=docs.input.data() as Input;
           if(!this.usable(asset,inputId))throw new LedgerFault('not_found');
           if(asset.unknownCount!==0||balance(docs.account.data() as Balance).active>=3)throw new LedgerFault('conflict');
           storageQuota(docs.account.data(),AI_VOICE_BUDGET,0);
-          attempt=createReviewedVoiceReserveAttempt(attemptId,witness,versions,source,requestKey);
+          attempt=createReviewedVoiceReserveAttempt(attemptId,witness,versions,source,requestKey,markerVersion);
         }else{
           attempt={version:1,attemptId,witness:reserveAttemptWitness(witness),versions};
         }
@@ -974,8 +998,18 @@ export class FirestoreBackend {
   private async recordReserveAck(attempt:ReserveAttemptEvidence,observed:ReserveAck):Promise<'recorded'|'already_recorded'|'unknown'>{
     const raw=observed?.reservationId===attempt.witness.reservationId&&observed.seconds===attempt.witness.seconds&&observed.state==='reserved';
     if(!raw)throw new LedgerFault('invalid');
+    if(attempt.version===2&&!this.localVoiceFixtureTarget())throw new LedgerFault('invalid');
     const record=async()=>this.db.runTransaction(async tx=>{
-      try{const result=await recordReserveAckInTransaction(tx,this.root,attempt,observed);return result.state;}catch(error){if(error instanceof ReserveAttemptEvidenceFault)throw new LedgerFault('conflict');throw error;}
+      try{
+        if(attempt.version===2&&!isMarkedLocalVoiceRoot(await tx.get(this.root)))throw new LedgerFault('conflict');
+        const disputed=attempt.version===2?await this.localVoiceNackConflictTarget(tx,attempt):null;
+        const result=await recordReserveAckInTransaction(tx,this.root,attempt,observed);
+        if(disputed&&result.state==='recorded'){
+          if(disputed.intent)this.reviewLocalVoiceReserveConflict(tx,disputed.intent);
+          else this.stageUnattributedLocalVoiceConflict(tx,disputed.incident);
+        }
+        return result.state;
+      }catch(error){if(error instanceof ReserveAttemptEvidenceFault)throw new LedgerFault('conflict');throw error;}
     });
     try{return await record();}catch(error){
       if(error instanceof LedgerFault||error instanceof ReserveAttemptEvidenceFault)throw error;
@@ -1226,7 +1260,8 @@ export class FirestoreBackend {
           validateReviewedVoiceMarkerReplay(job.reviewedVoice,voiceSource,accountId,requestKey,operation);
           const ackRefs=this.reserveAttemptRefs(billing.reservationId);
           const [prepared,ack]=await tx.getAll(ackRefs.prepared,ackRefs.ack);
-          if(!verifyReviewedVoiceReserveReplay(prepared.data(),ack.data(),voiceSource,requestKey,operation))throw new LedgerFault('conflict');
+          if(!storedVoice||!verifyReviewedVoiceReserveReplay(prepared.data(),ack.data(),voiceSource,requestKey,operation,
+            terminalDocumentVersion(storedVoice)))throw new LedgerFault('conflict');
         }
         return jobId;
       }
@@ -1236,6 +1271,7 @@ export class FirestoreBackend {
         // A legacy active intent cannot be adopted from today's absence of a request/job.
         if(!validStoredIntentWitness(storedWitness,witness)||storedJobMarker.exists)throw new LedgerFault('conflict');
         if(row.state==='job_created'||row.jobId)throw new LedgerFault('invariant');
+        if(voice&&row.state==='needs_review'&&old.get('localVoiceAttemptId')===billing.reservationId)throw new LocalVoiceReserveUnknown();
         if(['release_pending','needs_review','closed'].includes(row.state))throw new LedgerFault('conflict');
         const nextAttemptAt=externalIntentTransitionDue(old);
         if(voice){
@@ -1447,15 +1483,7 @@ export class FirestoreBackend {
   private terminalPollBinding(d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,action:'release'|'seal',proof:DocumentSnapshot,dispatch:DocumentSnapshot){
     if(!this.validDirectObservationDocs(d,witness,requestKey,action)||hasIntentLease(d.intent.data()!))return null;
     const witnessDoc=action==='release'?d.releaseWitness:d.sealWitness,recovery=action==='release'?d.releaseRecovery:d.sealRecovery;
-    // A legacy pair has neither dispatch record. Both forms still authorize only a read.
-    if(proof.exists||dispatch.exists){
-      if(!proof.exists||!dispatch.exists||!proof.createTime?.isEqual(proof.updateTime!)||!dispatch.createTime?.isEqual(proof.createTime!)||
-        !witnessDoc.createTime?.isEqual(proof.createTime!)||!recovery.createTime?.isEqual(proof.createTime!)||
-        typeof proof.get('transitioned')!=='boolean'||!/^[a-f0-9]{64}(?![\s\S])/.test(proof.get('history'))||
-        !uuid.test(dispatch.get('attemptId'))||!/^[a-f0-9]{64}(?![\s\S])/.test(dispatch.get('history'))||
-        dispatch.get('terminalId')!==intentTerminalKey(witness.intentId,action)||dispatch.get('action')!==action||dispatch.get('state')!=='possibly_sent')return null;
-    }
-    return hash([witness,action,terminalDocumentVersion(witnessDoc),terminalDocumentVersion(recovery),terminalDocumentVersion(dispatch),terminalDocumentVersion(proof)]);
+    return terminalEvidenceBinding(witness,action,witnessDoc,recovery,proof,dispatch);
   }
   /** Reserve a bounded period for this read before issuing it, including when the reader crashes. */
   async beginTerminalResolutionPoll(witness:ExternalBillingIntentWitness,requestKey:string,terminalId:string){
@@ -2056,7 +2084,7 @@ export class FirestoreBackend {
         reviewedVoice=createReviewedVoiceMarker(source,requestKey,operation);
         const marker=await tx.get(this.ref('reviewedVoiceMarkers',reviewedVoice.markerId));
         validateReviewedVoiceMarkerReplay(marker.data(),source,accountId,requestKey,operation);
-        if(!matchesReviewedVoiceReserveSource(attempt,source,requestKey)||prior.exists)throw new LedgerFault('conflict');
+        if(!matchesReviewedVoiceReserveSource(attempt,source,requestKey,terminalDocumentVersion(marker))||prior.exists)throw new LedgerFault('conflict');
       }
       if (prior.exists) {
         if (prior.get('requestFingerprint') !== requestFingerprint(inputId,operation,expectedRevision??null,aiProfile)) throw new LedgerFault('conflict');
