@@ -2,6 +2,8 @@ import { Buffer } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AccountStore } from '../account/backend';
+import { stub } from './billingFirestoreStub';
 import { createReviewedVoiceFragmentMemoryBridge, type SyntheticC1Read, type SyntheticFragmentRequest } from './reviewedVoiceFragment.memory';
 import { validateReviewedVoiceCall } from './reviewedVoiceCanonical';
 import { encodeTextBundle } from './pipelineTextCodec';
@@ -273,6 +275,64 @@ describe('reviewed voice fragment memory bridge',()=>{
     expect(await f.bridge.send({...f.request,jobId:otherJobId})).toBe('unknown');
     expect(f.admitForTest).toHaveBeenCalledTimes(1);
     expect(f.bridge.inspectForTest(otherJobId,f.request.principal)).toBeUndefined();
+  });
+
+  it.each([
+    {foreignHasReservation:false,label:'without a compatible reservation on B'},
+    {foreignHasReservation:true,label:'with a compatible reservation on B'},
+  ])('keeps Account admission on the original owner when the binding changes before admission $label',async({foreignHasReservation})=>{
+    const f=fixture();
+    const {uid}=f.request.principal,{identityKey,reservationId,seconds}=f.proof;
+    const owner=f.request.principal.accountId, foreign=randomUUID();
+    const ownerReservation=digest([owner,reservationId]),foreignReservation=digest([foreign,reservationId]);
+    const account=(reserved:number)=>({identityKey,schemaVersion:1,unit:'video_seconds',credited:20,
+      available:20-reserved,reserved,consumed:0,active:Number(reserved>0),activeProjectCount:0,createdAtMs:1});
+    const reservation=(ownerAccountId:string)=>({ownerAccountId,identityKey,reservationId,seconds,state:'reserved',admissionProtocol:2});
+    // A privileged merge or future remapping protocol would have to create this B account shape
+    // and, in the negative, the same reservation UUID in B's Account namespace.
+    const reservations:Record<string,ReturnType<typeof reservation>>={[ownerReservation]:reservation(owner)};
+    if(foreignHasReservation)reservations[foreignReservation]=reservation(foreign);
+    const accountDb=stub({identities:{[identityKey]:{uid,accountId:owner}},
+      accounts:{[owner]:account(seconds),[foreign]:account(foreignHasReservation?seconds:0)},videoReservations:reservations});
+    type TestRef={path:string;collection:(name:string)=>TestCollection};
+    type TestCollection={doc:(id:string)=>TestRef};
+    const collection=(path:string):TestCollection=>({doc:id=>{
+      const ref=accountDb.root.collection(path).doc(id);
+      return Object.assign(ref,{collection:(name:string)=>collection(`${ref.path}/${name}`)});
+    }});
+    const store=new AccountStore(accountDb.db as never,{collection} as never,()=>2);
+    const ownerBinding=`identities/${identityKey}`,snapshot=structuredClone(accountDb.store);
+    f.readVerifiedC1.mockImplementation(async ()=>accountDb.store.get(ownerBinding)?.accountId===owner?f.proof:null);
+
+    let atAccount!:()=>void,releaseAccount!:()=>void;
+    const checked=new Promise<void>(resolve=>{atAccount=resolve;});
+    const allowAdmission=new Promise<void>(resolve=>{releaseAccount=resolve;});
+    f.admitForTest.mockImplementation(async(key,call)=>{
+      atAccount();
+      await allowAdmission;
+      return store.admitVideoCall(key,call.reservationId,call.seconds,call.jobId,call.attemptId,call.callKey,call.model,call.requestSha256);
+    });
+    const outcome=f.bridge.send(f.request);
+    await Promise.race([checked,outcome.then(()=>{throw Error('The pre-admission barrier was not reached');})]);
+    try{
+      expect(f.readVerifiedC1).toHaveBeenCalledTimes(1);
+      expect(accountDb.writes).toEqual([]);
+      accountDb.store.set(ownerBinding,{uid,accountId:foreign});
+    }finally{releaseAccount();}
+
+    expect(await outcome).toBe('unknown');
+    const retained=f.inspect();
+    expect(retained?.bytes).toBeUndefined();
+    expect(await f.bridge.send(f.request)).toBe('unknown');
+    expect(f.admitForTest).toHaveBeenCalledTimes(1);
+    expect(f.inspect()).toEqual(retained);
+    expect(f.bridge.inspectForTest(f.request.jobId,{accountId:foreign,uid})).toBeUndefined();
+    for(const accountId of [owner,foreign])expect(accountDb.store.get('accounts/'+accountId)).toEqual(snapshot.get('accounts/'+accountId));
+    expect([...accountDb.store.keys()].filter(key=>key.startsWith('ledgerEntries/'))).toEqual([]);
+    expect(accountDb.store.get('videoReservations/'+ownerReservation)).toEqual(snapshot.get('videoReservations/'+ownerReservation));
+
+    const pathsWritten=accountDb.writes.map(write=>write.split(':',2)[1]);
+    expect(pathsWritten,'No Account admission may write the foreign reservation, receipt or fence').toEqual([]);
   });
 
   it('keeps the confirmed receipt and original projection when the second read throws',async()=>{
