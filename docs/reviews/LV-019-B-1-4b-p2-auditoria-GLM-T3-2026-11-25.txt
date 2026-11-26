@@ -1,0 +1,29 @@
+Hilo: mcp:dfa39a59-f774-48d2-8479-72bdd4985c62
+Turno: run:thread:mcp%3Adfa39a59-f774-48d2-8479-72bdd4985c62:ordinal:1
+Modelo solicitado: ~z-ai/glm-flash-latest
+Encargo completo recibido: True
+Modelo servido, uso y costo: no medido
+Alcance: extractos ligados a los hashes del encargo; no acredita la implementación completa.
+
+Analicé los fragmentos incluidos (sin herramientas, sin comandos).
+
+**Contraste código-especificación:**
+
+- `billingUnblock.ts:221`: `payload` omite `accountEpoch` y `accountCreatedAtMs`. Ambos se almacenan en `unblock_requested` (líneas 295-297) pero no forman parte del conjunto comparado.
+- `billingUnblock.ts:226`/`:230`/`:263-265`: `samePayload` itera solo sobre `payload`; un reintento con `accountEpoch` o `accountCreatedAtMs` distintos no produce `conflict` en la fase de reanudación.
+- `billingUnblock.ts:316`: la rellamada a Cuenta (camino parcial) usa `clean.accountEpoch`/`clean.accountCreatedAtMs` — los valores del reintento actual, no los del registro auditado.
+- `billingUnblock.ts:334-335`: `video_released` también usa `...payload`; el registro final de auditoría no muestra los valores ejecutados ante Cuenta.
+- `backend.ts:250`: Cuenta valida `guard.get('epoch')!==epoch||guard.get('createdAtMs')!==createdAtMs` contra su propio guard, lo que impide aplicar una época incorrecta, pero no garantiza que el registro de Video refleje lo que realmente se envió.
+
+**Test incluido:** `billingUnblock.emulator.mjs:796-798` incluye `{accountEpoch:+1}` y `{accountCreatedAtMs:+1}` en la lista de cambios rechazados. Esas llamadas son sobre una solicitud fresca; el conflicto observado proviene de la validación de Cuenta o del guard de Video, no de una comparación explícita de esos campos en la capa de Video. El test no ejercita el camino de reintento con `accountEpoch` distinto tras haber registrado `unblock_requested`.
+
+**Riesgo:** un reintento puede reanudar con valores de Cuenta distintos a los auditados; el registro final no conserva el valor ejecutado, degradando la trazabilidad del contrato de auditoría.
+
+**Negativos controlados:** el estado de Cuenta no se corrompe (la validación en `backend.ts:250` la protege); no afirmo efecto en producción ni comportamiento en ausencia de las líneas 105-204 y 340+.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `billingUnblock.ts:221` define `payload` sin `accountEpoch`/`accountCreatedAtMs`; `:226`/`:230` los excluyen de la comparación de reintentos; `:295-297` los audita solo en `unblock_requested`; `:316` usa los valores del reintento actual; `:334-335` omite esos campos en el registro `video_released`. `backend.ts:250` valida la época de Cuenta independientemente. Test `billingUnblock.emulator.mjs:796-798` no cubre el camino de reintento con `accountEpoch` distinto.
+NEGATIVOS: Cuenta rechaza una época errónea por su propio guard, por lo que el estado no se corrompe. No puedo examinar las líneas 105-204 ni 340+ de `billingUnblock.ts`; no afirmo qué ocurre en el camino normal (no parcial) de rellamada a Cuenta.
+BLOQUEOS: costo o uso no medido si no es observable
+=== FIN RESUMEN ===

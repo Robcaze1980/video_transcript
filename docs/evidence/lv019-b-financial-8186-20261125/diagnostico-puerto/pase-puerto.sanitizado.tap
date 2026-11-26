@@ -1,0 +1,260 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: fails closed without the dedicated loopback emulator host
+ok 1 - fails closed without the dedicated loopback emulator host
+  ---
+  duration_ms: 149.2615
+  type: 'test'
+  ...
+# Subtest: concurrent duplicate verified captures credit exactly once
+ok 2 - concurrent duplicate verified captures credit exactly once
+  ---
+  duration_ms: 4259.1572
+  type: 'test'
+  ...
+# Subtest: same capture with changed owner or payload rejects without crediting either twice
+ok 3 - same capture with changed owner or payload rejects without crediting either twice
+  ---
+  duration_ms: 302.3746
+  type: 'test'
+  ...
+# Subtest: concurrent reservations cannot spend more than available
+ok 4 - concurrent reservations cannot spend more than available
+  ---
+  duration_ms: 3395.9045
+  type: 'test'
+  ...
+# Subtest: stable logical request preserves its reserved price and rejects changed operation
+ok 5 - stable logical request preserves its reserved price and rejects changed operation
+  ---
+  duration_ms: 3584.2884
+  type: 'test'
+  ...
+# Subtest: concurrent completion captures once and never also releases
+ok 6 - concurrent completion captures once and never also releases
+  ---
+  duration_ms: 4052.8357
+  type: 'test'
+  ...
+# Subtest: queued cancel releases once and cannot later be claimed
+ok 7 - queued cancel releases once and cannot later be claimed
+  ---
+  duration_ms: 410.3683
+  type: 'test'
+  ...
+# Subtest: running cancel holds UNKNOWN reservation and prevents new work on that input
+ok 8 - running cancel holds UNKNOWN reservation and prevents new work on that input
+  ---
+  duration_ms: 597.2957
+  type: 'test'
+  ...
+# Subtest: unknown reconciliation requires evidence and releases exactly once
+ok 9 - unknown reconciliation requires evidence and releases exactly once
+  ---
+  duration_ms: 3665.3801
+  type: 'test'
+  ...
+# Subtest: expired output is refunded instead of charged
+ok 10 - expired output is refunded instead of charged
+  ---
+  duration_ms: 539.1651
+  type: 'test'
+  ...
+# Subtest: expired unknown resolution retains evidence and refunds an unavailable result
+ok 11 - expired unknown resolution retains evidence and refunds an unavailable result
+  ---
+  duration_ms: 496.6933
+  type: 'test'
+  ...
+# Subtest: a stale attempt and a foreign account cannot change the job
+ok 12 - a stale attempt and a foreign account cannot change the job
+  ---
+  duration_ms: 609.4978
+  type: 'test'
+  ...
+# Subtest: completion and running cancellation choose capture or quarantine without double resolution
+ok 13 - completion and running cancellation choose capture or quarantine without double resolution
+  ---
+  duration_ms: 7521.3841
+  type: 'test'
+  ...
+# Subtest: multiple unknown jobs keep the input blocked until every reservation is reconciled
+ok 14 - multiple unknown jobs keep the input blocked until every reservation is reconciled
+  ---
+  duration_ms: 883.5497
+  type: 'test'
+  ...
+# Subtest: an SDK-retried transaction callback credits once
+ok 15 - an SDK-retried transaction callback credits once
+  ---
+  duration_ms: 1774.0335
+  type: 'test'
+  ...
+# Subtest: an expired lease is fenced and quarantined without releasing or capturing
+ok 16 - an expired lease is fenced and quarantined without releasing or capturing
+  ---
+  duration_ms: 495.1765
+  type: 'test'
+  ...
+# Subtest: invalid numeric inputs and overflow leave the ledger unchanged
+ok 17 - invalid numeric inputs and overflow leave the ledger unchanged
+  ---
+  duration_ms: 273.3807
+  type: 'test'
+  ...
+# Subtest: an expired queued input is failed and released before claim
+ok 18 - an expired queued input is failed and released before claim
+  ---
+  duration_ms: 455.0624
+  type: 'test'
+  ...
+# Subtest: UNKNOWN blocks an already queued sibling until reconciliation
+ok 19 - UNKNOWN blocks an already queued sibling until reconciliation
+  ---
+  duration_ms: 899.5355
+  type: 'test'
+  ...
+# Subtest: Firebase UID resolves to one stable zero-balance account under concurrency
+ok 20 - Firebase UID resolves to one stable zero-balance account under concurrency
+  ---
+  duration_ms: 3471.8232
+  type: 'test'
+  ...
+# Subtest: project optimistic revisions reject a stale concurrent editor and foreign access
+ok 21 - project optimistic revisions reject a stale concurrent editor and foreign access
+  ---
+  duration_ms: 3560.5234
+  type: 'test'
+  ...
+# Subtest: one reservation atomically creates one durable outbox despite repeated request
+ok 22 - one reservation atomically creates one durable outbox despite repeated request
+  ---
+  duration_ms: 3441.8801
+  type: 'test'
+  ...
+# Subtest: lost dispatcher response redelivers same job without a second provider invocation
+ok 23 - lost dispatcher response redelivers same job without a second provider invocation
+  ---
+  duration_ms: 847.0948
+  type: 'test'
+  ...
+# Subtest: transport acceptance without execution retains durable redelivery
+ok 24 - transport acceptance without execution retains durable redelivery
+  ---
+  duration_ms: 567.2195
+  type: 'test'
+  ...
+# Subtest: worker timeout retains UNKNOWN reservation and never retries provider
+ok 25 - worker timeout retains UNKNOWN reservation and never retries provider
+  ---
+  duration_ms: 753.2434
+  type: 'test'
+  ...
+# Subtest: crashed worker lease is quarantined without calling provider again
+ok 26 - crashed worker lease is quarantined without calling provider again
+  ---
+  duration_ms: 583.3831
+  type: 'test'
+  ...
+# Subtest: provider IO runs outside retryable Firestore transaction callbacks
+ok 27 - provider IO runs outside retryable Firestore transaction callbacks
+  ---
+  duration_ms: 602.7724
+  type: 'test'
+  ...
+# Subtest: expired queued input never reaches on-demand provider
+ok 28 - expired queued input never reaches on-demand provider
+  ---
+  duration_ms: 408.8886
+  type: 'test'
+  ...
+# Subtest: Cloud Run transport constrains target and sends only stable job identity
+ok 29 - Cloud Run transport constrains target and sends only stable job identity
+  ---
+  duration_ms: 8.0633
+  type: 'test'
+  ...
+# {"event":"cloud-http-internal","traceId":"d9937a48-7ba5-48aa-a45e-d38035fd247a","status":503,"durationMs":34.109,"stages":{"auth":{"calls":1,"durationMs":0.047,"errors":0},"identity":{"calls":1,"durationMs":33.446,"errors":0},"identity.callback":{"calls":1,"durationMs":19.348,"errors":0},"identity.read":{"calls":1,"durationMs":19.315,"errors":0}},"attempts":{"identity":1},"postCallbackOuterPendingMs":{"identity":10.076}}
+# Subtest: authenticated HTTP uses verified UID, rejects foreign/revoked/unverified tokens and forged balance
+ok 30 - authenticated HTTP uses verified UID, rejects foreign/revoked/unverified tokens and forged balance
+  ---
+  duration_ms: 722.8957
+  type: 'test'
+  ...
+# Subtest: recovery trigger quarantines expired running leases even without another worker delivery
+ok 31 - recovery trigger quarantines expired running leases even without another worker delivery
+  ---
+  duration_ms: 546.7854
+  type: 'test'
+  ...
+# Subtest: reservation binds immutable project revision atomically and rejects changed payload
+ok 32 - reservation binds immutable project revision atomically and rejects changed payload
+  ---
+  duration_ms: 427.9641
+  type: 'test'
+  ...
+# Subtest: crash before permission to invoke safely requeues and fences old worker
+ok 33 - crash before permission to invoke safely requeues and fences old worker
+  ---
+  duration_ms: 833.5493
+  type: 'test'
+  ...
+# Subtest: cancel before invocation releases reservation and prevents provider permission
+ok 34 - cancel before invocation releases reservation and prevents provider permission
+  ---
+  duration_ms: 454.8553
+  type: 'test'
+  ...
+# Subtest: UNKNOWN prevents a previously running sibling from capturing automatically
+ok 35 - UNKNOWN prevents a previously running sibling from capturing automatically
+  ---
+  duration_ms: 705.8017
+  type: 'test'
+  ...
+# Subtest: default-deny client rules reject reads and writes of actual Admin-created documents
+ok 36 - default-deny client rules reject reads and writes of actual Admin-created documents
+  ---
+  duration_ms: 1268.4455
+  type: 'test'
+  ...
+# Subtest: request replay lookup survives later project edits and expiry without recalculating price
+ok 37 - request replay lookup survives later project edits and expiry without recalculating price
+  ---
+  duration_ms: 477.1734
+  type: 'test'
+  ...
+# Subtest: expired heartbeat persists UNKNOWN immediately rather than waiting for a recovery sweep
+ok 38 - expired heartbeat persists UNKNOWN immediately rather than waiting for a recovery sweep
+  ---
+  duration_ms: 588.8337
+  type: 'test'
+  ...
+# Subtest: HTTP reserves at server price, replays without quoting and reports honest cancellation state
+ok 39 - HTTP reserves at server price, replays without quoting and reports honest cancellation state
+  ---
+  duration_ms: 1131.5699
+  type: 'test'
+  ...
+# Subtest: worker reports failed when bytes expire after provider success and reservation is refunded
+ok 40 - worker reports failed when bytes expire after provider success and reservation is refunded
+  ---
+  duration_ms: 664.6557
+  type: 'test'
+  ...
+# Subtest: expired queued sibling releases only its own reservation while an UNKNOWN stays reserved
+ok 41 - expired queued sibling releases only its own reservation while an UNKNOWN stays reserved
+  ---
+  duration_ms: 598.101
+  type: 'test'
+  ...
+1..41
+# tests 41
+# suites 0
+# pass 41
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 61248.9076

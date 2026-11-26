@@ -46,14 +46,22 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
   const malformed=!data||typeof data!=='object'||!state||(present(d.createdAtMs)&&createdAtMs===null)||(present(d.nextAttemptAt)&&nextAttemptAt===null)||(present(d.attempts)&&attempts===null)||
     (present(d.lastErrorCode)&&lastErrorCode===null)||(present(d.accountId)&&accountId===null);
   if(kind==='guard'){
-    // A blocked account is its own row. Its state carries the guard epoch, so an account blocked again after a release is a new alert;
-    // a guard with neither incident nor hold ref cannot be attributed to anything and is malformed (the writers create incident and hold in the same transaction).
-    // The Video guard carries no `epoch` until step 1.4b: a guard WITHOUT `epoch` is a normal `blocked:1` row, but an epoch that is PRESENT and
-    // invalid (0, negative, non-integer, a string) is a malformed guard and must never be silently read as `blocked:1`. The 1.4b unblock/re-block
-    // must write a growing `epoch` plus `createdAtMs`, and this key will then use them. No guard writer is changed here.
+    // A blocked account is its own row. Its state carries the guard GENERATION, so an account blocked again after a release is a new
+    // alert; a guard with neither incident nor hold ref cannot be attributed to anything and is malformed (the writers create incident
+    // and hold in the same transaction). Since step 1.4b every writer stamps `epoch` (1, then +1 per new incident) AND `createdAtMs`,
+    // and since the epoch restarts at 1 after the guard is deleted, the creation mark is part of the state: `blocked:<epoch>:<createdAtMs>`.
+    // A guard written before 1.4b has NEITHER: it reads as the declared legacy generation `blocked:1:0`. An epoch or a createdAtMs that is
+    // PRESENT and invalid is a malformed guard, never silently read as the legacy value.
     const hasEpoch=present(d.epoch),validEpoch=hasEpoch&&Number.isSafeInteger(d.epoch)&&(d.epoch as number)>=1,epoch=validEpoch?d.epoch as number:1;
+    const hasCreated=present(d.createdAtMs),validCreated=hasCreated&&nonNegativeInteger(d.createdAtMs),createdAtMs=validCreated?d.createdAtMs as number:0;
     const guardAccount=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null,incident=present(d.lastIncidentId)||present(d.lastOutboxIncidentId);
-    return {kind,id,state:'blocked:'+epoch,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:guardAccount,malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incident||(hasEpoch&&!validEpoch)};
+    // The incident key is part of the state too: the epoch restarts at 1 when a released guard is recreated and the
+    // creation mark can repeat within one millisecond, so the named incident is what makes a different block a different
+    // alert (and a repeat sweep of the SAME incident identical). It is a public id, already visible on the guard.
+    const incidentKey=typeof d.lastOutboxIncidentId==='string'?d.lastOutboxIncidentId:typeof d.lastIncidentId==='string'?d.lastIncidentId:'';
+    // The guard row keeps no `createdAtMs` age of its own (the alert is raised as soon as it appears), but the mark is in its state.
+    return {kind,id,state:'blocked:'+epoch+':'+createdAtMs+':'+incidentKey,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:guardAccount,
+      malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incident||(hasEpoch&&!validEpoch)||(hasCreated&&!validCreated)||hasEpoch!==hasCreated};
   }
   return {kind,id,state,createdAtMs,nextAttemptAt,attempts,lastErrorCode,accountId,malformed};
 }

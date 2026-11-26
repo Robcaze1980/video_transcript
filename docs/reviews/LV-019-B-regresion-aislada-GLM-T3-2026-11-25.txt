@@ -1,0 +1,33 @@
+**Determinación**
+- Sí, es viable localmente: un repositorio copiado e inmutable con segundo emulador en `127.0.0.1:8186` puede correr la misma batería sin tocar la sesión principal en 8185.
+- Equivalencia local exige mismo proyecto (`demo-vistavo-ledger`), mismas reglas, mismo binario/emulador, misma lista de fixtures y skips, y solo sustitución numérica de puerto.
+- No ejecuté ni modifiqué nada; esto no certifica ejecución ni sustituye un `result.json`/TAP real.
+
+**Cambios exactos permitidos**
+- Copias con únicamente `8185 → 8186`: `scripts/runFinancialRegressionEmulator.mjs` (1), `scripts/financialEmulatorNetworkGuard.cjs` (8; allowlist pasa a 8186 y 8185 debe quedar denegado), `scripts/inspectFinancialSyntheticRoots.mjs` (4), `server/commercial/financialFixtureSafety.mjs` (2).
+- Las 14 fixtures listadas también requieren cambio de puerto por literales: `firestoreBackend` (5), `firestoreAiBackend` (3), `firestoreAi` (3), `firestoreVideoSettlementC2a` (3), `firestoreDrainControl` (2), `firestoreUnknownResolver` (3), `billingDrainSection` (1), `firestoreAgeEscalation` (1), `firestoreBlocksA` (3), `firestoreA3Exit` (2), `textAccountReserveAckWindow` (2), `billingSettlementHistoryRaces` (3), `billingUnblock` (2), `server/account/unblockAudited` (2).
+- Copia de `deploy/google-cloud/firebase.emulators.json`: Firestore 8186; si se usa firebase-tools, también websocket/hub/UI/logging distintos. No cambiar lógica, proyecto, fixtures ni expected skips.
+- Copiar sin cambios: reglas/índices del emulador, `package*.json`, `node_modules`, fuentes importadas y `scripts/financialEmulatorNetworkGuard.windows.cjs` (no examinado por límite de alcance; verificar si fija puerto antes de reutilizar).
+
+**Arranque/limpieza seguros**
+- Copiar desde el árbol integrado actual, no desde HEAD limpio, y congelar hashes del manifiesto más snapshot del árbol si se quiere cobertura extra.
+- Iniciar solo el emulador nuevo en 8186, verificar identidad/proyecto, correr `--prepare`, revisar hashes/host y luego `--run` una vez con Node 24.13.0.
+- Conservar run/TAP/result e inventarios; si queda incierto, no reintentar. Apagar únicamente el proceso del emulador 8186 al final.
+- Limpieza: inventario general cubre 3 raíces; las fixtures de dos colecciones borran sus pares sintéticos y `unblockAudited` borra `vistavo_account_test`; la limpieza global extra no queda probada por el inventario.
+
+**Hashes integrados observados**
+- Núcleo: launcher `f9c27f7f2950c8d8872b2825d51f6106f70b3c7ac69c89034bdbc4fdd398e669`; guard `d5803514a3addc5b20e0e871162d5892feee6c1f94e8a4e169aaa6bfe3ebcba3`; inventario `d721b67abf694994f94638561eb6777d0405ebb8f255ee5f52ca7a5f8dd0da6d`; safety `3f4a29e3d471eb0dc0243779d58b631111217d6672d700f1d0dc5aa9313ccf20`; config `6552970ccce8df7544c993715df32065c0791cb45b855b7803bea89b37267d27`.
+- Fixtures: `1a530cee…a6ed`, `c6d7c89a…f55c`, `0c8491d9…fdb8`, `a16ac0bd…f4096`, `55309616…b55ace`, `73958f00…0f3f6`, `cf9aa86e…de118`, `848c0349…280624`, `64be4812…bdb17e`, `0331dee7…4ceb9`, `180aa90a…44cae`, `dd90bdba…076f58`, `938f8f02…eb2ddd`, `288d7329…fb25ea`.
+- `runFinancialRegressionEmulator.mjs`, `firestoreAi.emulator.mjs` y `firestoreBlocksA.emulator.mjs` están dirty respecto a HEAD `d166133d46d4b0dd5fde50f48b8e625414587e59`; los hashes son del contenido integrado real.
+
+**Limitaciones**
+- El preload no es firewall OS; esbuild/procesos nativos quedan fuera. El manifiesto no cubre dependencias transitivas, binario del emulador, reglas ni todo el árbol; hashes pre/post no crean inmutabilidad total.
+- Dos emuladores simultáneos consumen recursos y pueden afectar pruebas sensibles al tiempo; conviene ejecutar cuando la sesión principal esté inactiva. El launcher no tiene timeout explícito.
+- La batería prueba solo el comportamiento sintético local en 8186: no nube, IAM, proveedor real, voz (5 skips previstos) ni la prueba pendiente de confirmación perdida con generación distinta.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática de los archivos del alcance y fixtures listadas; HEAD confirmado `d166133d46d4b0dd5fde50f48b8e625414587e59`; hashes integrados observados y puertos mapeados; sin modificaciones ni ejecución. Diseño viable con segundo emulador 8186, cambios port-only y guard que permita 8186/deniegue 8185. Un PASS de diseño no sustituye ejecución ni certifica la batería.
+NEGATIVOS: No se ejecutó la regresión; no hay result.json/TAP nuevos. No se examinó `financialEmulatorNetworkGuard.windows.cjs` por límite de alcance. La limpieza global extra y la cobertura nube/proveedor/voz real no están probadas.
+BLOQUEOS: Ninguno para el diseño. La ejecución futura requiere copia estable, emulador 8186 con reglas/proyecto equivalentes, Node 24.13.0 y sesión principal intacta.
+=== FIN RESUMEN ===

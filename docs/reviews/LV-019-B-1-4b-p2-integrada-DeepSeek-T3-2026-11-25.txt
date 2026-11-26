@@ -1,0 +1,85 @@
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido, tokens y costo: no medidos.
+Encargo completo verificado en el hilo T3.
+
+I'll start by reading the mandated context and verifying the file hashes.
+
+
+
+Hashes verify. Now reading the spec §3.3, the implementation, test, and the local review report.
+
+
+
+Now reading the full implementation file carefully, in chunks.
+
+
+
+
+
+
+
+Findings 2 and 3 from the prior review look addressed. Now reading the Account side and the client adapter.
+
+
+
+Now the test file. Let me scan its structure and the tests about generation/retry.
+
+
+
+Let me examine the key tests on Account-generation replay and the harness's Account double.
+
+
+
+Let me check the guard writer and hold shape to validate the generation handling and the `accountId` re-read.
+
+
+
+Let me re-verify hashes and count the declared tests statically.
+
+
+
+Let me confirm whether `same` is used and check the payload comparison precisely.
+
+
+
+Let me verify the alert-state coupling and re-check hashes at the end.
+
+
+
+Let me check the pre-1.4b guard writer to assess the legacy-guard claim, and re-confirm hashes.
+
+
+
+## Revisión · LV‑019.B 1.4b pieza 2 · desbloqueo de saldo de extremo a extremo
+
+**Alcance.** Solo lectura; no ejecuté suites ni toqué archivos. `billingUnblock.ts` y `billingUnblock.emulator.mjs` conservan sus hashes antes y después (`b4909d…7080`, `938f8f…2ddd`).
+
+**Qué comprobé (demostrado por lectura)**
+
+- **Cuenta primero, Video después.** La llamada de Cuenta ocurre antes de tocar filas de Video (`billingUnblock.ts:342`, `:316`) y su rechazo sale como `conflict` sin escrituras de Video (`:343`; prueba `emulator.mjs:807-822`).
+- **Relectura transaccional de incidentes y propiedad.** Fase 3 relee cada fila planeada dentro de la transacción: ausencia → `conflict` (`:360`), `accountId` ajeno → `conflict` (`:372`), estado/puntero divergentes → `conflict` (`:368-370`). Cubierto por `emulator.mjs:632-649`. Las filas se leen por consulta dentro de la transacción (`:128-134`; prueba estructural `:717-730`).
+- **Bloqueo parcial.** Si Cuenta deja otros incidentes, `clear` es falso (`:381`) y la guarda de Video sobrevive; la repetición idéntica reanuda (`:313-338`). Probado en `:436-473` y `:592-611`.
+- **Idempotencia y re‑bloqueo.** Repetición idéntica = `replayed` sin escrituras (`:241-262`), y un `video_released`/`unblocked` no responde sobre una guarda viva más nueva (`:247`, `:253-257`). Probado en `:326-345`, `:499-513`. Filas de otra cuenta nunca se avanzan (`:540-558`).
+- **Trazabilidad de la generación de Cuenta.** Se registra la marca usada en los cierres (`:334-336`, `:398`), no solo la del primer intento (`:296-297`); probado en `:653-665`.
+
+**Adjudicación pedida (diseño §3.3 vs implementación)**
+
+El diseño dice «una carga distinta es `conflict`» (`LV-019-B-bloqueos-y-cierres-diseno.md:120`). La implementación **excluye a propósito** `accountEpoch`/`accountCreatedAtMs` del payload comparado (`billingUnblock.ts:221` vs `:230`) y permite refrescar la marca de Cuenta entre intentos, usando el valor de la petición actual (`:316`, `:342`) y registrándolo en el cierre.
+
+Es **seguro y preferible**: Cuenta valida por sí misma que la generación nombre su guarda viva (`server/account/backend.ts:250`) y que el incidente siga `active` (`:251-253`), y la identidad se deriva del documento de identidad, no del cuerpo (`billingUnblock.ts:404-408`). El incidente y la generación de Video sí están clavados en el payload, así que no se puede desbloquear otro incidente ni otra cuenta. Escenario concreto que exige refrescar: un segundo incidente sobre la misma guarda de Cuenta incrementa su `epoch` conservando `createdAtMs` (`backend.ts:198`,`:201`); con un contrato estricto, ni la petición original ni una re‑auditada podrían reanudar (`unblockAuditId` excluye la generación de Cuenta, `:53-55`), dejando la cuenta atascada sin salida.
+
+**Conclusión de la adjudicación:** ajustar **el contrato** (§3.3 debe declarar la generación de Cuenta como puntero refrescable, fuera de la comparación inmutable, y que el cierre registra la marca usada); **no** cambiar la implementación. Prueba negativa que lo fija: `emulator.mjs:849-851` envía `accountEpoch+1`/`accountCreatedAtMs+1` contra la Cuenta real y obtiene `conflict`.
+
+**No comprobado / límites**
+
+- No ejecuté la suite ni la regresión; no reproduje las rondas de mutación. La 453/458 corresponde a la versión previa. Por eso no certifico extremo a extremo (coincide con `docs/reviews/LV-019-B-1-4b-p2-revision-local-2026-11-25.md`).
+- No verifiqué alcanzabilidad de holds legados ni una guarda recreada en el mismo milisegundo (declarados como límites/1.4c).
+- Menor: `same` en `billingUnblock.ts:226` queda sin uso; sin efecto.
+- Modelo servido, uso y costo: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Hashes SHA‑256 de `server/commercial/billingUnblock.ts` (`b4909d7b…7080`) y `server/commercial/billingUnblock.emulator.mjs` (`938f8f02…2ddd`) verificados idénticos antes y después; lectura de `billingUnblock.ts:128-146,221,226-268,279-298,313-401,404-418`, `server/account/backend.ts:186-263`, `server/commercial/accountBillingClient.ts:84-98`, `billingHoldIdentity.ts`, `billingPendingReport.ts:15-66`, `docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md:105-123`, `billingUnblock.emulator.mjs:224-952` y `docs/reviews/LV-019-B-1-4b-p2-revision-local-2026-11-25.md`. Cuenta va antes que Video y un rechazo deja Video intacto (`:342-343`; prueba `:807-822`); fase 3 relee existencia, estado y `accountId` y aborta (`:360,368-372`; pruebas `:632-649`); parcial mantiene la guarda (`:381`; `:436-473`,`:592-611`); repetición idéntica no escribe (`:241-262`; `:326-345`) y una guarda más nueva no se pisa (`:247,253-257`; `:499-513`); filas de otra cuenta no se avanzan (`:540-558`); la marca de Cuenta usada se registra en el cierre (`:334-336,398`; prueba `:653-665`). Adjudicación: el diseño §3.3 (`:120`) pide conflicto por carga distinta, pero excluir `accountEpoch`/`accountCreatedAtMs` del payload (`:221` vs `:230`) es seguro porque Cuenta valida su propia generación e incidente (`server/account/backend.ts:250-253`) y la identidad es del servidor (`:404-408`); un contrato estricto atascaría la reanudación cuando la Cuenta crece de `epoch` (`backend.ts:198,201`) — corresponde ajustar el contrato, no la implementación; prueba negativa en `emulator.mjs:849-851`.
+NEGATIVOS: No ejecuté ninguna suite ni la regresión (instrucción expresa), así que no certifiqué corrección ni idempotencia en ejecución; los 45/45 y 453/458 citados no son míos y el segundo es de la versión previa. No reproduje las rondas de mutación. No comprobé alcanzabilidad de holds legados ni la colisión de generación en el mismo milisegundo. Modelo servido, uso y costo: no medido.
+BLOQUEOS: Sin acceso a ejecución de pruebas por mandato; la certificación de extremo a extremo depende de la suite integrada que corre en otra sesión. La diferencia contrato/implementación requiere que el dueño apruebe la enmienda de §3.3 (contrato) antes de cerrar; la implementación no requiere cambio.
+=== FIN RESUMEN ===

@@ -1,0 +1,32 @@
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido, tokens y costo: no medidos.
+Encargo completo verificado en el hilo T3.
+
+**Contraste del riesgo**
+- Hay dos generaciones distintas: la de Video forma parte del `auditId` y del reintento; `accountEpoch`/`accountCreatedAtMs` no forman parte del `payload` de repetición, pero sí se envían a Cuenta y se registran en el cierre (`server/commercial/billingUnblock.ts:221`, `:263-268`, `:398`).
+
+**Caso A — rechazo explícito inicial**
+- Si Cuenta rechazó explícitamente la primera llamada, no hubo recibo previo que recrear. Con la generación de Video sin drift y sin rival bloqueante en fase 0, reintentar con la generación actual de Cuenta es razonable: Cuenta puede revisar la incidencia objetivo y devolver `blocked:true` por el segundo incidente. La fase 3 avanza solo las filas planificadas, deja la guarda de Video y recalcula rivales (`server/commercial/billingUnblock.ts:285-298`, `:346-398`). Eso coincide con la política elegida: el video existente puede continuar, mientras la cuenta sigue bloqueada para videos nuevos.
+- Si el segundo incidente es real de Video y cambia la generación de Video, la solicitud antigua no debería continuar como si fuera el mismo intento; debe tratarse como ocurrencia/rival nueva y auditarse aparte.
+
+**Caso B — confirmación perdida**
+- Si Cuenta ya confirmó pero la respuesta se perdió, refrescar la generación de Cuenta no es un reintento equivalente. Bajo la semántica observada, Cuenta exigiría la marca original para devolver el recibo previo; con la marca actual fallaría cerrado y Video no escribiría nada.
+- Recuperación segura: no deducir la marca aceptada desde el reintento actual. Consultar la evidencia autoritativa de Cuenta o un recibo/estado por `(dueño, holdId/incidente)`; luego reenviar exactamente la generación aceptada. Tras obtener el recibo, la fase 3 puede avanzar el incidente objetivo y conservar la guarda si queda el segundo incidente. Después de resolverlo, el reintento parcial debe usar la marca aceptada registrada, no una generación nuevamente refrescada.
+- El riesgo técnico es que `unblock_requested` guarda la marca enviada en el primer intento, pero no prueba la marca realmente aceptada si la fase 3 no llegó a crear `unblocked`. Por tanto, Video solo no siempre puede reconstruir ese dato tras una respuesta perdida.
+
+**Cobertura observada**
+- `billingUnblock.emulator.mjs:653-665` cubre solo una versión parcial del caso A: la primera llamada usa un doble que falla, no hay segundo incidente y el cierre registra la generación usada en el reintento.
+- Las pruebas de desbloqueo parcial y recuperación que revisé no combinan confirmación perdida + segundo incidente + generación actual. No vi los escenarios A y B completos contra `AccountStore` real.
+- No hay conflicto directo de seguridad con §3.3: el orden conservador se mantiene. Sí falta contrato y prueba explícitos para distinguir rechazo explícito de confirmación perdida y para recuperar el recibo con la generación aceptada.
+
+**Diseño propuesto, no comprobado**
+- Añadir un contrato de Cuenta para recibo/estado por incidente y dueño, o permitir replay del incidente ya revisado devolviendo la generación original aceptada.
+- En Video, registrar el resultado de cada intento de Cuenta cuando sea observable; en resume, usar la marca aceptada del registro de cierre o del recibo de Cuenta. Ante resultado incierto, no refrescar automáticamente.
+- Tests mínimos con cuentas ficticias: (1) rechazo explícito, segundo incidente, reintento con generación actual, avance parcial y cierre posterior; (2) confirmación real en Cuenta con respuesta perdida, segundo incidente, reintento con generación actual que debe fallar cerrado, recuperación por recibo/marca original y cierre final sin escrituras duplicadas.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Revisión basada solo en fragmentos ya leídos; sin releer archivos ni ejecutar nada. `billingUnblock.ts:221`, `:263-268`, `:285-298`, `:346-398` y `billingUnblock.emulator.mjs:653-665` muestran el refresh de generación de Cuenta, avance conservador y registro de la marca usada; las pruebas parciales vistas no reproducen A/B completos con AccountStore real.
+NEGATIVOS: No verifiqué la semántica exacta de replay de Cuenta ahora, ni que los escenarios A y B completos estén cubiertos; no ejecuté pruebas ni leí fuentes durante esta ronda.
+BLOQUEOS: La tanda activa de pruebas impide la relectura/ejecución complementaria; falta evidencia dedicada de recuperación con confirmación perdida y segundo incidente.
+=== FIN RESUMEN ===

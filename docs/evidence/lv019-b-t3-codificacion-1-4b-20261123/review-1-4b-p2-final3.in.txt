@@ -1,0 +1,830 @@
+Eres REVISOR independiente (T3), de SOLO LECTURA: no modifiques archivos ni ejecutes nada. Lee primero AGENTS.md del proyecto (instrucciones vigentes: espanol neutro latinoamericano, revision sin cambiar modelos ni credenciales) y, solo si lo necesitas, la seccion 3.3 de docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md y las pruebas server/commercial/billingUnblock.emulator.mjs (37 pruebas). NO abras los .ts de produccion del disco (otra copia puede estar bajo mutaciones): TODO el codigo de produccion a revisar esta abajo (diff de los archivos existentes y los dos archivos nuevos completos). Maximo 6 lecturas.
+
+SALIDA: maximo 450 palabras, en espanol. Hallazgos numerados con severidad ALTA/MEDIA/BAJA, cada uno con la secuencia concreta (estado inicial, eventos, resultado errado) y la correccion minima. Declara en una linea que examinaste, que NO pudiste comprobar y el costo si lo conoces (si no, escribe `no medido`). No repitas lo correcto. Termina con EXACTAMENTE este bloque (el ultimo texto de tu respuesta):
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: rutas, lineas y hallazgos criticos
+NEGATIVOS: controles y pruebas no ejecutadas
+BLOQUEOS: pendientes o ninguno
+=== FIN RESUMEN ===
+
+CONTEXTO. Hay DOS bases Firestore independientes sin transaccion conjunta: Video `(default)` y Cuenta `vistavo-live` (la Cuenta es idempotente). Una divergencia de cobro escribe en Video un BLOQUEO (`billingGuards/<accountId>`) y un HOLD (`billingHoldOutbox/<id>`) que el drenador envia a la Cuenta; la Cuenta registra un incidente y su propia guarda. La pieza 1 (certificada) creo en la Cuenta el desbloqueo auditado: borra su guarda solo cuando todos sus incidentes estan revisados y devuelve `blocked` (true si aun quedan otros); `unblocked:true` NUNCA significa cuenta abierta.
+
+CODIGO (paso 1.4b PIEZA 2, DESBLOQUEO AUDITADO DEL LADO VIDEO; DECIDE SI UNA CUENTA BLOQUEADA PUEDE VOLVER A MOVER SALDO): (A) la guarda de Video lleva GENERACION (`epoch`, `createdAtMs`); `writeBlockedGuard` es el unico escritor y `guardEpoch`/`guardPreview` calculan antes la misma generacion para nombrar el hold; el id del hold = id del incidente en la Cuenta = `accountHoldId(kind,sourceId,epoch,createdAtMs)`; una guarda ajena o con `blocked` no booleano da incidencia NO verificada sin hold y sin tocar la guarda. (B) billingUnblock.ts: fase 0+1 en UNA transaccion (alerta `guard` abierta del estado `blocked:<epoch>:<createdAtMs>:<incidente>`, guarda, incidente nombrado, sin filas rivales del account, registro inmutable `unblock_requested`); fase 2 pregunta primero a la Cuenta; fase 3 en UNA transaccion relee la MISMA generacion y la alerta, avanza solo las filas auditadas y borra la guarda + dispone la alerta SOLO si la Cuenta ya no esta bloqueada y Video no tiene fila rival; resultado PARCIAL (Cuenta `blocked:true`): la misma peticion repetida vuelve a preguntar y, cuando se libera, crea `video_released`; repeticion tras liberar = pura; payload u operador distinto = conflict. (C) las lecturas de filas del account (`accountRows`) ahora son transaccionales (`tx.get(query)`).
+
+YA CORREGIDO TRAS LA REVISION ANTERIOR (verifica que de verdad lo este, no lo reportes si lo esta): repeticion tras un desbloqueo parcial; guarda no atribuible sin perder evidencia; listado de holds que no se detiene por una fila corrupta; la repeticion de una peticion vieja sobre un bloqueo NUEVO tras `video_released` da `conflict`; un hold que pasa a `applied`/`needs_review` entre la lectura auditada y la liberacion ya no atasca el desbloqueo; lecturas transaccionales. NUEVO en esta ronda: los ids de auditoria son POR OCURRENCIA (`unblockAuditId(incidentKey,action,epoch,createdAtMs)`, sin ellos una intencion que vuelve a divergir tras su desbloqueo quedaba en `conflict` para siempre); un incidente de INTENCION devuelve tambien su guarda de admision `billingIntentAdmissionGuards/<intencion>` a la forma exacta clear de 4 campos (antes la intencion quedaba atascada aunque la cuenta ya estuviera abierta). TAMBIEN NUEVO: la fila de un hold se crea con `pendingHoldRow(hold,now)` y conserva `epoch` y `createdAtMs` de la GUARDA (antes `createdAtMs:now` la pisaba y el hold de un SEGUNDO incidente sobre una guarda viva iba a `needs_review` en vez de llegar a la Cuenta); ahora hay pruebas de ese caso.
+
+ADJUDICADO COMO LIMITE DECLARADO (no lo reportes): (a) NO hay ruta HTTP ni autenticacion de operador en esta pieza (paso 3.5); (b) la salida de reservas atrapadas bajo bloqueo es la pieza 3; (c) VARIOS incidentes del mismo tipo sobre una misma guarda, y las filas rivales sin ruta de resolucion (hold corrupto, incidencia no verificada), se resuelven en la tarea 1.4c: hoy el desbloqueo solo nombra el incidente mas reciente y falla cerrado (la guarda se conserva y el recibo lo dice); (d) las ramas de holds legados (sin generacion) son codigo inalcanzable hasta que exista una migracion (las bases reales estan vacias); (e) un guard legado atribuible sin `createdAtMs` es `invariant` por migracion declarada; (f) el catch de la fase 2 convierte cualquier error de la Cuenta en `conflict` reintentable. (g) un incidente ya revisado que vuelve a divergir mientras la MISMA guarda sigue viva (misma generacion, sin hold nuevo) y la alerta de una guarda con incidentes de los dos tipos (nombra el mas viejo) tambien son de 1.4c; (h) una guarda sin `epoch` pero con `createdAtMs` el reporte la marca corrupta y no genera la alerta que el desbloqueo exige: es inalcanzable; (i) `recordExternalBillingReview` ya lanzaba `invariant` ante una guarda ajena o malformada antes de este cambio (`billingBlocked` al inicio de la transaccion).
+
+BUSCA FALLOS REALES NUEVOS: (1) un camino que borre la guarda de Video o deje la cuenta abierta con una fila sin revisar; (2) una repeticion o desbloqueo VIEJO que limpie o aparente limpiar un bloqueo NUEVO; (3) idempotencia y estados parciales que no se puedan completar o queden en bucle; (4) el id del hold (unicidad por ocurrencia, coincidencia exacta con la Cuenta); (5) que la generacion calculada antes de escribir sea exactamente la escrita; (6) carreras entre drenador, escritores del bloqueo y desbloqueo; (7) pruebas que pasarian con el codigo roto.
+
+=== DIFF DE PRODUCCION DE 1.4b PIEZA 2: ARCHIVOS EXISTENTES (firestoreBackend.ts, billingPendingReport.ts, billingReadOnlyRoot.ts) ===
+diff --git a/server/commercial/billingPendingReport.ts b/server/commercial/billingPendingReport.ts
+index 10fa3d0..7f26ec5 100644
+--- a/server/commercial/billingPendingReport.ts
++++ b/server/commercial/billingPendingReport.ts
+@@ -46,14 +46,22 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
+   const malformed=!data||typeof data!=='object'||!state||(present(d.createdAtMs)&&createdAtMs===null)||(present(d.nextAttemptAt)&&nextAttemptAt===null)||(present(d.attempts)&&attempts===null)||
+     (present(d.lastErrorCode)&&lastErrorCode===null)||(present(d.accountId)&&accountId===null);
+   if(kind==='guard'){
+-    // A blocked account is its own row. Its state carries the guard epoch, so an account blocked again after a release is a new alert;
+-    // a guard with neither incident nor hold ref cannot be attributed to anything and is malformed (the writers create incident and hold in the same transaction).
+-    // The Video guard carries no `epoch` until step 1.4b: a guard WITHOUT `epoch` is a normal `blocked:1` row, but an epoch that is PRESENT and
+-    // invalid (0, negative, non-integer, a string) is a malformed guard and must never be silently read as `blocked:1`. The 1.4b unblock/re-block
+-    // must write a growing `epoch` plus `createdAtMs`, and this key will then use them. No guard writer is changed here.
++    // A blocked account is its own row. Its state carries the guard GENERATION, so an account blocked again after a release is a new
++    // alert; a guard with neither incident nor hold ref cannot be attributed to anything and is malformed (the writers create incident
++    // and hold in the same transaction). Since step 1.4b every writer stamps `epoch` (1, then +1 per new incident) AND `createdAtMs`,
++    // and since the epoch restarts at 1 after the guard is deleted, the creation mark is part of the state: `blocked:<epoch>:<createdAtMs>`.
++    // A guard written before 1.4b has NEITHER: it reads as the declared legacy generation `blocked:1:0`. An epoch or a createdAtMs that is
++    // PRESENT and invalid is a malformed guard, never silently read as the legacy value.
+     const hasEpoch=present(d.epoch),validEpoch=hasEpoch&&Number.isSafeInteger(d.epoch)&&(d.epoch as number)>=1,epoch=validEpoch?d.epoch as number:1;
++    const hasCreated=present(d.createdAtMs),validCreated=hasCreated&&nonNegativeInteger(d.createdAtMs),createdAtMs=validCreated?d.createdAtMs as number:0;
+     const guardAccount=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null,incident=present(d.lastIncidentId)||present(d.lastOutboxIncidentId);
+-    return {kind,id,state:'blocked:'+epoch,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:guardAccount,malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incident||(hasEpoch&&!validEpoch)};
++    // The incident key is part of the state too: the epoch restarts at 1 when a released guard is recreated and the
++    // creation mark can repeat within one millisecond, so the named incident is what makes a different block a different
++    // alert (and a repeat sweep of the SAME incident identical). It is a public id, already visible on the guard.
++    const incidentKey=typeof d.lastOutboxIncidentId==='string'?d.lastOutboxIncidentId:typeof d.lastIncidentId==='string'?d.lastIncidentId:'';
++    // The guard row keeps no `createdAtMs` age of its own (the alert is raised as soon as it appears), but the mark is in its state.
++    return {kind,id,state:'blocked:'+epoch+':'+createdAtMs+':'+incidentKey,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:guardAccount,
++      malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incident||(hasEpoch&&!validEpoch)||(hasCreated&&!validCreated)||hasEpoch!==hasCreated};
+   }
+   return {kind,id,state,createdAtMs,nextAttemptAt,attempts,lastErrorCode,accountId,malformed};
+ }
+diff --git a/server/commercial/billingReadOnlyRoot.ts b/server/commercial/billingReadOnlyRoot.ts
+index e64ab55..79d40a4 100644
+--- a/server/commercial/billingReadOnlyRoot.ts
++++ b/server/commercial/billingReadOnlyRoot.ts
+@@ -15,7 +15,7 @@ export const READABLE_COLLECTIONS:readonly string[]=Object.freeze(['billingInten
+ const STATES=PENDING_SOURCES.flatMap(source=>source.states);
+ const queue:CollectionPolicy={select:['state','nextAttemptAt'],expose:['state','createdAtMs','nextAttemptAt','attempts','lastErrorCode','accountId'],dropIfNotScalar:['state'],where:{state:STATES}};
+ // LV-019.B D-4: the guard collection is read by `blocked == true` only, so it declares its own single-field filter and exposes the incident refs.
+-const guard:CollectionPolicy={select:['blocked','accountId','epoch','lastIncidentId','lastOutboxIncidentId','updatedAtMs'],expose:['blocked','accountId','epoch','lastIncidentId','lastOutboxIncidentId','updatedAtMs'],where:{blocked:[true]}};
++const guard:CollectionPolicy={select:['blocked','accountId','epoch','createdAtMs','lastIncidentId','lastOutboxIncidentId','updatedAtMs'],expose:['blocked','accountId','epoch','createdAtMs','lastIncidentId','lastOutboxIncidentId','updatedAtMs'],where:{blocked:[true]}};
+ const BILLING_POLICY={collections:Object.fromEntries(READABLE_COLLECTIONS.map(name=>[name,name==='billingGuards'?guard:queue]))};
+ 
+ export function readOnlyRoot(root:DocumentReference,options:ReadOnlyOptions={}):ReadOnlyRoot{return createReadOnlyRoot(root,BILLING_POLICY,options);}
+diff --git a/server/commercial/firestoreBackend.ts b/server/commercial/firestoreBackend.ts
+index f58b828..afa7cdd 100644
+--- a/server/commercial/firestoreBackend.ts
++++ b/server/commercial/firestoreBackend.ts
+@@ -1,4 +1,5 @@
+ import { createHash, randomUUID } from 'node:crypto';
++import {accountHoldId,holdId,legacyHoldId,type HoldGeneration} from './billingHoldIdentity';
+ import {diagnosticStage,diagnosticTransaction,diagnosticMark} from './cloudDiagnostics';
+ import { Firestore, FieldPath, FieldValue, type DocumentReference, type DocumentSnapshot, type Transaction } from 'firebase-admin/firestore';
+ import {readyPrivateInput,type PrivateInputBinding} from './privateObjectPlan';
+@@ -25,7 +26,7 @@ export type ExternalBillingReleaseFence = {state:'release_pending'}|{state:'job_
+ export type ExternalBillingAdmission = {state:'permitted'}|{state:'job_created';jobId:string};
+ export type ExternalBillingReviewReason = 'captured_without_job'|'seconds_mismatch'|'intent_job_mismatch'|'capture_before_success'|'release_before_failure'|'outbox_mismatch'|'remote_ack_intent_mismatch'|'remote_ack_closure_unverified'|'direct_status_uncertain';
+ export type ExternalBillingReviewResult = {state:'needs_review';reason:ExternalBillingReviewReason}|{state:'job_created';jobId:string};
+-export type ExternalBillingHold = {id:string;accountId:string;identityKey:string;sourceKind:'intent'|'outbox';sourceId:string};
++export type ExternalBillingHold = {id:string;accountId:string;identityKey:string;sourceKind:'intent'|'outbox';sourceId:string;epoch?:number;createdAtMs?:number};
+ export type ExternalBillingIntentWitness = ExternalVideoBilling & {intentId:string;accountId:string;inputId:string;operation:string;revision:number;profile:typeof AI_CATALOG_VERSION};
+ export type TerminalRecoveryDocumentVersion = {exists:false}|{exists:true;createTime:string;updateTime:string};
+ export type TerminalRecoveryReadSnapshot = {intentId:string;action:'seal'|'release';origin:TerminalRecoveryDocumentVersion;sealWitness:TerminalRecoveryDocumentVersion;sealRecovery:TerminalRecoveryDocumentVersion;releaseWitness:TerminalRecoveryDocumentVersion;releaseRecovery:TerminalRecoveryDocumentVersion};
+@@ -361,9 +362,27 @@ function validUnleasedBillingMetadata(row:Record<string,unknown>){
+ function sameIntentLease(row:Record<string,unknown>,lease:ExternalBillingIntentLease){
+   return row.leaseToken===lease.leaseToken&&row.leaseOwner===lease.leaseOwner&&row.generation===lease.generation&&row.leaseUntil===lease.leaseUntil;
+ }
+-function externalHold(accountId:string,identityKey:string,sourceKind:'intent'|'outbox',sourceId:string):ExternalBillingHold{
++function externalHold(accountId:string,identityKey:string,sourceKind:'intent'|'outbox',sourceId:string,generation?:HoldGeneration):ExternalBillingHold{
+   identifier(accountId);if(typeof identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(identityKey)||typeof sourceId!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(sourceId)||!['intent','outbox'].includes(sourceKind))throw new LedgerFault('invalid');
+-  return {id:hash(['account-hold-v1',sourceKind,sourceId]),accountId,identityKey,sourceKind,sourceId};
++  if(generation&&(!Number.isSafeInteger(generation.epoch)||generation.epoch<1||!Number.isSafeInteger(generation.createdAtMs)||generation.createdAtMs<0))throw new LedgerFault('invalid');
++  return {id:holdId(sourceKind,sourceId,generation),accountId,identityKey,sourceKind,sourceId,...(generation?{epoch:generation.epoch,createdAtMs:generation.createdAtMs}:{})};
++}
++/**
++ * The row of a PENDING hold occurrence. When the hold names a guard generation, its `createdAtMs` IS the guard's creation
++ * mark (`externalHold`), never the moment this row was written: overwriting it with `now` would make `authorizeExternalHold`
++ * recompute a different id and send every SECOND incident on a live guard to review instead of to Account. Only a legacy
++ * row (no generation at all) is stamped with the row's own `now`, which is all such a row has ever carried.
++ */
++function pendingHoldRow(hold:ExternalBillingHold,now:number){
++  return {...hold,state:'pending' as const,attempts:0,nextAttemptAt:now,...(hold.createdAtMs===undefined?{createdAtMs:now}:{})};
++}
++/** The generation a stored hold or pending-drain row carries; undefined for a legacy row. A partial generation is corrupt. */
++function storedHoldGeneration(row:Record<string,unknown>|undefined):HoldGeneration|undefined{
++  if(!row)return undefined;
++  const epoch=row.epoch,createdAtMs=row.createdAtMs;
++  if(epoch===undefined&&createdAtMs===undefined)return undefined;
++  if(!Number.isSafeInteger(epoch)||Number(epoch)<1||!Number.isSafeInteger(createdAtMs)||Number(createdAtMs)<0)throw new LedgerFault('invariant');
++  return {epoch:Number(epoch),createdAtMs:Number(createdAtMs)};
+ }
+ function matchesHold(value:unknown,expected:ExternalBillingHold){
+   if(!value||typeof value!=='object')return false;const row=value as Partial<ExternalBillingHold>;
+@@ -511,13 +530,17 @@ export class FirestoreBackend {
+       !['status','seal'].includes(snapshot.source)||!['not_found','reserved','captured','released','sealed'].includes(observed.state)||
+       (observed.state==='not_found'?snapshot.source!=='status'||observed.seconds!==null:!Number.isSafeInteger(observed.seconds)||Number(observed.seconds)<1))throw new LedgerFault('invalid');
+     const key=witness.intentId,incidentId=hash(['direct-status-uncertainty-v1',key,snapshot.attemptId,snapshot.source,observed.state,observed.seconds]),
+-      incident=this.ref('billingIntentObservationIncidents',incidentId),review=this.ref('billingReviewIncidents',key),hold=externalHold(witness.accountId,witness.identityKey,'intent',key),holdRef=this.ref('billingHoldOutbox',hold.id);
+-    const [oldIncident,oldReview,oldHold]=await tx.getAll(incident,review,holdRef);
++      incident=this.ref('billingIntentObservationIncidents',incidentId),review=this.ref('billingReviewIncidents',key);
++    const [oldIncident,oldReview]=await tx.getAll(incident,review);
+     if(oldIncident.exists){
+       if(!sameIntentWitness(oldIncident.data(),witness)||oldIncident.get('source')!==snapshot.source||oldIncident.get('observedState')!==observed.state||oldIncident.get('observedSeconds')!==observed.seconds||oldIncident.get('directSnapshotHash')!==directSnapshotHash(snapshot))throw new LedgerFault('invariant');
+       if(validClearIntentAdmissionGuard(d.intentGuard,key))tx.update(d.intentGuard.ref,{state:'needs_review',incidentId,updatedAtMs:Date.now()});
+       return;
+     }
++    // The hold of this occurrence is named by the generation the writer will use; it is read before the guard write.
++    const now=Date.now(),preview=this.guardPreview(d.guard,witness.accountId,{field:'lastIncidentId',id:key},now),
++      previewHold=preview?externalHold(witness.accountId,witness.identityKey,'intent',key,preview):null,
++      oldHold=previewHold?await tx.get(this.ref('billingHoldOutbox',previewHold.id)):null;
+     const uid=d.identity.get('uid'),guardValid=!d.guard.exists||d.guard.get('accountId')===witness.accountId&&typeof d.guard.get('blocked')==='boolean';
+     let owner=d.account.exists&&d.identity.exists&&d.identity.get('accountId')===witness.accountId&&typeof uid==='string'&&!!uid&&uid.length<=128&&hash(['firebase',uid])===witness.identityKey&&d.input.exists&&d.input.get('accountId')===witness.accountId&&validStoredIntentWitness(d.origin,witness)&&guardValid;
+     let row:ExternalBillingIntent|undefined;
+@@ -532,15 +555,16 @@ export class FirestoreBackend {
+       }
+     }
+     const reviewValid=!oldReview.exists||oldReview.get('accountId')===witness.accountId&&oldReview.get('identityKey')===witness.identityKey&&oldReview.get('intentId')===key&&oldReview.get('reservationId')===witness.reservationId&&oldReview.get('expectedSeconds')===witness.seconds;
+-    const holdValid=!oldHold.exists||matchesHold(oldHold.data(),hold)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
+-    const now=Date.now(),attributed=!!owner;
++    const holdValid=!oldHold?.exists||matchesHold(oldHold.data(),previewHold!)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
++    const attributed=!!owner;
+     tx.create(incident,{...witness,state:'needs_review',kind:'direct_status_uncertainty',source:snapshot.source,observedState:observed.state,observedSeconds:observed.seconds,directObservationSnapshot:snapshot,directSnapshotHash:directSnapshotHash(snapshot),attribution:attributed?'verified':'unverified',ownerBlocked:attributed,createdAtMs:now,updatedAtMs:now});
+     // An absent or incompatible marker remains unresolved and is never backfilled.
+     if(validClearIntentAdmissionGuard(d.intentGuard,key))tx.update(d.intentGuard.ref,{state:'needs_review',incidentId,updatedAtMs:now});
+     if(attributed){
++      const generation=this.writeBlockedGuard(tx,d.guard,witness.accountId,{field:'lastIncidentId',id:key},now),
++        hold=externalHold(witness.accountId,witness.identityKey,'intent',key,generation),holdRef=this.ref('billingHoldOutbox',hold.id);
+       if(reviewValid&&!oldReview.exists)tx.create(review,{accountId:witness.accountId,intentId:key,inputId:witness.inputId,operation:witness.operation,revision:witness.revision,identityKey:witness.identityKey,reservationId:witness.reservationId,expectedSeconds:witness.seconds,reason:'direct_status_uncertain',firstObserved:{source:snapshot.source,state:observed.state,seconds:observed.seconds,atMs:now},createdAtMs:now,updatedAtMs:now});
+-      if(reviewValid&&holdValid&&!oldHold.exists)tx.create(holdRef,{...hold,state:'pending',attempts:0,nextAttemptAt:now,createdAtMs:now});
+-      tx.set(d.guard.ref,{accountId:witness.accountId,blocked:true,lastIncidentId:key,updatedAtMs:now},{merge:true});
++      if(reviewValid&&holdValid&&!oldHold?.exists)tx.create(holdRef,pendingHoldRow(hold!,now));
+       if(row&&!row.jobId&&['reserve_pending','release_pending'].includes(row.state))tx.update(d.intent.ref,{state:'needs_review',reviewReason:'direct_status_uncertain',reviewIncidentId:key,updatedAtMs:now});
+     }
+   }
+@@ -572,6 +596,54 @@ export class FirestoreBackend {
+     if(doc.get('accountId')!==accountId||typeof doc.get('blocked')!=='boolean')throw new LedgerFault('invariant');
+     return doc.get('blocked')===true;
+   }
++  /**
++   * The preview generation, or `null` when this guard cannot be attributed to the account at all (another owner, or a
++   * non-boolean `blocked`). A writer that cannot attribute the guard records an UNVERIFIED incident with no hold and
++   * never touches that guard (the behavior before the generation work). A guard that IS attributable but carries no
++   * `createdAtMs` is still refused by `guardEpoch` (`invariant`, declared migration).
++   */
++  private guardPreview(doc:DocumentSnapshot,accountId:string,incident:{field:'lastIncidentId'|'lastOutboxIncidentId';id:string},now:number):{epoch:number;createdAtMs:number}|null{
++    if(doc.exists&&(doc.get('accountId')!==accountId||typeof doc.get('blocked')!=='boolean'))return null;
++    return this.guardEpoch(doc,accountId,incident,now);
++  }
++  /**
++   * LV-019.B 1.4b: the generation `writeBlockedGuard` is about to write, computed from a guard read earlier in the same
++   * transaction. The writers need it BEFORE writing (the hold document they read and create is named by it), and the
++   * decision mirrored here is the writer's own: a missing or clear guard is a new epoch 1 stamped `now`, a live guard
++   * keeps its `createdAtMs` and either keeps (same incident) or grows (different incident) its epoch.
++   */
++  private guardEpoch(doc:DocumentSnapshot,accountId:string,incident:{field:'lastIncidentId'|'lastOutboxIncidentId';id:string},now:number):{epoch:number;createdAtMs:number}{
++    if(!doc.exists||doc.get('blocked')!==true)return {epoch:1,createdAtMs:now};
++    if(doc.get('accountId')!==accountId)throw new LedgerFault('invariant');
++    const storedEpoch=doc.get('epoch'),createdAtMs=doc.get('createdAtMs');
++    if(!Number.isSafeInteger(createdAtMs)||createdAtMs<0)throw new LedgerFault('invariant');
++    const epoch=storedEpoch===undefined?1:storedEpoch;
++    if(!Number.isSafeInteger(epoch)||epoch<1)throw new LedgerFault('invariant');
++    return {epoch:doc.get(incident.field)===incident.id?epoch:epoch+1,createdAtMs:createdAtMs as number};
++  }
++  /**
++   * LV-019.B 1.4b: the ONE writer of the guard generation. It returns the generation it wrote, and the callers name the
++   * hold from it (`accountHoldId`), so the hold document id and Account's incident id always agree with the guard epoch:
++   * a guard created here starts at `epoch: 1` with its `createdAtMs`; adding a DIFFERENT incident to a guard that is
++   * already blocked grows the epoch; re-naming the same incident never does. A guard written before this step has no
++   * `epoch` and is read as epoch 1; without `createdAtMs` its generation cannot be named, so it is refused (`invariant`)
++   * instead of being silently adopted (the real bases are empty; the migration is declared in design section 6).
++   */
++  private writeBlockedGuard(tx:Transaction,doc:DocumentSnapshot,accountId:string,incident:{field:'lastIncidentId'|'lastOutboxIncidentId';id:string},now:number):{epoch:number;createdAtMs:number}{
++    if(!doc.exists||doc.get('blocked')!==true){
++      tx.set(doc.ref,{accountId,blocked:true,[incident.field]:incident.id,epoch:1,createdAtMs:now,updatedAtMs:now},{merge:true});return {epoch:1,createdAtMs:now};
++    }
++    if(doc.get('accountId')!==accountId)throw new LedgerFault('invariant');
++    const storedEpoch=doc.get('epoch'),createdAtMs=doc.get('createdAtMs');
++    if(!Number.isSafeInteger(createdAtMs)||createdAtMs<0)throw new LedgerFault('invariant');
++    const epoch=storedEpoch===undefined?1:storedEpoch;
++    if(!Number.isSafeInteger(epoch)||epoch<1)throw new LedgerFault('invariant');
++    // Re-naming the same incident (an idempotent writer re-run) never grows the generation.
++    const nextEpoch=doc.get(incident.field)===incident.id?epoch:epoch+1;
++    if(!Number.isSafeInteger(nextEpoch)||nextEpoch<1)throw new LedgerFault('invariant');
++    tx.set(doc.ref,{accountId,blocked:true,[incident.field]:incident.id,epoch:nextEpoch,createdAtMs,updatedAtMs:now},{merge:true});
++    return {epoch:nextEpoch,createdAtMs};
++  }
+   private billingIntent(doc:DocumentSnapshot,accountId:string,requestKey:string,billing:ExternalVideoBilling):ExternalBillingIntent{
+     if(!doc.exists)throw new LedgerFault('not_found');
+     const row=doc.data() as ExternalBillingIntent;
+@@ -724,7 +796,7 @@ export class FirestoreBackend {
+     let row:ExternalBillingIntent;try{row=this.billingIntent(intentDoc,accountId,job.requestKey,billing);}catch(error){if(error instanceof LedgerFault)return null;throw error;}
+     if(row.inputId!==job.inputId||row.operation!==job.operation||row.revision!==job.revision||row.jobId!==jobId||!['job_created','needs_review'].includes(row.state))return null;
+     let guardBlocked:boolean;try{guardBlocked=this.billingBlocked(guardDoc,accountId);}catch(error){if(error instanceof LedgerFault)return null;throw error;}
+-    return {accountId,guard,intent,intentState:row.state,guardBlocked,job,billing};
++    return {accountId,guard,guardDoc,intent,intentState:row.state,guardBlocked,job,billing};
+   }
+   /** uid comes exclusively from a verified Firebase identity, never the request body. */
+   async accountForUid(uid: string) {
+@@ -1119,9 +1191,14 @@ export class FirestoreBackend {
+     if(!observed||observed.reservationId!==billing.reservationId||!['reserved','captured','released'].includes(observed.state)||!Number.isSafeInteger(observed.seconds)||observed.seconds<1)throw new LedgerFault('invalid');
+     const snapshot=snapshotInput===undefined?undefined:copyDirectObservationSnapshot(snapshotInput);
+     if(snapshotInput!==undefined&&(!snapshot||!['status','seal'].includes(snapshot.source)))throw new LedgerFault('invalid');
+-    const key=hash([accountId,requestKey]),hold=externalHold(accountId,billing.identityKey,'intent',key),account=this.ref('accounts',accountId),intent=this.ref('billingIntents',key),request=this.ref('requests',key),guard=this.ref('billingGuards',accountId),incident=this.ref('billingReviewIncidents',key),holdRef=this.ref('billingHoldOutbox',hold.id),intentGuard=this.ref('billingIntentAdmissionGuards',key);
++    const key=hash([accountId,requestKey]),account=this.ref('accounts',accountId),intent=this.ref('billingIntents',key),request=this.ref('requests',key),guard=this.ref('billingGuards',accountId),incident=this.ref('billingReviewIncidents',key),intentGuard=this.ref('billingIntentAdmissionGuards',key);
+     return this.db.runTransaction(async tx=>{
+-      const [a,d,prior,blocked,existing,holdDoc,admission]=await tx.getAll(account,intent,request,guard,incident,holdRef,intentGuard);
++      const [a,d,prior,blocked,existing,admission]=await tx.getAll(account,intent,request,guard,incident,intentGuard);
++      // This occurrence's hold is named by the generation the guard write below will use, so it is computed from the same
++      // read and the same clock mark; all reads of this transaction stay before its first write.
++      const now=Date.now(),preview=this.guardPreview(blocked,accountId,{field:'lastIncidentId',id:key},now),
++        hold=preview?externalHold(accountId,billing.identityKey,'intent',key,preview):null,
++        holdRef=hold?this.ref('billingHoldOutbox',hold.id):null,holdDoc=holdRef?await tx.get(holdRef):null;
+       if(snapshot){
+         const witness=snapshot.witness;
+         if(witness.accountId!==accountId||witness.intentId!==key||!matchesExternalBilling(witness,billing))throw new LedgerFault('invalid');
+@@ -1166,15 +1243,17 @@ export class FirestoreBackend {
+       else if(mismatch)detected='seconds_mismatch';
+       else if(observed.state==='captured')detected='captured_without_job';
+       if(!detected&&!existing.exists)throw new LedgerFault('invalid');
+-      const now=Date.now(),old=existing.data();
++      const old=existing.data();
+       if(existing.exists&&(old?.accountId!==accountId||old?.intentId!==key||old?.identityKey!==billing.identityKey||old?.reservationId!==billing.reservationId||old?.expectedSeconds!==billing.seconds))throw new LedgerFault('invariant');
+       const reason:ExternalBillingReviewReason=existing.exists?old!.reason:detected!;
+       if(!['captured_without_job','seconds_mismatch','intent_job_mismatch','capture_before_success','release_before_failure','outbox_mismatch','remote_ack_intent_mismatch','remote_ack_closure_unverified','direct_status_uncertain'].includes(reason))throw new LedgerFault('invariant');
+-      const invalidHold=holdDoc.exists&&(!matchesHold(holdDoc.data(),hold)||!['pending','applied','needs_review'].includes(holdDoc.get('state')));
++      const invalidHold=!!hold&&!!holdDoc?.exists&&(!matchesHold(holdDoc.data(),hold)||!['pending','applied','needs_review'].includes(holdDoc.get('state')));
+       if(!existing.exists)tx.create(incident,{accountId,intentId:key,inputId:row.inputId,requestKey,operation:row.operation,revision:row.revision,identityKey:billing.identityKey,reservationId:billing.reservationId,expectedSeconds:billing.seconds,reason,firstObserved:{...observed,atMs:now},lastObserved:{...observed,atMs:now},createdAtMs:now,updatedAtMs:now,...(invalidHold?{holdProblem:'invalid_existing_event'}:{}),...(confirmedJobId?{jobId:confirmedJobId}:{})});
+       else tx.update(incident,{lastObserved:{...observed,atMs:now},updatedAtMs:now,...(invalidHold?{holdProblem:'invalid_existing_event'}:{})});
+-      if(!holdDoc.exists)tx.create(holdRef,{...hold,state:'pending',attempts:0,nextAttemptAt:now,createdAtMs:now});
+-      tx.set(guard,{accountId,blocked:true,lastIncidentId:key,updatedAtMs:now},{merge:true});
++      const generation=this.writeBlockedGuard(tx,blocked,accountId,{field:'lastIncidentId',id:key},now);
++      // The preview and the written generation must agree, or the hold would be named by a generation the guard does not have.
++      if(!preview||generation.epoch!==preview.epoch||generation.createdAtMs!==preview.createdAtMs)throw new LedgerFault('invariant');
++      if(hold&&holdRef&&!holdDoc?.exists)tx.create(holdRef,pendingHoldRow(hold,now));
+       tx.update(intent,{state:'needs_review',reviewReason:reason,reviewIncidentId:key,updatedAtMs:now});
+       if(validClearIntentAdmissionGuard(admission,key))tx.update(intentGuard,{state:'needs_review',incidentId:key,updatedAtMs:now});
+       return {state:'needs_review',reason};
+@@ -1192,10 +1271,13 @@ export class FirestoreBackend {
+     const snapshotBound=isRecovery?!!snapshot&&snapshot.intentId===key&&snapshot.action===terminalAction:!!direct&&direct.source===directSource&&sameIntentWitness(direct.witness,witness);
+     const directReceipt=direct&&snapshotBound?hash(['direct-observation-receipt-v1',directSnapshotHash(direct),observed.source,observed.action,observed.state,observed.reservationId,observed.seconds]):null;
+     const incidentId=hash(['billing-intent-observation-v1',key,observed.action,witness.accountId,witness.inputId,witness.operation,witness.revision,witness.identityKey,witness.reservationId,witness.seconds,...(observed.source==='resolution_status'?[observed.source,observed.terminalAction]:[observed.source,direct?.attemptId??'unbound'])]);
+-    const hold=externalHold(witness.accountId,witness.identityKey,'intent',key),intent=this.ref('billingIntents',key),review=this.ref('billingReviewIncidents',key),guard=this.ref('billingGuards',witness.accountId),holdRef=this.ref('billingHoldOutbox',hold.id),incident=this.ref('billingIntentObservationIncidents',incidentId);
++    const intent=this.ref('billingIntents',key),review=this.ref('billingReviewIncidents',key),guard=this.ref('billingGuards',witness.accountId),incident=this.ref('billingIntentObservationIncidents',incidentId);
+     return this.db.runTransaction(async tx=>{
+       const extra=isRecovery?[this.ref('billingIntentTerminalWitnesses',intentTerminalKey(key,'seal')),this.ref('billingIntentTerminalRecovery',intentTerminalKey(key,'seal')),this.ref('billingIntentTerminalWitnesses',intentTerminalKey(key,'release')),this.ref('billingIntentTerminalRecovery',intentTerminalKey(key,'release'))]:[];
+-      const [account,identity,input,origin,current,request,jobMarker,blocked,admission,terminal,oldReview,oldHold,oldIncident,...history]=await tx.getAll(this.ref('accounts',witness.accountId),this.ref('identities',witness.identityKey),this.ref('inputs',witness.inputId),this.ref('billingIntentWitnesses',key),intent,this.ref('requests',key),this.ref('billingIntentJobMarkers',key),guard,this.ref('billingIntentAdmissionGuards',key),this.ref('billingIntentTerminalWitnesses',intentTerminalKey(key,terminalAction)),review,holdRef,incident,...extra);
++      const [account,identity,input,origin,current,request,jobMarker,blocked,admission,terminal,oldReview,oldIncident,...history]=await tx.getAll(this.ref('accounts',witness.accountId),this.ref('identities',witness.identityKey),this.ref('inputs',witness.inputId),this.ref('billingIntentWitnesses',key),intent,this.ref('requests',key),this.ref('billingIntentJobMarkers',key),guard,this.ref('billingIntentAdmissionGuards',key),this.ref('billingIntentTerminalWitnesses',intentTerminalKey(key,terminalAction)),review,incident,...extra);
++      const now=Date.now(),preview=this.guardPreview(blocked,witness.accountId,{field:'lastIncidentId',id:key},now),
++        hold=preview?externalHold(witness.accountId,witness.identityKey,'intent',key,preview):null,
++        holdRef=hold?this.ref('billingHoldOutbox',hold.id):null,oldHold=holdRef?await tx.get(holdRef):null;
+       const directDocs=!isRecovery?await this.directObservationDocs(tx,witness):null;
+       const uid=identity.get('uid'),owner=account.exists&&identity.exists&&identity.get('accountId')===witness.accountId&&typeof uid==='string'&&!!uid&&uid.length<=128&&hash(['firebase',uid])===witness.identityKey&&input.exists&&input.get('accountId')===witness.accountId&&validStoredIntentWitness(origin,witness);
+       const compatible=observed.source!=='resolution_status'||observed.action==='release'||observed.terminalAction==='seal';
+@@ -1254,8 +1336,8 @@ export class FirestoreBackend {
+       const canClose=owner&&actionProven&&historyMatched&&same&&jobless&&guardValid&&!guarded&&(row!.state==='release_pending'||row!.state==='reserve_pending'&&observed.source==='status');
+       if(canClose){const now=Date.now();tx.update(intent,{state:'closed',...(observed.action==='release'?{releaseConfirmed:true,releaseReservationId:witness.reservationId,releaseSeconds:witness.seconds,releaseObservationSource:observed.source}:{sealConfirmed:true,sealReservationId:witness.reservationId,sealSeconds:witness.seconds,sealObservationSource:observed.source}),...(!isRecovery&&direct&&directReceipt?{directObservationReceiptHash:directReceipt,directObservationAttemptId:direct.attemptId}:{}),updatedAtMs:now});return {state:'closed',ownerBlocked:false};}
+       if(!recordReview)return {state:'needs_review',ownerBlocked:false};
+-      const now=Date.now(),reviewReason=(!isRecovery&&identicalClosed?'remote_ack_closure_unverified':'remote_ack_intent_mismatch') as ExternalBillingReviewReason,reviewValid=!oldReview.exists||oldReview.get('accountId')===witness.accountId&&oldReview.get('identityKey')===witness.identityKey&&oldReview.get('intentId')===key&&oldReview.get('reservationId')===witness.reservationId&&oldReview.get('expectedSeconds')===witness.seconds;
+-      const holdValid=!oldHold.exists||matchesHold(oldHold.data(),hold)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
++      const reviewReason=(!isRecovery&&identicalClosed?'remote_ack_closure_unverified':'remote_ack_intent_mismatch') as ExternalBillingReviewReason,reviewValid=!oldReview.exists||oldReview.get('accountId')===witness.accountId&&oldReview.get('identityKey')===witness.identityKey&&oldReview.get('intentId')===key&&oldReview.get('reservationId')===witness.reservationId&&oldReview.get('expectedSeconds')===witness.seconds;
++      const holdValid=!oldHold?.exists||matchesHold(oldHold.data(),hold!)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
+       if(oldIncident.exists&&(!sameIntentWitness(oldIncident.data(),witness)||oldIncident.get('action')!==observed.action||oldIncident.get('observedState')!==observed.state))throw new LedgerFault('invariant');
+       const attributed=!!owner&&guardValid&&snapshotBound,problem=!guardValid?'invalid_guard':!reviewValid?'invalid_review':!holdValid?'invalid_hold':null;
+       if(!oldIncident.exists)tx.create(incident,{...witness,state:'needs_review',action:observed.action,observedState:observed.state,source:observed.source,...(observed.source==='resolution_status'?{terminalAction:observed.terminalAction,historySnapshot:snapshotBound?snapshot:null,historySnapshotState:!snapshotBound?'missing_or_invalid':historyMatched?'matched':'changed'}:{directObservationSnapshot:snapshotBound?direct:null,directSnapshotState:!snapshotBound?'missing_or_invalid':historyMatched?'matched':'changed'}),attribution:attributed?'verified':'unverified',ownerBlocked:attributed,...(problem?{holdProblem:problem}:{}),createdAtMs:now,updatedAtMs:now});
+@@ -1263,8 +1345,9 @@ export class FirestoreBackend {
+       if(validClearIntentAdmissionGuard(admission,key))tx.update(admission.ref,{state:'needs_review',incidentId,updatedAtMs:now});
+       if(attributed){
+         if(reviewValid&&!oldReview.exists)tx.create(review,{accountId:witness.accountId,intentId:key,inputId:witness.inputId,operation:witness.operation,revision:witness.revision,identityKey:witness.identityKey,reservationId:witness.reservationId,expectedSeconds:witness.seconds,reason:reviewReason,firstConfirmedObservation:{...observed,atMs:now},createdAtMs:now,updatedAtMs:now});
+-        if(reviewValid&&holdValid&&!oldHold.exists)tx.create(holdRef,{...hold,state:'pending',attempts:0,nextAttemptAt:now,createdAtMs:now});
+-        tx.set(guard,{accountId:witness.accountId,blocked:true,lastIncidentId:key,updatedAtMs:now},{merge:true});
++        if(reviewValid&&holdValid&&!oldHold?.exists&&hold&&holdRef)tx.create(holdRef,pendingHoldRow(hold,now));
++        const generation=this.writeBlockedGuard(tx,blocked,witness.accountId,{field:'lastIncidentId',id:key},now);
++        if(!preview||generation.epoch!==preview.epoch||generation.createdAtMs!==preview.createdAtMs)throw new LedgerFault('invariant');
+         if(same&&row!.state!=='closed')tx.update(intent,{state:'needs_review',reviewReason:'remote_ack_intent_mismatch',reviewIncidentId:key,updatedAtMs:now});
+       }
+       return {state:'needs_review',ownerBlocked:attributed,incidentId};
+@@ -1324,6 +1407,8 @@ export class FirestoreBackend {
+   async pendingExternalHolds(limit=25){
+     if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
+     const rows=await this.root.collection('billingHoldOutbox').where('state','==','pending').where('nextAttemptAt','<=',Date.now()).orderBy('nextAttemptAt').limit(limit).get();
++    // The listing does NOT validate the generation: one poisoned row must not stop every other hold. The row already
++    // carries `epoch`/`createdAtMs` through `d.data()`; `authorizeExternalHold` validates it and sends the bad row to review.
+     return rows.docs.map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
+   }
+   /** Never send a hold for an owner inferred solely from a potentially corrupt outbox row. */
+@@ -1337,7 +1422,11 @@ export class FirestoreBackend {
+       if(!validUnleasedBillingMetadata(doc.data()!)){tx.update(ref,{state:'needs_review',reviewReason:'invalid_scheduling_metadata',updatedAtMs:Date.now()});return {state:'needs_review'};}
+       if(!Number.isSafeInteger(doc.get('nextAttemptAt'))||doc.get('nextAttemptAt')<0){tx.update(ref,{state:'needs_review',reviewReason:'invalid_due',updatedAtMs:Date.now()});return {state:'needs_review'};}
+       let expected:ExternalBillingHold|undefined;
+-      try{expected=externalHold(row.accountId as string,row.identityKey as string,row.sourceKind as 'intent'|'outbox',row.sourceId as string);}catch(error){if(!(error instanceof LedgerFault))throw error;}
++      try{
++        // The generation comes from the row itself (the writer stored it), never from the caller: a legacy row has none.
++        const generation=storedHoldGeneration(doc.data());
++        expected=externalHold(row.accountId as string,row.identityKey as string,row.sourceKind as 'intent'|'outbox',row.sourceId as string,generation);
++      }catch(error){if(!(error instanceof LedgerFault))throw error;}
+       if(!expected||expected.id!==row.id||!matchesHold(doc.data(),expected)){tx.update(ref,{state:'needs_review',reviewReason:'invalid_event',updatedAtMs:Date.now()});return {state:'needs_review'};}
+       const source=expected.sourceKind==='intent'?'billingReviewIncidents':'billingOutboxReviewIncidents';
+       const [account,identity,guard,incident]=await tx.getAll(this.ref('accounts',expected.accountId),this.ref('identities',expected.identityKey),this.ref('billingGuards',expected.accountId),this.ref(source,expected.sourceId));
+@@ -1349,7 +1438,7 @@ export class FirestoreBackend {
+     });
+   }
+   async markExternalHoldApplied(expected:ExternalBillingHold){
+-    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId);if(verified.id!==expected.id)throw new LedgerFault('invalid');
++    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId,expected.epoch===undefined?undefined:{epoch:expected.epoch,createdAtMs:expected.createdAtMs as number});if(verified.id!==expected.id)throw new LedgerFault('invalid');
+     return this.db.runTransaction(async tx=>{
+       const ref=this.ref('billingHoldOutbox',expected.id),[doc,guard]=await tx.getAll(ref,this.ref('billingGuards',expected.accountId));
+       if(!doc.exists||!matchesHold(doc.data(),expected)||!guard.exists||guard.get('accountId')!==expected.accountId||guard.get('blocked')!==true)return false;
+@@ -1358,7 +1447,7 @@ export class FirestoreBackend {
+     });
+   }
+   async recordExternalHoldFailure(expected:ExternalBillingHold,code:string,snapshotVersion?:string){
+-    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId);if(verified.id!==expected.id)throw new LedgerFault('invalid');
++    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId,expected.epoch===undefined?undefined:{epoch:expected.epoch,createdAtMs:expected.createdAtMs as number});if(verified.id!==expected.id)throw new LedgerFault('invalid');
+     if(typeof snapshotVersion!=='string'||!/^\d{1,15}:\d{9}(?![\s\S])/.test(snapshotVersion))return false;
+     if(!/^(unavailable|conflict|invalid|not_found|forbidden)$/.test(code))code='unavailable';
+     return this.db.runTransaction(async tx=>{
+@@ -1374,7 +1463,7 @@ export class FirestoreBackend {
+   }
+   /** Preserve a confirmed Account hold if the local event cannot be matched after its ACK. */
+   async recordExternalHoldAckMismatch(expected:ExternalBillingHold){
+-    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId);if(verified.id!==expected.id)throw new LedgerFault('invalid');
++    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId,expected.epoch===undefined?undefined:{epoch:expected.epoch,createdAtMs:expected.createdAtMs as number});if(verified.id!==expected.id)throw new LedgerFault('invalid');
+     return this.db.runTransaction(async tx=>{
+       const ref=this.ref('billingHoldAckIncidents',expected.id),doc=await tx.get(ref);
+       if(doc.exists){if(!matchesHold(doc.data(),expected))throw new LedgerFault('invariant');return false;}
+@@ -1934,9 +2023,9 @@ export class FirestoreBackend {
+       after={expected,ack,ackMatches,settlementSnapshot:snapshot&&matchesOutboxSnapshot(snapshot.expected,expected)?snapshot:null};
+     }
+     const key=hash(['billing-outbox-review-v1',outboxId,phase,version,after?safeOutboxAudit(after.expected):null]);
+-    const outbox=this.ref('billingOutbox',outboxId),incident=this.ref('billingOutboxReviewIncidents',key),holdRef=this.ref('billingHoldOutbox',hash(['account-hold-v1','outbox',key])),job=uuid.test(outboxId)?this.ref('jobs',outboxId):null;
++    const outbox=this.ref('billingOutbox',outboxId),incident=this.ref('billingOutboxReviewIncidents',key),job=uuid.test(outboxId)?this.ref('jobs',outboxId):null;
+     return this.db.runTransaction(async tx=>{
+-      const [current,existing,holdDoc,...jobDocs]=await tx.getAll(outbox,incident,holdRef,...(job?[job]:[])),jobDoc=jobDocs[0];
++      const [current,existing,...jobDocs]=await tx.getAll(outbox,incident,...(job?[job]:[])),jobDoc=jobDocs[0];
+       const currentVersion=current.exists?outboxVersion(current):null;
+       // LV-019.B double ACK (docs/specs/LV-019-B-doble-ack-liquidacion.md): another drainer already settled this exact row (same document: its createTime is the one
+       // read before the POST, only its updateTime moved), and the 13 other documents this POST validated still have their pre-POST versions, so the ACK confirms
+@@ -1983,8 +2072,10 @@ export class FirestoreBackend {
+             a?.accountId===owner.accountId&&a.jobId===outboxId&&a.inputId===owner.job.inputId)return {state:'changed',ownerBlocked:false};
+         }
+       }
+-      const idHash=hash(['billing-outbox-id',outboxId]),now=Date.now(),hold=owner?externalHold(owner.accountId,owner.billing.identityKey,'outbox',key):null;
+-      const invalidHold=!!hold&&holdDoc.exists&&(!matchesHold(holdDoc.data(),hold)||!['pending','applied','needs_review'].includes(holdDoc.get('state')));
++      const idHash=hash(['billing-outbox-id',outboxId]),now=Date.now(),
++        hold=owner?externalHold(owner.accountId,owner.billing.identityKey,'outbox',key,this.guardEpoch(owner.guardDoc,owner.accountId,{field:'lastOutboxIncidentId',id:key},now)):null,
++        holdDoc=hold?await tx.get(this.ref('billingHoldOutbox',hold.id)):null;
++      const invalidHold=!!hold&&!!holdDoc!.exists&&(!matchesHold(holdDoc!.data(),hold!)||!['pending','applied','needs_review'].includes(holdDoc!.get('state')));
+       if(existing.exists&&(existing.get('outboxIdHash')!==idHash||existing.get('phase')!==phase))throw new LedgerFault('invariant');
+       const audit={state:'needs_review',phase,reason:after?'remote_ack_outbox_changed':'invalid_outbox',outboxId:uuid.test(outboxId)?outboxId:null,outboxIdHash:idHash,
+         snapshotVersion:version,currentVersion,expected:safeOutboxAudit(after?after.expected:current.data()),
+@@ -1995,8 +2086,10 @@ export class FirestoreBackend {
+       // A terminal row is evidence and must not be rewritten even when it conflicts with this ACK.
+       if(current.exists&&current.get('state')!=='settled')tx.update(outbox,{state:'needs_review',reviewIncidentId:key,updatedAtMs:now});
+       if(owner){
+-        if(hold&&!holdDoc.exists)tx.create(holdRef,{...hold,state:'pending',attempts:0,nextAttemptAt:now,createdAtMs:now});
+-        tx.set(owner.guard,{accountId:owner.accountId,blocked:true,lastOutboxIncidentId:key,updatedAtMs:now},{merge:true});
++        const generation=this.writeBlockedGuard(tx,owner.guardDoc,owner.accountId,{field:'lastOutboxIncidentId',id:key},now);
++        // The hold was named from the preview of this same write; a disagreement would name an id the guard does not carry.
++        if(!hold||generation.epoch!==hold.epoch||generation.createdAtMs!==hold.createdAtMs)throw new LedgerFault('invariant');
++        if(!holdDoc!.exists)tx.create(this.ref('billingHoldOutbox',hold.id),pendingHoldRow(hold,now));
+         if(owner.intentState==='job_created')tx.update(owner.intent,{state:'needs_review',reviewReason:'outbox_mismatch',reviewOutboxIncidentId:key,updatedAtMs:now});
+       }
+       return {state:'needs_review',ownerBlocked:!!owner,incidentId:key};
+
+=== ARCHIVO NUEVO server/commercial/billingHoldIdentity.ts ===
+/**
+ * LV-019.B step 1.4b: the single identity of one OCCURRENCE of an external billing hold.
+ *
+ * The same value is the Video `billingHoldOutbox` document id and Account's incident id (the drainer sends `hold.id`
+ * verbatim), so a block, its audited unblock and its alert all name one incident instead of two parallel ids.
+ * Account refuses to re-block an incident it already reviewed, so a row that diverges again after an unblock must
+ * arrive with a NEW id: the generation (the Video guard's `epoch` plus its `createdAtMs`) is exactly what changes
+ * between two occurrences of the same row. Rows written before this step have no generation and keep the legacy id.
+ */
+import {createHash} from 'node:crypto';
+
+const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+export type HoldGeneration={epoch:number;createdAtMs:number};
+export type HoldKind='intent'|'outbox';
+
+/** The id of a pre-1.4b hold (and of a legacy row read back by the drainer): no generation is part of the hash. */
+export function legacyHoldId(sourceKind:HoldKind,sourceId:string){return hash(['account-hold-v1',sourceKind,sourceId]);}
+/** The id of one hold occurrence; a missing generation means the legacy id. */
+export function holdId(sourceKind:HoldKind,sourceId:string,generation?:HoldGeneration){
+  return generation?hash(['account-hold-v1',sourceKind,sourceId,generation.epoch,generation.createdAtMs]):legacyHoldId(sourceKind,sourceId);
+}
+/** The generated id of a hold occurrence, named after the guard generation that wrote it. */
+export function accountHoldId(sourceKind:HoldKind,sourceId:string,epoch:number,createdAtMs:number){
+  return holdId(sourceKind,sourceId,{epoch,createdAtMs});
+}
+
+=== ARCHIVO NUEVO server/commercial/billingUnblock.ts ===
+﻿/**
+ * LV-019.B step 1.4b piece 2: the audited reopening of a blocked Video account (phases 0, 1 and 3; phase 2 is Account).
+ *
+ * What it is NOT: it never moves balance, never captures and never edits a reservation. It never takes the drain lease
+ * (design 2.8) and it never implements the exit of a blocked account's reservations (piece 3).
+ * What it IS: an operator names ONE incident and the exact guard generation (epoch + createdAtMs) plus the durable
+ * evidence, and this module (0) proves the state, (1) writes an immutable `unblock_requested` record, (2) lets the
+ * caller ask Account first and only then (3) releases the Video guard and advances exactly the rows of that incident.
+ *
+ * ORDER. Account goes first: if Video failed after Account confirmed, Video stays blocked, which is the conservative
+ * side, and a repeat resumes the pending phase. Every phase re-reads the guard generation, so a block that lands in
+ * between aborts the attempt instead of being overwritten.
+ *
+ * PRECONDITIONS for any endpoint (this module is a library, wired to no route): `authorizedBy` must come from an
+ * authenticated principal on the allowlist, never from the request body, and `nowMs` must be the server clock; nothing
+ * here can verify either. `accountEpoch`/`accountCreatedAtMs` belong to ACCOUNT's guard and Video cannot read them
+ * (Account is the authority and its HTTP surface has no status read for the guard), so the authenticated operator tool
+ * of step 3.5 supplies them -- see the limits in docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md and the receipt.
+ *
+ * `AccountBillingClient.unblock` returns `blocked:true` when OTHER Account incidents remain: `unblocked:true` never
+ * means the account is open, so the Video guard is only released when Account reports `blocked:false` AND Video has no
+ * other unresolved row.
+ *
+ * Design: docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md (v2, 2.4/2.5/2.8, 3.3, 3.4, 3.6)
+ */
+import {createHash} from 'node:crypto';
+import {FieldValue,type DocumentReference,type DocumentSnapshot,type Firestore,type Transaction} from 'firebase-admin/firestore';
+import {ALERT_COLLECTION,alertIdentity} from './billingPendingAlerts';
+import {accountHoldId,legacyHoldId} from './billingHoldIdentity';
+
+/** Immutable Video records of one audited unblock; one document per (incident, action). */
+export const UNBLOCK_AUDIT_COLLECTION='billingUnblockAudit';
+export type UnblockAction='unblock_requested'|'unblocked'|'video_released';
+export class UnblockFault extends Error{constructor(readonly code:'invalid'|'not_found'|'conflict'|'corrupt'|'unresolved'){super(code);}}
+
+const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[a-f0-9]{12}$/i;
+const hex64=/^[a-f0-9]{64}$/;
+const digest=(value:unknown):value is string=>typeof value==='string'&&hex64.test(value);
+const actorPattern=/^[a-z0-9][a-z0-9._:-]{0,63}$/i;
+const evidencePattern=/^[^\u0000-\u001f\u007f]{1,200}$/;
+const notePattern=/^[^\u0000-\u001f\u007f]{1,500}$/;
+const whole=(value:unknown,minimum=0):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=minimum;
+
+/**
+ * The deterministic id of one audited step of one OCCURRENCE: a repeat of the same step of the same guard generation
+ * is the same document. An intent's incident key is the intent id, which does not change when the row diverges again,
+ * so the guard generation (epoch + createdAtMs) is part of the id: without it a second occurrence would find the
+ * `unblocked` record of the first and answer as a replay/conflict forever.
+ */
+export function unblockAuditId(incidentKey:string,action:UnblockAction,epoch:number,createdAtMs:number):string{
+  return hash(['billing-unblock-v2',incidentKey,epoch,createdAtMs,action]);
+}
+/**
+ * The hold document id AND Account's incident id of one OCCURRENCE of a Video incident. Both sides use ONE value (the
+ * drainer sends `hold.id` as the incident id), and it already carries the guard generation, which is exactly what
+ * changes between two occurrences of the same row -- the reason a re-block after an unblock is accepted by Account.
+ */
+export function videoHoldId(kind:'intent'|'outbox',incidentKey:string,epoch:number,createdAtMs:number):string{
+  return accountHoldId(kind,incidentKey,epoch,createdAtMs);
+}
+
+export interface UnblockRequest{
+  /** The Video incident key the guard names (`lastIncidentId` or `lastOutboxIncidentId`). */
+  incidentId:string;
+  /** The open `guard` alert of that account and generation. */
+  alertKey:string;
+  /** The guard generation the operator read: an old one cannot clear a newer block. */
+  epoch:number;createdAtMs:number;updatedAtMs:number;
+  /** Account's own guard generation (trusted: supplied by the authenticated operator tool, never by the identity body). */
+  accountEpoch:number;accountCreatedAtMs:number;
+  /** Durable reference to the evidence the operator reviewed (also Account's `reviewRef`). */
+  evidenceRef:string;note?:string;
+}
+export interface UnblockReceipt{
+  unblocked:true;replayed:boolean;
+  /** Account still holds this owner because other incidents remain unreviewed. */
+  accountBlocked:boolean;
+  /** Whether the Video guard still blocks after this call. */
+  videoBlocked:boolean;
+  /** Rows handed back by this call (Video side). */
+  advanced:string[];
+  auditId:string;
+}
+export interface UnblockDeps{
+  db:Firestore;root:DocumentReference;
+  accountBilling:{unblock(identityKey:string,request:{incidentId:string;epoch:number;createdAtMs:number;reviewRef:string}):Promise<{unblocked:true;replayed:boolean;blocked:boolean}>};
+}
+
+type Clean={incidentKey:string;alertKey:string;epoch:number;createdAtMs:number;updatedAtMs:number;accountEpoch:number;accountCreatedAtMs:number;evidenceRef:string;note:string|null};
+type PlannedRow={collection:string;id:string;state:string|null;reviewField?:string;to:string|null;toReviewField?:string|null;exitState?:string};
+type AccountRow={accountId:string;state:string|null;reviewedAtMs:number|null};
+
+function cleanRequest(request:unknown):Clean{
+  if(!request||typeof request!=='object'||Array.isArray(request))throw new UnblockFault('invalid');
+  const r=request as Record<string,unknown>;
+  const allowed=['incidentId','alertKey','epoch','createdAtMs','updatedAtMs','accountEpoch','accountCreatedAtMs','evidenceRef','note'];
+  if(Object.keys(r).some(key=>!allowed.includes(key)))throw new UnblockFault('invalid');
+  const {incidentId,alertKey,epoch,createdAtMs,updatedAtMs,accountEpoch,accountCreatedAtMs,evidenceRef}=r,note=r.note??null;
+  if(!digest(incidentId)||!digest(alertKey))throw new UnblockFault('invalid');
+  if(!whole(epoch,1)||!whole(createdAtMs)||!whole(updatedAtMs)||!whole(accountEpoch,1)||!whole(accountCreatedAtMs))throw new UnblockFault('invalid');
+  if(typeof evidenceRef!=='string'||!evidencePattern.test(evidenceRef))throw new UnblockFault('invalid');
+  if(note!==null&&(typeof note!=='string'||!notePattern.test(note)))throw new UnblockFault('invalid');
+  return {incidentKey:incidentId as string,alertKey:alertKey as string,epoch:epoch as number,createdAtMs:createdAtMs as number,updatedAtMs:updatedAtMs as number,accountEpoch:accountEpoch as number,accountCreatedAtMs:accountCreatedAtMs as number,evidenceRef,note:note as string|null};
+}
+/**
+ * The `state` a `guard` report row carries (`billingPendingReport.ts`): the guard generation. The epoch restarts at 1 after
+ * the guard is deleted, so the creation mark is required too, or an old alert would answer for a newer block.
+ */
+export function blockedState(epoch:number,createdAtMs:number,incidentKey:string):string{return 'blocked:'+epoch+':'+createdAtMs+':'+incidentKey;}
+/** The guard generation, with the declared legacy rule: no `epoch` is epoch 1, but no `createdAtMs` cannot be named. */
+function generation(doc:DocumentSnapshot):{epoch:number;createdAtMs:number;updatedAtMs:number}{
+  const stored=doc.get('epoch'),createdAtMs=doc.get('createdAtMs'),updatedAtMs=doc.get('updatedAtMs');
+  if(stored!==undefined&&(!whole(stored,1)))throw new UnblockFault('corrupt');
+  if(!whole(createdAtMs)||!whole(updatedAtMs))throw new UnblockFault('corrupt');
+  return {epoch:stored===undefined?1:stored,createdAtMs,updatedAtMs};
+}
+
+/**
+ * Every row of the account that still needs attention, read with one equality per collection on `accountId` (served by
+ * the automatic single-field index; no composite index). A row that belongs to the incident being unblocked is kept
+ * apart: everything else must be resolved before any guard is released (design 3.3, phase 0).
+ */
+async function accountRows(tx:Transaction,root:DocumentReference,accountId:string){
+  // Read through the caller's transaction: a rival row that commits between this read and the release makes the
+  // transaction retry (or abort), instead of slipping past a non-transactional snapshot. Every caller runs these reads
+  // before its first write, as Firestore requires.
+  const read=async(collection:string)=>{
+    const page=await tx.get(root.collection(collection).where('accountId','==',accountId));
+    return page.docs.map(doc=>({id:doc.id,data:doc.data() as Record<string,unknown>}));
+  };
+  const intents=await read('billingIntents'),outboxes=await read('billingOutbox'),holds=await read('billingHoldOutbox'),
+    reviews=await read('billingReviewIncidents'),outboxIncidents=await read('billingOutboxReviewIncidents'),observationIncidents=await read('billingIntentObservationIncidents');
+  return {intents,outboxes,holds,reviews,outboxIncidents,observationIncidents};
+}
+function unresolvedRows(rows:Awaited<ReturnType<typeof accountRows>>,owned:Set<string>){
+  const out:string[]=[];
+  const add=(collection:string,doc:{id:string;data:Record<string,unknown>})=>{const path=collection+'/'+doc.id;if(!owned.has(path))out.push(path);};
+  for(const doc of rows.intents)if(doc.data.state==='needs_review')add('billingIntents',doc);
+  for(const doc of rows.outboxes)if(doc.data.state==='needs_review')add('billingOutbox',doc);
+  for(const doc of rows.holds)if(doc.data.state==='pending'||doc.data.state==='needs_review')add('billingHoldOutbox',doc);
+  for(const doc of rows.reviews)if(!whole(doc.data.reviewedAtMs))add('billingReviewIncidents',doc);
+  for(const doc of rows.outboxIncidents)if(!whole(doc.data.reviewedAtMs))add('billingOutboxReviewIncidents',doc);
+  for(const doc of rows.observationIncidents)if(!whole(doc.data.reviewedAtMs))add('billingIntentObservationIncidents',doc);
+  return out.sort();
+}
+
+/** Which incident the guard names, and the rows that belong to it. */
+function incidentOf(guard:DocumentSnapshot,rows:Awaited<ReturnType<typeof accountRows>>,incidentKey:string,generation:{epoch:number;createdAtMs:number}){
+  const intentKey=guard.get('lastIncidentId'),outboxKey=guard.get('lastOutboxIncidentId');
+  const intent=intentKey===incidentKey,outbox=outboxKey===incidentKey;
+  if(intent===outbox)return null; // neither names it, or both do (corrupt)
+  const kind:'intent'|'outbox'=intent?'intent':'outbox',
+    // The hold of this occurrence is named after the guard generation the operator read; a legacy guard (no generation)
+    // still has its hold under the pre-1.4b id, and that row is accepted only as a legacy row.
+    holdId=videoHoldId(kind,incidentKey,generation.epoch,generation.createdAtMs),legacyId=legacyHoldId(kind,incidentKey);
+  const owned=new Set<string>(['billingHoldOutbox/'+holdId,'billingHoldOutbox/'+legacyId]);
+  const planned:PlannedRow[]=[];
+  const hold=rows.holds.find(doc=>doc.id===holdId&&(doc.data.epoch===undefined||doc.data.epoch===generation.epoch&&doc.data.createdAtMs===generation.createdAtMs))
+    ??rows.holds.find(doc=>doc.id===legacyId&&doc.data.epoch===undefined);
+  if(hold&&(hold.data.state==='pending'||hold.data.state==='needs_review')){planned.push({collection:'billingHoldOutbox',id:hold.id,state:String(hold.data.state),to:'applied'});}
+  if(kind==='intent'){
+    owned.add('billingReviewIncidents/'+incidentKey);
+    const review=rows.reviews.find(doc=>doc.id===incidentKey);
+    if(review&&!whole(review.data.reviewedAtMs))planned.push({collection:'billingReviewIncidents',id:incidentKey,state:null,to:null});
+    for(const doc of rows.observationIncidents)if(doc.data.intentId===incidentKey&&!whole(doc.data.reviewedAtMs)){owned.add('billingIntentObservationIncidents/'+doc.id);planned.push({collection:'billingIntentObservationIncidents',id:doc.id,state:String(doc.data.state??'needs_review'),to:'reviewed'});}
+    const intentRow=rows.intents.find(doc=>doc.id===incidentKey);
+    if(intentRow){owned.add('billingIntents/'+incidentKey);
+      if(intentRow.data.state==='needs_review')planned.push({collection:'billingIntents',id:incidentKey,state:'needs_review',reviewField:typeof intentRow.data.reviewIncidentId==='string'?'reviewIncidentId':'reviewOutboxIncidentId',to:null,toReviewField:null});
+    }
+  }else{
+    owned.add('billingOutboxReviewIncidents/'+incidentKey);
+    const incident=rows.outboxIncidents.find(doc=>doc.id===incidentKey);
+    if(incident){
+      if(!whole(incident.data.reviewedAtMs))planned.push({collection:'billingOutboxReviewIncidents',id:incidentKey,state:String(incident.data.state??'needs_review'),to:'reviewed'});
+      const outboxId=incident.data.outboxId;
+      if(typeof outboxId==='string'){owned.add('billingOutbox/'+outboxId);
+        const row=rows.outboxes.find(doc=>doc.id===outboxId);
+        if(row&&row.data.state==='needs_review')planned.push({collection:'billingOutbox',id:outboxId,state:'needs_review',reviewField:'reviewIncidentId',to:'retry_wait',toReviewField:null});
+      }
+      // The outbox incident does not store the intent id: the intent is the row this incident named, read back through
+      // its own review pointer. Only an intent that points at THIS incident is owned and advanced.
+      for(const intentRow of rows.intents)if(intentRow.data.reviewOutboxIncidentId===incidentKey||intentRow.data.reviewIncidentId===incidentKey){
+        const field=intentRow.data.reviewOutboxIncidentId===incidentKey?'reviewOutboxIncidentId':'reviewIncidentId';
+        owned.add('billingIntents/'+intentRow.id);
+        if(intentRow.data.state==='needs_review')planned.push({collection:'billingIntents',id:intentRow.id,state:'needs_review',reviewField:field,to:null,toReviewField:null});
+      }
+    }
+  }
+  return {kind,holdId,owned,planned};
+}
+/**
+ * An intent incident closes its intent's admission: `billingIntentAdmissionGuards/<intentId>` goes to `needs_review` with
+ * `incidentId` + `updatedAtMs` (firestoreBackend.ts). Many paths demand the EXACT 4-field `clear` shape, so an unblock
+ * that hands the intent back must also restore it, or the intent can never be admitted again. Only a guard that names
+ * THIS incident (or one of the observation incidents this unblock already hands back) belongs to it; never an outbox
+ * incident, and never a guard that is absent or already clear.
+ */
+function intentAdmissionRow(admission:DocumentSnapshot,incidentKey:string,planned:PlannedRow[]):PlannedRow|null{
+  if(!admission.exists||admission.get('state')!=='needs_review')return null;
+  const named=admission.get('incidentId');
+  if(named!==incidentKey&&!planned.some(row=>row.collection==='billingIntentObservationIncidents'&&row.id===named))return null;
+  return {collection:'billingIntentAdmissionGuards',id:incidentKey,state:'needs_review',to:'clear'};
+}
+
+/**
+ * The audited unblock. Phases: (A) prove the state and record `unblock_requested` in one transaction, (B) ask Account,
+ * (C) re-read the same generation and release. A repeat resumes the pending phase; an identical, completed call is a
+ * replay without writes; any different payload for the same incident is a conflict.
+ */
+export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,request:UnblockRequest,authorizedBy:string,nowMs:number):Promise<UnblockReceipt>{
+  if(!deps||typeof deps!=='object'||!deps.db||!deps.root||!deps.accountBilling)throw new UnblockFault('invalid');
+  if(!uuid.test(accountId))throw new UnblockFault('invalid');
+  if(typeof authorizedBy!=='string'||!actorPattern.test(authorizedBy))throw new UnblockFault('invalid');
+  if(!whole(nowMs))throw new UnblockFault('invalid');
+  const clean=cleanRequest(request);
+  const {db,root}=deps,guardRef=root.collection('billingGuards').doc(accountId),alertRef=root.collection(ALERT_COLLECTION).doc(clean.alertKey);
+  const requestedRef=root.collection(UNBLOCK_AUDIT_COLLECTION).doc(unblockAuditId(clean.incidentKey,'unblock_requested',clean.epoch,clean.createdAtMs));
+  const doneRef=root.collection(UNBLOCK_AUDIT_COLLECTION).doc(unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs));
+  const releasedRef=root.collection(UNBLOCK_AUDIT_COLLECTION).doc(unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs));
+  const payload={incidentKey:clean.incidentKey,alertKey:clean.alertKey,epoch:clean.epoch,createdAtMs:clean.createdAtMs,updatedAtMs:clean.updatedAtMs,evidenceRef:clean.evidenceRef,note:clean.note,authorizedBy};
+
+  // Phase 0 + 1: the read and the first immutable record share one transaction, so the audited state is the proven one.
+  const opened=await db.runTransaction(async tx=>{
+    const [guard,alert,requested,done,released]=await tx.getAll(guardRef,alertRef,requestedRef,doneRef,releasedRef);
+    const same=(data:Record<string,unknown>|undefined)=>!!data&&Object.entries(payload).every(([key,value])=>data[key]===value);
+    // The caller is authenticated BEFORE this module: `authorizedBy` is its verified identity, not payload. Re-using an
+    // audited unblock with a different principal is not a replay of the same request, so it is a conflict (an argument
+    // mismatch), not a second operator's write; the same principal repeating the call is the replay.
+    const samePayload=(data:Record<string,unknown>|undefined)=>!!data&&Object.entries(payload).every(([key,value])=>key==='authorizedBy'||data[key]===value);
+    const sameOperator=(data:Record<string,unknown>|undefined)=>!!data&&data.authorizedBy===authorizedBy;
+    // An audited record only answers while it still describes the CURRENT guard: the epoch restarts at 1 when the guard
+    // is deleted, so a record of another generation must not replay as success over a newer block.
+    // The generation alone is not enough: the epoch restarts at 1 when the guard is deleted, and the creation mark can
+    // repeat in the same millisecond, so a record also has to name the SAME incident the live guard names.
+    const sameGeneration=guard.exists&&guard.get('blocked')===true&&guard.get('accountId')===accountId&&
+      guard.get('epoch')===clean.epoch&&guard.get('createdAtMs')===clean.createdAtMs&&
+      (guard.get('lastIncidentId')===clean.incidentKey||guard.get('lastOutboxIncidentId')===clean.incidentKey);
+    // A partial release already finished (Account had no other incident and Video released): a pure replay, checked
+    // BEFORE any Account call so a third identical request writes nothing and never asks Account again.
+    if(released.exists){
+      const data=released.data() as Record<string,unknown>|undefined;
+      if(!samePayload(data)||!sameOperator(data))throw new UnblockFault('conflict');
+      // `video_released` was created in the same transaction that deleted the guard, so a live BLOCKED guard is a NEWER
+      // block (another incident on the same row) and never the generation this record released. Answering `replayed`
+      // here would tell the operator the account is open while another incident blocks it.
+      if(guard.exists&&guard.get('blocked')===true)throw new UnblockFault('conflict');
+      return {replayed:true as const,record:data!,videoReleased:true as const};
+    }
+    if(done.exists){
+      const data=done.data() as Record<string,unknown>|undefined;
+      if(!samePayload(data)||!sameOperator(data))throw new UnblockFault('conflict');
+      if(guard.exists&&guard.get('blocked')===true){
+        // `unblocked` is created in the SAME transaction that deletes the guard, so a live guard here is the PARTIAL
+        // result: Account still had other incidents and the Video guard survived. It is not a newer block unless the
+        // generation moved; the epoch restarts at 1 after a delete, so the creation mark is what distinguishes them.
+        if(!sameGeneration)throw new UnblockFault('conflict');
+        // Same generation: the partial result stands. The repeat must ask Account again and may finish the release.
+        return {replayed:false as const,record:data!,partial:true as const};
+      }
+      return {replayed:true as const,record:data!};
+    }
+    if(requested.exists){
+      const data=requested.data() as Record<string,unknown>|undefined;
+      if(!samePayload(data))throw new UnblockFault('conflict');
+      if(authorizedBy!==data.authorizedBy)throw new UnblockFault('conflict');
+      if(guard.exists&&guard.get('blocked')===true&&!sameGeneration)throw new UnblockFault('conflict');
+      return {replayed:false as const,record:data!,resume:true as const};
+    }
+    if(!alert.exists)throw Object.assign(new UnblockFault('not_found'),{stage:'alert_missing'});
+    const identity=alertIdentity(alert);
+    if(!identity)throw Object.assign(new UnblockFault('corrupt'),{stage:'alert_identity'});
+    if(identity.kind!=='guard'||identity.rowId!==accountId)throw Object.assign(new UnblockFault('conflict'),{stage:'alert_owner'});
+    if(identity.status!=='open')throw Object.assign(new UnblockFault('conflict'),{stage:'alert_status'});
+    // The alert is per account AND generation: an alert of another epoch (or of a guard recreated with the same epoch
+    // after a delete) is not this block.
+    if(identity.state!==blockedState(clean.epoch,clean.createdAtMs,clean.incidentKey))throw Object.assign(new UnblockFault('conflict'),{stage:'alert_state:'+identity.state});
+    if(!guard.exists||guard.get('blocked')!==true||guard.get('accountId')!==accountId)throw Object.assign(new UnblockFault('conflict'),{stage:'guard_shape'});
+    const current=generation(guard);
+    if(current.epoch!==clean.epoch||current.createdAtMs!==clean.createdAtMs||current.updatedAtMs!==clean.updatedAtMs)throw Object.assign(new UnblockFault('conflict'),{stage:'generation:'+JSON.stringify([current,clean.epoch,clean.createdAtMs,clean.updatedAtMs])});
+    // The operator-selected incident must be the one the guard names.
+    const rows=await accountRows(tx,root,accountId);
+    const incident=incidentOf(guard,rows,clean.incidentKey,current);
+    if(!incident)throw Object.assign(new UnblockFault('conflict'),{stage:'incident:keys:'+JSON.stringify([guard.get('lastIncidentId'),guard.get('lastOutboxIncidentId'),clean.incidentKey])});
+    const rivals=unresolvedRows(rows,incident.owned);
+    if(rivals.length)throw Object.assign(new UnblockFault('unresolved'),{stage:'rivals:'+rivals.join(',')});
+    // Read (still before this transaction's first write) the intent's admission guard. It carries no `accountId`, so it
+    // never appears in `accountRows`; an intent incident of THIS occurrence must return it to its `clear` shape.
+    if(incident.kind==='intent'){
+      const admission=await tx.get(root.collection('billingIntentAdmissionGuards').doc(clean.incidentKey));
+      const admissionRow=intentAdmissionRow(admission,clean.incidentKey,incident.planned);
+      if(admissionRow){incident.planned.push(admissionRow);incident.owned.add('billingIntentAdmissionGuards/'+clean.incidentKey);}
+    }
+    const auditId=unblockAuditId(clean.incidentKey,'unblock_requested',clean.epoch,clean.createdAtMs);
+    tx.create(requestedRef,{auditId,action:'unblock_requested',...payload,kind:incident.kind,accountId,holdId:incident.holdId,
+      accountEpoch:clean.accountEpoch,accountCreatedAtMs:clean.accountCreatedAtMs,
+      planned:incident.planned,reviewedRivals:rivals,recordedAtMs:nowMs});
+    return {replayed:false as const,record:{planned:incident.planned,kind:incident.kind,holdId:incident.holdId} as Record<string,unknown>,resume:false as const};
+  });
+  if(opened.replayed)return {unblocked:true,replayed:true,accountBlocked:Boolean(opened.record.accountBlocked),
+    videoBlocked:'videoReleased' in opened?false:Boolean(opened.record.videoBlocked),
+    advanced:Array.isArray(opened.record.advanced)?opened.record.advanced.map(String):[],auditId:String(opened.record.auditId)};
+
+  const record=opened.record,planned=record.planned as PlannedRow[];
+  const kind=String(record.kind) as 'intent'|'outbox',holdId=String(record.holdId);
+  // Phase 2: Account first. A refusal here leaves every Video row untouched. Account's incident id IS the hold id: the
+  // drainer sends `hold.id` verbatim, so naming anything else here would unblock an incident Account never recorded.
+  // Any Account refusal (a stale generation, an unknown incident, unavailable) surfaces as a retryable conflict of THIS
+  // operation: nothing of the Video side is written and the audited request stays visible for a repeated attempt.
+  // Partial repeat: Account answered `blocked:true` earlier, so Video kept its guard and already advanced this
+  // incident's rows. Ask Account again: while it still reports `blocked:true` nothing is written; once it reports
+  // `blocked:false` and Video has no rival row, ONE transaction releases the guard and dispositions the alert.
+  if('partial' in opened){
+    const partial=opened.record;
+    let again:{unblocked:true;replayed:boolean;blocked:boolean};
+    try{again=await deps.accountBilling.unblock(await identityKeyOf(root,accountId),{incidentId:String(partial.holdId),epoch:clean.accountEpoch,createdAtMs:clean.accountCreatedAtMs,reviewRef:clean.evidenceRef});}
+    catch(error){throw Object.assign(new UnblockFault('conflict'),{stage:'account',cause:error});}
+    if(again.blocked)return {unblocked:true,replayed:true,accountBlocked:true,videoBlocked:true,
+      advanced:Array.isArray(partial.advanced)?partial.advanced.map(String):[],auditId:String(partial.auditId)};
+    return db.runTransaction(async tx=>{
+      const [guard,alert]=await tx.getAll(guardRef,alertRef);
+      if(!guard.exists||guard.get('blocked')!==true)throw new UnblockFault('conflict');
+      const current=generation(guard);
+      if(current.epoch!==clean.epoch||current.createdAtMs!==clean.createdAtMs)throw new UnblockFault('conflict');
+      const identity=alert.exists?alertIdentity(alert):null;
+      if(!identity||identity.status!=='open'||identity.state!==blockedState(clean.epoch,clean.createdAtMs,clean.incidentKey))throw new UnblockFault('conflict');
+      // The incident's rows were advanced by the first call; only a RIVAL row keeps the guard, and then nothing is written.
+      const rivals=unresolvedRows(await accountRows(tx,root,accountId),new Set());
+      if(rivals.length)return {unblocked:true as const,replayed:true as const,accountBlocked:false,videoBlocked:true as const,
+        advanced:Array.isArray(partial.advanced)?partial.advanced.map(String):[],auditId:String(partial.auditId)};
+      tx.delete(guardRef);
+      tx.update(alertRef,{status:'dispositioned',dispositionedAtMs:nowMs,dispositionedBy:authorizedBy,dispositionAuditId:unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs)});
+      const releasedId=unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs);
+      tx.create(releasedRef,{auditId:releasedId,action:'video_released',...payload,kind:String(partial.kind),accountId,holdId:String(partial.holdId),
+        advanced:[],accountBlocked:false,videoRivals:rivals,recordedAtMs:nowMs});
+      return {unblocked:true as const,replayed:false as const,accountBlocked:false,videoBlocked:false as const,advanced:[],auditId:releasedId};
+    });
+  }
+
+  let account:{unblocked:true;replayed:boolean;blocked:boolean};
+  try{account=await deps.accountBilling.unblock(await identityKeyOf(root,accountId),{incidentId:holdId,epoch:clean.accountEpoch,createdAtMs:clean.accountCreatedAtMs,reviewRef:clean.evidenceRef});}
+  catch(error){throw Object.assign(new UnblockFault('conflict'),{stage:'account',cause:error});}
+
+  // Phase 3: only after Account confirmed, re-read the SAME generation and advance exactly the audited rows.
+  return db.runTransaction(async tx=>{
+    // Every read of this transaction happens before its first write: the guard generation, the alert, the audited rows
+    // and, for an intent, the state its exit depends on.
+    const [guard,alert]=await tx.getAll(guardRef,alertRef);
+    if(!guard.exists||guard.get('blocked')!==true)throw new UnblockFault('conflict');
+    const current=generation(guard);
+    if(current.epoch!==clean.epoch||current.createdAtMs!==clean.createdAtMs)throw new UnblockFault('conflict');
+    const identity=alert.exists?alertIdentity(alert):null;
+    if(!identity||identity.status!=='open'||identity.state!==blockedState(clean.epoch,clean.createdAtMs,clean.incidentKey))throw new UnblockFault('conflict');
+    const rows:Array<{planned:PlannedRow;snap:DocumentSnapshot;exit?:string}>=[];
+    for(const row of planned){
+      const snap=await tx.get(root.collection(row.collection).doc(row.id));
+      if(!snap.exists)continue;
+      const data=snap.data() as Record<string,unknown>;
+      // Only a row whose reread still matches the audited tuple is advanced; anything else aborts untouched.
+      // A hold is not owned by this unblock the way an outbox row is: the drainer may deliver it (`applied`) or the
+      // authorizer may send it to `needs_review` after the audited read, and none of those settle the guard. Accepting
+      // those two extra states keeps a retry from being stranded forever on a frozen `planned` tuple; anything else is
+      // still a conflict.
+      const holdSettled=row.collection==='billingHoldOutbox';
+      if(row.state!==null&&data.state!==row.state&&!(holdSettled&&(data.state==='applied'||data.state==='needs_review')))throw new UnblockFault('conflict');
+      if(holdSettled&&data.state==='applied')continue;
+      if(row.reviewField&&data[row.reviewField]!==clean.incidentKey)throw new UnblockFault('conflict');
+      if(row.collection==='billingIntents'){
+        const [intent,witness]=await tx.getAll(snap.ref,root.collection('billingIntentWitnesses').doc(row.id));
+        rows.push({planned:row,snap,exit:intentExit(intent,witness)});
+      }else rows.push({planned:row,snap});
+    }
+    // Account says whether OTHER Account incidents remain; Video checks its own side again, because an incident could have
+    // landed after the audited read. Either one keeps the guard blocked: `unblocked:true` never means the account is open.
+    const rivals=unresolvedRows(await accountRows(tx,root,accountId),new Set(rows.map(row=>row.planned.collection+'/'+row.planned.id)));
+    const clear=!account.blocked&&rivals.length===0;
+    const advanced:string[]=[];
+    for(const {planned:row,snap,exit} of rows){
+      const auditId=unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs);
+      if(row.collection==='billingReviewIncidents'||row.collection==='billingOutboxReviewIncidents')tx.update(snap.ref,{state:'reviewed',reviewedAtMs:nowMs,unblockAuditId:auditId});
+      else if(row.collection==='billingIntentObservationIncidents')tx.update(snap.ref,{state:'reviewed',reviewedAtMs:nowMs,unblockAuditId:auditId});
+      else if(row.collection==='billingHoldOutbox')tx.update(snap.ref,{state:'applied',appliedAtMs:nowMs,lastErrorCode:null});
+      else if(row.collection==='billingOutbox')tx.update(snap.ref,{state:'retry_wait',reviewIncidentId:FieldValue.delete(),nextAttemptAt:nowMs,updatedAtMs:nowMs});
+      else if(row.collection==='billingIntentAdmissionGuards')tx.update(snap.ref,{state:'clear',incidentId:FieldValue.delete(),updatedAtMs:FieldValue.delete()});
+      else tx.update(snap.ref,{state:exit,reviewReason:FieldValue.delete(),reviewIncidentId:FieldValue.delete(),reviewOutboxIncidentId:FieldValue.delete(),updatedAtMs:nowMs});
+      advanced.push(row.collection+'/'+row.id);
+    }
+    if(clear){
+      tx.delete(guardRef);
+      tx.update(alertRef,{status:'dispositioned',dispositionedAtMs:nowMs,dispositionedBy:authorizedBy,dispositionAuditId:unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs)});
+    }
+    const auditId=unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs);
+    tx.create(doneRef,{auditId,action:'unblocked',...payload,kind,accountId,holdId,advanced,accountBlocked:account.blocked,videoBlocked:!clear,videoRivals:rivals,accountReplayed:account.replayed,recordedAtMs:nowMs});
+    return {unblocked:true as const,replayed:false as const,accountBlocked:account.blocked,videoBlocked:!clear,advanced,auditId};
+  });
+}
+
+/** The identity key of the account's owner, read from the account's own identity document (never from the request). */
+async function identityKeyOf(root:DocumentReference,accountId:string):Promise<string>{
+  const page=await root.collection('identities').where('accountId','==',accountId).limit(2).get();
+  const keys=page.docs.filter(doc=>doc.get('accountId')===accountId&&typeof doc.get('uid')==='string').map(doc=>doc.id);
+  if(keys.length!==1||!digest(keys[0]))throw new UnblockFault('conflict');
+  return keys[0];
+}
+/**
+ * Where a reviewed intent goes back to. An intent that already owns a work keeps its head state for that work (the
+ * drainer reads `job_created` as the pre-dispatch state of an admitted job, and sending it to `reserve_pending` would
+ * re-reserve work that exists); otherwise it resumes the release it had prepared, and only otherwise its reservation.
+ */
+function intentExit(intent:DocumentSnapshot,witness:DocumentSnapshot):string{
+  if(intent.exists&&(intent.get('state')==='job_created'||typeof intent.get('jobId')==='string'))return 'job_created';
+  return witness.exists&&witness.get('terminalRecovery')?.releasePrepared===true?'release_pending':'reserve_pending';
+}
+type FirebaseFirestoreTransaction=Parameters<Parameters<Firestore['runTransaction']>[0]>[0];

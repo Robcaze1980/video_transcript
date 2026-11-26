@@ -1,0 +1,21 @@
+**Contraste estático**
+- La revisión corrige el defecto central con `billingUnblockOps` como máquina de estados única, un solo intento en vuelo y cierre solo con la generación `accepted` (`outputs/lv019b-revision-20261125/t3-diseno-ack-revision.reply.txt:3-10`).
+- **Fencing:** correctamente distinguido de cancelar un POST remoto. El token invalida la autoridad del holder obsoleto sobre el estado local; la llamada anterior puede seguir en Cuenta y debe terminar sola. La recuperación reenvía la misma generación y Cuenta devuelve replay sin doble efecto (`.../t3-diseno-ack-revision.reply.txt:8`, y contrato previo `server/account/backend.ts:242-250`).
+- **409 tardío:** seguro si la transición exige coincidencia exacta con el intento actual, estado `sending`, token del holder y generación nombrada. Un 409 anterior o sin generación debe ignorarse y no puede superar un `accepted` más nuevo (`.../t3-diseno-ack-revision.reply.txt:9-10`).
+- **409 de guardia:** `guard_generation_mismatch` solo permite avanzar cuando el intento previo no puede ser el recibo aceptado; si hay recibo con generación distinta, el camino seguro es reenviar la generación registrada en ese recibo, no reauditar a ciegas.
+- **Migración:** la regla es segura: operación sin intento durable queda indeterminada, exige reauditoría explícita y no borra registros (`.../t3-diseno-ack-revision.reply.txt:15`).
+
+**Sigue faltando o debe demostrarse**
+- Cambio real de Account API: 409 con generación y código (`receipt_generation_mismatch` / `guard_generation_mismatch`) y eco de la generación aceptada en éxito.
+- Implementación transaccional que bind cada respuesta a `(attemptId, token, generación, estado)`; sin esto, un 409 tardío de la misma generación necesita manejo explícito.
+- Pruebas con `AccountStore` real: g0/g1 concurrentes antes del POST; g1 confirmada + ACK perdido → g0 ignorada/409 y g1 replay; `unavailable`/timeout permanece en `sending`; guard-mismatch no cierra; migración sin intento exige reauditoría; cierre registra exactamente `accepted`.
+- Demostrar alcanzabilidad de transiciones y recuperación por expiración del lease; la revisión misma las marca deducidas (`.../t3-diseno-ack-revision.reply.txt:19`).
+
+Modelo servido, uso y costo: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `outputs/lv019b-revision-20261125/t3-diseno-ack-revision.reply.txt:3-15` contrastado con contratos previos de copias estables: `server/account/backend.ts:233-263`, `server/commercial/accountBillingClient.ts:35-51` y `server/commercial/billingUnblock.ts:211-220`, `:341-398`. Sin relectura de fuente mutable ni ejecución.
+NEGATIVOS: PASS limitado a coherencia estática del diseño; no certifica implementación ni efecto financiero. Faltan pruebas reales con `AccountStore`, API de 409 codificada, binding de respuesta a intento/token y demostración de transiciones/recuperación.
+BLOQUEOS: No implementar ni ejecutar mientras no se autorice; requiere implementación de la máquina de estados y cambio de Account API antes de certificar.
+=== FIN RESUMEN ===

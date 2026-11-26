@@ -1,0 +1,14 @@
+1. **ALTA — Re-bloqueo de intent tras parcial reusa el id y la solicitud vieja puede limpiar el bloqueo nuevo.** Estado: guarda bloqueada por intent `K`, hold `H` con generación `E`; un desbloqueo parcial hace que Cuenta revise `H`, Video avance `K` y conserve la guarda. Evento: `K` vuelve a divergir; `writeBlockedGuard` ve `lastIncidentId === K`, no incrementa `epoch` y no crea hold nuevo porque `H` ya está `applied`. Resultado: la generación sigue siendo `E`, el registro `unblocked` viejo sigue aplicando a esa generación y una repetición antigua puede avanzar de nuevo `K` y borrar la guarda cuando Cuenta ya no tenga otros incidentes. Además `unblockAuditId(K, acción)` colisiona con el ciclo anterior. Corrección mínima: en el escritor, si la ocurrencia previa del mismo incidente ya fue revisada/aplicada, tratarlo como ocurrencia nueva (incrementar `epoch`/nuevo `holdId`); y derivar los ids de auditoría de `holdId`/generación, no solo de `incidentKey`.
+
+2. **MEDIA — Guarda no atribuible en `recordExternalBillingReview` no queda como incidencia no verificada.** Estado: `billingGuards/<A>` existe con `accountId` ajeno o `blocked` no booleano; ocurre una divergencia revisable de la cuenta `A`. Evento: `guardPreview` devuelve `null`, pero la función llama igualmente `writeBlockedGuard`. Resultado: con guarda ajena bloqueada lanza `invariant`; con `blocked` falso/no booleano sobrescribe la guarda y la atribuye a `A`. Corrección mínima: si `preview === null`, crear/actualizar la incidencia como `attribution:'unverified'` y no escribir hold ni guarda.
+
+3. **MEDIA — Alerta de guarda mixta puede nombrar el incidente viejo.** Estado: guarda con `lastOutboxIncidentId = B` sin resolver y luego llega un incidente de intent `C`. Evento: el escritor incrementa `epoch`, escribe `lastIncidentId = C`, pero conserva `lastOutboxIncidentId = B`; `normalizePending` prioriza `lastOutboxIncidentId`. Resultado: la alerta nueva nomabra `B`, no `C`; intentar desbloquear `B` falla cerrado por el rival `C`. Corrección mínima: que el escritor marque el incidente realmente último (o limpie el campo opuesto al cambiar de tipo) y que el reporte use ese marcador.
+
+Examiné `AGENTS.md`, la sección 3.3, las pruebas de emulador y el diff suministrado. No pude comprobar comportamiento contra archivos de producción en disco, ejecución de pruebas, Firestore real ni concurrencia distribuida. Costo: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `billingUnblock.ts` (`unblockAuditId`, fases 0/3), `firestoreBackend.ts` (`writeBlockedGuard`, `guardPreview`, `recordExternalBillingReview`), `billingPendingReport.ts` (`normalizePending`), pruebas `billingUnblock.emulator.mjs:434-631`
+NEGATIVOS: pruebas no ejecutadas; no se verificó Firestore real ni carreras distribuidas
+BLOQUEOS: ninguno
+=== FIN RESUMEN ===

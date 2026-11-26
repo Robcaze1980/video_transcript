@@ -1,0 +1,1078 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: fails closed without the dedicated loopback emulator host
+ok 1 - fails closed without the dedicated loopback emulator host
+  ---
+  duration_ms: 174.2609
+  type: 'test'
+  ...
+# Subtest: concurrent duplicate verified captures credit exactly once
+not ok 2 - concurrent duplicate verified captures credit exactly once
+  ---
+  duration_ms: 102.5371
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:35:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:35:91)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: same capture with changed owner or payload rejects without crediting either twice
+not ok 3 - same capture with changed owner or payload rejects without crediting either twice
+  ---
+  duration_ms: 9.8493
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:36:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:36:114)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: concurrent reservations cannot spend more than available
+not ok 4 - concurrent reservations cannot spend more than available
+  ---
+  duration_ms: 8.0382
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:37:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:37:89)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: stable logical request preserves its reserved price and rejects changed operation
+not ok 5 - stable logical request preserves its reserved price and rejects changed operation
+  ---
+  duration_ms: 10.1993
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:38:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:38:114)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: concurrent completion captures once and never also releases
+not ok 6 - concurrent completion captures once and never also releases
+  ---
+  duration_ms: 7.5755
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:39:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:39:92)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: queued cancel releases once and cannot later be claimed
+not ok 7 - queued cancel releases once and cannot later be claimed
+  ---
+  duration_ms: 6.015
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:40:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:40:88)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: running cancel holds UNKNOWN reservation and prevents new work on that input
+not ok 8 - running cancel holds UNKNOWN reservation and prevents new work on that input
+  ---
+  duration_ms: 7.1316
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:41:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:41:109)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: unknown reconciliation requires evidence and releases exactly once
+not ok 9 - unknown reconciliation requires evidence and releases exactly once
+  ---
+  duration_ms: 5.8687
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:42:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:42:99)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: expired output is refunded instead of charged
+not ok 10 - expired output is refunded instead of charged
+  ---
+  duration_ms: 6.6886
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:43:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:43:78)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: expired unknown resolution retains evidence and refunds an unavailable result
+not ok 11 - expired unknown resolution retains evidence and refunds an unavailable result
+  ---
+  duration_ms: 5.8012
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:44:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:44:110)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: a stale attempt and a foreign account cannot change the job
+not ok 12 - a stale attempt and a foreign account cannot change the job
+  ---
+  duration_ms: 4.539
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:45:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:45:92)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: completion and running cancellation choose capture or quarantine without double resolution
+not ok 13 - completion and running cancellation choose capture or quarantine without double resolution
+  ---
+  duration_ms: 5.9097
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:46:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:46:123)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: multiple unknown jobs keep the input blocked until every reservation is reconciled
+not ok 14 - multiple unknown jobs keep the input blocked until every reservation is reconciled
+  ---
+  duration_ms: 8.1062
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:47:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:47:115)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: an SDK-retried transaction callback credits once
+not ok 15 - an SDK-retried transaction callback credits once
+  ---
+  duration_ms: 6.3628
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:48:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:48:81)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: an expired lease is fenced and quarantined without releasing or capturing
+not ok 16 - an expired lease is fenced and quarantined without releasing or capturing
+  ---
+  duration_ms: 5.2692
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:49:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:49:106)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: invalid numeric inputs and overflow leave the ledger unchanged
+not ok 17 - invalid numeric inputs and overflow leave the ledger unchanged
+  ---
+  duration_ms: 4.9455
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:50:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:50:95)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: an expired queued input is failed and released before claim
+not ok 18 - an expired queued input is failed and released before claim
+  ---
+  duration_ms: 3.7132
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:51:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:51:92)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: UNKNOWN blocks an already queued sibling until reconciliation
+not ok 19 - UNKNOWN blocks an already queued sibling until reconciliation
+  ---
+  duration_ms: 4.7828
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:52:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:53:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: Firebase UID resolves to one stable zero-balance account under concurrency
+not ok 20 - Firebase UID resolves to one stable zero-balance account under concurrency
+  ---
+  duration_ms: 7.0681
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:63:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:64:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: project optimistic revisions reject a stale concurrent editor and foreign access
+not ok 21 - project optimistic revisions reject a stale concurrent editor and foreign access
+  ---
+  duration_ms: 5.8075
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:68:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:69:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: one reservation atomically creates one durable outbox despite repeated request
+not ok 22 - one reservation atomically creates one durable outbox despite repeated request
+  ---
+  duration_ms: 5.2022
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:75:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:76:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: lost dispatcher response redelivers same job without a second provider invocation
+not ok 23 - lost dispatcher response redelivers same job without a second provider invocation
+  ---
+  duration_ms: 4.8299
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:80:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:81:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: transport acceptance without execution retains durable redelivery
+not ok 24 - transport acceptance without execution retains durable redelivery
+  ---
+  duration_ms: 5.0576
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:88:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:89:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: worker timeout retains UNKNOWN reservation and never retries provider
+not ok 25 - worker timeout retains UNKNOWN reservation and never retries provider
+  ---
+  duration_ms: 7.0174
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:94:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:95:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: crashed worker lease is quarantined without calling provider again
+not ok 26 - crashed worker lease is quarantined without calling provider again
+  ---
+  duration_ms: 5.2221
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:101:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:102:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: provider IO runs outside retryable Firestore transaction callbacks
+not ok 27 - provider IO runs outside retryable Firestore transaction callbacks
+  ---
+  duration_ms: 5.1673
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:107:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:108:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: expired queued input never reaches on-demand provider
+not ok 28 - expired queued input never reaches on-demand provider
+  ---
+  duration_ms: 4.7516
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:113:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:114:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: Cloud Run transport constrains target and sends only stable job identity
+ok 29 - Cloud Run transport constrains target and sends only stable job identity
+  ---
+  duration_ms: 7.183
+  type: 'test'
+  ...
+# Subtest: authenticated HTTP uses verified UID, rejects foreign/revoked/unverified tokens and forged balance
+not ok 30 - authenticated HTTP uses verified UID, rejects foreign/revoked/unverified tokens and forged balance
+  ---
+  duration_ms: 5.8531
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:125:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:126:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: recovery trigger quarantines expired running leases even without another worker delivery
+not ok 31 - recovery trigger quarantines expired running leases even without another worker delivery
+  ---
+  duration_ms: 7.2654
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:145:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:146:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: reservation binds immutable project revision atomically and rejects changed payload
+not ok 32 - reservation binds immutable project revision atomically and rejects changed payload
+  ---
+  duration_ms: 7.1837
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:151:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:152:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: crash before permission to invoke safely requeues and fences old worker
+not ok 33 - crash before permission to invoke safely requeues and fences old worker
+  ---
+  duration_ms: 6.8987
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:163:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:164:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: cancel before invocation releases reservation and prevents provider permission
+not ok 34 - cancel before invocation releases reservation and prevents provider permission
+  ---
+  duration_ms: 4.8954
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:171:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:172:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: UNKNOWN prevents a previously running sibling from capturing automatically
+not ok 35 - UNKNOWN prevents a previously running sibling from capturing automatically
+  ---
+  duration_ms: 5.4033
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:176:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:177:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: default-deny client rules reject reads and writes of actual Admin-created documents
+not ok 36 - default-deny client rules reject reads and writes of actual Admin-created documents
+  ---
+  duration_ms: 4.9014
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:183:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:184:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: request replay lookup survives later project edits and expiry without recalculating price
+not ok 37 - request replay lookup survives later project edits and expiry without recalculating price
+  ---
+  duration_ms: 7.4259
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:189:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:190:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: expired heartbeat persists UNKNOWN immediately rather than waiting for a recovery sweep
+not ok 38 - expired heartbeat persists UNKNOWN immediately rather than waiting for a recovery sweep
+  ---
+  duration_ms: 6.881
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:198:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:199:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: HTTP reserves at server price, replays without quoting and reports honest cancellation state
+not ok 39 - HTTP reserves at server price, replays without quoting and reports honest cancellation state
+  ---
+  duration_ms: 5.3591
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:203:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:204:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: worker reports failed when bytes expire after provider success and reservation is refunded
+not ok 40 - worker reports failed when bytes expire after provider success and reservation is refunded
+  ---
+  duration_ms: 4.5926
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:226:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:227:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: expired queued sibling releases only its own reservation while an UNKNOWN stays reserved
+not ok 41 - expired queued sibling releases only its own reservation while an UNKNOWN stays reserved
+  ---
+  duration_ms: 5.7087
+  type: 'test'
+  location: '<copia>\\server\\commercial\\firestoreBackend.emulator.mjs:235:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    8 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 8
+  operator: 'strictEqual'
+  stack: |-
+    assertTarget (file:///<copia>/server/commercial/financialFixtureSafety.mjs:19:10)
+    prepareFinancialFixture (file:///<copia>/server/commercial/financialFixtureSafety.mjs:32:3)
+    fixture (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:28:143)
+    TestContext.<anonymous> (file:///<copia>/server/commercial/firestoreBackend.emulator.mjs:236:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1106:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+1..41
+# tests 41
+# suites 0
+# pass 2
+# fail 39
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 37033.4497

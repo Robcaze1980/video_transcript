@@ -1,0 +1,3 @@
+Thread mcp:c86e3817-d1bf-4f14-88a4-0122294b6449
+Thread mcp:c86e3817-d1bf-4f14-88a4-0122294b6449 stopped with status failed: Incomplete response returned, reason: max_output_tokens
+glm exit=1

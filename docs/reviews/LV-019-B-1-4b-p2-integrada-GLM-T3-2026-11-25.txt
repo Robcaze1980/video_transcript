@@ -1,0 +1,65 @@
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido, tokens y costo: no medidos.
+Encargo completo verificado en el hilo T3.
+
+Voy a leer los requisitos vigentes, verificar el estado del repositorio y contrastar los hashes exactos antes de revisar el código.
+
+Las instrucciones están leídas. Ahora fijo la revisión exacta, extraigo §3.3 y verifico hash y diff sin tocar archivos.
+
+
+
+
+Los hashes coinciden exactamente. Aíslo §3.3 y leo la implementación, la prueba y el informe local con líneas visibles.
+
+Ya tengo el estado y la especificación localizada. Ahora reviso el código y la prueba por secciones para evaluar los casos de fila perdida, cambio de dueño, excepciones válidas, incidentes rivales y reintentos de generación de Cuenta.
+
+La primera sección muestra transacciones y auditoría determinista. Sigo con las precondiciones de fase 0 y la fase 3, que es donde viven los cambios de fila y de generación.
+
+El punto central aparece en las líneas 371–380: la fila planeada se relee y la lista rival se recalcula antes de liberar. Reviso ahora los detalles de esa relectura y la llamada a Cuenta.
+
+
+Aún necesito los fragmentos intermedios exactos: selección de filas planeadas, reintento con Cuenta y cierre transaccional. Los extraigo por bloques pequeños.
+
+
+La relectura bloquea filas desaparecidas o reasignadas. Faltan las funciones de admisión, planificación inicial y la ruta de repetición parcial para completar el contraste.
+
+
+Falta solo el núcleo de fase 0/1, incluida la lista de rivales y la creación del registro auditado. Lo leo en dos tramos cortos.
+
+
+La implementación cubre relectura de fila y recálculo de rivales. Ahora contrasto la cobertura declarada en la prueba con esos riesgos, sin ejecutarla.
+
+
+La prueba es extensa (941 líneas) y ya incluye controles de generación y re-bloqueo. Necesito un inventario exacto de sus casos y un chequeo final del hash para cerrar el contraste.
+
+
+El inventario muestra pruebas específicas de relectura, generación de Cuenta y reintento parcial. Reviso las dos pruebas clave para confirmar qué drift y qué marca de Cuenta verifican realmente.
+
+
+La cobertura estática es sólida y cubre los defectos previos. Reviso el informe local y las excepciones de filas sin `accountId` antes de decidir el resultado.
+
+La política y cobertura parecen coherentes; verifico la prueba exacta de cambio de generación de Cuenta para no aceptar un PASS por el nombre del caso.
+
+
+La prueba confirma exactamente la marca efectiva usada en el cierre, no solo la enviada en el primer intento. Hago un último chequeo de legibilidad y riesgos residuales antes del dictamen.
+
+
+He completado el contraste entre implementación, prueba y especificación. Cierro con el dictamen estático y sus límites explícitos.
+
+
+**Dictamen GLM — LV-019.B 1.4b pieza 2**
+
+**Resultados clave**
+- Los hashes coinciden antes y después de la revisión; no ejecuté pruebas.
+- Fila ausente o con dueño cambiado: la fase 3 falla cerrada (`billingUnblock.ts:360` y `billingUnblock.ts:372`), con pruebas negativas (`billingUnblock.emulator.mjs:634`).
+- Excepción válida sin `accountId`: solo `billingIntentAdmissionGuards` (`billingUnblock.ts:371`), coherente con su semántica.
+- Reintento de generación de Cuenta: el código permite refrescarla entre intentos y el cierre registra la realmente usada (`billingUnblock.ts:398`, `billingUnblock.emulator.mjs:653`). Es coherente con §3.3 y requiere que la herramienta del operador suministre una generación de Cuenta confiable.
+- Rivales y desbloqueo parcial: fase 0 los bloquea (`billingUnblock.ts:285`), fase 3 los recalcula (`billingUnblock.ts:380`); el resultado parcial conserva la guarda de Video y el reintento completo está probado (`billingUnblock.emulator.mjs:436`, `billingUnblock.emulator.mjs:450`).
+- No verifiqué ejecución de pruebas, autenticación del operador, producción ni alcance de pieza 3. Modelo, uso y costo: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: HEAD `d166133d46d4b0dd5fde50f48b8e625414587e59`; SHA-256 de `server/commercial/billingUnblock.ts` = `b4909d7b099733e91adae08d0034931504c33a72813efa6ec48481b9537d7080` y de `server/commercial/billingUnblock.emulator.mjs` = `938f8f0208f7b3ca1760a54dcc1721ec021a7e9d17075a2ece14ba0355eb2ddd` antes y después; revisión estática de `billingUnblock.ts:285`, `:360`, `:371-380`, `:398`, `billingUnblock.emulator.mjs:612-665` y `:934-951`, contra `docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md:97-121` y `docs/reviews/LV-019-B-1-4b-p2-revision-local-2026-11-25.md`.
+NEGATIVOS: No ejecuté suites ni accedí a servicios remotos o credenciales; no verifiqué que la prueba en curso confirme el resultado final ni la autenticación del operador de pieza 3. El caso de marca de Cuenta repetida en el mismo milisegundo no se demuestra, pero es una precondición hipotética no alcanzada en las pruebas.
+BLOQUEOS: Ninguno para esta revisión estática.
+=== FIN RESUMEN ===

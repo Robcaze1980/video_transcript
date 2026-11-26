@@ -1,0 +1,26 @@
+**Copia.** Leí la crítica de GLM (`outputs/lv019b-revision-20261125/t3-diseno-ack-critica-glm.reply.txt`) y el fixture en la ruta absoluta dada (existe, 106.757 bytes, `95c00a02…0dc`, con `AccountStore` real en `billingUnblock.combinado.mjs:1,13-14,64,100`). Hashes estables sin cambio. Acepto el **FALLA** de GLM: mi "última generación intentada" no era un punto de serialización.
+
+**Una máquina de estados por operación/incidente.** Un único documento Video `billingUnblockOps/<hash(accountId,incidencia)>` serializa una incidencia: `state` (`requested|sending|confirmed|rejected|completed`), `attempt{epoch,createdAtMs,attemptId}` (generación en vuelo, escrita antes del POST), `accepted{epoch,createdAtMs}`, `sendLease{holderId,token,expiresAtMs}`, `seq`. Toda transición ocurre en **una** transacción Video que además relee guarda/alerta/rivales.
+
+- `requested→sending`: registra `attempt` y toma `sendLease` con token estrictamente creciente. Precondición: **ningún intento en vuelo**; solo una generación puede estar en vuelo.
+- **Misma generación concurrente:** ambos calculan el mismo documento y la misma `attempt`; el primero en confirmar deja `sending`; el segundo ve `attempt` con la MISMA generación y **no** registra otra: falla cerrado ("reintente luego") o se adhiere. Intentos por `(operación,generación)`, nunca apilados a ciegas — eso elimina la carrera g0/g1.
+- **Otra generación con resultado incierto:** solo es registrable cuando `attempt` quedó **resuelta** (respuesta definitiva de Cuenta), nunca por simple expiración de TTL.
+- **Envío que excede el lease:** el TTL no prueba que la llamada vieja terminó. Un holder obsoleto se detiene por el token de fencing, exactamente la regla del drain lease ("el token, no el lease", `billingDrainLease.ts:4-7`). La recuperación reenvía la MISMA generación con token nuevo; el recibo de Cuenta (único por incidencia, `server/account/backend.ts:242,245-248`) la vuelve `replayed`, sin doble efecto.
+- **409 tardío:** vale solo para la generación que él mismo nombra; se coteja contra `attempt`; si nombra una generación anterior, se descarta. Ninguna respuesta sin generación muta el estado.
+- **Confirmación/cierre:** `confirmed` solo desde recibo/eco positivo; guarda `accepted`; la fase 3 cierra con `accepted`, nunca con la petición. 409/5xx/timeout genéricos → se queda en `sending` (indeterminado).
+- Códigos 409: `receipt_generation_mismatch` / `guard_generation_mismatch`.
+
+**Cambio de Account API (necesario).** El 409 debe devolver en el cuerpo qué generación reporta y un código por caso; sin ese eco, un 409 genérico queda indeterminado. Eco opcional de la generación aceptada en el éxito.
+
+**Migración (versión previa sin intento durable).** Operación ausente o `unblock_requested` sin `attempt` → indeterminado → reauditoría explícita (falla cerrada). Sin borrado.
+
+**Pruebas (AccountStore real, dos identidades).** (N) g0/g1 concurrentes antes del POST: un solo intento, el segundo falla cerrado; (P) g1 confirmada + ACK perdido → g0 da 409, g1 da `replayed`, un solo recibo; (N) `unavailable` genérico se queda en `sending` y reenvía la misma g1, sin cierre; (N) identidad/incidencia ajena → `conflict`, Cuenta nunca consultada.
+
+**Verificado vs deducido.** Verificado: unicidad/exactitud del recibo, envío con la generación de la petición, 409 plano, `writeBlockedGuard`. Deducido: alcanzabilidad g0→g1→g2, reanudación por expiración de lease, nombres de códigos. Modelo servido, uso y costo: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Leí la crítica de GLM y el fixture en la ruta absoluta (106.757 bytes, `95c00a02d4e77c00be6c629bb3a179fa8e7623ae92e871581dc53c7ae5a0f0dc`, `AccountStore` real en `billingUnblock.combinado.mjs:1,13-14,64,100`). Verificado en copias estables: recibo de Cuenta único por `(accountId,incidencia)` que exige coincidencia exacta o `conflict` y valida contra la guarda viva sin recibo (`server/account/backend.ts:242,245-248,250-261`); el cliente mapea 409→`conflict`, red→`unavailable`, sin devolver generación (`accountBillingClient.ts:44-50,96-97`); la llamada usa la marca de la petición (`billingUnblock.ts:342`) y cierra con la usada (`:398`); `writeBlockedGuard` sube epoch por incidencia distinta (`firestoreBackend.ts:632-645`); el fencing-token del drain lease, no el TTL, detiene a un holder obsoleto (`billingDrainLease.ts:4-7,20-25`). Diseño revisado: documento único `billingUnblockOps` como máquina de estados con `attempt`/`accepted`/`sendLease` fenced, un solo intento en vuelo, reenvío de la misma generación, cierre con `accepted` y eco de generación en el 409.
+NEGATIVOS: No ejecuté pruebas ni leí la carpeta principal como fuente (solo el informe y el fixture indicados). El defecto de carrera lo confirmo por lectura del diseño previo, no reproducido. La alcanzabilidad g0→g1→g2 y la reanudación por expiración de lease las marco indeterminadas. No medí modelo servido, uso ni costo.
+BLOQUEOS: Requiere cambio de Account API (eco de la generación y códigos en el 409) y las pruebas con `AccountStore` real y dos identidades antes de certificar; sin el eco, el 409 genérico sigue siendo indeterminado.
+=== FIN RESUMEN ===

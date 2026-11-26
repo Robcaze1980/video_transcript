@@ -775,6 +775,39 @@ test('resolution status does not overwrite a malformed guard or claim verified a
  assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).docs[0].get('attribution'),'unverified');
 });
 
+// Codex (certification of 1.4b piece 2): the generation-aware guard writer must keep failing closed WITHOUT losing evidence or stalling the drain.
+test('resolution status with a blocked guard that names ANOTHER account still records an unverified incident and leaves the guard alone',async()=>{
+ const c=await fixture(),p=await preparedIntent(c,'seal'),snapshot=await terminalSnapshot(c,p,'seal'),guard=ref(c,'billingGuards',c.account);
+ await guard.set({accountId:c.foreign,blocked:true,epoch:1,createdAtMs:5,lastIncidentId:'0'.repeat(64),updatedAtMs:5});
+ const before=(await guard.get()).data();
+ const observed={action:'seal',source:'resolution_status',terminalAction:'seal',reservationId:p.reservationId,seconds:2,state:'sealed'};
+ const result=await c.backend.recordConfirmedIntentObservation(p.witness,observed,snapshot);assert.equal(result.state,'needs_review');assert.equal(result.ownerBlocked,false);
+ assert.deepEqual((await guard.get()).data(),before);assert.equal((await c.root.collection('billingHoldOutbox').get()).size,0);
+ assert.equal((await c.root.collection('billingIntentObservationIncidents').get()).docs[0].get('attribution'),'unverified');
+});
+
+test('a hold row with a partial generation is sent to review by authorizeExternalHold and does not stop the listing of the rest',async()=>{
+ const c=await fixture(),identityKey=accountIdentityKey(c.uid),requestKey=randomUUID(),reservationId=randomUUID(),data={provider:'account_seconds',identityKey,reservationId,seconds:2};
+ await c.backend.beginExternalBillingIntent(c.account,c.input,requestKey,'translation:en',1,data);await c.backend.recordExternalBillingReview(c.account,requestKey,data,{reservationId,state:'captured',seconds:2});
+ const hold=(await c.root.collection('billingHoldOutbox').get()).docs[0].ref;await hold.update({createdAtMs:FieldValue.delete(),epoch:1});
+ const rows=await c.backend.pendingExternalHolds(10);assert.equal(rows.length,1,'the listing itself must not throw on one corrupt row');
+ assert.equal((await c.backend.authorizeExternalHold(rows[0])).state,'needs_review');
+ assert.equal((await hold.get()).get('state'),'needs_review');
+});
+
+// DeepSeek (final review 2 of piece 2): the hold of a SECOND incident on a live guard must store the guard generation its id names.
+test('the hold of a SECOND intent incident on a live guard carries the guard creation mark, so the drainer authorizes it',async()=>{
+ const c=await fixture(),identityKey=accountIdentityKey(c.uid),requestKey=randomUUID(),reservationId=randomUUID(),data={provider:'account_seconds',identityKey,reservationId,seconds:2};
+ await c.backend.beginExternalBillingIntent(c.account,c.input,requestKey,'translation:en',1,data);
+ const guard=ref(c,'billingGuards',c.account);
+ await guard.set({accountId:c.account,blocked:true,epoch:1,createdAtMs:5,lastIncidentId:'0'.repeat(64),updatedAtMs:5});
+ await c.backend.recordExternalBillingReview(c.account,requestKey,data,{reservationId,state:'captured',seconds:2});
+ const live=(await guard.get()).data();assert.equal(live.epoch,2);assert.equal(live.createdAtMs,5,'the live guard keeps its creation mark');
+ const rows=await c.backend.pendingExternalHolds(10);assert.equal(rows.length,1);
+ assert.equal(rows[0].epoch,2);assert.equal(rows[0].createdAtMs,5,'the hold carries the guard creation mark its id names, not its own creation time');
+ assert.equal((await c.backend.authorizeExternalHold(rows[0])).state,'eligible');
+});
+
 test('terminal recovery accepts a clean witness and rejects injected fields or a changed owner',async()=>{
  const c=await fixture(),p=await preparedIntent(c,'seal'),docs=await c.root.collection('billingIntentTerminalWitnesses').get();assert.equal(docs.size,1);const terminal=docs.docs[0].ref;
  const candidate=await c.backend.terminalWitnessForRecovery(terminal.id);assert.ok(candidate);assert.deepEqual({witness:candidate.witness,action:candidate.action},{witness:p.witness,action:'seal'});assert.equal(candidate.snapshot.origin.exists,true);assert.equal(candidate.snapshot.sealWitness.exists,true);assert.equal(candidate.snapshot.sealRecovery.exists,true);

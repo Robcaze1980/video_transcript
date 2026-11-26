@@ -1,0 +1,15 @@
+{
+  "exitCode": 1,
+  "before": {
+    "server/commercial/firestoreBackend.ts": "c7d98de4a64d4f3a18f93082b236877644b9da8925e3d53d5e48c3f3f0e6a96e",
+    "server/commercial/firestoreBackend.emulator.mjs": "43a22fb127b17701d39af0cc83666cf947126f98e6300d5a419dbccbafb9d824",
+    "scripts/financialEmulatorNetworkGuard.cjs": "157f62f2d33911d41031dca58e0be72b9a1d7d7b6f89c08bc461119235af8f10"
+  },
+  "after": {
+    "server/commercial/firestoreBackend.ts": "c7d98de4a64d4f3a18f93082b236877644b9da8925e3d53d5e48c3f3f0e6a96e",
+    "server/commercial/firestoreBackend.emulator.mjs": "43a22fb127b17701d39af0cc83666cf947126f98e6300d5a419dbccbafb9d824",
+    "scripts/financialEmulatorNetworkGuard.cjs": "157f62f2d33911d41031dca58e0be72b9a1d7d7b6f89c08bc461119235af8f10"
+  },
+  "unchanged": true,
+  "note": "test-only guard port adapted; not equivalent to final full regression"
+}

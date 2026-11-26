@@ -16,6 +16,7 @@ import {AccountStore} from '../account/backend.ts';
 import {privateBucket} from './privateObjectPlan.ts';
 import {ALERT_COLLECTION,raisePendingAlerts} from './billingPendingAlerts.ts';
 import {readPendingReport} from './billingPendingReport.ts';
+import {blockedState} from './billingUnblock.ts';
 
 const project='demo-vistavo-ledger',host='127.0.0.1:8185';
 const videoCollection='vistavo_blocks_a_video_synthetic',accountCollection='vistavo_blocks_a_ledger_synthetic';
@@ -409,9 +410,10 @@ test('12b a blocked account produces one alert per account and epoch, deduped by
   assert.equal(guardAlerts.length,1,'one alert per account and epoch');assert.equal(first.created>=1,true);assert.equal(again.created,0);
   // Two epochs of the SAME blocked account are two distinct guard rows (state carries the epoch), so the alert
   const reblocked=await fixture('d4_guard_epoch');
-  await ref(reblocked.root,'billingGuards',reblocked.account).set({accountId:reblocked.account,blocked:true,epoch:2,lastIncidentId:'inc-2',updatedAtMs:Date.now()});
+  const reblockedAtMs=Date.now();
+  await ref(reblocked.root,'billingGuards',reblocked.account).set({accountId:reblocked.account,blocked:true,epoch:2,lastIncidentId:'inc-2',createdAtMs:reblockedAtMs,updatedAtMs:reblockedAtMs});
   const epochRow=(await readPendingReport(reblocked.root,Date.now())).rows.find(r=>r.kind==='guard');
-  assert.equal(epochRow.state,'blocked:2','the guard state must carry the epoch so a re-block is a new row');
+  assert.equal(epochRow.state,blockedState(2,reblockedAtMs,'inc-2'),'the guard state must carry the whole generation so a re-block is a new row');
 
   const orphan=await fixture('d4_guard_malformed'),lonely=randomUUID();
   await ref(orphan.root,'billingGuards',lonely).set({accountId:lonely,blocked:true,updatedAtMs:Date.now()});

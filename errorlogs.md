@@ -1,3 +1,11 @@
+<!-- LV-019-T3-REINTENTOS-2026-11-25 -->
+## LV-019 · T3 repitió operaciones y recibió error de crédito · 25 nov 2026
+
+Las solicitudes de planificación de voz, corrección de saldo y reconciliación terminaron con error HTTP 402 por crédito insuficiente y sin informe final válido. La telemetría local de T3 muestra operaciones repetidas y uso parcial elevado; no acredita por sí misma el importe facturado. No se enviaron nuevas revisiones pagadas tras identificarlo. Una instrucción de seguimiento sin acciones de negocio quedó en cola y no se ha iniciado; no reanudarla ni recargar para ejecutarla hasta resolver su disposición. El código parcial de Cuenta permanece exclusivamente en el worktree de T3 y no está aceptado. [Detalle y límites de los conteos](docs/reviews/LV-019-B-consumo-t3-2026-11-25.md).
+
+En paralelo, una prueba focalizada local se interrumpió al detectar un lanzador que heredaba el entorno y no leía sus pipes de salida. No generó TAP válido. Una lectura posterior del emulador aislado encontró cero raíces y descendientes en las colecciones sintéticas de la prueba; no se tocó el emulador de otra sesión. La batería posterior, con el lanzador existente, terminó **FALLA**: 419 aprobadas, 39 fallidas y 5 omisiones previstas. Las 39 fallaron en una condición del modo de prueba que exige el puerto 8185 mientras el simulador aislado usa 8186. Los dos casos nuevos de reintento sí pasaron. El primer diagnóstico del puerto también falló por una ruta de perfil incorrecta; corregido el lanzador, el archivo afectado pasó 41/41 en una copia con el puerto de prueba adaptado. Ninguno de esos resultados sustituye una regresión completa aprobada sobre la versión final. [Evidencia portable](docs/evidence/lv019-b-financial-8186-20261125/README.md).
+<!-- /LV-019-T3-REINTENTOS-2026-11-25 -->
+
 <!-- LV-019-REL-02-2026-11-15 -->
 ## LV-019-REL-02 · Gemini final FALLA; corrección local; reenvío detenido por saldo
 
@@ -819,3 +827,9 @@ Dos incidentes operativos sin efecto en el código. (1) La primera re-revisión 
 ## 2026-11-23 · LV-019.B · Suites con transporte REST de Firestore colgadas contra el emulador local (ABIERTO; no bloquea)
 
 Desde el 22 nov, las pruebas que configuran Firestore con `preferRest:true` (por ejemplo `billingIntentAdmissionGuard.emulator.mjs`) se quedan colgadas contra el emulador local de Firestore, aunque la conexión gRPC responde en menos de 200 ms y `curl` contra el mismo puerto contesta (200 al `commit`, 403 al listado sin credenciales, como corresponde a las reglas). Una sonda mínima reproduce el cuelgue con Node 22 y con Node 24, con y sin `FIRESTORE_EMULATOR_HOST` y con `METADATA_SERVER_DETECTION=none`; sin proxy configurado y con un solo emulador escuchando. T3 observó el mismo síntoma («endpoint REST caído, 403/timeout») en su entorno. **Causa sin demostrar.** Antes del problema la suite de admisión pasó 15/15; se retiró de la regresión oficial y se corre aparte cuando el REST vuelva. No afecta a producción ni a las demás suites.
+
+## 2026-11-25 · LV-019.B · Desbloqueo de Video: auditoría y relectura por verificar (ABIERTO LOCAL)
+
+En la candidata de la pieza 1.4b.2, el comparador de reintentos omite dos campos de la generación de Cuenta que sí se registran en la solicitud auditada. Una revisión adicional encontró que la fase final omite una fila planeada ausente y no vuelve a comparar el dueño de una fila leída por ruta. Un doble en memoria registró 1 control positivo y 4 negativos fallidos bajo precondiciones artificiales; no ejecutó AccountStore ni commits Firestore, ni demuestra exposición o daño real. Reproducir con fases, identidades, cuentas y filas sintéticas válidas en emulador; coordinar la sesión que estaba modificando/restaurando las fuentes antes de ejecutar regresiones. No certificar ni desplegar por este diagnóstico. [Evidencia y límites](docs/reviews/LV-019-B-1-4b-p2-revision-local-2026-11-25.md).
+
+Seguimiento del 25 nov: la ejecución complementaria se detuvo en la comprobación de versión antes de tocar el emulador. La corrección alternativa de T3 reportó 45/45 con tres casos nuevos en su worktree y registró la generación efectivamente usada al cerrar. El incidente sigue abierto hasta adjudicar esa política de reintentos y verificar la versión integrada. [Plan, hashes y evidencia de las pruebas](docs/reviews/LV-019-B-1-4b-p2-revision-local-2026-11-25.md).

@@ -1,0 +1,20 @@
+**Examen realizado.** Revisé `billingUnblock.ts` (pieza 2 completo), `billingHoldIdentity.ts` (completo), el diff de `firestoreBackend.ts`, `billingPendingReport.ts`, `billingReadOnlyRoot.ts` y leí la suite `billingUnblock.emulator.mjs` (37 pruebas). No abrí `.ts` de producción del disco ni ejecuté código.
+
+**Estado de lo ya corregido (verificado en código, no solo en el texto):** repetición parcial retomable (`done`+`partial`), `video_released` re-chequea guarda viva, `holdSettled` acepta `applied`/`needs_review`, ids de auditoría por ocurrencia (`epoch`+`createdAtMs`), guarda de admisión de intención restaurada a `clear` de 4 campos, `pendingHoldRow` conserva la generación de la guarda, `accountRows` con `tx.get(query)`. Los escritores (`quarantine…`, `recordExternalBillingReview`, observación directa/terminal) usan el único `writeBlockedGuard` y sellan `epoch`+`createdAtMs`; ninguna ruta borra la guarda con fila ajena sin revisar (`clear=!account.blocked&&rivals.length===0`).
+
+**Hallazgos**
+
+1. **BAJA (brecha de prueba, categoría 7).** Estado: `accountRows` ahora afirma ser transaccional. Evento: las pruebas de rival concurrente (`'a rival row that lands between phase 0 and phase 3'`, `every kind of unresolved row`) crean la fila **antes** de la fase 3, por lo que una lectura NO transaccional las vería igual. Resultado errado posible: una regresión que volviera a `.get()` simple pasaría toda la suite y permitiría borrar la guarda con un rival que commitea entre la lectura y el commit (mitigado solo porque todo writer rival toca la guarda). Corrección mínima: una prueba que fuerce la carrera real (o afirmar que las lecturas pasan por `tx`) para fijar el contrato.
+
+2. **BAJA (defensa en profundidad).** Estado: los cuatro escritores de guarda. Evento: en el escritor de observación directa (`~línea 530`) no existe el `if(!preview||generation.epoch!==preview.epoch||…) throw invariant` que sí tienen `quarantineExternalBillingReview`/`recordExternalBillingReview`/terminal. Resultado: hoy no es explotable (mismo snapshot y mismo `now` ⇒ misma generación por construcción), pero una futura divergencia entre `guardPreview` y `writeBlockedGuard` en esa ruta pasaría silenciosa y nombraría un hold con una generación que la guarda no tiene. Corrección mínima: añadir la misma aserción.
+
+3. **BAJA (límite ya declarado, se cita por control).** Reincidencia del mismo tipo con guarda viva (epoch no crece, sin hold nuevo) y alerta mixta siguen nombrando el incidente más reciente/más viejo; pertenecen a 1.4c. No es fallo nuevo.
+
+**No pude comprobar:** ejecución real de las 37 pruebas (solo lectura), el comportamiento de conflicto de consultas transaccionales en el emulador, y la superficie HTTP/operador (paso 3.5, declarado fuera de alcance). **Costo:** `no medido`.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/billingUnblock.ts` (fases 0/1/2/3, rama `partial`, `sameGeneration`, `released` re-chequea guarda viva, `intentAdmissionRow`, `accountRows` con `tx.get`); `server/commercial/billingHoldIdentity.ts` (`holdId`/`accountHoldId` con generación); diff `firestoreBackend.ts` (`writeBlockedGuard`/`guardEpoch`/`guardPreview`, `pendingHoldRow`, `storedHoldGeneration`, asserts preview==generation); diff `billingPendingReport.ts` (state `blocked:<epoch>:<createdAtMs>:<incidente>`); `billingUnblock.emulator.mjs` (37 pruebas leídas). Hallazgos críticos: ninguno funcional; dos BAJA de cobertura/robustez.
+NEGATIVOS: no ejecuté la suite (lectura únicamente), no verifiqué conflicto transaccional real de consultas en el emulador, no cubrí la ruta HTTP/autenticación de operador (fuera de alcance).
+BLOQUEOS: ninguno.
+=== FIN RESUMEN ===

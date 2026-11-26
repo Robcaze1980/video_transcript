@@ -1,0 +1,45 @@
+diff --git a/server/account/backend.ts b/server/account/backend.ts
+index b225032..e7914d9 100644
+--- a/server/account/backend.ts
++++ b/server/account/backend.ts
+@@ -3,7 +3,7 @@ import {FieldPath,type Firestore,type DocumentReference,type Transaction,type Do
+ import type {AccountView,AccountProject,ProjectKind,ProjectPage,ProjectSummary,LedgerPage} from './contracts';
+ import {UNKNOWN_RESOLUTION_MIN_AGE_MS,sameResolution,validResolution,type VideoResolution,type VideoSettlementOptions} from './settlementContract';
+ 
+-export class AccountFault extends Error {constructor(readonly code:'invalid'|'not_found'|'account_not_provisioned'|'conflict'|'deleted'|'quota'|'insufficient'|'invariant'|'too_early'){super(code);}}
++export class AccountFault extends Error {constructor(readonly code:'invalid'|'not_found'|'account_not_provisioned'|'conflict'|'deleted'|'quota'|'insufficient'|'invariant'|'too_early'|'receipt_generation_mismatch'|'guard_generation_mismatch',readonly echo?:{epoch:number;createdAtMs:number}){super(code);}}
+ const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
+ function ledgerId(value:unknown){const chars=hash(value).slice(0,32).split('');chars[12]='4';chars[16]='89ab'[parseInt(chars[16],16)%4];const h=chars.join('');return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);}
+ export const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/;
+@@ -243,11 +243,19 @@ export class AccountStore {
+    const [stored,guard,record,unblock]=await tx.getAll(accountRef,guardRef,recordRef,unblockRef);accountRecord(stored,identityKey);
+    // A repeat of the same decision is a receipt; any different payload for the same incident is refused, and neither writes.
+    if(unblock.exists){
+-    if(unblock.get('ownerAccountId')===accountId&&unblock.get('identityKey')===identityKey&&unblock.get('incidentId')===incident&&unblock.get('epoch')===epoch&&unblock.get('createdAtMs')===createdAtMs&&unblock.get('reviewRef')===reviewRef)return {unblocked:true as const,replayed:true as const,blocked:guard.exists};
+-    throw new AccountFault('conflict');
++    if(unblock.get('ownerAccountId')===accountId&&unblock.get('identityKey')===identityKey&&unblock.get('incidentId')===incident&&unblock.get('epoch')===epoch&&unblock.get('createdAtMs')===createdAtMs&&unblock.get('reviewRef')===reviewRef)return {unblocked:true as const,replayed:true as const,blocked:guard.exists,epoch,createdAtMs};
++    // A receipt already exists for this incident with ANOTHER generation: echo that generation so the caller can resend it
++    // instead of an ambiguous 409. The receipt's own generation is validated and never a caller-supplied value.
++    if(!integer(unblock.get('epoch'),1)||!integer(unblock.get('createdAtMs')))invariant();
++    throw new AccountFault('receipt_generation_mismatch',{epoch:unblock.get('epoch') as number,createdAtMs:unblock.get('createdAtMs') as number});
+    }
+    const blocked=billingHold(guard,accountId,identityKey);
+-   if(!blocked||guard.get('epoch')!==epoch||guard.get('createdAtMs')!==createdAtMs)throw new AccountFault('conflict');
++   if(!blocked||guard.get('epoch')!==epoch||guard.get('createdAtMs')!==createdAtMs){
++    // No receipt for this incident: the live guard moved. Echo the live generation so a definite mismatch is never
++    // confused with an unknown outcome.
++    if(guard.exists){if(!integer(guard.get('epoch'),1)||!integer(guard.get('createdAtMs')))invariant();throw new AccountFault('guard_generation_mismatch',{epoch:guard.get('epoch') as number,createdAtMs:guard.get('createdAtMs') as number});}
++    throw new AccountFault('guard_generation_mismatch');
++   }
+    if(!record.exists)throw new AccountFault('conflict');
+    if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
+    if(record.get('state')!=='active')throw new AccountFault('conflict');
+@@ -258,7 +266,7 @@ export class AccountStore {
+    tx.create(unblockRef,{ownerAccountId:accountId,identityKey,incidentId:incident,epoch,createdAtMs,reviewRef,unblockedAtMs:time});
+    tx.update(recordRef,{state:'reviewed',reviewedAtMs:time});
+    if(nextReviewed===incidentCount)tx.delete(guardRef);else tx.update(guardRef,{reviewedCount:nextReviewed});
+-   return {unblocked:true as const,replayed:false as const,blocked:nextReviewed!==incidentCount};
++   return {unblocked:true as const,replayed:false as const,blocked:nextReviewed!==incidentCount,epoch,createdAtMs};
+   });
+  }
+  /** Atomically prevent a future reserve or return the existing reservation's receipt. */

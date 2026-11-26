@@ -1,0 +1,23 @@
+Hilo: mcp:68dec1d5-fd5f-4a28-b79f-b8026e345b7f
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Estado T3: completed
+Modelo servido, uso y costo: no medido
+
+Examiné únicamente el AGENTS.md suministrado, contrastando la sección nueva ("Metodología de trabajo y revisión solicitada por Rob") con las anteriores ("Antes de empezar" y "Coordinación y entrega") en los seis ejes pedidos. No hay conflicto nuevo-vs-previo; los puntos sensibles se resuelven por remisión o son preferencias autorizadas.
+
+**Puntos y veredicto por eje**
+- Modelos/credenciales/presupuestos/permisos: la nueva "No cambies modelos, credenciales, presupuestos ni permisos sin una instrucción del dueño" no choca con "usar `~z-ai/glm-flash-latest` para revisión independiente, en sustitución de GLM 5.3", porque esa elección es preferencia del dueño y "no retrasar el trabajo por configurar T3". Preferencia, no conflicto.
+- Respaldo ya autorizado: "El respaldo de OpenRouter ya autorizado conserva la clave de LinguistVision y el alcance existentes; no lo uses para sortear esas restricciones" concuerda con "usar el respaldo OpenRouter directo autorizado con la clave vinculada a LinguistVision". No amplía alcance.
+- Política GLM/DeepSeek por riesgo: "no duplica la revisión con DeepSeek salvo que GLM resulte inconcluso o el gate exija una segunda opinión" frente a "código y diseños que mueven saldo, bloqueos o contratos de Cuenta → dos revisores independientes (GLM y DeepSeek)". Reconciliado: la política es el gate y la sección nueva defiere con "de acuerdo con la política de revisión por riesgo anterior". No es contradicción.
+- Datos privados: "sin claves, contraseñas ni datos privados de clientes" coincide con "Mantén claves, archivos de clientes y transcripciones fuera de prompts, bitácoras y repositorio".
+- Independencia: "asigna revisión independiente al trabajo del implementador" y "Los revisores son de solo lectura salvo que se les autorice expresamente otra función" son consistentes entre secciones.
+- Respuesta real e incertidumbre: "El estado `completed` de T3 no demuestra por sí solo una revisión válida... se trata como INCONCLUYENTE" y "Resultados inciertos" concuerdan con "no acepta un PASS solo por el resumen".
+
+Ambigüedades de redacción (no bloqueantes): "Los revisores son de solo lectura" frente al deber general "Cada revisión debe dejar la salida completa en un archivo" (la escritura se infiere como la función autorizada); y "optimizar contexto y esfuerzo" frente a "No imponer topes locales generales". No son contradicciones entre secciones.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisé solo el AGENTS.md entregado, comparando la sección nueva con las previas en modelos/credenciales/presupuestos/permisos, respaldo autorizado, política GLM/DeepSeek, privacidad, independencia, resultados inciertos y verificación de la respuesta real. No hallé contradicción nueva-vs-previo; el aparente choque GLM/DeepSeek se resuelve porque la política de riesgo es el "gate" y la sección nueva remite a ella; la elección de GLM Flash es preferencia autorizada, no conflicto.
+NEGATIVOS: Revisé los seis ejes y busqué choques entre secciones; observé solo ambigüedades de redacción (revisor "de solo lectura" vs deber de "dejar la salida completa en un archivo"; "optimizar contexto y esfuerzo" vs "No imponer topes locales generales"). No comprobé contra otros archivos, no ejecuté nada, no verifiqué modelo servido ni costo.
+BLOQUEOS: no medido
+=== FIN RESUMEN ===

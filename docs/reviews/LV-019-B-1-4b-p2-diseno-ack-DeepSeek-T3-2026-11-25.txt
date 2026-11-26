@@ -1,0 +1,26 @@
+**Copia estable.** Verifiqué `billingUnblock.ts` (`b4909d…7080`) y leí `accountBillingClient.ts` (`7ebac7…8f4f`), `firestoreBackend.ts` (`ee37de…688b`), `server/account/backend.ts` (`3175d9…f5d`). El fixture `outputs/lv019b-revision-20261125/billingUnblock.combinado.mjs` **no existe** en ese worktree (solo dos carpetas de bridge/bootstrap); no lo invento.
+
+**Riesgo.** El registro `unblock_requested` guarda g0 (`:296-297`), el payload comparado excluye la marca de Cuenta (`:221` vs `:230`), y la llamada usa la marca de la petición (`:342`) — así que tras un intento con g1 que Cuenta confirmó, un reintento con g0 da 409 y Video no puede descubrir g1 (`accountBillingClient.ts:96-97` no devuelve la marca). El único dato durable es lo que Video escribió antes de enviar.
+
+**Estrategia mínima: registrar la generación INTENTADA antes del POST.**
+1. Antes de cada llamada a Cuenta, en una transacción de Video, escribir un documento inmutable `billingUnblockAudit` acción `account_generation_attempt` con `(incidentKey, accountEpoch, accountCreatedAtMs, attemptSeq, recordedAtMs)`, id derivado de `(incidencia, epoch, createdAtMs de Cuenta)` — determinista, un documento por intento distinto. Precondición: la guarda de Video sigue nombrando la incidencia y no existe cierre.
+2. La llamada usa **la última generación intentada** (no la de la petición). Reintento tras ACK desconocido reenvía g1; Cuenta responde `replayed:true` con su recibo (`backend.ts:245-248`).
+3. **409 definitivo vs ACK desconocido:** `accountBillingClient` mapea 409 y red igual a `conflict`/`unavailable` (`:44-50`). Cambio de **Account API**: el 409 debe llevar código (`receipt_generation_mismatch` / `guard_generation_mismatch`, como ya hace `too_early`). `unavailable`/timeout = resultado desconocido → no cerrar, reintentar con la misma g1. `receipt_generation_mismatch` → la intentada no está aceptada, reintentar la registrada; `guard_generation_mismatch` → Cuenta avanzó de verdad, exige reauditoría explícita.
+4. Reauditoría (solo si Video aún nombra la incidencia, sin cierre y sin rivales): nueva acción inmutable con la generación viva. Cuenta, sin recibo, la acepta como primera disposición (`backend.ts:250-261`). No puede duplicar: `unblockRef` es uno por `(accountId,incidencia)` (`:242`).
+5. **Cierres** `unblocked`/`video_released` copian la marca **efectiva** = la de la última `account_generation_attempt` que Cuenta aceptó.
+6. Al reenviar una operación ya confirmada, comparar el eco de Cuenta (si se añade) contra la intentada; si difieren, falla cerrada.
+
+**Concurrencia/transacciones.** El intento se registra antes del POST; si Video muere, el registro queda y el reintento es idempotente. Un incidente Video nuevo sube epoch/`updatedAtMs` y el reintento aborta antes de enviar (`:236-238,:280`). No hay accidente que abra otra cuenta: identidad y cuenta salen del documento de identidad, no del cuerpo.
+
+**Migración.** Los `unblock_requested` con g0 y sin intento: tratar la marca como desconocida y exigir reauditoría explícita (falla cerrada). Sin borrado.
+
+**Pruebas (emulador, `AccountStore` real, dos identidades).** (P) intento g1 confirmado + ACK perdido → reintento g0 da 409, g1 da `replayed:true`, un solo recibo. (N) `guard_generation_mismatch` no escribe cierre. (N) `unavailable` no cierra y reenvía la misma g1. (P) aislar identidades: resolver a otra identidad → `conflict`, Cuenta nunca consultada.
+
+**Deducción vs verificado.** Verificado: exclusiones de payload, uso de la marca de petición, 409 plano, recibo único, `writeBlockedGuard`. Deducido: la alcanzabilidad completa g0→g1→g2 y el código de error de Cuenta. No es cambio de precio/proveedor/política comercial: es detalle técnico del contrato. Modelo servido, uso y costo: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Leí solo la copia estable e hice hash: `billingUnblock.ts` `b4909d7b…7080`, `accountBillingClient.ts` `7ebac7ef…8f4f`, `firestoreBackend.ts` `ee37deb1…688b`, `server/account/backend.ts` `3175d9cc…f5d`; el fixture pedido no existe en ese worktree. Verificado: el recibo de Cuenta es único por `(accountId,incidencia)` y exige coincidencia exacta o `conflict` (`server/account/backend.ts:242,245-248`), valida contra la guarda viva sin recibo y solo entonces revisa (`:250-261`); el cliente mapea 409→`conflict` y red→`unavailable` sin devolver la marca (`accountBillingClient.ts:44-50,96-97`); el payload comparado excluye `accountEpoch/accountCreatedAtMs` y la llamada usa la de la petición (`billingUnblock.ts:221` vs `:230`,`:342`); el escritor de guarda de Video sube epoch por incidencia distinta (`firestoreBackend.ts:632-645`). Diseño mínimo: registrar la generación INTENTADA antes del POST como documento inmutable, reenviar la última intentada, distinguir 409 con código, reauditoría acotada, cierres con la marca efectiva.
+NEGATIVOS: No ejecuté pruebas ni leí la carpeta principal. El fixture combinado pedido no está en la ruta indicada. La alcanzabilidad completa g0→g1→g2 la marco indeterminada, no construida. No medí modelo servido, uso ni costo.
+BLOQUEOS: Requiere cambio de Account API (código en el 409, eco opcional de la generación aceptada) y prueba con `AccountStore` real y dos identidades antes de certificar; mientras otra sesión muta archivos locales, no toco la carpeta principal.
+=== FIN RESUMEN ===

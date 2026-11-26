@@ -1,0 +1,43 @@
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido, tokens y costo: no medidos.
+Propuesta de diseño no ejecutada ni aceptada.
+
+## Diseño mínimo propuesto · reanudación con la marca de Cuenta
+
+**Base.** Todo lo siguiente sale de los fragmentos ya examinados y de los hashes fijados (`billingUnblock.ts` `b4909d…7080`, `billingUnblock.emulator.mjs` `938f8f…2ddd`). No leí fuentes nuevas ni ejecuté nada. Marco **V = verificado por lectura** y **D = deducción**.
+
+**Diagnóstico (V).** En Cuenta hay **un recibo por incidencia** en `videoBillingUnblocks/hash([accountId,incident,'unblock'])`, que fija su generación y cuya repetición exige coincidencia exacta o `conflict` (`server/account/backend.ts:242,245-248`); sin recibo, valida contra la guarda viva (`:250`) y solo entonces revisa (`:251-261`). En Video, la reanudación lee el `unblock_requested` (`billingUnblock.ts:263-268`) pero llama a Cuenta con la marca **de la petición actual** (`:342`; parcial `:316`), aunque el registro ya la guarda (`:296-297`). Un fallo de Cuenta —timeout o 409— se colapsa en `conflict` (`:343`), y el cliente mapea red→`unavailable` y 409→`conflict` (`accountBillingClient.ts:44-52`). Por eso A se completa hoy por accidente (no hay recibo) y B queda **atascada** cuando la marca vigente ya no es la aceptada.
+
+**Regla central (D).** Video debe llamar a Cuenta **con la generación que él mismo registró para esa incidencia**, no con la del reintento. Descubrimiento durable: el `unblock_requested` inmutable (`:296-297`) más los cierres `unblocked`/`video_released` que ya copian la marca usada (`:334-336`,`:398`). Con esto:
+
+- **B (ACK perdido, luego cambia la generación).** Fase 3 no escribió; solo hay `unblock_requested` con E1. El reintento envía E1 → Cuenta responde `replayed:true` porque el recibo fija E1 (`:246`); `blocked` refleja si quedan incidentes y la guarda de Video decide con `:381`. Una sola disposición, sin doble efecto, completable. La marca vigente E2 **nunca** se envía.
+- **A (rechazo antes de confirmar, luego cambia la generación).** No hay recibo, la guarda viva es G2: enviar E1 da conflicto otra vez. Se permite una **reauditoría explícita** (acción inmutable nueva, ver abajo) que fija G2; como Cuenta no tiene recibo, es la primera y única disposición de esa incidencia, y la reauditoría no puede duplicarla.
+
+**Conflicto explícito vs resultado desconocido (D).** Separarlos es requisito:
+- **Timeout/`unavailable`** → resultado desconocido, **no** "falló": la escritura de Cuenta pudo confirmar. Mantener Video bloqueado y reintentar con la **misma** marca almacenada (idempotente).
+- **409 explícito** → hoy es plano; debe volver con código en el cuerpo, como ya hace `too_early` (`accountBillingClient.ts:44-46`): `guard_generation_mismatch` (habilita A), `receipt_generation_mismatch` (reintentar con E1), `incident_not_active` (terminal, cerrar). Sin esa distinción, A y B son indistinguibles desde el 409 (D).
+
+**Coherencia del dato guardado con la marca aceptada (V + D).** En un replay confirmado, Cuenta solo responde `replayed:true` si su recibo coincide con lo enviado (`:246`), luego un replay exitoso **prueba** que lo enviado = lo aceptado. Video debe escribir esa misma marca en `unblocked`/`video_released` (`:334-336`,`:398`). Recomendado: que Cuenta **devuelva `epoch`/`createdAtMs` aceptados** y Video los **asome iguales** (hoy la respuesta solo trae `{unblocked,replayed,blocked}`, `:96-97`); sin el eco la igualdad es implícita por el rechazo estricto.
+
+**Cambios mínimos.**
+- **API Video:** en reanudación/parcial, tomar la marca de `record` (no de `clean`); distinguir `unavailable` de los tres 409.
+- **API Cuenta:** códigos de error distintos en el 409; eco opcional de la generación aceptada. **Sin almacenamiento nuevo en Cuenta** (el recibo ya la tiene, `:258`).
+- **Almacenamiento Video:** reutilizar `unblock_requested`; añadir **una** acción inmutable `account_generation_refresh` keyed por `(incidencia, epoch, createdAtMs de Cuenta)` solo alcanzable cuando Video aún nombra la incidencia y **no existe cierre**; la generación efectiva = el registro más reciente que coincide. Los cierres copian la efectiva.
+- **Migración:** ninguna destructiva. Los `unblock_requested` ya traen `accountEpoch`/`accountCreatedAtMs` (`:296-297`); si faltaran, tratar la marca como desconocida y exigir reauditoría (falla cerrada). Bases declaradas vacías.
+
+**Salvaguardas que no se relajan (V).** Cuenta conserva **un recibo por (accountId, incidincio)** con su generación y rechaza cualquier otra (`:245-248`); la identidad y la cuenta salen del documento de identidad, no del cuerpo (`billingUnblock.ts:404-408`; `backend.ts:239-241`). Por eso "un cambio equivocado no abre otra cuenta ni causa doble efecto" no depende de la elección de Video. La política de Rob se preserva: la guarda detiene **trabajo nuevo** de la cuenta y no toca lo admitido; la salida de reservas en vuelo es pieza 3. La guarda de Cuenta sobrevive mientras queden incidentes (`:255-261`).
+
+**Riesgos.** Reauditoría mal acotada podría introducir un segundo registro para la misma incidencia; se mitiga con la clave determinista por generación + cierre ausente + el recibo de Cuenta. Alternativa viable: hacer tolerante el replay de Cuenta a cambios de generación — **rechazada**, borra la garantía "un desbloqueo antiguo no limpia un bloqueo más nuevo".
+
+**Pruebas (2–4, emulador, `AccountStore` real, dos identidades ficticias; no escritas aquí).**
+1. **A:** guarda de Cuenta con dos incidentes (epoch sube, `createdAtMs` se conserva); primer intento → `guard_generation_mismatch`; reauditoría con la generación viva → primera aceptación, `blocked:true`, guarda de Video viva, **un** recibo; reintento con la marca vieja → `receipt_generation_mismatch`, cero escrituras.
+2. **B:** confirmar en Cuenta (recibo E1) y abortar fase 3; añadir el segundo incidente (Cuenta E2); reintentar con E2 → **no** se envía; enviar E1 → `replayed:true`; el cierre de Video registra E1 y `blocked:true`; un recibo, sin doble efecto.
+3. **Coherencia en replay:** Cuenta devuelve la generación aceptada; Video la asome igual a la enviada/almacenada; eco distinto → falla cerrada.
+4. **Aislamiento:** con identidades A (dueña) y B, una llamada que resuelve a B o identidades ambiguas → `conflict`, Cuenta nunca consultada, cero escrituras; nombrar la incidencia de B no afecta a A.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Deducción sobre fragmentos ya revisados con hashes fijados `b4909d7b…7080` y `938f8f02…2ddd`; nada ejecutado ni leído de nuevo. Verificado: Cuenta exige coincidencia exacta del recibo o `conflict` (`server/account/backend.ts:242,245-248`), valida contra la guarda viva sin recibo (`:250`) y sube `epoch` conservando `createdAtMs` (`:198,201`), o recrea en `epoch:1` (`:202`); Video excluye `accountEpoch`/`accountCreatedAtMs` del payload (`billingUnblock.ts:221` vs `:230`), reanuda desde `requested` (`:263-268`), llama con la marca de la petición (`:316`,`:342`) y guarda la marca en el registro (`:296-297`) y en los cierres (`:334-336`,`:398`); el cliente mapea red→`unavailable`, 409→`conflict` (`accountBillingClient.ts:44-52`) y la respuesta solo trae `{unblocked,replayed,blocked}` (`:96-97`). Diseño: usar la marca almacenada en la reanudación (B completable sin doble efecto), reauditoría inmutable acotada por generación para A, 409 con códigos distintos y eco opcional, sin almacenamiento nuevo en Cuenta. Deducción: la alcanzabilidad de A/B por otro escritor de guarda de Cuenta y el detalle de los códigos de error.
+NEGATIVOS: No se ejecutó ninguna prueba; la suite y la regresión siguen en otra sesión. No se comprobó la alcanzabilidad real de A/B ni la migración en bases no vacías. La consistencia marca-enviada/marca-aceptada es implícita hoy y solo sería explícita con el eco de Cuenta. Modelo servido, uso y costo: no medido.
+BLOQUEOS: Otra tanda modifica archivos locales; no se leen fuentes nuevas ni se ejecutan pruebas. Falta la decisión del dueño sobre el detalle técnico (aceptar la marca almacenada como fuente de reanudación y añadir los códigos de error 409) y las 2–4 pruebas de emulador con `AccountStore` real y dos identidades antes de certificar A y B.
+=== FIN RESUMEN ===

@@ -1,0 +1,27 @@
+Hilo: mcp:b854b788-dea3-429a-992b-b8943e41008f
+Turno: run:thread:mcp%3Ab854b788-dea3-429a-992b-b8943e41008f:ordinal:1
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Encargo completo recibido: True
+Modelo servido, uso y costo: no medido
+Alcance: extractos ligados a los hashes del encargo; no acredita la implementación completa.
+
+**Fase 3 (billingUnblock.ts:344-396)**
+- Fila que desaparece: `if(!snap.exists)continue` (`:357`) la omite sin `conflict`. La liberación de la guarda depende solo de `account.blocked` y `rivals` (`:376`, `:388-390`), y una fila ausente no aparece en `rivals` (lectura por cuenta, `:129`). Por tanto, con una fila planeada ausente la guarda **sí puede** liberarse; la fila no se modifica porque no hay nada que modificar. Condicional a que la fila realmente desaparezca entre auditoría y relectura.
+- Fila que cambia de dueño: el bucle de relectura (`:355-372`) **no vuelve a comprobar `accountId`**; solo compara `state` (`:365`) y `reviewField` (`:367`). Con el mismo `id`/estado/reviewField pero otro dueño, la fila se avanzaría (`:380-385`) y no bloquearía la liberación (rivals es por cuenta). Condicional: no se demuestra que `accountId` pueda cambiar.
+- Fila que cambia su tupla: para filas con `state` no nulo, el cambio de `state` lanza `conflict` (`:365`) y el de `reviewField` también (`:367`). Excepciones: los holds toleran `applied`/`needs_review` (`:364-366`) y un hold en `needs_review` se fuerza a `applied` (`:382`); `billingReviewIncidents` se planifica con `state:null` (`:165`), de modo que su `state` no se comprueba y se re-sella `reviewedAtMs` (`:380`) sin releerlo.
+
+**Holds legados (firestoreBackend.ts:376-386, :1410-1448)**
+- `pendingHoldRow` (`:376-378`) sella `createdAtMs:now` cuando el hold no trae generación (legado).
+- `storedHoldGeneration` (`:380-386`) solo devuelve `undefined` si faltan `epoch` **y** `createdAtMs`; con `createdAtMs` presente y `epoch` ausente cae en la validación y lanza `LedgerFault('invariant')` (`:384`).
+- En `authorizeExternalHold` ese throw se captura (`:1429`) y la fila va a `needs_review` con `invalid_event` (`:1430`). Es decir, una fila legada con `createdAtMs` sin `epoch` no se autoriza: se manda a revisión. Esto contradice el comentario «undefined for a legacy row» (`:379`) y la forma que produce `pendingHoldRow`. Condicional a que existan filas de esa forma y a los puntos de llamada no incluidos.
+
+**Negativos y límites**
+- No ejecuté pruebas ni comandos; no afirmo comportamiento de Firestore en producción, concurrencia real, cambio de `accountId` ni existencia efectiva de filas legadas con esa forma.
+- No revisé los puntos de llamada de `pendingHoldRow` ni el resto de `billingUnblock.ts`; solo los fragmentos provistos (billingUnblock.ts:125-191, 330-402; firestoreBackend.ts:360-390, 1410-1448; billingHoldIdentity.ts:1-25; spec:101-124). No verifiqué hashes.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: billingUnblock.ts:355-372 (relectura sin comprobar accountId; :357 omite filas ausentes); :376-390 (liberación solo por account.blocked y rivals); :364-366,:382 (holds toleran applied/needs_review y se fuerzan a applied); :165,:380 (billingReviewIncidents con state:null no se comprueba y se re-sella reviewedAtMs). firestoreBackend.ts:376-378 (pendingHoldRow sella createdAtMs en legado) frente a :380-386 (createdAtMs sin epoch lanza invariant) y :1429-1430 (se convierte en needs_review invalid_event).
+NEGATIVOS: no ejecuté pruebas ni comandos; no afirmo comportamiento de Firestore en producción, concurrencia real, cambio de accountId ni existencia de filas legadas de esa forma; no revisé puntos de llamada de pendingHoldRow ni el resto del archivo; no verifiqué hashes.
+BLOQUEOS: costo/uso no medido (no observable).
+=== FIN RESUMEN ===

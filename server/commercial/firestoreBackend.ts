@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import {accountHoldId,holdId,legacyHoldId,type HoldGeneration} from './billingHoldIdentity';
 import {diagnosticStage,diagnosticTransaction,diagnosticMark} from './cloudDiagnostics';
 import { Firestore, FieldPath, FieldValue, type DocumentReference, type DocumentSnapshot, type Transaction } from 'firebase-admin/firestore';
 import {readyPrivateInput,type PrivateInputBinding} from './privateObjectPlan';
@@ -25,7 +26,7 @@ export type ExternalBillingReleaseFence = {state:'release_pending'}|{state:'job_
 export type ExternalBillingAdmission = {state:'permitted'}|{state:'job_created';jobId:string};
 export type ExternalBillingReviewReason = 'captured_without_job'|'seconds_mismatch'|'intent_job_mismatch'|'capture_before_success'|'release_before_failure'|'outbox_mismatch'|'remote_ack_intent_mismatch'|'remote_ack_closure_unverified'|'direct_status_uncertain';
 export type ExternalBillingReviewResult = {state:'needs_review';reason:ExternalBillingReviewReason}|{state:'job_created';jobId:string};
-export type ExternalBillingHold = {id:string;accountId:string;identityKey:string;sourceKind:'intent'|'outbox';sourceId:string};
+export type ExternalBillingHold = {id:string;accountId:string;identityKey:string;sourceKind:'intent'|'outbox';sourceId:string;epoch?:number;createdAtMs?:number};
 export type ExternalBillingIntentWitness = ExternalVideoBilling & {intentId:string;accountId:string;inputId:string;operation:string;revision:number;profile:typeof AI_CATALOG_VERSION};
 export type TerminalRecoveryDocumentVersion = {exists:false}|{exists:true;createTime:string;updateTime:string};
 export type TerminalRecoveryReadSnapshot = {intentId:string;action:'seal'|'release';origin:TerminalRecoveryDocumentVersion;sealWitness:TerminalRecoveryDocumentVersion;sealRecovery:TerminalRecoveryDocumentVersion;releaseWitness:TerminalRecoveryDocumentVersion;releaseRecovery:TerminalRecoveryDocumentVersion};
@@ -361,9 +362,27 @@ function validUnleasedBillingMetadata(row:Record<string,unknown>){
 function sameIntentLease(row:Record<string,unknown>,lease:ExternalBillingIntentLease){
   return row.leaseToken===lease.leaseToken&&row.leaseOwner===lease.leaseOwner&&row.generation===lease.generation&&row.leaseUntil===lease.leaseUntil;
 }
-function externalHold(accountId:string,identityKey:string,sourceKind:'intent'|'outbox',sourceId:string):ExternalBillingHold{
+function externalHold(accountId:string,identityKey:string,sourceKind:'intent'|'outbox',sourceId:string,generation?:HoldGeneration):ExternalBillingHold{
   identifier(accountId);if(typeof identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(identityKey)||typeof sourceId!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(sourceId)||!['intent','outbox'].includes(sourceKind))throw new LedgerFault('invalid');
-  return {id:hash(['account-hold-v1',sourceKind,sourceId]),accountId,identityKey,sourceKind,sourceId};
+  if(generation&&(!Number.isSafeInteger(generation.epoch)||generation.epoch<1||!Number.isSafeInteger(generation.createdAtMs)||generation.createdAtMs<0))throw new LedgerFault('invalid');
+  return {id:holdId(sourceKind,sourceId,generation),accountId,identityKey,sourceKind,sourceId,...(generation?{epoch:generation.epoch,createdAtMs:generation.createdAtMs}:{})};
+}
+/**
+ * The row of a PENDING hold occurrence. When the hold names a guard generation, its `createdAtMs` IS the guard's creation
+ * mark (`externalHold`), never the moment this row was written: overwriting it with `now` would make `authorizeExternalHold`
+ * recompute a different id and send every SECOND incident on a live guard to review instead of to Account. Only a legacy
+ * row (no generation at all) is stamped with the row's own `now`, which is all such a row has ever carried.
+ */
+function pendingHoldRow(hold:ExternalBillingHold,now:number){
+  return {...hold,state:'pending' as const,attempts:0,nextAttemptAt:now,...(hold.createdAtMs===undefined?{createdAtMs:now}:{})};
+}
+/** The generation a stored hold or pending-drain row carries; undefined for a legacy row. A partial generation is corrupt. */
+function storedHoldGeneration(row:Record<string,unknown>|undefined):HoldGeneration|undefined{
+  if(!row)return undefined;
+  const epoch=row.epoch,createdAtMs=row.createdAtMs;
+  if(epoch===undefined&&createdAtMs===undefined)return undefined;
+  if(!Number.isSafeInteger(epoch)||Number(epoch)<1||!Number.isSafeInteger(createdAtMs)||Number(createdAtMs)<0)throw new LedgerFault('invariant');
+  return {epoch:Number(epoch),createdAtMs:Number(createdAtMs)};
 }
 function matchesHold(value:unknown,expected:ExternalBillingHold){
   if(!value||typeof value!=='object')return false;const row=value as Partial<ExternalBillingHold>;
@@ -511,13 +530,17 @@ export class FirestoreBackend {
       !['status','seal'].includes(snapshot.source)||!['not_found','reserved','captured','released','sealed'].includes(observed.state)||
       (observed.state==='not_found'?snapshot.source!=='status'||observed.seconds!==null:!Number.isSafeInteger(observed.seconds)||Number(observed.seconds)<1))throw new LedgerFault('invalid');
     const key=witness.intentId,incidentId=hash(['direct-status-uncertainty-v1',key,snapshot.attemptId,snapshot.source,observed.state,observed.seconds]),
-      incident=this.ref('billingIntentObservationIncidents',incidentId),review=this.ref('billingReviewIncidents',key),hold=externalHold(witness.accountId,witness.identityKey,'intent',key),holdRef=this.ref('billingHoldOutbox',hold.id);
-    const [oldIncident,oldReview,oldHold]=await tx.getAll(incident,review,holdRef);
+      incident=this.ref('billingIntentObservationIncidents',incidentId),review=this.ref('billingReviewIncidents',key);
+    const [oldIncident,oldReview]=await tx.getAll(incident,review);
     if(oldIncident.exists){
       if(!sameIntentWitness(oldIncident.data(),witness)||oldIncident.get('source')!==snapshot.source||oldIncident.get('observedState')!==observed.state||oldIncident.get('observedSeconds')!==observed.seconds||oldIncident.get('directSnapshotHash')!==directSnapshotHash(snapshot))throw new LedgerFault('invariant');
       if(validClearIntentAdmissionGuard(d.intentGuard,key))tx.update(d.intentGuard.ref,{state:'needs_review',incidentId,updatedAtMs:Date.now()});
       return;
     }
+    // The hold of this occurrence is named by the generation the writer will use; it is read before the guard write.
+    const now=Date.now(),preview=this.guardPreview(d.guard,witness.accountId,{field:'lastIncidentId',id:key},now),
+      previewHold=preview?externalHold(witness.accountId,witness.identityKey,'intent',key,preview):null,
+      oldHold=previewHold?await tx.get(this.ref('billingHoldOutbox',previewHold.id)):null;
     const uid=d.identity.get('uid'),guardValid=!d.guard.exists||d.guard.get('accountId')===witness.accountId&&typeof d.guard.get('blocked')==='boolean';
     let owner=d.account.exists&&d.identity.exists&&d.identity.get('accountId')===witness.accountId&&typeof uid==='string'&&!!uid&&uid.length<=128&&hash(['firebase',uid])===witness.identityKey&&d.input.exists&&d.input.get('accountId')===witness.accountId&&validStoredIntentWitness(d.origin,witness)&&guardValid;
     let row:ExternalBillingIntent|undefined;
@@ -532,15 +555,16 @@ export class FirestoreBackend {
       }
     }
     const reviewValid=!oldReview.exists||oldReview.get('accountId')===witness.accountId&&oldReview.get('identityKey')===witness.identityKey&&oldReview.get('intentId')===key&&oldReview.get('reservationId')===witness.reservationId&&oldReview.get('expectedSeconds')===witness.seconds;
-    const holdValid=!oldHold.exists||matchesHold(oldHold.data(),hold)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
-    const now=Date.now(),attributed=!!owner;
+    const holdValid=!oldHold?.exists||matchesHold(oldHold.data(),previewHold!)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
+    const attributed=!!owner;
     tx.create(incident,{...witness,state:'needs_review',kind:'direct_status_uncertainty',source:snapshot.source,observedState:observed.state,observedSeconds:observed.seconds,directObservationSnapshot:snapshot,directSnapshotHash:directSnapshotHash(snapshot),attribution:attributed?'verified':'unverified',ownerBlocked:attributed,createdAtMs:now,updatedAtMs:now});
     // An absent or incompatible marker remains unresolved and is never backfilled.
     if(validClearIntentAdmissionGuard(d.intentGuard,key))tx.update(d.intentGuard.ref,{state:'needs_review',incidentId,updatedAtMs:now});
     if(attributed){
+      const generation=this.writeBlockedGuard(tx,d.guard,witness.accountId,{field:'lastIncidentId',id:key},now),
+        hold=externalHold(witness.accountId,witness.identityKey,'intent',key,generation),holdRef=this.ref('billingHoldOutbox',hold.id);
       if(reviewValid&&!oldReview.exists)tx.create(review,{accountId:witness.accountId,intentId:key,inputId:witness.inputId,operation:witness.operation,revision:witness.revision,identityKey:witness.identityKey,reservationId:witness.reservationId,expectedSeconds:witness.seconds,reason:'direct_status_uncertain',firstObserved:{source:snapshot.source,state:observed.state,seconds:observed.seconds,atMs:now},createdAtMs:now,updatedAtMs:now});
-      if(reviewValid&&holdValid&&!oldHold.exists)tx.create(holdRef,{...hold,state:'pending',attempts:0,nextAttemptAt:now,createdAtMs:now});
-      tx.set(d.guard.ref,{accountId:witness.accountId,blocked:true,lastIncidentId:key,updatedAtMs:now},{merge:true});
+      if(reviewValid&&holdValid&&!oldHold?.exists)tx.create(holdRef,pendingHoldRow(hold!,now));
       if(row&&!row.jobId&&['reserve_pending','release_pending'].includes(row.state))tx.update(d.intent.ref,{state:'needs_review',reviewReason:'direct_status_uncertain',reviewIncidentId:key,updatedAtMs:now});
     }
   }
@@ -571,6 +595,54 @@ export class FirestoreBackend {
     if(!doc.exists)return false;
     if(doc.get('accountId')!==accountId||typeof doc.get('blocked')!=='boolean')throw new LedgerFault('invariant');
     return doc.get('blocked')===true;
+  }
+  /**
+   * The preview generation, or `null` when this guard cannot be attributed to the account at all (another owner, or a
+   * non-boolean `blocked`). A writer that cannot attribute the guard records an UNVERIFIED incident with no hold and
+   * never touches that guard (the behavior before the generation work). A guard that IS attributable but carries no
+   * `createdAtMs` is still refused by `guardEpoch` (`invariant`, declared migration).
+   */
+  private guardPreview(doc:DocumentSnapshot,accountId:string,incident:{field:'lastIncidentId'|'lastOutboxIncidentId';id:string},now:number):{epoch:number;createdAtMs:number}|null{
+    if(doc.exists&&(doc.get('accountId')!==accountId||typeof doc.get('blocked')!=='boolean'))return null;
+    return this.guardEpoch(doc,accountId,incident,now);
+  }
+  /**
+   * LV-019.B 1.4b: the generation `writeBlockedGuard` is about to write, computed from a guard read earlier in the same
+   * transaction. The writers need it BEFORE writing (the hold document they read and create is named by it), and the
+   * decision mirrored here is the writer's own: a missing or clear guard is a new epoch 1 stamped `now`, a live guard
+   * keeps its `createdAtMs` and either keeps (same incident) or grows (different incident) its epoch.
+   */
+  private guardEpoch(doc:DocumentSnapshot,accountId:string,incident:{field:'lastIncidentId'|'lastOutboxIncidentId';id:string},now:number):{epoch:number;createdAtMs:number}{
+    if(!doc.exists||doc.get('blocked')!==true)return {epoch:1,createdAtMs:now};
+    if(doc.get('accountId')!==accountId)throw new LedgerFault('invariant');
+    const storedEpoch=doc.get('epoch'),createdAtMs=doc.get('createdAtMs');
+    if(!Number.isSafeInteger(createdAtMs)||createdAtMs<0)throw new LedgerFault('invariant');
+    const epoch=storedEpoch===undefined?1:storedEpoch;
+    if(!Number.isSafeInteger(epoch)||epoch<1)throw new LedgerFault('invariant');
+    return {epoch:doc.get(incident.field)===incident.id?epoch:epoch+1,createdAtMs:createdAtMs as number};
+  }
+  /**
+   * LV-019.B 1.4b: the ONE writer of the guard generation. It returns the generation it wrote, and the callers name the
+   * hold from it (`accountHoldId`), so the hold document id and Account's incident id always agree with the guard epoch:
+   * a guard created here starts at `epoch: 1` with its `createdAtMs`; adding a DIFFERENT incident to a guard that is
+   * already blocked grows the epoch; re-naming the same incident never does. A guard written before this step has no
+   * `epoch` and is read as epoch 1; without `createdAtMs` its generation cannot be named, so it is refused (`invariant`)
+   * instead of being silently adopted (the real bases are empty; the migration is declared in design section 6).
+   */
+  private writeBlockedGuard(tx:Transaction,doc:DocumentSnapshot,accountId:string,incident:{field:'lastIncidentId'|'lastOutboxIncidentId';id:string},now:number):{epoch:number;createdAtMs:number}{
+    if(!doc.exists||doc.get('blocked')!==true){
+      tx.set(doc.ref,{accountId,blocked:true,[incident.field]:incident.id,epoch:1,createdAtMs:now,updatedAtMs:now},{merge:true});return {epoch:1,createdAtMs:now};
+    }
+    if(doc.get('accountId')!==accountId)throw new LedgerFault('invariant');
+    const storedEpoch=doc.get('epoch'),createdAtMs=doc.get('createdAtMs');
+    if(!Number.isSafeInteger(createdAtMs)||createdAtMs<0)throw new LedgerFault('invariant');
+    const epoch=storedEpoch===undefined?1:storedEpoch;
+    if(!Number.isSafeInteger(epoch)||epoch<1)throw new LedgerFault('invariant');
+    // Re-naming the same incident (an idempotent writer re-run) never grows the generation.
+    const nextEpoch=doc.get(incident.field)===incident.id?epoch:epoch+1;
+    if(!Number.isSafeInteger(nextEpoch)||nextEpoch<1)throw new LedgerFault('invariant');
+    tx.set(doc.ref,{accountId,blocked:true,[incident.field]:incident.id,epoch:nextEpoch,createdAtMs,updatedAtMs:now},{merge:true});
+    return {epoch:nextEpoch,createdAtMs};
   }
   private billingIntent(doc:DocumentSnapshot,accountId:string,requestKey:string,billing:ExternalVideoBilling):ExternalBillingIntent{
     if(!doc.exists)throw new LedgerFault('not_found');
@@ -724,7 +796,7 @@ export class FirestoreBackend {
     let row:ExternalBillingIntent;try{row=this.billingIntent(intentDoc,accountId,job.requestKey,billing);}catch(error){if(error instanceof LedgerFault)return null;throw error;}
     if(row.inputId!==job.inputId||row.operation!==job.operation||row.revision!==job.revision||row.jobId!==jobId||!['job_created','needs_review'].includes(row.state))return null;
     let guardBlocked:boolean;try{guardBlocked=this.billingBlocked(guardDoc,accountId);}catch(error){if(error instanceof LedgerFault)return null;throw error;}
-    return {accountId,guard,intent,intentState:row.state,guardBlocked,job,billing};
+    return {accountId,guard,guardDoc,intent,intentState:row.state,guardBlocked,job,billing};
   }
   /** uid comes exclusively from a verified Firebase identity, never the request body. */
   async accountForUid(uid: string) {
@@ -1119,9 +1191,14 @@ export class FirestoreBackend {
     if(!observed||observed.reservationId!==billing.reservationId||!['reserved','captured','released'].includes(observed.state)||!Number.isSafeInteger(observed.seconds)||observed.seconds<1)throw new LedgerFault('invalid');
     const snapshot=snapshotInput===undefined?undefined:copyDirectObservationSnapshot(snapshotInput);
     if(snapshotInput!==undefined&&(!snapshot||!['status','seal'].includes(snapshot.source)))throw new LedgerFault('invalid');
-    const key=hash([accountId,requestKey]),hold=externalHold(accountId,billing.identityKey,'intent',key),account=this.ref('accounts',accountId),intent=this.ref('billingIntents',key),request=this.ref('requests',key),guard=this.ref('billingGuards',accountId),incident=this.ref('billingReviewIncidents',key),holdRef=this.ref('billingHoldOutbox',hold.id),intentGuard=this.ref('billingIntentAdmissionGuards',key);
+    const key=hash([accountId,requestKey]),account=this.ref('accounts',accountId),intent=this.ref('billingIntents',key),request=this.ref('requests',key),guard=this.ref('billingGuards',accountId),incident=this.ref('billingReviewIncidents',key),intentGuard=this.ref('billingIntentAdmissionGuards',key);
     return this.db.runTransaction(async tx=>{
-      const [a,d,prior,blocked,existing,holdDoc,admission]=await tx.getAll(account,intent,request,guard,incident,holdRef,intentGuard);
+      const [a,d,prior,blocked,existing,admission]=await tx.getAll(account,intent,request,guard,incident,intentGuard);
+      // This occurrence's hold is named by the generation the guard write below will use, so it is computed from the same
+      // read and the same clock mark; all reads of this transaction stay before its first write.
+      const now=Date.now(),preview=this.guardPreview(blocked,accountId,{field:'lastIncidentId',id:key},now),
+        hold=preview?externalHold(accountId,billing.identityKey,'intent',key,preview):null,
+        holdRef=hold?this.ref('billingHoldOutbox',hold.id):null,holdDoc=holdRef?await tx.get(holdRef):null;
       if(snapshot){
         const witness=snapshot.witness;
         if(witness.accountId!==accountId||witness.intentId!==key||!matchesExternalBilling(witness,billing))throw new LedgerFault('invalid');
@@ -1166,15 +1243,17 @@ export class FirestoreBackend {
       else if(mismatch)detected='seconds_mismatch';
       else if(observed.state==='captured')detected='captured_without_job';
       if(!detected&&!existing.exists)throw new LedgerFault('invalid');
-      const now=Date.now(),old=existing.data();
+      const old=existing.data();
       if(existing.exists&&(old?.accountId!==accountId||old?.intentId!==key||old?.identityKey!==billing.identityKey||old?.reservationId!==billing.reservationId||old?.expectedSeconds!==billing.seconds))throw new LedgerFault('invariant');
       const reason:ExternalBillingReviewReason=existing.exists?old!.reason:detected!;
       if(!['captured_without_job','seconds_mismatch','intent_job_mismatch','capture_before_success','release_before_failure','outbox_mismatch','remote_ack_intent_mismatch','remote_ack_closure_unverified','direct_status_uncertain'].includes(reason))throw new LedgerFault('invariant');
-      const invalidHold=holdDoc.exists&&(!matchesHold(holdDoc.data(),hold)||!['pending','applied','needs_review'].includes(holdDoc.get('state')));
+      const invalidHold=!!hold&&!!holdDoc?.exists&&(!matchesHold(holdDoc.data(),hold)||!['pending','applied','needs_review'].includes(holdDoc.get('state')));
       if(!existing.exists)tx.create(incident,{accountId,intentId:key,inputId:row.inputId,requestKey,operation:row.operation,revision:row.revision,identityKey:billing.identityKey,reservationId:billing.reservationId,expectedSeconds:billing.seconds,reason,firstObserved:{...observed,atMs:now},lastObserved:{...observed,atMs:now},createdAtMs:now,updatedAtMs:now,...(invalidHold?{holdProblem:'invalid_existing_event'}:{}),...(confirmedJobId?{jobId:confirmedJobId}:{})});
       else tx.update(incident,{lastObserved:{...observed,atMs:now},updatedAtMs:now,...(invalidHold?{holdProblem:'invalid_existing_event'}:{})});
-      if(!holdDoc.exists)tx.create(holdRef,{...hold,state:'pending',attempts:0,nextAttemptAt:now,createdAtMs:now});
-      tx.set(guard,{accountId,blocked:true,lastIncidentId:key,updatedAtMs:now},{merge:true});
+      const generation=this.writeBlockedGuard(tx,blocked,accountId,{field:'lastIncidentId',id:key},now);
+      // The preview and the written generation must agree, or the hold would be named by a generation the guard does not have.
+      if(!preview||generation.epoch!==preview.epoch||generation.createdAtMs!==preview.createdAtMs)throw new LedgerFault('invariant');
+      if(hold&&holdRef&&!holdDoc?.exists)tx.create(holdRef,pendingHoldRow(hold,now));
       tx.update(intent,{state:'needs_review',reviewReason:reason,reviewIncidentId:key,updatedAtMs:now});
       if(validClearIntentAdmissionGuard(admission,key))tx.update(intentGuard,{state:'needs_review',incidentId:key,updatedAtMs:now});
       return {state:'needs_review',reason};
@@ -1192,10 +1271,13 @@ export class FirestoreBackend {
     const snapshotBound=isRecovery?!!snapshot&&snapshot.intentId===key&&snapshot.action===terminalAction:!!direct&&direct.source===directSource&&sameIntentWitness(direct.witness,witness);
     const directReceipt=direct&&snapshotBound?hash(['direct-observation-receipt-v1',directSnapshotHash(direct),observed.source,observed.action,observed.state,observed.reservationId,observed.seconds]):null;
     const incidentId=hash(['billing-intent-observation-v1',key,observed.action,witness.accountId,witness.inputId,witness.operation,witness.revision,witness.identityKey,witness.reservationId,witness.seconds,...(observed.source==='resolution_status'?[observed.source,observed.terminalAction]:[observed.source,direct?.attemptId??'unbound'])]);
-    const hold=externalHold(witness.accountId,witness.identityKey,'intent',key),intent=this.ref('billingIntents',key),review=this.ref('billingReviewIncidents',key),guard=this.ref('billingGuards',witness.accountId),holdRef=this.ref('billingHoldOutbox',hold.id),incident=this.ref('billingIntentObservationIncidents',incidentId);
+    const intent=this.ref('billingIntents',key),review=this.ref('billingReviewIncidents',key),guard=this.ref('billingGuards',witness.accountId),incident=this.ref('billingIntentObservationIncidents',incidentId);
     return this.db.runTransaction(async tx=>{
       const extra=isRecovery?[this.ref('billingIntentTerminalWitnesses',intentTerminalKey(key,'seal')),this.ref('billingIntentTerminalRecovery',intentTerminalKey(key,'seal')),this.ref('billingIntentTerminalWitnesses',intentTerminalKey(key,'release')),this.ref('billingIntentTerminalRecovery',intentTerminalKey(key,'release'))]:[];
-      const [account,identity,input,origin,current,request,jobMarker,blocked,admission,terminal,oldReview,oldHold,oldIncident,...history]=await tx.getAll(this.ref('accounts',witness.accountId),this.ref('identities',witness.identityKey),this.ref('inputs',witness.inputId),this.ref('billingIntentWitnesses',key),intent,this.ref('requests',key),this.ref('billingIntentJobMarkers',key),guard,this.ref('billingIntentAdmissionGuards',key),this.ref('billingIntentTerminalWitnesses',intentTerminalKey(key,terminalAction)),review,holdRef,incident,...extra);
+      const [account,identity,input,origin,current,request,jobMarker,blocked,admission,terminal,oldReview,oldIncident,...history]=await tx.getAll(this.ref('accounts',witness.accountId),this.ref('identities',witness.identityKey),this.ref('inputs',witness.inputId),this.ref('billingIntentWitnesses',key),intent,this.ref('requests',key),this.ref('billingIntentJobMarkers',key),guard,this.ref('billingIntentAdmissionGuards',key),this.ref('billingIntentTerminalWitnesses',intentTerminalKey(key,terminalAction)),review,incident,...extra);
+      const now=Date.now(),preview=this.guardPreview(blocked,witness.accountId,{field:'lastIncidentId',id:key},now),
+        hold=preview?externalHold(witness.accountId,witness.identityKey,'intent',key,preview):null,
+        holdRef=hold?this.ref('billingHoldOutbox',hold.id):null,oldHold=holdRef?await tx.get(holdRef):null;
       const directDocs=!isRecovery?await this.directObservationDocs(tx,witness):null;
       const uid=identity.get('uid'),owner=account.exists&&identity.exists&&identity.get('accountId')===witness.accountId&&typeof uid==='string'&&!!uid&&uid.length<=128&&hash(['firebase',uid])===witness.identityKey&&input.exists&&input.get('accountId')===witness.accountId&&validStoredIntentWitness(origin,witness);
       const compatible=observed.source!=='resolution_status'||observed.action==='release'||observed.terminalAction==='seal';
@@ -1254,8 +1336,8 @@ export class FirestoreBackend {
       const canClose=owner&&actionProven&&historyMatched&&same&&jobless&&guardValid&&!guarded&&(row!.state==='release_pending'||row!.state==='reserve_pending'&&observed.source==='status');
       if(canClose){const now=Date.now();tx.update(intent,{state:'closed',...(observed.action==='release'?{releaseConfirmed:true,releaseReservationId:witness.reservationId,releaseSeconds:witness.seconds,releaseObservationSource:observed.source}:{sealConfirmed:true,sealReservationId:witness.reservationId,sealSeconds:witness.seconds,sealObservationSource:observed.source}),...(!isRecovery&&direct&&directReceipt?{directObservationReceiptHash:directReceipt,directObservationAttemptId:direct.attemptId}:{}),updatedAtMs:now});return {state:'closed',ownerBlocked:false};}
       if(!recordReview)return {state:'needs_review',ownerBlocked:false};
-      const now=Date.now(),reviewReason=(!isRecovery&&identicalClosed?'remote_ack_closure_unverified':'remote_ack_intent_mismatch') as ExternalBillingReviewReason,reviewValid=!oldReview.exists||oldReview.get('accountId')===witness.accountId&&oldReview.get('identityKey')===witness.identityKey&&oldReview.get('intentId')===key&&oldReview.get('reservationId')===witness.reservationId&&oldReview.get('expectedSeconds')===witness.seconds;
-      const holdValid=!oldHold.exists||matchesHold(oldHold.data(),hold)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
+      const reviewReason=(!isRecovery&&identicalClosed?'remote_ack_closure_unverified':'remote_ack_intent_mismatch') as ExternalBillingReviewReason,reviewValid=!oldReview.exists||oldReview.get('accountId')===witness.accountId&&oldReview.get('identityKey')===witness.identityKey&&oldReview.get('intentId')===key&&oldReview.get('reservationId')===witness.reservationId&&oldReview.get('expectedSeconds')===witness.seconds;
+      const holdValid=!oldHold?.exists||matchesHold(oldHold.data(),hold!)&&['pending','applied','needs_review'].includes(oldHold.get('state'));
       if(oldIncident.exists&&(!sameIntentWitness(oldIncident.data(),witness)||oldIncident.get('action')!==observed.action||oldIncident.get('observedState')!==observed.state))throw new LedgerFault('invariant');
       const attributed=!!owner&&guardValid&&snapshotBound,problem=!guardValid?'invalid_guard':!reviewValid?'invalid_review':!holdValid?'invalid_hold':null;
       if(!oldIncident.exists)tx.create(incident,{...witness,state:'needs_review',action:observed.action,observedState:observed.state,source:observed.source,...(observed.source==='resolution_status'?{terminalAction:observed.terminalAction,historySnapshot:snapshotBound?snapshot:null,historySnapshotState:!snapshotBound?'missing_or_invalid':historyMatched?'matched':'changed'}:{directObservationSnapshot:snapshotBound?direct:null,directSnapshotState:!snapshotBound?'missing_or_invalid':historyMatched?'matched':'changed'}),attribution:attributed?'verified':'unverified',ownerBlocked:attributed,...(problem?{holdProblem:problem}:{}),createdAtMs:now,updatedAtMs:now});
@@ -1263,8 +1345,9 @@ export class FirestoreBackend {
       if(validClearIntentAdmissionGuard(admission,key))tx.update(admission.ref,{state:'needs_review',incidentId,updatedAtMs:now});
       if(attributed){
         if(reviewValid&&!oldReview.exists)tx.create(review,{accountId:witness.accountId,intentId:key,inputId:witness.inputId,operation:witness.operation,revision:witness.revision,identityKey:witness.identityKey,reservationId:witness.reservationId,expectedSeconds:witness.seconds,reason:reviewReason,firstConfirmedObservation:{...observed,atMs:now},createdAtMs:now,updatedAtMs:now});
-        if(reviewValid&&holdValid&&!oldHold.exists)tx.create(holdRef,{...hold,state:'pending',attempts:0,nextAttemptAt:now,createdAtMs:now});
-        tx.set(guard,{accountId:witness.accountId,blocked:true,lastIncidentId:key,updatedAtMs:now},{merge:true});
+        if(reviewValid&&holdValid&&!oldHold?.exists&&hold&&holdRef)tx.create(holdRef,pendingHoldRow(hold,now));
+        const generation=this.writeBlockedGuard(tx,blocked,witness.accountId,{field:'lastIncidentId',id:key},now);
+        if(!preview||generation.epoch!==preview.epoch||generation.createdAtMs!==preview.createdAtMs)throw new LedgerFault('invariant');
         if(same&&row!.state!=='closed')tx.update(intent,{state:'needs_review',reviewReason:'remote_ack_intent_mismatch',reviewIncidentId:key,updatedAtMs:now});
       }
       return {state:'needs_review',ownerBlocked:attributed,incidentId};
@@ -1324,6 +1407,8 @@ export class FirestoreBackend {
   async pendingExternalHolds(limit=25){
     if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
     const rows=await this.root.collection('billingHoldOutbox').where('state','==','pending').where('nextAttemptAt','<=',Date.now()).orderBy('nextAttemptAt').limit(limit).get();
+    // The listing does NOT validate the generation: one poisoned row must not stop every other hold. The row already
+    // carries `epoch`/`createdAtMs` through `d.data()`; `authorizeExternalHold` validates it and sends the bad row to review.
     return rows.docs.map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
   }
   /** Never send a hold for an owner inferred solely from a potentially corrupt outbox row. */
@@ -1337,7 +1422,11 @@ export class FirestoreBackend {
       if(!validUnleasedBillingMetadata(doc.data()!)){tx.update(ref,{state:'needs_review',reviewReason:'invalid_scheduling_metadata',updatedAtMs:Date.now()});return {state:'needs_review'};}
       if(!Number.isSafeInteger(doc.get('nextAttemptAt'))||doc.get('nextAttemptAt')<0){tx.update(ref,{state:'needs_review',reviewReason:'invalid_due',updatedAtMs:Date.now()});return {state:'needs_review'};}
       let expected:ExternalBillingHold|undefined;
-      try{expected=externalHold(row.accountId as string,row.identityKey as string,row.sourceKind as 'intent'|'outbox',row.sourceId as string);}catch(error){if(!(error instanceof LedgerFault))throw error;}
+      try{
+        // The generation comes from the row itself (the writer stored it), never from the caller: a legacy row has none.
+        const generation=storedHoldGeneration(doc.data());
+        expected=externalHold(row.accountId as string,row.identityKey as string,row.sourceKind as 'intent'|'outbox',row.sourceId as string,generation);
+      }catch(error){if(!(error instanceof LedgerFault))throw error;}
       if(!expected||expected.id!==row.id||!matchesHold(doc.data(),expected)){tx.update(ref,{state:'needs_review',reviewReason:'invalid_event',updatedAtMs:Date.now()});return {state:'needs_review'};}
       const source=expected.sourceKind==='intent'?'billingReviewIncidents':'billingOutboxReviewIncidents';
       const [account,identity,guard,incident]=await tx.getAll(this.ref('accounts',expected.accountId),this.ref('identities',expected.identityKey),this.ref('billingGuards',expected.accountId),this.ref(source,expected.sourceId));
@@ -1349,7 +1438,7 @@ export class FirestoreBackend {
     });
   }
   async markExternalHoldApplied(expected:ExternalBillingHold){
-    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId);if(verified.id!==expected.id)throw new LedgerFault('invalid');
+    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId,expected.epoch===undefined?undefined:{epoch:expected.epoch,createdAtMs:expected.createdAtMs as number});if(verified.id!==expected.id)throw new LedgerFault('invalid');
     return this.db.runTransaction(async tx=>{
       const ref=this.ref('billingHoldOutbox',expected.id),[doc,guard]=await tx.getAll(ref,this.ref('billingGuards',expected.accountId));
       if(!doc.exists||!matchesHold(doc.data(),expected)||!guard.exists||guard.get('accountId')!==expected.accountId||guard.get('blocked')!==true)return false;
@@ -1358,7 +1447,7 @@ export class FirestoreBackend {
     });
   }
   async recordExternalHoldFailure(expected:ExternalBillingHold,code:string,snapshotVersion?:string){
-    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId);if(verified.id!==expected.id)throw new LedgerFault('invalid');
+    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId,expected.epoch===undefined?undefined:{epoch:expected.epoch,createdAtMs:expected.createdAtMs as number});if(verified.id!==expected.id)throw new LedgerFault('invalid');
     if(typeof snapshotVersion!=='string'||!/^\d{1,15}:\d{9}(?![\s\S])/.test(snapshotVersion))return false;
     if(!/^(unavailable|conflict|invalid|not_found|forbidden)$/.test(code))code='unavailable';
     return this.db.runTransaction(async tx=>{
@@ -1374,7 +1463,7 @@ export class FirestoreBackend {
   }
   /** Preserve a confirmed Account hold if the local event cannot be matched after its ACK. */
   async recordExternalHoldAckMismatch(expected:ExternalBillingHold){
-    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId);if(verified.id!==expected.id)throw new LedgerFault('invalid');
+    const verified=externalHold(expected.accountId,expected.identityKey,expected.sourceKind,expected.sourceId,expected.epoch===undefined?undefined:{epoch:expected.epoch,createdAtMs:expected.createdAtMs as number});if(verified.id!==expected.id)throw new LedgerFault('invalid');
     return this.db.runTransaction(async tx=>{
       const ref=this.ref('billingHoldAckIncidents',expected.id),doc=await tx.get(ref);
       if(doc.exists){if(!matchesHold(doc.data(),expected))throw new LedgerFault('invariant');return false;}
@@ -1934,9 +2023,9 @@ export class FirestoreBackend {
       after={expected,ack,ackMatches,settlementSnapshot:snapshot&&matchesOutboxSnapshot(snapshot.expected,expected)?snapshot:null};
     }
     const key=hash(['billing-outbox-review-v1',outboxId,phase,version,after?safeOutboxAudit(after.expected):null]);
-    const outbox=this.ref('billingOutbox',outboxId),incident=this.ref('billingOutboxReviewIncidents',key),holdRef=this.ref('billingHoldOutbox',hash(['account-hold-v1','outbox',key])),job=uuid.test(outboxId)?this.ref('jobs',outboxId):null;
+    const outbox=this.ref('billingOutbox',outboxId),incident=this.ref('billingOutboxReviewIncidents',key),job=uuid.test(outboxId)?this.ref('jobs',outboxId):null;
     return this.db.runTransaction(async tx=>{
-      const [current,existing,holdDoc,...jobDocs]=await tx.getAll(outbox,incident,holdRef,...(job?[job]:[])),jobDoc=jobDocs[0];
+      const [current,existing,...jobDocs]=await tx.getAll(outbox,incident,...(job?[job]:[])),jobDoc=jobDocs[0];
       const currentVersion=current.exists?outboxVersion(current):null;
       // LV-019.B double ACK (docs/specs/LV-019-B-doble-ack-liquidacion.md): another drainer already settled this exact row (same document: its createTime is the one
       // read before the POST, only its updateTime moved), and the 13 other documents this POST validated still have their pre-POST versions, so the ACK confirms
@@ -1983,8 +2072,10 @@ export class FirestoreBackend {
             a?.accountId===owner.accountId&&a.jobId===outboxId&&a.inputId===owner.job.inputId)return {state:'changed',ownerBlocked:false};
         }
       }
-      const idHash=hash(['billing-outbox-id',outboxId]),now=Date.now(),hold=owner?externalHold(owner.accountId,owner.billing.identityKey,'outbox',key):null;
-      const invalidHold=!!hold&&holdDoc.exists&&(!matchesHold(holdDoc.data(),hold)||!['pending','applied','needs_review'].includes(holdDoc.get('state')));
+      const idHash=hash(['billing-outbox-id',outboxId]),now=Date.now(),
+        hold=owner?externalHold(owner.accountId,owner.billing.identityKey,'outbox',key,this.guardEpoch(owner.guardDoc,owner.accountId,{field:'lastOutboxIncidentId',id:key},now)):null,
+        holdDoc=hold?await tx.get(this.ref('billingHoldOutbox',hold.id)):null;
+      const invalidHold=!!hold&&!!holdDoc!.exists&&(!matchesHold(holdDoc!.data(),hold!)||!['pending','applied','needs_review'].includes(holdDoc!.get('state')));
       if(existing.exists&&(existing.get('outboxIdHash')!==idHash||existing.get('phase')!==phase))throw new LedgerFault('invariant');
       const audit={state:'needs_review',phase,reason:after?'remote_ack_outbox_changed':'invalid_outbox',outboxId:uuid.test(outboxId)?outboxId:null,outboxIdHash:idHash,
         snapshotVersion:version,currentVersion,expected:safeOutboxAudit(after?after.expected:current.data()),
@@ -1995,8 +2086,10 @@ export class FirestoreBackend {
       // A terminal row is evidence and must not be rewritten even when it conflicts with this ACK.
       if(current.exists&&current.get('state')!=='settled')tx.update(outbox,{state:'needs_review',reviewIncidentId:key,updatedAtMs:now});
       if(owner){
-        if(hold&&!holdDoc.exists)tx.create(holdRef,{...hold,state:'pending',attempts:0,nextAttemptAt:now,createdAtMs:now});
-        tx.set(owner.guard,{accountId:owner.accountId,blocked:true,lastOutboxIncidentId:key,updatedAtMs:now},{merge:true});
+        const generation=this.writeBlockedGuard(tx,owner.guardDoc,owner.accountId,{field:'lastOutboxIncidentId',id:key},now);
+        // The hold was named from the preview of this same write; a disagreement would name an id the guard does not carry.
+        if(!hold||generation.epoch!==hold.epoch||generation.createdAtMs!==hold.createdAtMs)throw new LedgerFault('invariant');
+        if(!holdDoc!.exists)tx.create(this.ref('billingHoldOutbox',hold.id),pendingHoldRow(hold,now));
         if(owner.intentState==='job_created')tx.update(owner.intent,{state:'needs_review',reviewReason:'outbox_mismatch',reviewOutboxIncidentId:key,updatedAtMs:now});
       }
       return {state:'needs_review',ownerBlocked:!!owner,incidentId:key};

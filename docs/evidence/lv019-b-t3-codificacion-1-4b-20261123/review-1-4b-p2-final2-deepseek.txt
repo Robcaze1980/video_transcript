@@ -1,0 +1,18 @@
+**Hallazgos**
+
+1. **ALTA — la marca de generación del hold se sobrescribe con el `createdAtMs` propio del hold.** Estado: cuenta ya bloqueada, guarda con generación `{epoch:1, createdAtMs:T0}` e incidente A. Eventos: llega un segundo incidente B (misma cuenta/tipo) vía `recordExternalOutboxReview`/`recordExternalBillingReview`/`directStatusUncertainty`; `guardEpoch` devuelve `{epoch:2, createdAtMs:T0}` y `externalHold` incrusta ese `createdAtMs:T0` en `hold`; el writer ejecuta `tx.create(holdRef,{...hold,state:'pending',attempts:0,nextAttemptAt:now,createdAtMs:now})`, y el literal **sobrescribe** `createdAtMs` con `now≠T0`. Resultado: `authorizeExternalHold`→`storedHoldGeneration` reconstruye `{epoch:2, createdAtMs:now}`, recompone el id y `expected.id!==row.id` ⇒ la fila va a `needs_review`: Cuenta **nunca** recibe el incidente B, el hold B queda pendiente como rival (la guarda no se puede limpiar) y el desbloqueo de B pide a Cuenta un incidente inexistente ⇒ `conflict` permanente. Corrección mínima: no reutilizar `createdAtMs`; guardar la marca de generación bajo campos propios (`guardEpoch`/`guardCreatedAtMs`) y alinear `storedHoldGeneration`, o esparcir `...hold` después del literal.
+
+2. **MEDIA — hueco de prueba que enmascara el hallazgo 1.** Ninguna prueba crea un segundo incidente sobre guarda viva y luego drena/autoriza ese hold (`835`/`380` solo miran alerta/epoch; `blockedAccount` solo bloquea el primer hold); `pendingExternalHolds` omite a propósito validar la generación, así que el id corrupto se degrada silenciosamente a `needs_review` en vez de aflorar. Corrección: prueba que el segundo hold de una guarda viva lo acepte `authorizeExternalHold` y que Cuenta reciba ese id.
+
+3. **BAJA — ids de auditoría por ocurrencia colisionables.** `unblockAuditId` usa `(incidentKey,epoch,createdAtMs)`; tras borrar la guarda el `epoch` reinicia en 1 y la marca puede repetirse en el mismo ms, así que dos ocurrencias del mismo incidente pueden compartir id y una repetición vieja reaparece como replay/partial. Poco probable (requiere <1ms), pero la defensa declarada no es estricta.
+
+4. **BAJA — `guardEpoch` (ruta outbox) no tiene el null-guard de `guardPreview`:** ante una guarda ajena/malformada lanza `invariant` y perdería la incidencia en vez de registrarla como no verificada; depende de que `owner` ya implique coincidencia de `accountId` (no verificable aquí).
+
+Examiné: diff de `firestoreBackend.ts`/`billingPendingReport.ts`/`billingReadOnlyRoot.ts`, `billingHoldIdentity.ts` y `billingUnblock.ts` completos; spec §3.3; 36 sitios `test()` de `billingUnblock.emulator.mjs`. No pude comprobar: `matchesHold`, `validClearIntentAdmissionGuard`, `raisePendingAlerts` ni el resto de `.ts` (prohibido); no ejecuté pruebas. Costo: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `firestoreBackend.ts` (tx.create del hold con `createdAtMs:now` tras `...hold`; `storedHoldGeneration`/`authorizeExternalHold`), `billingHoldIdentity.ts:33-45` (id con generación), `billingUnblock.ts:61-66`; hallazgo 1 (mismatch id↔marca ⇒ hold del 2º incidente nunca llega a Cuenta).
+NEGATIVOS: no ejecuté las 37 pruebas; no abrí producción `.ts` no incluida; sin prueba de drenaje del segundo hold sobre guarda viva.
+BLOQUEOS: ninguno (1.4c declarado fuera de alcance).
+=== FIN RESUMEN ===

@@ -1,0 +1,19 @@
+All confirmed. The "Recovery" files listed are pre-existing project files (unrelated); the only `billingUnblock.*` files are the real ones, and my backups live outside the repo in `C:\tmp`.
+
+What I changed and verified (no execution, main folder untouched):
+
+- Kept your provided fixture as the exact baseline: SHA-256 `ff28dc14…` (92203 B); my file's first 92203 bytes are byte-identical to it.
+- Case A inline comment now states precisely that Account's refusal creates no receipt and no Video closure write, and that `unblock_requested` is the only Video write so far (phase 0).
+- Case B restructured to match `unblockVideoBilling` semantics:
+  - After committing the receipt at g1 and losing the response, I create g2 (third incident) and capture signatures (Video + Account) before any further attempt.
+  - Negative 1: a request using the live g2 → `conflict` (`stage:'account'`); Negative 2: the request using g0 (the mark the initial `unblock_requested` recorded) → `conflict`.
+  - Both negatives leave the receipt and reviewed incident byte-identical, lift no block, and write nothing (Video + Account signatures unchanged); no `unblocked` record yet.
+  - Positive control (after the signature comparison): the g1 request (the generation the receipt named) replays on Account and completes the pending phase 3 exactly once — one `unblocked` record with `accountReplayed:true`, guard stays blocked (`accountBlocked:true`, `videoBlocked:true`), receipt not duplicated; a further identical g1 call is a pure replay (no second record/receipt).
+- Final file: SHA-256 `36fe6c0b1432c4c1b79a351a5b70d4816b4ba96a710e3f49098442fc478645d6`, 106353 B, LF, `node --check` exit 0; case A and case B each appear once; all pre-existing tests intact.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/billingUnblock.emulator.mjs` (solo mi worktree). Prefijo (92203 B) byte-idéntico al fixture provisto SHA-256 `ff28dc14…`; archivo final SHA-256 `36fe6c0b14…`, 106353 B, LF, `node --check` exit 0. Caso B ahora: negativos con g2 (viva) y g0 (`unblock_requested`) → conflicto sin escrituras (firmas Video+Cuenta idénticas antes/después), y control positivo con g1 → recupera el recibo UNA vez (`accountReplayed:true`, bloqueo persiste, sin duplicar recibo ni `unblocked`); repetir g1 = replay puro. Caso A: comentario precisado (rechazo de Cuenta = ni recibo ni cierre en Video; fase 0 sí escribió `unblock_requested`).
+NEGATIVOS: dos rutas de conflicto (g2 y g0) con comparación de firmas y `posts+2`; control positivo único y su repetición idempotente; ambos casos reiteran que `unblock_requested` conserva g0.
+BLOQUEOS: NO ejecuté suites ni emulador (otra sesión activa); rojo/verde aún no observado. No toqué la carpeta principal ni docs; respaldos fuera del repo en `C:\tmp\emulator.before-*.mjs`. Costo/modelo: no medido.
+=== FIN RESUMEN ===

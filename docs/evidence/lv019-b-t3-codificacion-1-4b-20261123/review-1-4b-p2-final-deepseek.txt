@@ -1,0 +1,18 @@
+Leí `AGENTS.md`, la sección 3.3 de `docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md`, el diff completo de producción y `server/commercial/billingUnblock.emulator.mjs`. No abrí los `.ts` de producción ni pude comprobar `validClearIntentAdmissionGuard`, `matchesHold`, `raisePendingAlerts` ni el drenador (presupuesto de lecturas). Costo: `no medido`.
+
+**Hallazgos**
+
+1. **ALTA — La segunda ocurrencia de un incidente de INTENCIÓN nunca se puede desbloquear.** `unblockAuditId(incidentKey,action)` = `hash(['billing-unblock-v1',incidentKey,action])`, y para una intención `incidentKey` = id de la intención, **estable** entre ocurrencias (`firestoreBackend.ts`, `key=witness.intentId`; `billingUnblock.ts:unblockAuditId`). Secuencia: (a) la intención X diverge, se desbloquea → queda `billingUnblockAudit/<hash(X,'video_released')>`; (b) la misma intención X vuelve a divergir → guarda nueva (epoch 1, nuevo `createdAtMs`) y hold nuevo (el id del hold sí cambia, `videoHoldId`); (c) el operador nombra X con la generación vigente → la rama `released`/`done`/`requested` encuentra el registro viejo, `samePayload` falla por la generación nueva → `conflict` permanente, sin ninguna ruta. Corrección mínima: derivar el id de auditoría de la ocurrencia, p. ej. `hash(['billing-unblock-v1',incidentKey,epoch,createdAtMs,action])`.
+
+2. **MEDIA — `sameGeneration` compara la época cruda y no la normalizada.** `guard.get('epoch')===clean.epoch` con `clean.epoch` ya normalizado a 1 por el reporte. Para una guarda sin `epoch` (forma que `guardEpoch`/`generation()` aceptan como 1 y que el test `guard_legacy_epoch_default` ejercita), `undefined===1` es falso: una petición cuya fase 2 falló no reanuda y un resultado PARCIAL no se completa nunca (`conflict` en bucle). Corrección: `(guard.get('epoch')??1)===clean.epoch`.
+
+3. **MEDIA — El escaneo no ve la guarda de admisión y aun así borra la guarda de Video.** `accountRows` consulta por `accountId`, y `billingIntentAdmissionGuards` no lleva `accountId` (el escritor hace `tx.update(d.intentGuard,{state:'needs_review',incidentId:key})`); `incidentOf` tampoco la avanza. Secuencia: un incidente de intención pone la guarda de admisión en `needs_review`; el desbloqueo avanza intención/incidencia/hold y **borra** la guarda de Video. Resultado: cuenta abierta con una fila sin revisar que bloquea la admisión de esa intención — lo contrario del límite (c), que conserva la guarda. Corrección: para `kind==='intent'`, leer y avanzar `billingIntentAdmissionGuards/<incidentKey>` dentro de `owned`/`planned`.
+
+4. **BAJA — Asimetría en el camino direct-status.** No repite el assert `preview`/`generation` que sí tienen los otros dos escritores, y `guardPreview` puede lanzar `invariant` incluso cuando el incidente no es atribuible (antes se registraba un incidente no verificado sin tocar la guarda). Corrección: comprobar el null antes de `guardEpoch` y añadir el assert de igualdad.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: billingUnblock.ts (`unblockAuditId`, ramas `released`/`done`/`requested`, `sameGeneration`); firestoreBackend.ts (`guardEpoch`/`generation` vs `sameGeneration`; escritores `lastIncidentId=key`; `accountRows` por `accountId`); billingUnblock.emulator.mjs (tests 11 parcial/re-block/guarda corrupta).
+NEGATIVOS: no ejecuté las 37 pruebas; no abrí los `.ts` de producción; no verifiqué `validClearIntentAdmissionGuard`, `matchesHold`, `raisePendingAlerts` ni el drenador; costo no medido.
+BLOQUEOS: el id de auditoría por ocurrencia (hallazgo 1) y la visibilidad de la guarda de admisión (hallazgo 3) requieren decisión de diseño/1.4c.
+=== FIN RESUMEN ===

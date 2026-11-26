@@ -30,7 +30,7 @@ const expectedSkippedNames = [
 const expectedSkipped = expectedSkippedNames.length;
 const guardFile = 'scripts/financialEmulatorNetworkGuard.cjs';
 const inventoryFile = 'scripts/inspectFinancialSyntheticRoots.mjs';
-const fixtureFiles = ['server/commercial/firestoreBackend.emulator.mjs', 'server/commercial/firestoreAiBackend.emulator.mjs', 'server/commercial/firestoreAi.emulator.mjs', 'server/commercial/firestoreVideoSettlementC2a.emulator.mjs', 'server/commercial/firestoreDrainControl.emulator.mjs', 'server/commercial/firestoreUnknownResolver.emulator.mjs', 'server/commercial/billingDrainSection.emulator.mjs', 'server/commercial/firestoreAgeEscalation.emulator.mjs', 'server/commercial/firestoreBlocksA.emulator.mjs', 'server/commercial/firestoreA3Exit.emulator.mjs', 'server/commercial/textAccountReserveAckWindow.emulator.mjs', 'server/commercial/billingSettlementHistoryRaces.emulator.mjs'];
+const fixtureFiles = ['server/commercial/firestoreBackend.emulator.mjs', 'server/commercial/firestoreAiBackend.emulator.mjs', 'server/commercial/firestoreAi.emulator.mjs', 'server/commercial/firestoreVideoSettlementC2a.emulator.mjs', 'server/commercial/firestoreDrainControl.emulator.mjs', 'server/commercial/firestoreUnknownResolver.emulator.mjs', 'server/commercial/billingDrainSection.emulator.mjs', 'server/commercial/firestoreAgeEscalation.emulator.mjs', 'server/commercial/firestoreBlocksA.emulator.mjs', 'server/commercial/firestoreA3Exit.emulator.mjs', 'server/commercial/textAccountReserveAckWindow.emulator.mjs', 'server/commercial/billingSettlementHistoryRaces.emulator.mjs', 'server/commercial/billingUnblock.emulator.mjs', 'server/account/unblockAudited.emulator.mjs'];
 const tracked = Object.freeze([
   'server/commercial/firestoreBackend.ts',
   'server/commercial/firestoreAi.ts',
@@ -38,6 +38,10 @@ const tracked = Object.freeze([
   'server/commercial/firestoreReviewedTranslation.ts',
   'server/commercial/firestoreFiles.ts',
   'server/commercial/accountBillingClient.ts',
+  'server/commercial/billingUnblock.ts',
+  'server/commercial/billingHoldIdentity.ts',
+  'server/commercial/billingPendingReport.ts',
+  'server/commercial/billingPendingAlerts.ts',
   ...fixtureFiles,
   'server/commercial/financialFixtureSafety.mjs',
   'server/commercial/firestoreHttp.ts',
