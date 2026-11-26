@@ -887,10 +887,10 @@ test('11 the completion records name the Account generation that the confirmed c
 test('11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock',{timeout:60000},async()=>{
   const blocked=await blockedAccount('unblock_alert_owner'),c=blocked.c,requestBody=await request(c,blocked);
   const alert=(await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).data();
-  for(const change of [{kind:'hold'},{rowId:randomUUID()}]){
+  for(const [change,expectedCode] of [[{kind:'hold'},'conflict'],[{rowId:randomUUID()},'corrupt']]){
     const fields={...alert,...change},key=alertKey(fields.kind,fields.rowId,fields.state,fields.reason);
     await ref(c.root,ALERT_COLLECTION,key).create({...fields,alertKey:key});
-    await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,alertKey:key},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict',JSON.stringify(change));
+    await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,alertKey:key},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code===expectedCode,JSON.stringify(change));
   }
   assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0,'no audit record for a foreign alert');
   // Two identities claim the same account: Account is never asked for either of them.

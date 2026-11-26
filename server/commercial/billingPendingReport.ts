@@ -35,8 +35,14 @@ export const safeDocId=(value:unknown):value is string=>typeof value==='string'&
 function guardIncidentId(value:unknown):string|null{
   return safeDocId(value)&&value.trim().length>0&&!/^__[\s\S]*__$/.test(value)?value:null;
 }
+/** A legacy reference can be an opaque document ID. Every reference that exists must be usable. */
+export function hasInvalidGuardReference(data:Record<string,unknown>):boolean{
+  return (Object.hasOwn(data,'lastOutboxIncidentId')&&guardIncidentId(data.lastOutboxIncidentId)===null)||
+    (Object.hasOwn(data,'lastIncidentId')&&guardIncidentId(data.lastIncidentId)===null);
+}
 const nonNegativeInteger=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const validReportAccountId=(value:unknown):value is string=>typeof value==='string'&&uuid.test(value);
 /** The only codes the writers can store (firestoreBackend.ts failure recorders coerce anything else to 'unavailable'). */
 const errorCode=/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden|reserved_unconfirmed|closure_unverified)$/;
 
@@ -49,7 +55,7 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
   const nextAttemptAt=nonNegativeInteger(d.nextAttemptAt)?d.nextAttemptAt:null;
   const attempts=nonNegativeInteger(d.attempts)?d.attempts:null;
   const lastErrorCode=typeof d.lastErrorCode==='string'&&errorCode.test(d.lastErrorCode)?d.lastErrorCode:null;
-  const accountId=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null;
+  const accountId=validReportAccountId(d.accountId)?d.accountId:null;
   // Old intent rows may omit the provider. A supplied but unsupported value
   // is refused by the drainer, so surface the row without an account hint.
   const invalidIntentProvider=kind==='intent'&&Object.hasOwn(d,'provider')&&d.provider!=='account_seconds';
@@ -73,8 +79,7 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
     const incidentKey=outboxIncident??intentIncident??'';
     // Merged guards can contain both valid references. Keep their established outbox-first identity.
     // A damaged companion remains visible as malformed even if the other reference names a valid document.
-    const invalidReference=Object.hasOwn(d,'lastOutboxIncidentId')&&outboxIncident===null||
-      Object.hasOwn(d,'lastIncidentId')&&intentIncident===null;
+    const invalidReference=hasInvalidGuardReference(d);
     // The guard row keeps no `createdAtMs` age of its own (the alert is raised as soon as it appears), but the mark is in its state.
     return {kind,id,state:'blocked:'+epoch+':'+createdAtMs+':'+incidentKey,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:invalidReference?null:guardAccount,
       malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incidentKey||invalidReference||(hasEpoch&&!validEpoch)||(hasCreated&&!validCreated)||hasEpoch!==hasCreated};
