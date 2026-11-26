@@ -47,6 +47,8 @@ const tracked = Object.freeze([
   'server/commercial/billingHoldIdentity.ts',
   'server/commercial/billingPendingReport.ts',
   'server/commercial/billingPendingAlerts.ts',
+  'server/commercial/billingPendingAudit.ts',
+  'server/commercial/billingPendingSweep.ts',
   'server/commercial/accountReconciliationCounts.ts',
   'server/commercial/accountReadOnlyRoot.ts',
   ...fixtureFiles,

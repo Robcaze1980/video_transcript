@@ -1,3 +1,7 @@
+import {billingAttemptDelay,intentTerminalKey,matchesExternalBilling,sameIntentWitness,terminalDocumentVersion,terminalEvidenceBinding,
+  validInitialReaderPair,validInitialTerminalRecovery,validStoredIntentWitness,validTerminalPoll,validTerminalRecoveryOrigin,
+  type ExternalVideoBilling,type TerminalPollTurn,type TerminalRecoveryDocumentVersion} from './billingPendingReport';
+export type {ExternalVideoBilling,TerminalRecoveryDocumentVersion} from './billingPendingReport';
 import type {FirestoreReviewedTranslation,ReviewedTranslationPrincipal} from './firestoreReviewedTranslation';
 import {createReviewedVoiceMarker,validateReviewedVoiceMarkerReplay,ReviewedVoiceMarkerFault,type ReviewedVoiceMarker} from './reviewedVoiceMarker';
 import {videoReservationId} from './videoReservationId';
@@ -24,7 +28,6 @@ const localVoiceRequestUuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0
 type State = 'queued' | 'running' | 'unknown' | 'succeeded' | 'failed' | 'cancelled';
 type Balance = { credited: number; available: number; reserved: number; consumed: number; active: number };
 export type ProjectSnapshot = {accountId: string; inputId: string; revision: number; draft: string; updatedAtMs: number};
-export type ExternalVideoBilling = {provider:'account_seconds';identityKey:string;reservationId:string;seconds:number};
 export type ExternalBillingIntent = ExternalVideoBilling & {id:string;accountId:string;inputId:string;requestKey:string;operation:string;revision:number;state:'reserve_pending'|'release_pending'|'needs_review'|'job_created'|'insufficient'|'closed';jobId?:string};
 export type ExternalBillingObservation = {reservationId:string;state:'reserved'|'captured'|'released';seconds:number};
 export type ExternalBillingReleaseFence = {state:'release_pending'}|{state:'job_created';jobId:string};
@@ -33,12 +36,10 @@ export type ExternalBillingReviewReason = 'captured_without_job'|'seconds_mismat
 export type ExternalBillingReviewResult = {state:'needs_review';reason:ExternalBillingReviewReason}|{state:'job_created';jobId:string};
 export type ExternalBillingHold = {id:string;accountId:string;identityKey:string;sourceKind:'intent'|'outbox';sourceId:string;epoch?:number;createdAtMs?:number};
 export type ExternalBillingIntentWitness = ExternalVideoBilling & {intentId:string;accountId:string;inputId:string;operation:string;revision:number;profile:typeof AI_CATALOG_VERSION};
-export type TerminalRecoveryDocumentVersion = {exists:false}|{exists:true;createTime:string;updateTime:string};
 export type TerminalRecoveryReadSnapshot = {intentId:string;action:'seal'|'release';origin:TerminalRecoveryDocumentVersion;sealWitness:TerminalRecoveryDocumentVersion;sealRecovery:TerminalRecoveryDocumentVersion;releaseWitness:TerminalRecoveryDocumentVersion;releaseRecovery:TerminalRecoveryDocumentVersion};
 const directDocumentNames=['account','identity','input','project','intent','origin','guard','intentGuard','request','jobMarker','sealWitness','sealRecovery','releaseWitness','releaseRecovery'] as const;
 type DirectDocumentName=typeof directDocumentNames[number];
 type TerminalReason='status_not_found'|'status_reserved'|'seal_reserved';
-type TerminalPollTurn={terminalId:string;intentId:string;action:'release'|'seal';binding:string;generation:number;token:string;lastPollAtMs:number;nextAttemptAt:number;outcome?:'reserved'|'not_found'|'captured'|'unavailable'|'unverified'};
 export type DirectObservationSnapshot={attemptId:string;source:'status'|'seal'|'release';witness:ExternalBillingIntentWitness;versions:Record<DirectDocumentName,TerminalRecoveryDocumentVersion>};
 export type ExternalBillingIntentLease = {leaseToken:string;leaseOwner:string;generation:number;leaseUntil:number};
 export type ExternalBillingIntentFailureEvidence = {snapshotVersion:string;intentGuardVersion:string;state:'reserve_pending'|'release_pending';witness:ExternalBillingIntentWitness}&(
@@ -130,63 +131,18 @@ export function copyIntentWitness(witness:ExternalBillingIntentWitness):External
   return {intentId:witness.intentId,accountId:witness.accountId,inputId:witness.inputId,operation:witness.operation,
     revision:witness.revision,profile:witness.profile,...copyExternalBilling(witness)};
 }
-function matchesExternalBilling(value:unknown,expected:ExternalVideoBilling){
-  if(!value||typeof value!=='object')return false;
-  const actual=value as Partial<ExternalVideoBilling>;
-  return actual.provider===expected.provider&&actual.identityKey===expected.identityKey&&actual.reservationId===expected.reservationId&&actual.seconds===expected.seconds;
-}
 function validIntentWitness(value:ExternalBillingIntentWitness){
   if(!value||typeof value!=='object')throw new LedgerFault('invalid');
   identifier(value.accountId);identifier(value.inputId);text(value.operation);integer(value.revision,true);validExternalBilling(value);
   if(typeof value.intentId!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(value.intentId)||value.profile!==AI_CATALOG_VERSION)throw new LedgerFault('invalid');
 }
-function sameIntentWitness(value:unknown,expected:ExternalBillingIntentWitness){
-  if(!value||typeof value!=='object')return false;const row=value as Partial<ExternalBillingIntentWitness>;
-  return row.intentId===expected.intentId&&row.accountId===expected.accountId&&row.inputId===expected.inputId&&row.operation===expected.operation&&row.revision===expected.revision&&row.profile===expected.profile&&matchesExternalBilling(row,expected);
-}
 function intentWitness(accountId:string,inputId:string,requestKey:string,operation:string,revision:number,billing:ExternalVideoBilling):ExternalBillingIntentWitness{
   const result={intentId:hash([accountId,requestKey]),accountId,inputId,operation,revision,profile:AI_CATALOG_VERSION,...copyExternalBilling(billing)};validIntentWitness(result);return result;
-}
-function validStoredIntentWitness(doc:DocumentSnapshot,expected:ExternalBillingIntentWitness){
-  return doc.exists&&sameIntentWitness(doc.data(),expected)&&doc.get('historyProtocol')===1&&doc.get('baseline')==='before_reservation'&&Number.isSafeInteger(doc.get('createdAtMs'))&&doc.get('createdAtMs')>=0;
 }
 /** A missing or unrecognized guard for an existing intent is not a clean history. */
 export function validClearIntentAdmissionGuard(doc:DocumentSnapshot,intentId:string){
   const row=doc.data();return !!row&&Object.keys(row).length===4&&['protocol','intentId','state','createdAtMs'].every(field=>Object.hasOwn(row,field))&&
     row.protocol===1&&row.intentId===intentId&&row.state==='clear'&&Number.isSafeInteger(row.createdAtMs)&&row.createdAtMs>=0;
-}
-function validTerminalRecoveryOrigin(doc:DocumentSnapshot,expected:ExternalBillingIntentWitness){
-  if(!validStoredIntentWitness(doc,expected))return false;
-  const row=doc.data()!,fields=['intentId','accountId','inputId','operation','revision','profile','provider','identityKey','reservationId','seconds','historyProtocol','baseline','createdAtMs','terminalRecovery'];
-  if(Object.keys(row).length!==fields.length||fields.some(field=>!Object.hasOwn(row,field)))return false;
-  const marker=row.terminalRecovery;
-  return !!marker&&typeof marker==='object'&&!Array.isArray(marker)&&Object.keys(marker).length===3&&
-    ['protocol','sealPrepared','releasePrepared'].every(field=>Object.hasOwn(marker,field))&&marker.protocol===1&&
-    typeof marker.sealPrepared==='boolean'&&typeof marker.releasePrepared==='boolean';
-}
-function intentTerminalKey(intentId:string,action:'release'|'seal'){return hash(['billing-intent-terminal-v1',intentId,action]);}
-function validInitialTerminalRecovery(value:unknown,terminalId:string,createdAtMs:unknown){
-  if(!value||typeof value!=='object'||Array.isArray(value))return false;
-  const row=value as Record<string,unknown>;
-  const fields=['terminalId','protocol','state','generation','attempts','createdAtMs','nextAttemptAt'];
-  return Object.keys(row).length===fields.length&&fields.every(field=>Object.hasOwn(row,field))&&
-    row.terminalId===terminalId&&row.protocol===1&&row.state==='pending'&&row.generation===0&&row.attempts===0&&
-    Number.isSafeInteger(row.createdAtMs)&&Number(row.createdAtMs)>=0&&row.createdAtMs===createdAtMs&&row.nextAttemptAt===row.createdAtMs;
-}
-function validInitialReaderPair(prepared:boolean,terminal:DocumentSnapshot,recovery:DocumentSnapshot,witness:ExternalBillingIntentWitness,action:'seal'|'release'){
-  if(!prepared)return !terminal.exists&&!recovery.exists;
-  const id=intentTerminalKey(witness.intentId,action),row=terminal.data();
-  if(!terminal.exists||!recovery.exists||terminal.id!==id||recovery.id!==id||!row)return false;
-  const fields=['intentId','accountId','inputId','operation','revision','profile','provider','identityKey','reservationId','seconds','action','historyProtocol','stage','createdAtMs'];
-  return Object.keys(row).length===fields.length&&fields.every(field=>Object.hasOwn(row,field))&&
-    sameIntentWitness(row,witness)&&row.action===action&&row.historyProtocol===1&&row.stage==='prepared'&&
-    Number.isSafeInteger(row.createdAtMs)&&row.createdAtMs>=0&&validInitialTerminalRecovery(recovery.data(),id,row.createdAtMs);
-}
-function terminalDocumentVersion(doc:DocumentSnapshot):TerminalRecoveryDocumentVersion|null{
-  if(!doc.exists)return {exists:false};
-  const encode=(value:DocumentSnapshot['createTime'])=>value&&Number.isSafeInteger(value.seconds)&&value.seconds>=0&&Number.isSafeInteger(value.nanoseconds)&&value.nanoseconds>=0&&value.nanoseconds<1_000_000_000?`${value.seconds}:${String(value.nanoseconds).padStart(9,'0')}`:null;
-  const createTime=encode(doc.createTime),updateTime=encode(doc.updateTime);
-  return createTime&&updateTime?{exists:true,createTime,updateTime}:null;
 }
 function copyTerminalDocumentVersion(value:unknown):TerminalRecoveryDocumentVersion|null{
   if(!value||typeof value!=='object'||Array.isArray(value))return null;const item=value as Record<string,unknown>;
@@ -347,22 +303,6 @@ export function matchesOutboxSnapshot(value:unknown,expected:ExternalBillingOutb
 function outboxVersion(doc:DocumentSnapshot){
   const time=doc.updateTime;if(!time||!Number.isSafeInteger(time.seconds)||time.seconds<0||!Number.isSafeInteger(time.nanoseconds)||time.nanoseconds<0||time.nanoseconds>=1_000_000_000)return null;
   return `${time.seconds}:${String(time.nanoseconds).padStart(9,'0')}`;
-}
-/** LV-019.B: the shared growing wait of every billing retry, `min(15 min, 1 s * 2^min(attempts,10))`. */
-function billingAttemptDelay(attempts:number){return Math.min(15*60_000,1000*2**Math.min(attempts,10));}
-/** The poll coordinates reads only. It is deliberately outside the documents authenticated by a direct ACK. */
-function validTerminalPoll(row:FirebaseFirestore.DocumentData|undefined,intentId:string,action:'release'|'seal'):row is TerminalPollTurn{
-  if(!row)return false;
-  const fields=['terminalId','intentId','action','binding','generation','token','lastPollAtMs','nextAttemptAt'];
-  if(Object.hasOwn(row,'outcome')){
-    if(!['reserved','not_found','captured','unavailable','unverified'].includes(row.outcome))return false;
-    fields.push('outcome');
-  }
-  if(Object.keys(row).length!==fields.length||fields.some(field=>!Object.hasOwn(row,field)))return false;
-  return row.intentId===intentId&&row.action===action&&row.terminalId===intentTerminalKey(intentId,action)&&
-    typeof row.binding==='string'&&/^[a-f0-9]{64}(?![\s\S])/.test(row.binding)&&typeof row.token==='string'&&uuid.test(row.token)&&
-    Number.isSafeInteger(row.generation)&&row.generation>0&&Number.isSafeInteger(row.lastPollAtMs)&&row.lastPollAtMs>=0&&
-    Number.isSafeInteger(row.nextAttemptAt)&&row.nextAttemptAt===row.lastPollAtMs+billingAttemptDelay(row.generation);
 }
 /** At most `limit` items taken alternately from `first` and `second` (starting with `first`); when one runs out the other fills the rest. */
 function interleave<T>(first:readonly T[],second:readonly T[],limit:number):T[]{
@@ -1447,15 +1387,7 @@ export class FirestoreBackend {
   private terminalPollBinding(d:Record<DirectDocumentName,DocumentSnapshot>,witness:ExternalBillingIntentWitness,requestKey:string,action:'release'|'seal',proof:DocumentSnapshot,dispatch:DocumentSnapshot){
     if(!this.validDirectObservationDocs(d,witness,requestKey,action)||hasIntentLease(d.intent.data()!))return null;
     const witnessDoc=action==='release'?d.releaseWitness:d.sealWitness,recovery=action==='release'?d.releaseRecovery:d.sealRecovery;
-    // A legacy pair has neither dispatch record. Both forms still authorize only a read.
-    if(proof.exists||dispatch.exists){
-      if(!proof.exists||!dispatch.exists||!proof.createTime?.isEqual(proof.updateTime!)||!dispatch.createTime?.isEqual(proof.createTime!)||
-        !witnessDoc.createTime?.isEqual(proof.createTime!)||!recovery.createTime?.isEqual(proof.createTime!)||
-        typeof proof.get('transitioned')!=='boolean'||!/^[a-f0-9]{64}(?![\s\S])/.test(proof.get('history'))||
-        !uuid.test(dispatch.get('attemptId'))||!/^[a-f0-9]{64}(?![\s\S])/.test(dispatch.get('history'))||
-        dispatch.get('terminalId')!==intentTerminalKey(witness.intentId,action)||dispatch.get('action')!==action||dispatch.get('state')!=='possibly_sent')return null;
-    }
-    return hash([witness,action,terminalDocumentVersion(witnessDoc),terminalDocumentVersion(recovery),terminalDocumentVersion(dispatch),terminalDocumentVersion(proof)]);
+    return terminalEvidenceBinding(witness,action,witnessDoc,recovery,proof,dispatch);
   }
   /** Reserve a bounded period for this read before issuing it, including when the reader crashes. */
   async beginTerminalResolutionPoll(witness:ExternalBillingIntentWitness,requestKey:string,terminalId:string){
