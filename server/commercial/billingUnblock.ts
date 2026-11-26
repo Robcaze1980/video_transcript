@@ -23,6 +23,7 @@
  * Design: docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md (v2, 2.4/2.5/2.8, 3.3, 3.4, 3.6)
  */
 import {createHash} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import {FieldValue,type DocumentReference,type DocumentSnapshot,type Firestore,type Transaction} from 'firebase-admin/firestore';
 import {ALERT_COLLECTION,alertIdentity} from './billingPendingAlerts';
 import {hasInvalidGuardReference} from './billingPendingReport';
@@ -91,6 +92,7 @@ export interface UnblockDeps{
 type Clean={incidentKey:string;alertKey:string;epoch:number;createdAtMs:number;updatedAtMs:number;accountEpoch:number;accountCreatedAtMs:number;evidenceRef:string;note:string|null};
 type PlannedRow={collection:string;id:string;state:string|null;reviewField?:string;to:string|null;toReviewField?:string|null;exitState?:string};
 type AccountRow={accountId:string;state:string|null;reviewedAtMs:number|null};
+type UnblockObservation={guard:DocumentSnapshot;requested:DocumentSnapshot;done:DocumentSnapshot};
 
 function cleanRequest(request:unknown):Clean{
   if(!request||typeof request!=='object'||Array.isArray(request))throw new UnblockFault('invalid');
@@ -313,10 +315,11 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
       if(admissionRow){incident.planned.push(admissionRow);incident.owned.add('billingIntentAdmissionGuards/'+clean.incidentKey);}
     }
     const auditId=unblockAuditId(clean.incidentKey,'unblock_requested',clean.epoch,clean.createdAtMs);
-    tx.create(requestedRef,{auditId,action:'unblock_requested',...payload,kind:incident.kind,accountId,holdId:incident.holdId,
+    const record:Record<string,unknown>={auditId,action:'unblock_requested',...payload,kind:incident.kind,accountId,holdId:incident.holdId,
       accountEpoch:clean.accountEpoch,accountCreatedAtMs:clean.accountCreatedAtMs,
-      planned:incident.planned,reviewedRivals:rivals,recordedAtMs:nowMs});
-    return {replayed:false as const,record:{planned:incident.planned,kind:incident.kind,holdId:incident.holdId} as Record<string,unknown>,resume:false as const};
+      planned:incident.planned,reviewedRivals:rivals,recordedAtMs:nowMs};
+    tx.create(requestedRef,record);
+    return {replayed:false as const,record,resume:false as const,observed:{guard,requested,done}};
   });
   if(opened.replayed)return {unblocked:true,replayed:true,accountBlocked:Boolean(opened.record.accountBlocked),
     videoBlocked:'videoReleased' in opened?false:Boolean(opened.record.videoBlocked),
@@ -324,22 +327,26 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
 
   const record=opened.record,planned=record.planned as PlannedRow[];
   const kind=String(record.kind) as 'intent'|'outbox',holdId=String(record.holdId);
-  // A receipt lookup can outlive the Video authorization it started with. A
-  // read-only recheck narrows this window; it cannot fence a later Account POST.
-  async function recheck(tx:Transaction){
-    const observed=opened.observed;
-    if(!observed)throw new UnblockFault('conflict');
+  // Pin the committed authorization before either POST. Account's later confirmation
+  // does not protect the Video document; the transaction that finishes must reread it.
+  async function recheck(tx:Transaction,observed:UnblockObservation){
     const [guard,alert,requested,done,released]=await tx.getAll(guardRef,alertRef,requestedRef,doneRef,releasedRef);
     const requestData=requested.data();
     if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
     const guardKind=guard.get('lastIncidentId')===clean.incidentKey?'intent':'outbox';
+    // A fresh create has no snapshot until its transaction commits. Verify the
+    // entire record written by that transaction and pin the committed snapshot.
+    const sameRequest=observed.requested.exists?sameVersion(observed.requested,requested):isDeepStrictEqual(requestData,record);
+    const untouched=!!requested.createTime&&!!requested.updateTime&&requested.createTime.isEqual(requested.updateTime);
     if(!samePayload(requestData)||!sameOperator(requestData)||requestData?.auditId!==requestedRef.id||
       requestData.action!=='unblock_requested'||requestData.kind!==guardKind||kind!==guardKind||
       requestData.holdId!==holdId||holdId!==videoHoldId(guardKind,clean.incidentKey,clean.epoch,clean.createdAtMs)||
-      !sameVersion(observed.guard,guard)||!sameVersion(observed.requested,requested)||released.exists||
+      !sameVersion(observed.guard,guard)||!sameRequest||!untouched||released.exists||
       (observed.done.exists?!sameVersion(observed.done,done):done.exists))throw new UnblockFault('conflict');
+    return {guard,requested,done};
   }
 
+  let observed=opened.observed;
   let accepted={epoch:clean.accountEpoch,createdAtMs:clean.accountCreatedAtMs};
   let account:{replayed:boolean;blocked:boolean};
   const identityKey=await accountPhase(()=>identityKeyOf(root,accountId));
@@ -350,7 +357,7 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
     account={replayed:true,blocked:receipt.blocked};
   }else{
     if('partial' in opened||needsReceipt&&receipt?.state!=='pending')throw new UnblockFault('conflict');
-    if(needsReceipt)await db.runTransaction(recheck);
+    observed=await db.runTransaction(tx=>recheck(tx,observed));
     account=await accountPhase(()=>deps.accountBilling.unblock(identityKey,{incidentId:holdId,...accepted,reviewRef:clean.evidenceRef}));
   }
 
@@ -358,7 +365,7 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
   if('partial' in opened){
     if(record.accountEpoch!==accepted.epoch||record.accountCreatedAtMs!==accepted.createdAtMs)throw new UnblockFault('conflict');
     return db.runTransaction(async tx=>{
-      await recheck(tx);
+      await recheck(tx,observed);
       if(account.blocked)return {unblocked:true as const,replayed:true as const,accountBlocked:true,videoBlocked:true,
         advanced:Array.isArray(record.advanced)?record.advanced.map(String):[],auditId:String(record.auditId)};
       // The incident's rows were advanced by the first call; only a RIVAL row keeps the guard, and then nothing is written.
@@ -380,14 +387,7 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
   return db.runTransaction(async tx=>{
     // Every read of this transaction happens before its first write: the guard generation, the alert, the audited rows
     // and, for an intent, the state its exit depends on.
-    if(receipt?.state==='confirmed'){
-      // The receipt lookup used a previously recorded request. Pin that same
-      // request version in the transaction that consumes its plan.
-      await recheck(tx);
-    }else{
-      const [guard,alert]=await tx.getAll(guardRef,alertRef);
-      if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
-    }
+    await recheck(tx,observed);
     const rows:Array<{planned:PlannedRow;snap:DocumentSnapshot;exit?:string}>=[];
     for(const row of planned){
       const snap=await tx.get(root.collection(row.collection).doc(row.id));
