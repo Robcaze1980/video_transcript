@@ -869,3 +869,11 @@ La auditoría del NACK constató que el caso con ACK posterior conserva ambos re
 Las revisiones externas de la candidata de espera no aprobaron el cierre: DeepSeek quedó INCONCLUYENTE y GLM señaló una posible atribución de una guardia corrupta a otra cuenta. El contraste local encontró también que un sondeo corrupto durante un bloqueo legítimo podría permanecer sin alerta específica durante la pausa. Ambos casos requieren pruebas y corrección; sin datos ni saldo reales. [DeepSeek](docs/reviews/LV-019-B-saldo-sondeo-DeepSeek-20261126.txt) · [GLM](docs/reviews/LV-019-B-saldo-sondeo-GLM-20261126.txt).
 
 La primera integración del doble sondeo omitió un auxiliar y falló; después de incorporarlo, seis pruebas focales de la candidata combinada pasaron. Esto no sustituye la regresión completa. [Recibo](docs/evidence/lv019-b-checkpoint-20261126/README.md).
+
+## 2026-11-26 · LV-019.B · Atribución de guard y NACK contradictorio
+
+Una guardia `billingGuards/A` que contenía el ID de B producía una alerta atribuida a B. Una prueba unitaria y otra de emulador reprodujeron el error. La candidata ahora marca la fila malformada sin atribuir dueño; pasaron 3/3 pruebas de emulador y 75 unitarias relacionadas. Falta regresión integral. [Evidencia](docs/evidence/lv019-b-guard-attribution-20261126/README.md).
+
+Una prueba sintética con un sondeo corrupto bajo bloqueo legítimo reprodujo que falta una alerta propia. La cuenta ajena pudo liberar su reserva. La reparación sigue aislada; no se tocó saldo real. TAP local: `vistavo-guard-8186/outputs/lv019-b-financial-runs/run-954cac8e-5ea4-4fe5-884b-a36b1b746d80/fixture.stdout.tap`.
+
+En voz C1, la suite ampliada obtuvo 59/63: no se alertó un par ACK/NACK contradictorio y tres cambios restaurados de la marca no se detectaron. La reparación se está probando con el proveedor cerrado. [Auditoría](docs/reviews/LV-019-B-voz-c1-nack-auditoria-interna-20261126.md).

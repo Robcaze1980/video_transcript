@@ -1,4 +1,4 @@
-﻿// LV-019-B step 1.3a: A-3 timeout exit. This fixture runs a REAL AccountStore behind a local
+// LV-019-B step 1.3a: A-3 timeout exit. This fixture runs a REAL AccountStore behind a local
 // adapter against the fixed emulator. It covers the deadline fence and the conflict close paths.
 // Every wait is bounded and every Firestore client is terminated in a finally block.
 import assert from 'node:assert/strict';
@@ -906,6 +906,79 @@ test('D3 default sweep alerts on a due invalid provider with a future integer cr
   assert.equal(visible[0].reason,'malformed');
   assert.equal(visible[0].accountId,null);
  }
+});
+
+test('D-4 mismatched guard account raises an unattributed alert and preserves earlier audited alerts',{timeout:WORK_TIMEOUT_MS},async()=>{
+ const c=await fixture('guard_account_mismatch');
+ const foreign=await otherAccount(c);
+ const otherOwner=await otherAccount(c);
+ const now=Date.now();
+ const incidentId=sha('synthetic-guard-account-mismatch');
+ const generation=now-10;
+ const guard=ref(c.root,'billingGuards',c.account);
+ const malformedGuard=ref(c.root,'billingGuards',otherOwner.account);
+
+ // An older sweep attributed the first guard to the UUID in its body. The second
+ // guard was already reported as malformed because it was missing an epoch.
+ await guard.create({accountId:foreign.account,blocked:true,lastIncidentId:incidentId,epoch:2,createdAtMs:generation});
+ await malformedGuard.create({accountId:foreign.account,blocked:true,lastIncidentId:incidentId,createdAtMs:generation});
+ const previousState='blocked:2:'+generation+':'+incidentId;
+ const malformedState='blocked:1:'+generation+':'+incidentId;
+ const previous=ref(c.root,ALERT_COLLECTION,alertKey('guard',guard.id,previousState,'needs_review'));
+ const dispositioned=ref(c.root,ALERT_COLLECTION,alertKey('guard',malformedGuard.id,malformedState,'malformed'));
+ for(const {alert,rowId,state,reason} of [
+  {alert:previous,rowId:guard.id,state:previousState,reason:'needs_review'},
+  {alert:dispositioned,rowId:malformedGuard.id,state:malformedState,reason:'malformed'},
+ ]){
+  await alert.create({alertKey:alert.id,kind:'guard',rowId,state,reason,accountId:foreign.account,
+   status:'open',seenCount:1,firstSeenAtMs:now-3,lastSeenAtMs:now-3});
+ }
+ const operator={authorizedBy:'synthetic-operator',evidenceRef:'synthetic guard alert review'};
+ assert.deepEqual(await recordDisposition(c.db,c.root,previous.id,'acknowledge',operator,now-2),{replayed:false});
+ assert.deepEqual(await recordDisposition(c.db,c.root,dispositioned.id,'resolve',operator,now-1),{replayed:false});
+ const acknowledged=ref(c.root,AUDIT_COLLECTION,auditId(previous.id,'acknowledge'));
+ const resolved=ref(c.root,AUDIT_COLLECTION,auditId(dispositioned.id,'resolve'));
+ const tracked=[guard,malformedGuard,acknowledged,resolved];
+ const before=await c.db.getAll(...tracked);
+ const previousBefore=(await previous.get()).data();
+ const dispositionedBefore=(await dispositioned.get()).data();
+ const accountBefore=await c.store.videoBalance(foreign.identityKey);
+ const videoBefore=await c.backend.readBalance(foreign.account);
+
+ const first=await runBillingSweepSection({...c,enabled:true,now,log:()=>{}});
+ const second=await runBillingSweepSection({...c,enabled:true,now:now+1,log:()=>{}});
+ assert.equal(first.outcome,'ok');
+ assert.equal(second.outcome,'ok');
+ const alerts=(await c.root.collection(ALERT_COLLECTION).get()).docs;
+ const visible=alerts.filter(doc=>doc.get('status')==='open');
+ assert.equal(visible.length,1);
+ assert.equal(visible[0].get('rowId'),guard.id);
+ assert.equal(visible[0].get('reason'),'malformed');
+ assert.equal(visible[0].get('accountId'),null);
+ assert.equal(visible[0].get('seenCount'),2);
+
+ const previousAfter=(await previous.get()).data();
+ assert.equal(alerts.length,3);
+ assert.equal(previousAfter.status,'superseded');
+ assert.equal(previousAfter.supersededByKey,visible[0].id);
+ for(const field of ['alertKey','rowId','state','reason','firstSeenAtMs','acknowledgeAuditId','acknowledgedAtMs','acknowledgedBy']){
+  assert.equal(previousAfter[field],previousBefore[field]);
+ }
+ assert.deepEqual((await dispositioned.get()).data(),{...dispositionedBefore,accountId:null,seenCount:3,lastSeenAtMs:now+1});
+ assert.deepEqual(await recordDisposition(c.db,c.root,dispositioned.id,'resolve',operator,now+2),{replayed:true});
+ const after=await c.db.getAll(...tracked);
+ for(let index=0;index<tracked.length;index++){
+  assert.deepEqual(after[index].data(),before[index].data());
+  assert.ok(after[index].updateTime.isEqual(before[index].updateTime));
+ }
+ assert.deepEqual(c.transport.bodies,[]);
+ assert.equal((await ref(c.root,'billingGuards',foreign.account).get()).exists,false);
+ assert.equal((await c.root.collection('billingHoldOutbox').get()).size,0);
+ assert.equal((await c.accountRoot.collection('videoBillingGuards').get()).size,0);
+ assert.equal((await c.accountRoot.collection('ledgerEntries').get()).size,0);
+ assert.equal((await c.root.collection('movements').get()).size,0);
+ assert.deepEqual(await c.store.videoBalance(foreign.identityKey),accountBefore);
+ assert.deepEqual(await c.backend.readBalance(foreign.account),videoBefore);
 });
 
 test('D3 repeat sweeps remove an obsolete account hint without changing a disposition or its audit receipt',{timeout:WORK_TIMEOUT_MS},async()=>{

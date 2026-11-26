@@ -1,4 +1,4 @@
-﻿// LV-019.B paso 1.4a: puro (sin emulador). Fuente `guard` del reporte de Video, su clave por
+// LV-019.B paso 1.4a: puro (sin emulador). Fuente `guard` del reporte de Video, su clave por
 // cuenta y epoca, y el trato de un guard sin hold ni incidencia. Rojo hoy: `PENDING_SOURCES`
 // no incluye `guard` y `attentionOf` no marca `needs_review` una fila de guard.
 import {describe,expect,it} from 'vitest';
@@ -23,6 +23,18 @@ describe('la fuente guard del reporte de Video',()=>{
   const rows=report.rows.filter(row=>row.kind==='guard');
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({kind:'guard',id:ACC,accountId:ACC,malformed:false,attention:'needs_review'});
+ });
+ it('reports a blocked guard with a different account in its document path without attributing an owner',async()=>{
+  const guard={accountId:OTHER,blocked:true,lastIncidentId:'inc-foreign',epoch:2,createdAtMs:1_000};
+  const s=stub({billingGuards:{[ACC]:guard}});
+  const report=await readPendingReport(s.root as never,NOW);
+  expect(report.rows).toEqual([
+    expect.objectContaining({kind:'guard',id:ACC,accountId:null,malformed:true,attention:'malformed'}),
+  ]);
+  expect(report.attention).toEqual(report.rows);
+  expect(s.store.get('billingGuards/'+ACC)).toEqual(guard);
+  expect(s.store.has('billingGuards/'+OTHER)).toBe(false);
+  expect(s.writes).toEqual([]);
  });
  it('un guard sin hold ni incidencia se marca malformed, no se omite',async()=>{
   const report=await readPendingReport(stub({billingGuards:{[ACC]:{accountId:ACC,blocked:true}}}).root as never,NOW);

@@ -1922,3 +1922,13 @@ GLM dio **PASS documental acotado** a las tres correcciones que siguieron a A0. 
 ## 2026-11-26 · LV-019.B · Revisión del sondeo y plan
 
 Para la candidata del sondeo, DeepSeek respondió INCONCLUYENTE y GLM FALLA. Se contrastan la posible atribución incorrecta de una alerta de guard y la alerta de un sondeo corrupto con cuenta bloqueada. La batería financiera completa de esta versión sigue pendiente. [DeepSeek](docs/reviews/LV-019-B-saldo-sondeo-DeepSeek-20261126.txt) · [GLM](docs/reviews/LV-019-B-saldo-sondeo-GLM-20261126.txt).
+
+## 2026-11-26 · LV-019.B · Alertas y negativos ampliados
+
+La alerta de una guardia cuyos identificadores divergían se corrigió localmente: 3/3 en emulador y 75 pruebas unitarias. Un sondeo corrupto bajo una guardia legítima reprodujo la ausencia de alerta específica; la reparación sigue en una rama aislada. [Atribución](docs/evidence/lv019-b-guard-attribution-20261126/README.md) · [Adjudicación de sondeo](docs/reviews/LV-019-B-sondeo-adjudicacion-local-20261126.md).
+
+La suite ampliada C1 obtuvo 59 aprobadas y cuatro fallos: recibos contradictorios sin alerta y tres cambios restaurados del marcador. Se desarrolla una reparación aislada. La candidata permanece apagada y sin proveedor. [Evidencia](docs/evidence/lv019-b-checkpoint-20261126/README.md#voz-y-vista-previa).
+
+## 2026-11-26 · LV-019.B · C1 y segunda revisión
+
+Una reparación aislada pasó **64/64** tras los cuatro negativos de la suite anterior. Una revisión independiente posterior encontró dos ventanas adicionales: recibos contradictorios sin alerta cuando cambió la historia y recreación de la marca antes de preparar la reserva. Se preparan pruebas para ambas; no se integró esa reparación ni se habilitó el proveedor. [Auditoría](docs/reviews/LV-019-B-voz-c1-auditoria-marcador-20261126.md).

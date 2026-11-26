@@ -57,9 +57,9 @@ async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKi
     }
     const data=snap.data() as Record<string,unknown>|undefined;
     if(!validAlertShape(data,key))throw new Error('Corrupt alert document');
-    // A malformed intent's accountId is only a report hint. Drop it when a
-    // later sighting withdraws it, without changing the alert or audit identity.
-    const dropAccountHint=fields.kind==='intent'&&fields.reason==='malformed'&&fields.accountId===null&&
+    // A malformed intent or guard may carry a stale account hint. A later
+    // sighting for the same alert can withdraw it while preserving audit identity.
+    const dropAccountHint=(fields.kind==='intent'||fields.kind==='guard')&&fields.reason==='malformed'&&fields.accountId===null&&
       data!.kind===fields.kind&&data!.rowId===fields.rowId&&data!.state===fields.state&&data!.reason===fields.reason&&typeof data!.accountId==='string';
     const base={seenCount:(data!.seenCount as number)+1,lastSeenAtMs:Math.max(nowMs,data!.lastSeenAtMs as number),...(dropAccountHint?{accountId:null}:{})};
     // A cleared or superseded alert whose exact condition comes back reopens WITH its history. A dispositioned one

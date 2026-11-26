@@ -57,7 +57,8 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
     // PRESENT and invalid is a malformed guard, never silently read as the legacy value.
     const hasEpoch=present(d.epoch),validEpoch=hasEpoch&&Number.isSafeInteger(d.epoch)&&(d.epoch as number)>=1,epoch=validEpoch?d.epoch as number:1;
     const hasCreated=present(d.createdAtMs),validCreated=hasCreated&&nonNegativeInteger(d.createdAtMs),createdAtMs=validCreated?d.createdAtMs as number:0;
-    const guardAccount=typeof d.accountId==='string'&&uuid.test(d.accountId)?d.accountId:null,incident=present(d.lastIncidentId)||present(d.lastOutboxIncidentId);
+    // billingGuards is keyed by owner. A disagreement leaves the guard visible without attributing it.
+    const guardAccount=accountId===id?accountId:null,incident=present(d.lastIncidentId)||present(d.lastOutboxIncidentId);
     // The incident key is part of the state too: the epoch restarts at 1 when a released guard is recreated and the
     // creation mark can repeat within one millisecond, so the named incident is what makes a different block a different
     // alert (and a repeat sweep of the SAME incident identical). It is a public id, already visible on the guard.
