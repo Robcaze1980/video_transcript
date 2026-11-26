@@ -4,7 +4,7 @@
 import {describe,expect,it} from 'vitest';
 import {createHash} from 'node:crypto';
 import {AI_CATALOG_VERSION} from './aiContracts';
-import {buildPendingReport,type PendingRow} from './billingPendingReport';
+import {buildPendingReport,readPendingReport,type PendingRow} from './billingPendingReport';
 import {ALERT_COLLECTION,alertKey,clearResolvedAlerts,raisePendingAlerts,raiseSweepAlert} from './billingPendingAlerts';
 import {stub} from './billingFirestoreStub';
 
@@ -276,6 +276,59 @@ function pollAuditFixture(){
   return {data,turn,sources,read,writes,alertPath,tx,root,setPollCommit:(value:unknown)=>{pollCommit=value;},deny:(path:string)=>{denied=path;},
     sweep:()=>raisePendingAlerts(db as never,root as never,snapshotReport,NOW)};
 }
+it('rejects a corrupted alert tuple even when the stored key is unchanged',async()=>{
+  async function inspectRaise(raise:()=>Promise<{created:number;seen:number}>){
+    try{return {...await raise(),corrupt:false};}
+    catch(error){
+      if(!(error instanceof AggregateError)||!error.errors.some(item=>item instanceof Error&&item.message==='Corrupt alert document'))throw error;
+      const {created,seen}=error as AggregateError&{created:number;seen:number};
+      return {created,seen,corrupt:true};
+    }
+  }
+  const expected={created:0,seen:0,corrupt:true};
+  const key=alertKey('hold','h1','needs_review','needs_review'),path=ALERT_COLLECTION+'/'+key;
+  const ordinary=[];
+  for(const status of ['open','cleared']){
+    const s=stub(),current=report([row({})]);
+    const raise=(now:number)=>raisePendingAlerts(s.db as never,s.root as never,current,now);
+    expect(await raise(NOW)).toEqual({created:1,seen:0});
+    const damaged:Record<string,unknown>={...s.store.get(path)!,rowId:'other-hold',status,clearedAtMs:status==='cleared'?NOW+1:null};
+    expect(damaged.alertKey).toBe(key);
+    s.store.set(path,damaged);
+    if(status==='open')expect(await clearResolvedAlerts(s.db as never,s.root as never,report([]),NOW+2)).toMatchObject({corrupt:1,cleared:0});
+    const result=await inspectRaise(()=>raise(NOW+3)),stored=s.store.get(path)!;
+    ordinary.push({result,storedStatus:stored.status,seenCount:stored.seenCount,reopenCount:stored.reopenCount??0});
+  }
+
+  const anotherIntent='a'.repeat(64);
+  const anotherTerminal=createHash('sha256').update(JSON.stringify(['billing-intent-terminal-v1',anotherIntent,'release'])).digest('hex');
+  for(const change of [{reason:'needs_review'},{pollIntentId:anotherIntent,rowId:anotherTerminal}]){
+    const s=pollAuditFixture();
+    s.data.set(s.sources[1],{...s.turn,generation:0});
+    expect(await s.sweep()).toEqual({created:1,seen:0});
+    const damaged={...s.data.get(s.alertPath)!,...change,status:'cleared',clearedAtMs:NOW};
+    s.data.set(s.alertPath,damaged);
+    s.writes.length=0;
+    expect(await inspectRaise(s.sweep)).toEqual(expected);
+    expect(s.data.get(s.alertPath)).toEqual(damaged);
+    expect(s.writes).toEqual([]);
+  }
+  expect(ordinary).toEqual(['open','cleared'].map(storedStatus=>({result:expected,storedStatus,seenCount:1,reopenCount:0})));
+});
+
+it('preserves all stored fields when a superseded or dispositioned alert has another tuple',async()=>{
+  const key=alertKey('hold','h1','needs_review','needs_review'),path=ALERT_COLLECTION+'/'+key;
+  for(const status of ['superseded','dispositioned']){
+    for(const change of [{kind:'outbox'},{rowId:'h2'},{state:'pending'},{reason:'age'}]){
+      const s=stub(),current=report([row({})]);
+      await raisePendingAlerts(s.db as never,s.root as never,current,NOW);
+      const damaged={...s.store.get(path)!,status,...change};
+      s.store.set(path,damaged);
+      await expect(raisePendingAlerts(s.db as never,s.root as never,current,NOW+1)).rejects.toMatchObject({created:0,seen:0});
+      expect(s.store.get(path)).toEqual(damaged);
+    }
+  }
+});
 describe('terminal poll evidence stays behind a read-only capability',()=>{
   it('reads only the seven deterministic sources and writes exclusively the derived alert',async()=>{
     const s=pollAuditFixture();
@@ -344,4 +397,43 @@ it('keeps the first unreadable alert open and clears independent rows through th
   expect(failed).toBeInstanceOf(AggregateError);expect(failed.errors).toEqual([fault]);
   expect(failed.partial).toEqual(R({cleared:200,unverified:1}));
   expect(s.store.get(first)?.status).toBe('open');expect(alerts(s).filter(([,data])=>data.status==='cleared')).toHaveLength(200);
+});
+
+describe('Firestore-serializable corruption in alert metadata',()=>{
+  it('does not record a sighting against an array status that the open-alert query cannot find',async()=>{
+    const s=stub({billingHoldOutbox:{h1:{state:'needs_review'}}}),current=report([row({})]);
+    await raisePendingAlerts(s.db as never,s.root as never,current,NOW);
+    const key=alertKey('hold','h1','needs_review','needs_review'),path=ALERT_COLLECTION+'/'+key;
+    const broken={...s.store.get(path)!,status:['open']};
+    s.store.set(path,broken);
+    const reads=await clearResolvedAlerts(s.db as never,s.root as never,current,NOW+1);
+    expect(reads).toEqual(R({})); // Firestore equality of a string excludes an array containing that string.
+    const attempt=await raisePendingAlerts(s.db as never,s.root as never,current,NOW+2).then(value=>({value,error:null}),error=>({value:null,error}));
+    expect({result:attempt.value,seenCount:s.store.get(path)?.seenCount,status:s.store.get(path)?.status}).toEqual(
+      {result:null,seenCount:1,status:['open']});
+    expect(attempt.error).toBeInstanceOf(AggregateError);
+  });
+  it('does not count an explicitly non-string non-null owner on a live guard alert',async()=>{
+    const a='11111111-1111-4111-8111-111111111111',guard={accountId:a,blocked:true,lastIncidentId:'a'.repeat(64)};
+    const s=stub({billingGuards:{[a]:guard}}),current=await readPendingReport(s.root as never,NOW);
+    await raisePendingAlerts(s.db as never,s.root as never,current,NOW);
+    const key=alertKey('guard',a,current.rows[0].state,'needs_review'),path=ALERT_COLLECTION+'/'+key;
+    const broken={...s.store.get(path)!,accountId:[a]};
+    s.store.set(path,broken);
+    const attempt=await raisePendingAlerts(s.db as never,s.root as never,current,NOW+1).then(value=>({value,error:null}),error=>({value:null,error}));
+    expect(s.store.get('billingGuards/'+a)).toEqual(guard);
+    expect({result:attempt.value,seenCount:s.store.get(path)?.seenCount,owner:s.store.get(path)?.accountId}).toEqual(
+      {result:null,seenCount:1,owner:[a]});
+    expect(attempt.error).toBeInstanceOf(AggregateError);
+  });
+  it('does not clear an ordinary open alert with an invalid owner type without reporting the corruption',async()=>{
+    const s=stub({billingHoldOutbox:{h1:{state:'needs_review'}}}),current=report([row({})]);
+    await raisePendingAlerts(s.db as never,s.root as never,current,NOW);
+    const key=alertKey('hold','h1','needs_review','needs_review'),path=ALERT_COLLECTION+'/'+key;
+    s.store.set('billingHoldOutbox/h1',{state:'applied'});
+    s.store.set(path,{...s.store.get(path)!,accountId:{unexpected:'value'}});
+    const out=await clearResolvedAlerts(s.db as never,s.root as never,report([]),NOW+1);
+    expect(s.store.get('billingHoldOutbox/h1')).toEqual({state:'applied'});
+    expect({cleared:out.cleared,corrupt:out.corrupt,status:s.store.get(path)?.status}).toEqual({cleared:0,corrupt:1,status:'open'});
+  });
 });

@@ -1,0 +1,63 @@
+# Revisión estática independiente
+
+Solicitud: e3593a68d64aedf13957afac391015e1f2114152419e36c0d7cf8ebc4eccecc7
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Resultado: PASS
+Tokens entrada/cache/salida: 11838/0/22894
+Costo observado USD: 0.00733066488
+SHA-256 del informe original: f9e6133d279df7f434eb5fa87942143da9fd72986730fdd00a098d500de695fd
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# Dictamen de revisión estática independiente — LV-019.B C2 · `542a758909f7309e8aca45809e6e79c1274d4201`
+
+## 1. Alcance examinado
+
+Revisión estática de solo lectura de los fragmentos suministrados del commit: `server/commercial/localVoiceFixture.ts`, `firestoreReviewedTranslation.ts`, `reviewedVoiceCanonical.ts`, `firestoreBackend.ts`, `reserveAttemptEvidence.ts`, `reviewedVoiceFragment.localFixture.ts`, `reviewedVoiceFragment.memory.ts`, `server/account/backend.ts` y `firestoreReviewedTranslation.emulator.mjs`, más la evidencia de corrida descrita (`docs/evidence/lv019-b-voice-c2-adapter-20261126/README.md:15–24`). No se ejecutó nada; uso/coste: **no medido**. La foto de saldos es posterior a la reserva de voz (texto capturado 3 s + voz reservada 3 s; `emulator.mjs:2124–2131`).
+
+## 2. Cadena de enlace (Pregunta 1) — verificada en el texto visible
+
+- **UID↔titular**: `verifiedUidAccountInTransaction` (`firestoreBackend.ts:775`), `identityKey=digest(['firebase',uid])` (`memory.ts:101`), y Account revalida uid/identityKey dentro de cada transacción (`server/account/backend.ts:323–326, 361–363`).
+- **Trabajo de voz ≠ trabajo de texto**: `if(storedSource.textJobId===jobId)return null` (`firestoreBackend.ts:806–807`); reservas distintas: `textBilling.reservationId!==reservationId`, `textBilling.seconds===seconds`, `job.price===seconds` (`firestoreBackend.ts:817–820`); estados text='captured' / voice='reserved' con segundos exactos (`localFixture.ts:115–120`).
+- **Revisión y recibo exactos**: enlace cruzado review/receipt (inputId, jobId, revision, expectedRevision=revision−1, bindingHash, fingerprint, hashes de payload/voice, createdAtMs) en `reviewedVoiceCanonical.ts:66–79`, con recomputación de `reviewTranslation` y fingerprint.
+- **Cuerpo recomputado**: `request.model===VOICE_MODEL`, callKey `voice-chunk:\d{4}`, body ≤16 KiB, reconstrucción JSON exacta y `requestSha256=hash(body)` (`reviewedVoiceCanonical.ts:83–95`); `chunkCount===1` forzado (`memory.ts:113`); los bytes entregados son `Buffer.from(original.call.body,'utf8')` y se contrastan byte a byte con el esperado (`emulator.mjs:2170–2172`).
+- **Duración**: segundos 1–600 (`memory.ts:100–103`), pineados en ticket, reservas, precio y ACK (`localFixture.ts:70, 97; memory.ts:103–106`).
+- **Marca original C1**: pins de versiones, `originalMarkerVersion===versions.marker` (`memory.ts:109–111`) y control de commit único de job+ACK+marker+request (`firestoreBackend.ts:834–838`, `reserveAttemptEvidence.ts:215–223, 293–295`).
+- **Texto/modelo/fragmento sustituidos**: body alterado → recompute mismatch → `invalid()` → 'rejected' (control 2211–2224, cero admisiones); modelo distinto → `VOICE_MODEL`/`modelMatchesKey` (`backend.ts:389`); otro callKey → formato/chunkIndex (`canonical:84–88`).
+- **Servicio de otra raíz**: `usesLocalVoiceFragmentFixture` exige mismo db+root+backend y `service.usesLocalVoiceFixture(root,this)` (`firestoreBackend.ts:767–769`, `173–175`). Reserva o consulta previas no otorgan permiso fresco: el ticket se crea solo en la reserva (`localFixture.ts:97–101`) y cada lectura exige `enabled()` dentro de la transacción y coincidencia de ticket (`localFixture.ts:108–120`).
+
+## 3. Intervalos y persistencia (Pregunta 2)
+
+- **Reserva durable sin job/ACK**: persiste en Account (reserva+ledger, `backend.ts:345–347`); sin ticket no hay lectura C2 → falla cerrada.
+- **Job+ACK de Video**: una transacción (`firestoreBackend.ts:2226–2229`); la lectura posterior los pinea (`792–838`). Borrar el ACK bloquea antes de llamar a Cuenta (control 2226–2235).
+- **Admisión durable de Account**: recibo+cerca+`providerAdmission` en una transacción (`backend.ts:391–395`), con revalidación in-txn de blocked/sealed/estado/protocolo/admisión previa (`366–391`) — cumple "Cuenta revalida en su transacción las condiciones de una creación". Lectura posterior con `admitted` hace igualdad profunda recibo=cerca=esperado (`localFixture.ts:49–58, 121–128`); sin `admitted`, exige `providerAdmission===undefined` y ausencia de documentos (`128–130`).
+- **ACK/recibo en memoria**: `entry.receipt` solo si `admitForTest` devolvió (`memory.ts:172`); en pérdida de respuesta no hay recibo ni bytes en memoria y sí evidencia durable en Cuenta (`emulator.mjs:2257–2265`); el recibo exacto es consultable por repetición directa receiptOnly (`2190–2195`, `backend.ts:386–388`), incluso con hold.
+- **Bytes en memoria**: entrega única en la misma llamada que creó la admisión, condicionada a `created && enabled() && history intacto` (`memory.ts:176–178`); toda repetición posterior es 'rejected' vía captura (Cuenta ya muestra admisión), `counts()==={attempts:1,created:1}` (`2179–2186`).
+
+## 4. Guardas y carreras (Pregunta 3)
+
+Controles ejercitados: dos receptores (exactamente 1 creación, 1 portador de bytes, 1–2 intentos, `2202–2206`); precondiciones violadas → cero intentos (`2211–2224`); marcador modificado → recibo retenido, incertidumbre, sin bytes, repetición 'rejected' (`2237–2253`); respuesta perdida → 'unknown', sin segundo intento, evidencia durable en Cuenta (`2257–2265`); puerta cerrada durante admisión → recibo retenido, sin bytes, segunda llamada sigue cerrada (`2268–2284`); identidad restaurada → recibo retenido, sin bytes (`2286–2302`). La incertidumbre se conserva: respuesta no conforme o repetición con diario → 'unknown' sin nuevo intento (`memory.ts:132–137, 159, 179–182`).
+
+**Hallazgos (con clasificación):**
+
+- **F1 · Limitación (no defecto demostrado)** — TOCTOU entre la última lectura y la copia de bytes: `memory.ts:176–178` copia `original.call.body` tras la transacción de relectura sin re-verificación atómica posterior; la comparación `history` (`localFixture.ts:126–127`, que pinea root/identity/account/guard/reservationCreated) ocurre en la lectura, no en la copia. Consecuencia acotada: entrega de bytes ya canónicos cuya admisión fue validada in-txn (incluido `blocked` y `state`); **no produce otra admisión durable**. Ningún escritor del arnés ejercita esa ventana.
+- **F2 · Observación fuera del alcance de esta fase** — `backend.ts:51–53` + `381–384`: `sameAdmission` compara solo jobId+attemptId; con admisión previa, otra llamada con mismo jobId+attemptId, prefijo y modelo pero distinto sufijo de callKey crearía un segundo recibo durable. Inalcanzable por el adaptador (callKey fijo `memory.ts:162`, gate de diario/reservas `memory.ts:159`, `chunkCount===1`); quedaría solo a mano de un escritor externo, declarado fuera de la prueba (`firestoreBackend.ts:835–836`).
+- **F3 · Limitación de fase** — sin diario durable del receptor: una caída del proceso entre admisión durable y entrega pierde la entrega definitivamente en C2 (la evidencia queda en Cuenta; reintento 'rejected'). Recuperación C3 declarada fuera de alcance.
+- **F4 · Confirmación, no defecto** — la autenticación del escritor descansa en el supuesto de escritor de confianza (commit único, `firestoreBackend.ts:834–836`); no hay firma/IAM (no aplica bajo emulador). Las igualdades van más allá de timestamps: datos completos en profundidad + `createTime===updateTime` de escrituras de la misma transacción + digest de evidencia + `provenanceSha256` (`localFixture.ts:121–132`; `memory.ts:120–128`).
+
+## 5. Límites de la evidencia (Pregunta 4)
+
+Un proceso, un cliente, dos raíces bajo el mismo emulador; AccountStore real; sin segunda base, HTTP, IAM, proveedor, audio ni liquidación; sin escritor privilegiado reconstructor de historia; guard de red = precarga Node de cobertura limitada; inventario de hashes no congela dependencias transitivas; los ocho casos no inyectan todos los órdenes de guardas (p. ej. lápida durante la admisión, hold entre relectura y copia). Run 8/8 con TAP/manifiesto/inventario consistentes; la corrida previa 7/8 y su corrección ('rejected' tras 'sent' por `providerAdmission` fijado, no 'unknown') son coherentes con el código (`memory.ts:155–157` antes del gate de diario; `localFixture.ts:128–130`).
+
+## 6. Dependencias elididas
+
+No impiden decidir, pero se registran: `reviewedVoiceFragment.memory.ts:1–98` (capture, `versionFields`/`sourceFields`/`admissionFields`/`dataFields`), `localFixture.ts:96` (tratamiento de history nulo tras la foto), `validExternalBilling`, `voiceBindingInTransaction`, `hash/digest`, `narrationChunks`, `callDocId`, cuerpo de `sameFragmentBalances` y la construcción de `canonicalEvidence`. Sus salidas quedan contrapuestas por igualdades profundas contra formas explícitas (`memory.ts:99–137`; `localFixture.ts:49–58`), lo que mitiga pero no cierra del todo la brecha (p. ej. la pertenencia de `textJobId` a `sourceFields` en `memory.ts:116` no es verificable desde los extractos).
+
+**Conclusión**: la fixture con su escritor de confianza recibe exactamente los bytes canónicos recomputados de un fragmento revisado y reservado; ni las carreras ejercitadas ni un resultado incierto producen otra admisión durable ni otra entrega. Sin defectos demostrados que violen el contrato local en el alcance declarado.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Enlace completo visible: cuerpo recomputado y pineado (reviewedVoiceCanonical.ts:83–95; emulator.mjs:2170–2172), admisión única validada in-txn con blocked/sealed/estado/admisión previa (server/account/backend.ts:359–396), captura previa que rechaza tras cualquier admisión durable (localFixture.ts:128–130 → memory.ts:155–157), incertidumbre 'unknown' sin reintento y counts {attempts:1,created:1} (memory.ts:132–137,159,179–182; emulator.mjs:2257–2265), entrega única condicionada a created+enabled+history intacto (memory.ts:176–178), run 8/8 con TAP 8bf2dd63…, manifiesto invariante e inventario sin diferencias.
+NEGATIVOS: Cubiertos: repetición tras 'sent'→'rejected' (1/1), receptor ajeno, repetición directa receiptOnly en Cuenta (2190–2195), dos receptores (1 creación/1 bytes, 2202–2206), cuerpo con voz alterada y principal ajeno (cero intentos, 2211–2224), ACK C1 borrado bloquea antes de Cuenta (2226–2235), marcador modificado (incertidumbre, sin bytes, repetición rechazada, 2237–2253), respuesta perdida (sin recibo/bytes en memoria, evidencia durable, 2257–2265), puerta cerrada durante admisión (2268–2284), identidad restaurada (2286–2302). No cubiertos: hold/lápida entre relectura y copia de bytes (TOCTOU F1, sin segunda admisión posible), segundo callKey con mismo jobId+attemptId en Account (F2, inalcanzable por el adaptador), escritor privilegiado externo, reinicio/conciliación C3, >1 fragmento, otra combinación de ramas y suite financiera completa.
+BLOQUEOS: Ninguno imprescindible para decidir. Elididos no verificables estáticamente y registrados: memory.ts:1–98 (capture/listas de campos), localFixture.ts:96 (history nulo), validExternalBilling, voiceBindingInTransaction, hash/digest, narrationChunks, callDocId, cuerpo de sameFragmentBalances, construcción de canonicalEvidence; coste/uso: no medido.
+=== FIN RESUMEN ===

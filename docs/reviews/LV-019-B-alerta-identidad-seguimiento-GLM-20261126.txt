@@ -1,0 +1,41 @@
+# Revisión estática independiente — LV-019.B seguimiento T3 (arreglos de alert-key y guard malformed)
+
+Método: lectura de los fragmentos suministrados como datos, sin ejecutar nada. Ámbito: solo los dos arreglos reproducidos como negativos previos.
+
+## Arreglo 1 — tupla alterada con clave intacta no puede contarse/reabrirse
+
+- La re-verificación ocurre **antes de cualquier update y dentro de la transacción**: `raiseOne` compara `data.kind/rowId/state/reason` contra los campos nuevos y exige `validAlertShape(data,key)`; si falla lanza `Corrupt alert document` (billingPendingAlerts.ts:87-88). El `put` corre en `db.runTransaction` (línea 105), así que el lanzamiento aborta la escritura completa: TOCTOU cubierto porque la lectura `tx.get(ref)` (línea 81) y el update comparten la misma transacción.
+- La forma está doblemente anclada a la clave: `alertKey(kind,rowId,state,reason)===snap.id` y `data.alertKey===key` (líneas 60-62, 67, 74), y `openAlertState` distingue `raced` de `corrupt` (71-76), lo que evita cerrar por identidad falsa en `clearResolvedAlerts` (179, 198, 216).
+- El caso `terminal_poll` queda cerrado por construcción: `pollLocator` exige `state==='invalid'`, `reason==='malformed'`, `accountId===null` y `rowId===intentTerminalKey(...)` (54-59), de modo que un `pollIntentId`/`rowId` sustituido hace `validAlertShape` falso → corrupto. El test lo cubre para `open`, `cleared`, y las dos variantes de terminal_poll (billingPendingAlerts.test.ts:279-316), con tienda intacta y `writes` vacío (313-314), y `superseded`/`dispositioned` también rechazan otra tupla (319-331).
+- El historial de reapertura se preserva sin fuga de identidad: `reopenCount`, `previousClearedAtMs/previousSupersededAtMs`, limpieza de marcas (94-101); `dispositioned` conserva estado (102).
+
+## Arreglo 2 — guard con referencia de incidencia no-string → malformed, sin atribución
+
+- `guardIncidentId` acepta IDs legados opacos (safeDocId + no vacío + no `__reservado__`) sin exigir hex (billingPendingReport.ts:35-37), cumpliendo "legado opaco, escritores 64-hex". `invalidReference` usa `Object.hasOwn`, así que solo un campo *presente e inválido* daña (76-77); `malformed` lo incluye y `accountId` se anula cuando hay referencia inválida, incluso si el dueño coincide (79-80). Referencias válidas ambas se fusionan en cualquier orden con precedencia outbox (72-73); test en firestoreBlocksA.test.ts:61-72.
+- Los IDs inutilizables no se copian al estado (`incidentKey:''`, test 91-100); companion inválido deja la fila `accountId:null` y la alerta sin atribuir, sin tocar el guard ni crear docs ajenos (test 73-90, línea 87 y 88).
+- Atribución de dueño: `guardAccount=accountId===id?accountId:null` (línea 68); guard con otra cuenta en la ruta queda visible, `malformed`, sin dueño y sin escrituras (test 27-38). La retirada tardía del hint (`dropAccountHint`, billingPendingAlerts.ts:91-93) solo aplica a intent/guard malformed con hint string almacenado — coherente con la compatibilidad de `billingUnblock` que lee la identidad vía `alertIdentity` y el formato `blocked:epoch:createdAtMs:incidentKey` idéntico en ambos módulos (billingUnblock.ts:110, 124-127; billingPendingReport.ts:79).
+- Los escritores exigen `createdAtMs` presente en guards bloqueados y se niegan con `invariant` (firestoreBackend.ts:607-612, 626-633); el lector trata epoch/createdAtMs presentes-e-inválidos como malformed, nunca como legado silencioso (líneas 65-66, 80), y `hasEpoch!==hasCreated` también es malformed.
+
+## Carrera/efectos/terminal_poll/fence
+
+- Los tres caminos de cierre leen la alerta y la evidencia dentro de la misma transacción: terminal_poll (178-188), sucesión (196-207, con re-lectura de la fila y re-derivación `live`, 203-205), cierre terminal (214-220). Sin movimiento de dinero: solo se escriben docs de alerta; el fixture niega escrituras fuente y lookups ajenos (test 263, 336-337) y restringe la proyección (272).
+- `checkPoll` valida el localizador antes de leer (43-46); fallo visible vía `failures` + `AggregateError` con `partial` (230, 239).
+
+## Hallazgos y limitaciones (5)
+
+1. **billingPendingAlerts.ts:110-160 no fue suministrado**: el bucle de `raisePendingAlerts` (agregación created/seen, aislamiento por fila, `AggregateError` con parciales que el test 283-285 espera) y el disparador de `terminal_poll` que saturación/`nextAttemptAt` (test 343-350) viven ahí; solo quedan acreditados por los tests, no por lectura estática.
+2. **`inspectTerminalPoll`, `validPollIntentId` e `intentTerminalKey` no aparecen** (usados en billingPendingAlerts.ts:44-47, 57, 183): la semántica `intact`/`invalid` de salud del poll no es verificable estáticamente; el encapsulamiento de lectura sí (fixture 266-274).
+3. **Colapso de identidad en guards fusionados**: con ambas referencias válidas y distintas, el estado solo nombra la incidencia outbox (billingPendingReport.ts:73); la incidencia intent no aparece en ninguna alerta, aunque `billingUnblock.incidentOf` puede resolverla por coincidencia exacta (161-167). Vacío de visibilidad, no defecto de corrección monetaria en estos dos arreglos.
+4. **Alerta abierta de `kind` desconocido clasifica `kept`, no `corrupt`** (billingPendingAlerts.ts:209-210: `source` indefinido → kept): queda abierta para humano en vez de marcarse corrupta. Severidad baja; no se pierde atención.
+5. **Límites de certificación**: 97/97 + TypeScript y 6/6 de emulador son afirmaciones sobre una copia adaptada solo-en-puerto, no ejecutadas por mí; la regresión financiera corre sobre un snapshot anterior y no certifica esta versión; legacy pre-1.4b levanta alerta pero `generation()` la rechaza como `corrupt` en unblock (billingUnblock.ts:114-116) — falla visible coherente con "bases vacías", pero la migración declarada no está en evidencia.
+
+## No verificable desde lo suministrado
+
+Ejecución propia de tests/fence; cuerpo de `raisePendingAlerts` y de `inspectTerminalPoll`; resultados reales de emulador y regresión financiera; certificación de billing/voz completa (excluida por AGENTS).
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: billingPendingAlerts.ts:87-88 re-verifica la tupla dentro de la tx (80-105) antes de todo update, con doble anclaje alertKey/validAlertShape (60-76) y reapertura con historial (94-101); billingPendingReport.ts:35-37 y 72-80 marcan malformed por referencia inválida, precedencia outbox en ambos órdenes, accountId anulado con companion dañado; owner solo si accountId===id (68); negative tests billingPendingAlerts.test.ts:279-331 (tienda intacta 313-314) y firestoreBlocksA.test.ts:27-100 (tienda intacta 55/87, sin docs ajenos 88); fence de 4 módulos congelado en billingSweepSection.test.ts:261-285; escrituras restringidas a alertas (263, 272, 336-338).
+NEGATIVOS: tupla corrupta en open/cleared/terminal_poll cuenta 0 y no escribe (test:279-316, writes vacío 314); superseded/dispositioned preservan campos (319-331); refs no-string y companion inválido en ambos campos → malformed, alerta accountId:null sin copiar IDs inutilizables (firestoreBlocksA:47-100); dueño extranjero sin atribución ni escrituras (27-38); denegación de escritura fuente y lookup ajeno (263, 336-337).
+BLOQUEOS: sin ejecución propia (solo lectura); billingPendingAlerts.ts:110-160 y las definiciones de inspectTerminalPoll/validPollIntentId no suministradas (hallazgos 1-2); corrida 97/97+TS y 6/6 de emulador afirmadas sobre copia adaptada; la regresión financiera en curso corre sobre un snapshot anterior y no certifica esta versión ni billing/voz completa (no tratar PASS como certificación de producción).
+=== FIN RESUMEN ===

@@ -893,3 +893,11 @@ Dos negativos reprodujeron una alerta cerrada con un reloj adelantado cinco año
 ## 2026-11-26 · LV-019.B · Frontera A2 y clasificación de ACK tardío de voz
 
 La candidata C1 que pasó 72/72 amplió la frontera A2 y falló 1/28. La variante que separa el alertador de prueba pasó 32/32 unitarias relacionadas y 72/72 en emulador; falta integrarla con saldo y revisarla. El control adicional de marca y ACK tardío pasó 1/2; no demostró doble cargo ni atribución a otra cuenta. [Diagnóstico](docs/reviews/LV-019-B-voz-c1-marca-ack-tardio-20261126.md).
+
+## 2026-11-26 · LV-019.B · Titular de alerta y reserva de video largo
+
+Una alerta interna de una guardia podía conservar una referencia al titular de otra cuenta y copiarla a una disposición auditada. La API HTTP revisada no mostraba ese campo y no se observó movimiento del saldo ajeno. La corrección local pasó **123/123** unitarias y **5/5** focales independientes en emulador; la revisión dual y la regresión final siguen pendientes. Una alerta persistente cuyo estado sea un array sigue fuera de la consulta normal si su fuente no reaparece. [Auditoría](docs/reviews/LV-019-B-sondeo-alerta-auditoria-local-20261126.md).
+
+En un prototipo local de ventanas, una reserva válida de otro video del mismo titular y duración se aceptó antes de crear el primer manifiesto, bajo un lector de Video inconsistente. Cuatro controles reprodujeron el problema. El ajuste rechazó los cuatro antes de leer Cuenta o crear archivos, pasó **37/37** y obtuvo PASS limitado de ambos revisores; depende de que el lector de Video entregue los datos originales del trabajo. La procedencia durable sigue pendiente. El incidente no demuestra un fallo de clientes ni movimiento de saldo real. [Adjudicación](docs/reviews/LV-019-B-video-largo-reserva-adjudicacion-20261126.md).
+
+DeepSeek calificó **FALLA** el adaptador C2 por la clasificación de un reintento después de perder la respuesta de admisión; GLM había dado PASS limitado. Una unidad reprodujo el problema (**40/41**) y se prepara la corrección. No se demostró una segunda admisión ni movimiento de saldo. La admisión de claves distintas para fragmentos del mismo intento sí es intencional; Video debe validar su procedencia. [Adjudicación](docs/reviews/LV-019-B-voz-c2-adaptador-adjudicacion-20261126.md).

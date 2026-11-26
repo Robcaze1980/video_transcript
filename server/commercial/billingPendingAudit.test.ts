@@ -1,8 +1,8 @@
 // LV-019.B phase 2, piece D: audited human disposition of an alert, exactly once. It never moves balance and never
 // edits a billing row; it only creates an immutable audit record and updates the alert in the same transaction.
 import {describe,expect,it} from 'vitest';
-import {buildPendingReport,type PendingRow} from './billingPendingReport';
-import {ALERT_COLLECTION,alertKey,clearResolvedAlerts,raisePendingAlerts,raiseSweepAlert} from './billingPendingAlerts';
+import {buildPendingReport,readPendingReport,type PendingRow} from './billingPendingReport';
+import {ALERT_COLLECTION,alertIdentity,alertKey,clearResolvedAlerts,raisePendingAlerts,raiseSweepAlert} from './billingPendingAlerts';
 import {AUDIT_COLLECTION,AuditFault,auditId,recordDisposition} from './billingPendingAudit';
 import {stub} from './billingFirestoreStub';
 
@@ -147,5 +147,51 @@ describe('interaction with the alert module',()=>{
     s.store.set('billingHoldOutbox/h1',{state:'applied'});
     expect(await clearResolvedAlerts(s.db as never,s.root as never,buildPendingReport([],NOW+2),NOW+2)).toMatchObject({cleared:1});
     expect(alertDoc(s)).toMatchObject({status:'cleared',acknowledgedBy:'owner-1'});
+  });
+});
+
+describe('guard owner attribution in alert identity and operator audit',()=>{
+  const accountA='11111111-1111-4111-8111-111111111111',accountB='22222222-2222-4222-8222-222222222222';
+  async function guardAlert(){
+    const guardA={accountId:accountA,blocked:true,lastIncidentId:'a'.repeat(64),epoch:1,createdAtMs:1_000};
+    const guardB={accountId:accountB,blocked:false};
+    const s=stub({billingGuards:{[accountA]:guardA,[accountB]:guardB},accounts:{[accountA]:{available:12},[accountB]:{available:53}}});
+    const report=await readPendingReport(s.root as never,NOW);
+    await raisePendingAlerts(s.db as never,s.root as never,report,NOW);
+    const key=alertKey('guard',accountA,report.rows[0].state,'needs_review'),path=ALERT_COLLECTION+'/'+key,original=s.store.get(path)!;
+    expect(original).toMatchObject({kind:'guard',rowId:accountA,accountId:accountA,alertKey:key,status:'open'});
+    s.writes.length=0;
+    return {s,key,path,original,guardA,guardB};
+  }
+  it('guard alert identity does not expose a foreign owner attached to the original key',async()=>{
+    const {s,key,path,original}=await guardAlert();
+    s.store.set(path,{...original,accountId:accountB});
+    const identity=alertIdentity({exists:true,id:key,data:()=>s.store.get(path)});
+    // Either reject the record or explicitly withhold the hint. Never invent A from this alert alone.
+    expect(identity?.accountId??null).toBe(null);
+    expect(s.writes).toEqual([]);
+  });
+  for(const action of ['acknowledge','resolve'] as const){
+    it('guard disposition '+action+' does not propagate a foreign hint to the new audit record',async()=>{
+      const {s,key,path,original,guardA,guardB}=await guardAlert();
+      s.store.set(path,{...original,accountId:accountB});
+      const result=await fault(recordDisposition(s.db as never,s.root as never,key,action,who,NOW+1));
+      const audit=s.store.get(AUDIT_COLLECTION+'/'+auditId(key,action));
+      expect(s.store.get('billingGuards/'+accountA)).toEqual(guardA);
+      expect(s.store.get('billingGuards/'+accountB)).toEqual(guardB);
+      expect(s.store.get('accounts/'+accountA)).toEqual({available:12});
+      expect(s.store.get('accounts/'+accountB)).toEqual({available:53});
+      if(result==='corrupt'){expect(s.writes).toEqual([]);expect(audit).toBeUndefined();return;}
+      expect(result).toBe('none');expect(audit).toBeDefined();
+      expect(audit!.accountId,'an operator action must not perpetuate an unverified owner').toBe(null);
+    });
+  }
+  it('retains an explicitly unattributed guard observation without inventing an owner',async()=>{
+    const {s,key,path,original}=await guardAlert();
+    s.store.set(path,{...original,accountId:null});
+    expect(alertIdentity({exists:true,id:key,data:()=>s.store.get(path)})).toMatchObject({rowId:accountA,accountId:null});
+    expect(await fault(recordDisposition(s.db as never,s.root as never,key,'acknowledge',who,NOW+1))).toBe('none');
+    expect(s.store.get(AUDIT_COLLECTION+'/'+auditId(key,'acknowledge'))).toMatchObject({accountId:null});
+    expect(s.store.get(path)?.accountId).toBe(null);
   });
 });

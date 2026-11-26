@@ -1,0 +1,56 @@
+# Revisión estática independiente
+
+Solicitud: 016264612b45c846fa80ed514c48f084a9ca4c61b8408865fe55adfd8983c503
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Resultado: FALLA
+Tokens entrada/cache/salida: 13123/128/38013
+Costo observado USD: 0.0219962358
+SHA-256 del informe original: 2eb86824061f9c52a18eeb6883c348516112b27622ec7f0701efe22f5d04704f
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+## Alcance examinado
+
+Revisión estática, sin ejecución, del commit `542a758909f7309e8aca45809e6e79c1274d4201` a partir de los fragmentos suministrados. Se contrasta el contrato resumido, la corrida `run-78c436be...` y los ocho casos de `server/commercial/firestoreReviewedTranslation.emulator.mjs`. No se evalúa C3 ni uso público.
+
+## Hallazgos
+
+1. **Bytes exactos: sin defecto demostrado en la ruta probada.**
+   `reviewedVoiceCanonical.ts:74–95` reconstruye el cuerpo desde `reviewed.voiceText`, exige `request.body === body`, fija `callKey`, modelo, `chunkIndex`, `chunkCount` y devuelve `requestSha256 = hash(body)`. El receptor de memoria valida la evidencia canónica y usa `original.call.body` (`reviewedVoiceFragment.memory.ts:99–127`, `L161–176`). El caso positivo comprueba `observed.bytes === Buffer.from(body,'utf8')` y los campos del recibo en `firestoreReviewedTranslation.emulator.mjs:2170–2175`. Dentro del alcance probado, la copia UTF-8 en memoria queda atada al fragmento revisado.
+
+2. **Defecto demostrado: el reintento del mismo receptor tras una respuesta de admisión perdida no conserva incertidumbre.**
+   En `reviewedVoiceFragment.memory.ts:154–159` se ejecuta `await ports.readVerifiedC1(request)` **antes** de consultar `journal`/`reservations`. Si la admisión ya es durable, `readVerifiedC1` sin `admitted` devuelve `null` porque `providerAdmission` existe (`reviewedVoiceFragment.localFixture.ts:128–129`). Por tanto, un segundo `send` del mismo receptor no llega a la rama `journal.has(...) || reservations.has(...)` y cae en `if(!original)return 'rejected';` (`memory.ts:156–157`).
+   Efecto: tras una respuesta perdida, el primer intento devuelve `unknown`, pero un reintento del mismo receptor devolvería `rejected`, no `unknown`, pese a que no hay recibo en memoria. El caso `emulator.mjs:2255–2266` solo comprueba el primer `unknown` y un receptor nuevo con `rejected`; no cubre el reintento del mismo receptor. Esto contradice la exigencia de “conservar incertidumbre tras una respuesta perdida”. No produce otra admisión durable ni otra entrega —porque retorna antes de llamar a Cuenta—, pero sí convierte una incertidumbre en un rechazo definitivo observable.
+
+3. **Defecto latente de vinculación en `AccountStore` si se bypasea el receptor validado.**
+   `server/account/backend.ts:46–53` define `sameAdmission` comparando solo `jobId` y `attemptId`. En `admitVideoCall` (`backend.ts:371–396`), si ya existe `providerAdmission` y se repite el mismo `jobId`/`attemptId` pero con distinto `callKey` de igual prefijo y modelo, no se lanza `conflict`; se crea un nuevo documento en `providerCalls` y se devuelve `created:true, receiptOnly:false`.
+   El receptor de memoria no alcanza esa rama porque genera un `attemptId` nuevo por intento, y el test directo de `emulator.mjs:2190–2195` usa el mismo `attemptId` y `callKey` y solo obtiene `receiptOnly`. Pero el adaptador `admitForTest` (`reviewedVoiceFragment.localFixture.ts:135–138`) no revalida por sí mismo que `call` corresponda al cuerpo/fragmento C1; confía en el llamador. Falta un control negativo que llame a `admitVideoCall` con mismo `jobId`/`attemptId` y distinto `callKey`/`requestSha256` para confirmar que se rechaza. Tal como está, el estado durable de Cuenta no queda obligado por sí mismo a una única correspondencia fragmento/modelo/hash para el mismo trabajo/intento.
+
+4. **Repetición y consulta de recibo.**
+   El caso repetido tras `sent` acepta `rejected` (`emulator.mjs:2179–2186`). El control directo a `AccountStore` sí obtiene `receiptOnly` (`2190–2195`), y `inspectForTest` conserva el recibo. Por tanto, la evidencia es consultable por Cuenta/inspección, pero el `send` del receptor no consulta ni devuelve el recibo en una repetición. Esto es al menos una limitación de la ruta del receptor; el cambio de expectativa de `unknown` a `rejected` y la separación del control directo debilitan la verificación del comportamiento de repetición en el propio adaptador.
+
+## Negativos cubiertos
+
+- Principal ajeno, cuerpo alterado y arnés sin permiso local: `emulator.mjs:2211–2224`.
+- Borrado del ACK durable C1: `2226–2235`.
+- Marcador modificado/restaurado tras admisión: `2237–2253`.
+- Respuesta de admisión perdida con transacción real creada: `2255–2266`.
+- Puerta cerrada durante admisión: `2268–2284`.
+- Identidad de Cuenta modificada/restaurada: `2286–2302`.
+- Dos receptores/consumidores: `2199–2209`.
+- Balances, diario, estado de Video, recibos/cercas y salidas en los ocho casos: `sameFragmentBalances`, según el paquete.
+
+## Límites y bloqueos
+
+- No se ejecutó nada; los hashes, TAP y resultado se toman como datos declarados.
+- No se reproducen implementaciones completas de `capture`, `validateReviewedVoiceCall`, `admissionFor`, `sameFragmentBalances`, `storedAdmission`, `firstCall`, `callDocId`, `modelMatchesKey`, `authorize`, `verifiedCurrentReview`, `hash`, `terminalDocumentVersion` ni auxiliares de construcción sintética. Si se requiere recomputar el 8/8 o cerrar el hallazgo 3, faltan esas piezas y una prueba directa del caso “mismo intento, distinto fragmento/hash”.
+- El guard de red es una precarga de Node con cobertura limitada; no es cortafuegos del SO.
+- No hay dos bases/proyectos independientes, HTTP real, IAM, proveedor, audio, almacenamiento ni liquidación de voz; no hay diario durable del receptor, conciliación tras reinicio, recuperación C3 ni prueba contra escritor privilegiado.
+- Uso/coste: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: La ruta positiva ata bytes UTF-8 al cuerpo canónico revisado (`reviewedVoiceCanonical.ts:74–95`, `reviewedVoiceFragment.memory.ts:161–176`, `firestoreReviewedTranslation.emulator.mjs:2170–2175`) y los controles de dos receptores/respuesta perdida impiden otra creación/entrega en la ruta del receptor de memoria. Sin embargo, `reviewedVoiceFragment.memory.ts:154–159` lee C1 antes de `journal`/`reservations`; tras una admisión durable, `reviewedVoiceFragment.localFixture.ts:128–129` devuelve `null`, de modo que un reintento del mismo receptor tras respuesta perdida devuelve `rejected` en vez de `unknown`. Además, `server/account/backend.ts:46–53` y `371–396` no impiden por sí mismos un segundo `providerCall` con mismo `jobId`/`attemptId` y distinto `callKey`/hash si se bypasea el receptor validado; no hay control negativo para ese caso.
+NEGATIVOS: Cubiertos: principal ajeno/cuerpo alterado/sin permiso (`emulator.mjs:2211–2224`), ACK C1 borrado (`2226–2235`), marcador modificado/restaurado (`2237–2253`), respuesta de admisión perdida (`2255–2266`), puerta cerrada (`2268–2284`), identidad de Cuenta modificada/restaurada (`2286–2302`), dos receptores (`2199–2209`) y balances/estado/recibos en los ocho casos. Faltan: reintento del mismo receptor tras `unknown` por admisión perdida y llamada directa a `admitVideoCall` con mismo trabajo/intento y distinto fragmento/hash.
+BLOQUEOS: No se ejecutó el paquete; no se reproducen completas `capture`, `validateReviewedVoiceCall`, `admissionFor`, `sameFragmentBalances`, `storedAdmission`, `firstCall`, `callDocId`, `modelMatchesKey`, `authorize` y `verifiedCurrentReview`. No hay HTTP/IAM/proveedor/audio/almacenamiento/liquidación, conciliación tras reinicio, C3 ni escritor privilegiado. Guard de red limitado. Uso/coste: no medido.
+=== FIN RESUMEN ===

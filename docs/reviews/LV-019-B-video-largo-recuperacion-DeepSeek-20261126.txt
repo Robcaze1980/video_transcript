@@ -1,0 +1,12 @@
+1. `server/commercial/longVideoWindowRecovery.test.ts:212-225` no prueba la carrera de creación exclusiva: pausa después de que `-0-intent` ya existe; el segundo ejecutor se detiene en `server/commercial/longVideoWindowRecovery.fixture.ts:128-136` por leer `intent`, no por perder `files.create`. Falta el intercalado simultáneo y mult proceso.
+2. `server/commercial/longVideoWindowRecovery.fixture.ts:47-50` sobrescribe `detectedLanguage` y `hasSpeech` con `'es'/true`; `server/commercial/longVideoWindowRecovery.test.ts:31-35` solo aporta español con habla. No queda demostrado que se rechace silencio u otro idioma si `validateProviderTextResult` no lo exige.
+3. `server/commercial/longVideoWindowRecovery.test.ts:64,68-74` usa admisión simulada en memoria y por `callKey`, no durable ni ligada a job/attempt/reserva/request. `server/commercial/longVideoWindowRecovery.fixture.ts:131-147` evita segundo admit con recibo, pero `test.ts:116-139` deja intent-only/admission-lost como `unknown` terminal.
+4. `server/commercial/longVideoWindowRecovery.fixture.ts:54-60` solo busca evidencia `< AI_TEXT_MAX_WINDOWS`; `server/commercial/longVideoWindowRecovery.test.ts:196-203` depende de que esa constante sea >6. Evidencia fuera de ese límite o borrado privilegiado del journal no se detecta (spec línea 18).
+5. `docs/specs/LV-019-B-video-largo-recuperacion-ventanas-local.md:16-18` cita `firestoreAi.ts`, `gcsObjects.ts` y purga no incluidos; no se puede comprobar contrato de objeto intermedio, generación/tamaño/hash, revalidación transaccional, retención/purga, caída real, Firestore/GCS ni proveedor/audio/teléfono.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática de spec, fixture y test; los 17 `it` cuadran con el recuento, ventanas de 150,25 s/6, reserva 151, intent/result/receipt con SHA-256 y replay de recibo sin nuevo `admit`; 63/TS son reportados, no reejecutados aquí.
+NEGATIVOS: Los tests conservan `unknown` ante admission lost, result lost, result inválido, bytes sin recibo, receipt only, recibo alterado, bytes intercambiados, manifiesto perdido, reserva ausente/otros segundos, revision/authorityVersion/sourceGeneration/requestOrder/attempt distintos, evidencia fuera del plan y segundo ejecutor; la reserva mock queda intacta.
+BLOQUEOS: Sin ejecución propia; faltan autoridad real Firestore/GCS/Cuenta, admisión durable, concurrencia multiproceso, caída/durabilidad, purga/retención, proveedor/audio/teléfono y verificación del diff/imports del commit.
+=== FIN RESUMEN ===

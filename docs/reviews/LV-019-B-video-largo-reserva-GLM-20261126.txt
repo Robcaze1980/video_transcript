@@ -1,0 +1,37 @@
+# Revisión estática independiente
+
+Solicitud: 7adad019260d7e4b9b6cda72f24a653d7c8699a3cb18ce34af997cd04b8cb63d
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Resultado: PASS
+Tokens entrada/cache/salida: 8882/0/24669
+Costo observado USD: 0.0048630186
+SHA-256 del informe original: 31432d0e3ef3e157c75b4df1f394524c2f2f50063aa903824d923928ae59da46
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# Revisión independiente · LV-019.B · vínculo de reserva (prototipo local, commit `9e518161` sobre `57cca77`)
+
+**Método.** Revisión estática de solo lectura; el código, las pruebas y los registros citados se trataron como datos. No ejecuté nada ni accedí a sistemas externos. Veredicto limitado al prototipo apagado de almacenamiento local por ventanas de texto; esto no aprueba producción ni valida los resultados históricos.
+
+## Hallazgos por pregunta
+
+**1. Orden de validación — cumple.** En `server/commercial/longVideoWindowRecovery.fixture.ts`, `authorize` procede: gate `disabled` (l.65) → forma del principal/job (l.66-67) → lectura del lector de Video confiable (l.68) → coincidencia dueño/UID/job (l.69-70) → forma de campos y rango 120-180 s (l.73-76) → segundos `Math.ceil` (l.77) → conteo y hex de solicitudes (l.79-84) → **vínculo de reserva en l.88**, que compara el ID observado contra `videoReservationId(accountId, identityKey, inputId, 'translation:en', revision, requestKey)` → **después** la lectura de Cuenta (l.89-90, igualdad profunda de la fila con `state:'reserved'` y segundos exactos). No hay consulta a Cuenta, creación de manifiesto ni admisión/recepción antes de l.88; `prepare` (l.108-118) y `assemble` (l.121+) solo tocan archivos tras un `authorize` exitoso, y cada `live()` re-verifica vínculo y huella (l.102-106).
+
+**2. Suficiencia del vínculo para los cuatro casos — cumple.** La tupla hasheada (`videoReservationId.ts:6-7`) incluye input, operación, revisión y clave literal; cualquier divergencia en un campo cambia el ID derivado y dispara `unknown` en l.88 antes de tocar Cuenta. Las cuatro contrapruebas (test 167-199) inyectan un donante real del mismo dueño y mismos segundos, exigen `donorId ≠ reservationId`, y el resultado esperado es `{outcome:'unknown', reservationReads:0, admitAndReceive:[0,0], journalEntries:0}`. El rojo ampliado documenta que la versión previa aceptaba (6 admisiones/recepciones, 19 archivos, 36 lecturas) y el verde del commit registra el rechazo con ceros. Tras fijar el manifiesto, cualquier sustitución cambia `reservationId`, que está en la huella (l.92-93), y `verify` (l.102-106) la rechaza sin entradas nuevas (test 201-211: solo queda el manifiesto).
+
+**3. Literalidad de mayúsculas — cumple.** La l.88 usa `requestKey` crudo; el `.trim()` de l.74 solo valida vacío, sin normalizar. El test 213-229 comprueba que la versión en minúsculas no deriva el ID original: rechazo con 0 lecturas de Cuenta y directorio vacío, y éxito únicamente con la clave literal.
+
+**4. Barreras de reanudación — cumple.** Sin manifiesto, `assemble` no procesa ventanas (l.104); con manifiesto ausente e historial presente, `prepare` rechaza (l.113, cerca ante incertidumbre). Reapertura: un recibo en disco valida intent/resultado/recibo (l.136-138) y no re-admite ni re-recibe; el test 95-115 registra [2,2] tras la pérdida de respuesta y [6,6] tras reanudar, sin reenviar las confirmadas y con las seis ventanas originales (última 150000→150250).
+
+**5. Códec antes de normalizar — cumple.** `normalize` (l.48-51) invoca `validateProviderTextResult` con la duración de cada ventana; el códec (`pipelineTextCodec.ts:223-319`) exige objeto exacto, `detectedLanguage==='es'` (l.239-241), `hasSpeech===true` (l.242-244), cues no vacías (l.248-250), límites enteros, orden sin solape y texto seguro. El prototipo rechaza antes de escribir resultado (l.146-149) o recibo (l.151), revalida los bytes persistidos (l.153-154) y el diario retenido bloquea la re-admisión (test 231-252: counts [1,1], solo `-0-intent` y manifiesto).
+
+**Defectos en el alcance: ninguno.** No encontré ningún defecto concreto citable que viole el criterio. Los límites declarados (no fallos probados): el lector que sustituye coherentemente toda la historia antes del primer manifiesto no se autentica; los dobles carecen de autoridad distribuida; la persistencia es temporal y sintética; quedan fuera reinicios reales, durabilidad, IAM, purga, retención y activación comercial.
+
+**No verificable.** No ejecuté pruebas ni `tsc`; los registros rojo/verde y sus SHA-256 son datos no reproducibles aquí y el costo es no medido. No se suministraron: `privateUuid`/`privateSha`, `encodeTextBundle`, `textModel`, `TEXT_CODEC_MAX_CUES`, `TEXT_CODEC_MAX_DURATION_MS`, `assertSafeText/assertJobId/cueId` y el backend completo de `AccountStore`; el determinismo del bundle solo está atestiguado por el test. Faltan por examinar las líneas de test no suministradas (82-94 y 116-166) y controles sin caso dedicado: fila con segundos erróneos o estado distinto (cubierto por l.90), `reservationId` malformado (l.73) y variaciones de `attemptId` pre-manifiesto (ligadas solo por huella).
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Vínculo antes de Cuenta/manifiesto/admisión en longVideoWindowRecovery.fixture.ts:88-90 (tupla completa en videoReservationId.ts:6-7, operación 'translation:en' fijada); segundos ceil en l.77 con fila exacta en l.89-90; huella con reservationId en l.92-93 y verify en l.102-106 rechaza sustituciones tras fijar manifiesto; preparación con doble autorización y cerca en l.108-118; normalize valida por ventana (l.48-51) antes de escribir resultado (l.146-149) y recibo (l.151) y revalida bytes (l.153-154); códec rechaza otro idioma/silencio/sin cues en pipelineTextCodec.ts:239-250; tests 95-115 (reapertura [2,2]→[6,6] sin reenvío), 167-199 (cuatro donantes con 0 lecturas/admisiones/recepciones/archivos), 201-211 (donante post-huella), 213-229 (mayúsculas literales, 0 lecturas), 231-252 (negativos de códec, diario retiene `-0-intent` y bloquea re-admisión).
+NEGATIVOS: Presentes: cuatro variantes de donante (otro input/operación/revisión/clave literal) antes y después del manifiesto, clave en minúsculas, reapertura idempotente, pérdida de respuesta de recibo, cuatro negativos de códec pre-persistencia. Omitidos sin test dedicado (cubierto por lectura de código): fila con segundos incorrectos o estado ≠ 'reserved' (l.90), reservationId malformado (l.73), sustitución coherente de toda la historia pre-manifiesto (límite declarado de confianza, no fallo probado), concurrencia real.
+BLOQUEOS: Ninguno dentro del alcance. Pendientes documentales: no ejecuté suites ni tsc (logs y SHA-256 tomados como datos, costo no medido); faltan por examinar líneas de test 82-94 y 116-166; fuentes no suministradas: privateUuid/privateSha, encodeTextBundle, textModel, TEXT_CODEC_MAX_CUES, TEXT_CODEC_MAX_DURATION_MS, assertSafeText/assertJobId/cueId, AccountStore completo; el resultado no constituye aprobación de producción.
+=== FIN RESUMEN ===

@@ -7,7 +7,7 @@
  */
 import {createHash} from 'node:crypto';
 import type {DocumentReference,DocumentSnapshot,Firestore,QueryDocumentSnapshot,Transaction} from 'firebase-admin/firestore';
-import {PENDING_SOURCES,buildPendingReport,inspectTerminalPoll,intentTerminalKey,normalizePending,validPollIntentId,
+import {PENDING_SOURCES,buildPendingReport,inspectTerminalPoll,intentTerminalKey,normalizePending,safeDocId,validPollIntentId,
   type PendingKind,type PendingReport,type PollReadSnapshot,type ReportRow} from './billingPendingReport';
 
 export const ALERT_COLLECTION='billingPendingAlerts';
@@ -28,8 +28,6 @@ function reasonFor(row:ReportRow,threshold:number|undefined):AlertReason|null{
   if(threshold!==undefined&&row.ageMs!==null&&row.ageMs>=threshold)return 'age';
   return null;
 }
-/** A row id is read back into a document path, so it must be a plain document id: never a path or a dot segment. */
-const safeDocId=(value:unknown):value is string=>typeof value==='string'&&value.length>=1&&Buffer.byteLength(value)<=1500&&!/[\/\u0000-\u001f\u007f]/.test(value)&&value!=='.'&&value!=='..';
 type PollLocator={pollIntentId:string;pollAction:'release'|'seal'};
 /** Strip SDK references/methods and non-scalar field values before handing data to the read-only verifier.
  * The one nested protocol field is the terminalRecovery marker. Keep unknown keys so strict shape checks still fail. */
@@ -59,8 +57,15 @@ function pollLocator(data:Record<string,unknown>):PollLocator|null{
     data.state!=='invalid'||data.reason!=='malformed'||data.accountId!==null||data.rowId!==intentTerminalKey(pollIntentId,pollAction))return null;
   return {pollIntentId,pollAction};
 }
+function validAlertAccount(kind:unknown,rowId:unknown,accountId:unknown){
+  return accountId===null||typeof accountId==='string'&&(kind!=='guard'||accountId===rowId);
+}
 function validAlertShape(data:Record<string,unknown>|undefined,key:string){
-  return !!data&&(data.kind!=='terminal_poll'||pollLocator(data)!==null)&&data.alertKey===key&&safeDocId(data.rowId)&&['open','cleared','superseded','dispositioned'].includes(String(data.status))&&nonNegativeInteger(data.seenCount)&&data.seenCount>=1&&nonNegativeInteger(data.firstSeenAtMs)&&nonNegativeInteger(data.lastSeenAtMs)&&data.lastSeenAtMs>=data.firstSeenAtMs;
+  return !!data&&typeof data.kind==='string'&&validAlertAccount(data.kind,data.rowId,data.accountId)&&
+    (data.kind!=='terminal_poll'||pollLocator(data)!==null)&&data.alertKey===key&&safeDocId(data.rowId)&&
+    typeof data.status==='string'&&['open','cleared','superseded','dispositioned'].includes(data.status)&&
+    nonNegativeInteger(data.seenCount)&&data.seenCount>=1&&nonNegativeInteger(data.firstSeenAtMs)&&
+    nonNegativeInteger(data.lastSeenAtMs)&&data.lastSeenAtMs>=data.firstSeenAtMs;
 }
 /** Identity of a stored alert, or null when its content does not match its key or its shape is invalid. */
 export function alertIdentity(snap:{exists:boolean;id:string;data():unknown}):{kind:AlertKind;rowId:string;state:string;reason:AlertReason;status:string;accountId:string|null}|null{
@@ -71,13 +76,14 @@ export function alertIdentity(snap:{exists:boolean;id:string;data():unknown}):{k
 }
 /** Fresh, in-transaction view of an alert: 'raced' if no longer open, 'corrupt' if its content no longer matches its key. */
 function openAlertState(snap:{exists:boolean;id:string;data():unknown}):'open'|'raced'|'corrupt'{
-  const d=snap.data() as Record<string,unknown>|undefined;
-  if(!snap.exists||d?.status!=='open')return 'raced';
-  if(typeof d.kind!=='string'||typeof d.rowId!=='string'||typeof d.state!=='string'||typeof d.reason!=='string'||alertKey(d.kind as AlertKind,d.rowId,d.state,d.reason as AlertReason)!==snap.id||!validAlertShape(d,snap.id))return 'corrupt';
-  return 'open';
+  if(!snap.exists)return 'raced';
+  const identity=alertIdentity(snap);
+  if(!identity)return 'corrupt';
+  return identity.status==='open'?'open':'raced';
 }
 /** One transaction per alert: under concurrency exactly one writer creates it, the others count a sighting. */
 async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKind;rowId:string;state:string;reason:AlertReason;accountId:string|null}&Partial<PollLocator>,nowMs:number,existingTx?:Transaction):Promise<'created'|'seen'>{
+  if(!validAlertAccount(fields.kind,fields.rowId,fields.accountId))throw new Error('Corrupt alert document');
   const key=alertKey(fields.kind,fields.rowId,fields.state,fields.reason),ref=root.collection(ALERT_COLLECTION).doc(key);
   const put=async(tx:Transaction)=>{
     const snap=await tx.get(ref);
@@ -86,19 +92,21 @@ async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKi
       return 'created' as const;
     }
     const data=snap.data() as Record<string,unknown>|undefined;
-    if(!validAlertShape(data,key)||fields.kind==='terminal_poll'&&(data?.kind!==fields.kind||data.rowId!==fields.rowId||!pollLocator(data)))throw new Error('Corrupt alert document');
-    // A malformed intent or guard may carry a stale account hint. A later
-    // sighting for the same alert can withdraw it while preserving audit identity.
-    const dropAccountHint=(fields.kind==='intent'||fields.kind==='guard')&&fields.reason==='malformed'&&fields.accountId===null&&
-      data!.kind===fields.kind&&data!.rowId===fields.rowId&&data!.state===fields.state&&data!.reason===fields.reason&&typeof data!.accountId==='string';
-    const base={seenCount:(data!.seenCount as number)+1,lastSeenAtMs:Math.max(nowMs,data!.lastSeenAtMs as number),...(dropAccountHint?{accountId:null}:{})};
+    if(!data||data.kind!==fields.kind||data.rowId!==fields.rowId||data.state!==fields.state||data.reason!==fields.reason)
+      throw new Error('Corrupt alert document');
+    // A malformed source can withdraw even a historically incorrect string hint. Validate every other
+    // stored field before updating, and leave the stored account alone for every other sighting.
+    const dropAccountHint=(fields.kind==='intent'||fields.kind==='guard')&&fields.reason==='malformed'&&
+      fields.accountId===null&&typeof data.accountId==='string';
+    if(!validAlertShape(dropAccountHint?{...data,accountId:null}:data,key))throw new Error('Corrupt alert document');
+    const base={seenCount:(data.seenCount as number)+1,lastSeenAtMs:Math.max(nowMs,data.lastSeenAtMs as number),...(dropAccountHint?{accountId:null}:{})};
     // A cleared or superseded alert whose exact condition comes back reopens WITH its history. A dispositioned one
     // (a human already decided this exact situation) keeps its status and disposition history.
-    if(data!.status==='cleared'||data!.status==='superseded'){
-      const wasCleared=data!.status==='cleared',keep=(v:unknown)=>nonNegativeInteger(v)?v:null;
-      tx.update(ref,{...base,status:'open',reopenCount:(nonNegativeInteger(data!.reopenCount)?data!.reopenCount:0)+1,
-        previousClearedAtMs:wasCleared?keep(data!.clearedAtMs):keep(data!.previousClearedAtMs),
-        previousSupersededAtMs:wasCleared?keep(data!.previousSupersededAtMs):keep(data!.supersededAtMs),
+    if(data.status==='cleared'||data.status==='superseded'){
+      const wasCleared=data.status==='cleared',keep=(v:unknown)=>nonNegativeInteger(v)?v:null;
+      tx.update(ref,{...base,status:'open',reopenCount:(nonNegativeInteger(data.reopenCount)?data.reopenCount:0)+1,
+        previousClearedAtMs:wasCleared?keep(data.clearedAtMs):keep(data.previousClearedAtMs),
+        previousSupersededAtMs:wasCleared?keep(data.previousSupersededAtMs):keep(data.supersededAtMs),
         clearedAtMs:null,observedState:null,supersededAtMs:null,supersededByKey:null});
     }else tx.update(ref,base);
     return 'seen' as const;

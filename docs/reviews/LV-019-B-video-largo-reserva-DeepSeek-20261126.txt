@@ -1,0 +1,29 @@
+# Revisión estática independiente
+
+Solicitud: 7d701a238e3b9bd329c226f1e78b5c84cb78297f3e93c0ecb62759278ee2161b
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Resultado: PASS
+Tokens entrada/cache/salida: 9487/0/45997
+Costo observado USD: 0.03188590515
+SHA-256 del informe original: c3a8ffd29ef159d92b3b2e80d863f6e0978a3d0a8562e267ef92ce838a587dcf
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+He revisado estáticamente el paquete. El vínculo de reserva queda comprobado antes de consultar Cuenta, crear manifiesto o admitir/recibir ventana.
+
+- **Orden de validación:** `server/commercial/longVideoWindowRecovery.fixture.ts:88` compara `reservationId` con `videoReservationId(accountId, identityKey, inputId, 'translation:en', revision, requestKey)` y solo después, en la línea 89, llama a `ports.reservation`. Los cuatro casos de donante se rechazan en esa comparación, sin lectura de Cuenta, sin manifiesto y sin `admit`/`receive`.
+- **Suficiencia del vínculo:** la derivación usa dueño (`accountId`), identidad (`identityKey` del UID), input, operación fija de traducción, revisión y clave literal. Los tests de `server/commercial/longVideoWindowRecovery.test.ts:167-252` cubren input, operación, revisión y clave literal, y verifican `reservationReads: 0`, `admitAndReceive: [0,0]` y `journalEntries: 0`.
+- **Mayúsculas/minúsculas:** la clave no se normaliza; se valida como string en `fixture.ts:74` y se usa literal en la línea 88. El test de clave literal comprueba que una versión en minúsculas con el ID original se rechaza antes de Cuenta.
+- **Reanudación:** `prepare` exige manifiesto o lo crea solo si no hay historia (`fixture.ts:108-118`). `assemble` exige manifiesto y huella (`fixture.ts:120-159`), rechaza historia posterior (`fixture.ts:126,140`) y revalida tras cada escritura. El test de reapertura (`longVideoWindowRecovery.test.ts:95-115`) demuestra que las ventanas confirmadas no se reenvían: 2 admisiones/recepciones tras la interrupción y 6 totales.
+- **Códec antes de normalizar:** `server/commercial/pipelineTextCodec.ts:223-319` exige `detectedLanguage === 'es'`, `hasSpeech === true`, cues no vacíos, límites por ventana, orden, no solapamiento y texto seguro. En `fixture.ts:146` se normaliza antes de crear `resultKey` (149) y `receiptKey` (151); los negativos de otro idioma, silencio y habla sin segmentos se rechazan antes de persistir resultado o recibo.
+
+Controles negativos conservados: cuatro donantes (input, operación, revisión, clave literal), sustitución de donante tras manifiesto fijado, clave literal con cambio de mayúsculas, cuatro negativos de códec y reapertura tras recibo perdido. La evidencia roja (`fixture-unit.log`, `donor-red.log`) muestra que antes del cambio se aceptaba el donante con 6 admisiones, 6 recepciones y 19 archivos. La evidencia verde (`corrected-unit.log`) da 37/37 y salida 0; `tsc --noEmit` da salida 0. La repetición independiente da 37/37 con un aviso de cierre tardío de worker.
+
+No pude comprobar dentro del paquete las implementaciones de `privateUuid`, `privateSha`, `encodeTextBundle`, `assertExactObject`, `assertJobId`, `assertInteger`, `assertSafeText`, `cueId`, `TEXT_CODEC_MAX_CUES` ni `TEXT_CODEC_MAX_DURATION_MS`; solo sus usos y los resultados de prueba. Quedan fuera los reinicios reales, durabilidad, IAM, purga, retención y activación comercial. Observo un límite no declarado en `fixture.ts:76`: `durationSeconds` se restringe a 120–180 s, y no se probaron duraciones fuera de 150,25 s; no afecta a los cuatro casos de reserva ni al ejemplo exigido.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `longVideoWindowRecovery.fixture.ts:88` rechaza el ID incompatible antes de Cuenta; tests 167-252 cubren input, operación, revisión y clave literal con 0 lecturas de Cuenta, 0 admisiones, 0 recepciones y 0 archivos. Reanudación probada en test 95-115 sin reenviar ventanas confirmadas. Códec `pipelineTextCodec.ts:223-319` rechaza otro idioma, silencio y habla sin segmentos antes de escribir resultado/recibo.
+NEGATIVOS: Cuatro donantes, sustitución tras manifiesto fijado, clave literal con cambio de mayúsculas, cuatro negativos de códec y reapertura con recibo perdido. Rojos históricos muestran el fallo previo; verde 37/37 y `tsc` 0.
+BLOQUEOS: Ninguno probado en el alcance del vínculo de reserva y reanudación. Queda como límite no declarado la restricción de duración 120–180 s (`fixture.ts:76`) y fuera de alcance reinicios reales, durabilidad, IAM, purga, retención y activación comercial.
+=== FIN RESUMEN ===

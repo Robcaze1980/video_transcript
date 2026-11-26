@@ -1,0 +1,22 @@
+Revisión estática e independiente; no ejecuté tests ni modifiqué nada. Los fragmentos citados se tratan como datos.
+
+**Hallazgos y límites (máx. 5):**
+
+1. **billingPendingAlerts.ts:61 y 174-175** — `validAlertShape` usa `String(data.status)` y no exige `typeof data.status === 'string'`; tampoco exige `typeof data.accountId === 'string'` ni `typeof data.kind === 'string'` en `checkAlert`. Un documento con `status` objeto cuyo `toString()` sea `'open'`, o con `kind` no-string y `alertKey` coincidente, puede pasar la validación: `raiseOne` (líneas 87-103) podría contarlo/actualizarlo y `checkAlert` (174-175) podría devolver `'kept'` en vez de `'corrupt'`. Esto contradice el requisito de que dato inválido produzca fallo visible.
+
+2. **billingPendingReport.ts:65-80 / firestoreBlocksA.test.ts:22-25 / billingUnblock.ts:112-116** — un guard sin `epoch` ni `createdAtMs` se reporta como válido (`malformed:false`, `state:'blocked:1:0:...'`) y el test lo afirma explícitamente, pero `billingUnblock.generation` lanza `UnblockFault('corrupt')` si faltan `createdAtMs` o `updatedAtMs`. Es una incompatibilidad concreta de guard legacy entre reporte y desbloqueo.
+
+3. **billingPendingAlerts.ts:96-101** — en la reapertura, `keep()` convierte `previousClearedAtMs`/`previousSupersededAtMs` inválidos a `null` y se borra `supersededByKey` sin conservarlo. No hay fallo visible y se pierde parte del historial de la alerta; no se aporta test de reapertura válida con historial corrupto.
+
+4. **billingPendingAlerts.ts:183-185** — para `terminal_poll`, si `checkPoll` devuelve `health === 'invalid'`, `clearResolvedAlerts` devuelve `'kept'` y no `'corrupt'`/`'unverified'` ni lanza excepción. La evidencia inválida del poll no eleva un fallo visible; el control negativo de tuple corrupto no cubre este caso.
+
+5. **Límite de evidencia** — no se aportan `billingPendingAlerts.ts:110-160` ni `billingPendingSweep.ts`/`billingSweepSection.ts`. No se puede verificar el fence A2 de 4 módulos (`billingSweepSection.test.ts:261-266`), el procesamiento de todas las filas ante un alert corrupto, ni la ejecución 97/97. Los 6/6 emulados son sobre una copia adaptada y la regresión financiera es de una instantánea anterior; no certifican esta versión.
+
+Controles negativos retenidos: `billingPendingAlerts.test.ts:279-317` (tuple corrupto no se cuenta/reabre y no escribe), `firestoreBlocksA.test.ts:47-60` y `73-90` (guard con referencia no-string se marca malformed y no se atribuye a otra cuenta), `firestoreBlocksA.test.ts:91-100` (IDs inválidos no se copian) y `billingPendingAlerts.test.ts:332-341` (solo se escribe el alert y se deniegan escrituras a fuentes). Para dos referencias válidas distintas, `billingPendingReport.ts:72-74` usa outbox-first y `firestoreBlocksA.test.ts:61-72` cubre ambos órdenes; no se ve defecto ahí, pero falta prueba end-to-end de desbloqueo con ambas. En las rutas mostradas las lecturas decisivas van dentro de transacción (`billingPendingAlerts.ts:80-105, 178-188, 196-207, 214-220`); no se observa TOCTOU estático, pero no se pueden verificar las líneas 110-160. Las escrituras mostradas son solo al documento de alerta (`billingPendingAlerts.ts:83,98,102,186,206,219`); no se ve movimiento de dinero.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Revisión estática de los fragmentos SHA256 suministrados; se confirma que raiseOne/openAlertState/checkAlert comparan el tuple con alertKey antes de actualizar; se retienen los negativos de tuple corrupto, guard malformed con referencia no-string y drop de accountId; no se ejecutaron tests.
+NEGATIVOS: billingPendingAlerts.test.ts:279-317 (tuple corrupto no se cuenta/reabre y no escribe); firestoreBlocksA.test.ts:47-60 y 73-90 (guard con referencia no-string se marca malformed y no se atribuye a otra cuenta); firestoreBlocksA.test.ts:91-100 (IDs inválidos no se copian); billingPendingAlerts.test.ts:332-341 (solo se escribe el alert y se deniegan escrituras a fuentes).
+BLOQUEOS: No se dispone de billingPendingAlerts.ts:110-160 ni de billingPendingSweep.ts/billingSweepSection.ts; no se puede verificar el fence A2 de 4 módulos, el procesamiento de todas las filas ante un alert corrupto, la ejecución 97/97 ni los 6/6 emulados; la copia adaptada al emulador y la regresión financiera de una instantánea anterior no certifican esta versión.
+=== FIN RESUMEN ===

@@ -29,6 +29,12 @@ export interface PendingRow{kind:PendingKind;id:string;state:string;createdAtMs:
 export interface ReportRow extends PendingRow{ageMs:number|null;attention:PendingAttention}
 export interface PendingReport{generatedAtMs:number;total:number;byKind:Record<PendingKind,number>;oldest:ReportRow|null;attention:ReportRow[];rows:ReportRow[]}
 
+/** A row id is read back into a document path, so it must be a plain document id: never a path or a dot segment. */
+export const safeDocId=(value:unknown):value is string=>typeof value==='string'&&value.length>=1&&Buffer.byteLength(value)<=1500&&!/[\/\u0000-\u001f\u007f]/.test(value)&&value!=='.'&&value!=='..';
+// New guards store SHA-256 IDs. Historical incident IDs can be other opaque document names.
+function guardIncidentId(value:unknown):string|null{
+  return safeDocId(value)&&value.trim().length>0&&!/^__[\s\S]*__$/.test(value)?value:null;
+}
 const nonNegativeInteger=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The only codes the writers can store (firestoreBackend.ts failure recorders coerce anything else to 'unavailable'). */
@@ -59,14 +65,19 @@ export function normalizePending(kind:PendingKind,id:string,data:Record<string,u
     const hasEpoch=present(d.epoch),validEpoch=hasEpoch&&Number.isSafeInteger(d.epoch)&&(d.epoch as number)>=1,epoch=validEpoch?d.epoch as number:1;
     const hasCreated=present(d.createdAtMs),validCreated=hasCreated&&nonNegativeInteger(d.createdAtMs),createdAtMs=validCreated?d.createdAtMs as number:0;
     // billingGuards is keyed by owner. A disagreement leaves the guard visible without attributing it.
-    const guardAccount=accountId===id?accountId:null,incident=present(d.lastIncidentId)||present(d.lastOutboxIncidentId);
+    const guardAccount=accountId===id?accountId:null;
     // The incident key is part of the state too: the epoch restarts at 1 when a released guard is recreated and the
     // creation mark can repeat within one millisecond, so the named incident is what makes a different block a different
     // alert (and a repeat sweep of the SAME incident identical). It is a public id, already visible on the guard.
-    const incidentKey=typeof d.lastOutboxIncidentId==='string'?d.lastOutboxIncidentId:typeof d.lastIncidentId==='string'?d.lastIncidentId:'';
+    const outboxIncident=guardIncidentId(d.lastOutboxIncidentId),intentIncident=guardIncidentId(d.lastIncidentId);
+    const incidentKey=outboxIncident??intentIncident??'';
+    // Merged guards can contain both valid references. Keep their established outbox-first identity.
+    // A damaged companion remains visible as malformed even if the other reference names a valid document.
+    const invalidReference=Object.hasOwn(d,'lastOutboxIncidentId')&&outboxIncident===null||
+      Object.hasOwn(d,'lastIncidentId')&&intentIncident===null;
     // The guard row keeps no `createdAtMs` age of its own (the alert is raised as soon as it appears), but the mark is in its state.
-    return {kind,id,state:'blocked:'+epoch+':'+createdAtMs+':'+incidentKey,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:guardAccount,
-      malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incident||(hasEpoch&&!validEpoch)||(hasCreated&&!validCreated)||hasEpoch!==hasCreated};
+    return {kind,id,state:'blocked:'+epoch+':'+createdAtMs+':'+incidentKey,createdAtMs:null,nextAttemptAt:null,attempts:null,lastErrorCode:null,accountId:invalidReference?null:guardAccount,
+      malformed:!data||typeof data!=='object'||d.blocked!==true||guardAccount===null||!incidentKey||invalidReference||(hasEpoch&&!validEpoch)||(hasCreated&&!validCreated)||hasEpoch!==hasCreated};
   }
   return {kind,id,state,createdAtMs,nextAttemptAt,attempts,lastErrorCode,accountId:invalidIntentProvider?null:accountId,malformed};
 }
