@@ -1,5 +1,7 @@
 # Recibo de modelo · LV-019.B · Conciliación del intento de desbloqueo
 
+**Recibo histórico del commit `35460dd`.** La evidencia más reciente se describe en el [seguimiento](../../reviews/LV-019-B-desbloqueo-conciliacion-seguimiento-35460dd-20261126.md). Para reproducir los 14 casos de abajo, usar el modelo de `35460dd`. El enlace al borrador abre la versión que tenga el árbol consultado.
+
 El modelo ensaya el [borrador de conciliación](../../specs/LV-019-B-desbloqueo-conciliacion-intento.md), sobre la auditoría `2bbcbd13194bf83478ce165ea747906bdea6d8de` de la candidata `708c414`. Node 24.22.3. Fecha local 26 de noviembre de 2026.
 
 **14/14 pruebas sintéticas.** Consignan ambos órdenes de la carrera, llegada tardía del intento anterior antes y después del sucesor, y replay exacto con un único efecto. También cubren cero POST tras el commit local, ACK perdido del registro inicial o de la conciliación, avance de época antes y después del cerco, guard de otra creación con la misma época, intento o recibo perdido, recibo corrupto, titulares y evidencias discordantes, cambio y restauración de identidad y un ancla ausente o legada. Cada rechazo comparado conserva el inventario sintético previo. Las decisiones del desbloqueo conservan saldo, reserva y asiento.
