@@ -1,7 +1,7 @@
 // LV-019.B phase 2, piece B: read-only report of every non-terminal billing row.
 // The reader is exercised against an in-memory stub of the Firestore query surface;
 // the real emulator test is still pending (see docs/specs/LV-019-B-conciliacion-fase2-barrido-diseno.md).
-import {describe,expect,it} from 'vitest';
+import {describe,expect,it,vi} from 'vitest';
 import {buildPendingReport,normalizePending,PENDING_SOURCES,readPendingReport,type PendingRow} from './billingPendingReport';
 
 type Doc={id:string;data:Record<string,unknown>};
@@ -29,6 +29,37 @@ function stubRoot(collections:Record<string,Doc[]>,log:string[]=[],duplicateBoun
 }
 const NOW=10_000_000;
 const row=(over:Partial<PendingRow>):PendingRow=>({kind:'intent',id:'a',state:'reserve_pending',createdAtMs:1000,nextAttemptAt:null,attempts:0,lastErrorCode:null,accountId:null,malformed:false,...over});
+
+describe('synthetic voice conflicts',()=>{
+  it('omits the query and the count unless the caller explicitly opts in under the marked fixture gate',async()=>{
+    const collection='localVoiceReserveConflicts',id='11111111-1111-4111-8111-111111111111',log:string[]=[];
+    const get=vi.fn(async()=>({exists:true,get:(field:string)=>({
+      marker:id,purpose:'review-contract-synthetic-v1',project:'demo-vistavo-ledger',localRequestKeyIndex:1,
+    })[field]}));
+    const root={...stubRoot({[collection]:[{id,data:{protocol:1,state:'needs_review',createdAtMs:1,lastErrorCode:'conflict',accountId:id}}]},log),
+      parent:{path:'vistavo_review_contract_synthetic'},id,
+      firestore:{projectId:'demo-vistavo-ledger',databaseId:'(default)',_settings:{servicePath:'127.0.0.1',port:8185,ssl:false}},get,
+    };
+    vi.stubEnv('NODE_ENV','test');vi.stubEnv('FIRESTORE_EMULATOR_HOST','127.0.0.1:8185');vi.stubEnv('LV_VOICE_C1_FIXTURE','1');
+    try{
+      const base=await readPendingReport(root as any,NOW);
+      expect(base.byKind).not.toHaveProperty('voice_reserve_conflict');
+      expect(log).not.toContain('get:'+collection);
+      expect(get).not.toHaveBeenCalled();
+      const options={includeLocalVoiceConflicts:true} as const;
+      vi.stubEnv('LV_VOICE_C1_FIXTURE','0');
+      await expect(readPendingReport(root as any,NOW,options)).rejects.toThrow('invalid local voice fixture');
+      expect(get).not.toHaveBeenCalled();
+      vi.stubEnv('LV_VOICE_C1_FIXTURE','1');
+      get.mockResolvedValueOnce({exists:false,get:()=>undefined});
+      await expect(readPendingReport(root as any,NOW,options)).rejects.toThrow('invalid local voice fixture');
+      expect(log).not.toContain('get:'+collection);
+      const scoped=await readPendingReport(root as any,NOW,options);
+      expect(scoped.byKind.voice_reserve_conflict).toBe(1);
+      expect(scoped.attention).toMatchObject([{kind:'voice_reserve_conflict',id,accountId:null,attention:'needs_review'}]);
+    }finally{vi.unstubAllEnvs();}
+  });
+});
 
 describe('normalizePending',()=>{
   it('keeps a valid row and never copies identity material',()=>{

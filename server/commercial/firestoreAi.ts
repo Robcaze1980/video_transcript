@@ -1,3 +1,4 @@
+import {videoReservationId} from './videoReservationId';
 import {createHash} from 'node:crypto';
 import {FieldPath,type Firestore,type DocumentReference,type Transaction} from 'firebase-admin/firestore';
 import {FirestoreBackend,LedgerFault,narrationRequiresReview,validClearIntentAdmissionGuard,copyIntentWitness,copyTerminalRecoveryReadSnapshot,copyDirectObservationSnapshot,pickOutboxSnapshot,copyOutboxSnapshot,OUTBOX_METADATA_KEYS,classifyA3ReplayWindow,type DirectObservationSnapshot,type ExternalBillingOutboxSnapshot,type ExternalBillingSettlementReadSnapshot,type ExternalBillingObservation,type ExternalBillingIntentWitness,type ExternalBillingConfirmedIntentObservation,type ExternalBillingIntentFailureEvidence} from './firestoreBackend';
@@ -10,7 +11,6 @@ import {diagnosticStage} from './cloudDiagnostics';
 import {reserveWithRecovery} from './cloudEnqueueRecovery';
 import {AccountBillingClient,AccountBillingFault,accountIdentityKey} from './accountBillingClient';
 const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
-function reservationUuid(accountId:string,identityKey:string,inputId:string,operation:string,revision:number,requestKey:string){const bytes=createHash('sha256').update(JSON.stringify(['vistavo-video-reservation-v1',accountId,identityKey,inputId,operation,revision,requestKey])).digest().subarray(0,16);bytes[6]=(bytes[6]&0x0f)|0x40;bytes[8]=(bytes[8]&0x3f)|0x80;const h=bytes.toString('hex');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;}
 export class AiFault extends Error {constructor(readonly code:'invalid'|'not_found'|'conflict'|'disabled'|'unknown'){super(code);}}
 export type AiCandidateLimits=Readonly<{maxSourceSeconds:number;maxNarrationChars:number;maxVoiceChunks:number}>;
 /**
@@ -103,7 +103,7 @@ export class FirestoreAi {
   if(this.accountBilling)await this.enabledForUid(accountId,uid!);else await this.enabled(accountId);
   const previous=()=>this.accountBilling?this.backend.priorExternalRequestForEnqueue(accountId,inputId,requestKey,op,revision,AI_CATALOG_VERSION,uid!):this.backend.priorSimulatedRequestForEnqueue(accountId,inputId,requestKey,op,revision,AI_CATALOG_VERSION);
   const prior=await previous();if(prior){if(this.accountBilling)throw new AiFault('unknown');return prior;}
-  const q=await this.quote(accountId,inputId,op,revision),data=this.accountBilling?(()=>{if(!uid)throw new AiFault('invalid');const identityKey=accountIdentityKey(uid);return {provider:'account_seconds' as const,identityKey,reservationId:reservationUuid(accountId,identityKey,inputId,op,revision,requestKey),seconds:q.units};})():undefined;
+  const q=await this.quote(accountId,inputId,op,revision),data=this.accountBilling?(()=>{if(!uid)throw new AiFault('invalid');const identityKey=accountIdentityKey(uid);return {provider:'account_seconds' as const,identityKey,reservationId:videoReservationId(accountId,identityKey,inputId,op,revision,requestKey),seconds:q.units};})():undefined;
    if(!data)return reserveWithRecovery(this,accountId,{inputId,operation:op,expectedRevision:revision,requestKey},()=>this.backend.reserve(accountId,inputId,requestKey,q.units,q.operation,revision,AI_CATALOG_VERSION),error=>error instanceof AiFault||error instanceof LedgerFault||error instanceof AiContractFault,previous);
    const priorIntent=await this.backend.beginExternalBillingIntent(accountId,inputId,requestKey,op,revision,data);if(priorIntent){const verified=await previous();if(verified!==priorIntent)throw new AiFault('conflict');throw new AiFault('unknown');}
    const witness=await this.backend.externalIntentWitness(accountId,requestKey,data);

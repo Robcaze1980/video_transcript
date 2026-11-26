@@ -1,8 +1,13 @@
-import { randomUUID } from 'node:crypto';
+import type { ReviewedVoiceBinding } from './firestoreReviewedTranslation';
+import { AI_CATALOG_VERSION } from './aiContracts';
+import { FirestoreBackend } from './firestoreBackend';
+import { videoReservationId } from './videoReservationId';
+import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   RESERVE_ATTEMPT_DOCUMENTS, RESERVE_ATTEMPT_PROFILE_V1, prepareReserveAttemptInTransaction, recordReserveAckInTransaction, stageReserveAck,
-  type ReserveAttemptEvidence,
+  createReviewedVoiceReserveAttempt, matchesReviewedVoiceReserveSource, verifyReviewedVoiceReserveReplay,
+  type ReserveAttemptEvidence, type ReserveAttemptEvidenceV1,
 } from './reserveAttemptEvidence';
 
 // A deterministic local double of document reads and create-only writes.
@@ -21,19 +26,60 @@ function fakeTransaction(store = new Map<string,unknown>(), wait?:Promise<void>,
   };
   return {root,tx,store};
 }
-function makeAttempt():ReserveAttemptEvidence {
+function makeAttempt():ReserveAttemptEvidenceV1 {
   const required = new Set(['account','identity','input','project','intent','origin','intentGuard']);
   const versions = Object.fromEntries(RESERVE_ATTEMPT_DOCUMENTS.map(name=>[name,required.has(name)
     ? {exists:true,createTime:'1:000000000',updateTime:'1:000000000'} : {exists:false}]));
   return {version:1,attemptId:randomUUID(),witness:{
     intentId:'a'.repeat(64),accountId:randomUUID(),inputId:randomUUID(),operation:'translation:en',revision:1,
     profile:RESERVE_ATTEMPT_PROFILE_V1,provider:'account_seconds',identityKey:'b'.repeat(64),reservationId:randomUUID(),seconds:2,
-  },versions} as ReserveAttemptEvidence;
+  },versions} as ReserveAttemptEvidenceV1;
 }
 const response=(a:ReserveAttemptEvidence)=>({reservationId:a.witness.reservationId,seconds:a.witness.seconds,state:'reserved' as const});
 const preparedPath=(a:ReserveAttemptEvidence)=>`billingReserveAttempts/${a.attemptId}`;
 const ackPath=(a:ReserveAttemptEvidence)=>`billingReserveAckObservations/${a.attemptId}`;
 const invalid = {code:'invalid'}, conflict = {code:'conflict'};
+
+describe('reviewed voice reservation entry guards', () => {
+  const uid = 'synthetic-voice-owner';
+  const principal = {accountId:randomUUID(), uid};
+  const inputId = randomUUID();
+  const billing = {
+    provider:'account_seconds' as const, identityKey:createHash('sha256').update(JSON.stringify(['firebase',uid])).digest('hex'),
+    reservationId:randomUUID(), seconds:3,
+  };
+
+  it('rejects arbitrary request keys before a transaction or Account call', async () => {
+    const transaction = vi.fn(), reserve = vi.fn();
+    const backend = new FirestoreBackend({projectId:'demo-vistavo-ledger',databaseId:'(default)',
+      _settings:{servicePath:'127.0.0.1',port:8185,ssl:false},runTransaction:transaction} as never,
+      {parent:{path:'vistavo_review_contract_synthetic'},id:randomUUID()} as never);
+    vi.stubEnv('NODE_ENV','test');
+    vi.stubEnv('LV_VOICE_C1_FIXTURE','1');
+    vi.stubEnv('FIRESTORE_EMULATOR_HOST','127.0.0.1:8185');
+    try {
+      for (const key of ['https://synthetic.invalid/private-canary','synthetic private request text',
+        '91605fd0-279b-16c6-88b4-76921edd4cb3','91605fd0-279b-46c6-78b4-76921edd4cb3',`${randomUUID()}\n`]) {
+        await expect(backend.reserveReviewedVoiceLocally({} as never,reserve,principal,inputId,2,key,'narration:en:male'))
+          .rejects.toMatchObject(invalid);
+      }
+      expect(transaction).not.toHaveBeenCalled();
+      expect(reserve).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it('rejects direct external narration without the reviewed voice path and keeps external text keys compatible', async () => {
+    const expectedRead = Error('synthetic text transaction');
+    const transaction = vi.fn().mockRejectedValue(expectedRead);
+    const backend = new FirestoreBackend({runTransaction:transaction} as never,{} as never);
+    await expect(backend.reserve(principal.accountId,inputId,randomUUID(),3,'narration:en:male',2,
+      AI_CATALOG_VERSION,billing,undefined,uid)).rejects.toMatchObject(invalid);
+    expect(transaction).not.toHaveBeenCalled();
+    await expect(backend.reserve(principal.accountId,inputId,'legacy-text-request',3,'translation:en',1,
+      AI_CATALOG_VERSION,billing,undefined,uid)).rejects.toBe(expectedRead);
+    expect(transaction).toHaveBeenCalledOnce();
+  });
+});
 
 describe('disconnected evidence for an external reserve attempt',()=>{
   it('keeps v1 reserve evidence readable when the live catalog changes',async()=>{
@@ -264,5 +310,164 @@ describe('disconnected evidence for an external reserve attempt',()=>{
     expect(staged).toEqual({state:'recorded',attribution:'unverified'});
     expect((f.store.get(ackPath(original)) as any).identityKey).toBe(original.witness.identityKey);
     expect((f.store.get(ackPath(original)) as any).snapshot.versions.identity.updateTime).toBe('1:000000000');
+  });
+});
+
+describe('reviewed voice evidence for an external reserve attempt', () => {
+  const key = 'synthetic-private-request-key';
+  const privateText = 'esto es un ejemplo privado';
+  const selectedVoice = 'narration:en:female';
+  const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const timestamp = (updateTime = '1:000000000') => ({exists: true, createTime: '1:000000000', updateTime});
+  const missing = {exists: false, createTime: null, updateTime: null};
+
+  function voiceFixture() {
+    const original = makeAttempt();
+    const {accountId, inputId, identityKey} = original.witness;
+    const textJobId = randomUUID(), revision = 2;
+    const binding: ReviewedVoiceBinding = {
+      version: 'reviewed-voice-binding-v1', identityKey, accountId, inputId, textJobId, revision,
+      reviewId: digest(['review-revision-v1', accountId, inputId, textJobId, revision]),
+      receiptId: 'b'.repeat(64), bindingHash: 'c'.repeat(64), payloadSha256: 'd'.repeat(64),
+      voiceTextSha256: 'e'.repeat(64), inputGeneration: '1', inputSha256: 'f'.repeat(64),
+      durationMs: 2000, billableSeconds: 3,
+      versions: {
+        principalIdentity: timestamp(), account: timestamp(), input: timestamp(), project: timestamp(),
+        textJob: timestamp(), artifact: timestamp(), terminal: timestamp(), accounting: timestamp(),
+        reserveMovement: timestamp(), billingOutbox: missing, review: timestamp(), receipt: timestamp(),
+      },
+      canonicalEvidence: {
+        accountId, inputId, textJobId, revision, bindingHash: 'c'.repeat(64),
+        reviewId: digest(['review-revision-v1', accountId, inputId, textJobId, revision]),
+        review: {privateText}, receiptId: 'b'.repeat(64), receipt: {},
+      },
+    };
+    const witness = {
+      ...original.witness, intentId: digest([accountId, key]), operation: selectedVoice, revision, seconds: 3,
+      reservationId: videoReservationId(accountId, identityKey, inputId, selectedVoice, revision, key),
+    };
+    return {binding, witness, attemptId: witness.reservationId, versions: original.versions};
+  }
+
+  const create = (fixture = voiceFixture()) =>
+    createReviewedVoiceReserveAttempt(fixture.attemptId, fixture.witness, fixture.versions, fixture.binding, key, timestamp());
+
+  it('persists the attempt and direct ACK without storing private text or inventing a third record', async () => {
+    const f = fakeTransaction(), voice = create();
+    await expect(prepareReserveAttemptInTransaction(f.tx, f.root, voice)).resolves.toEqual({state:'created', observation:'unknown'});
+    expect(f.store.has(ackPath(voice))).toBe(false);
+    await expect(recordReserveAckInTransaction(f.tx, f.root, voice, response(voice))).resolves.toEqual({state:'recorded', attribution:'unverified'});
+    await expect(recordReserveAckInTransaction(f.tx, f.root, voice, response(voice))).resolves.toEqual({state:'already_recorded', attribution:'unverified'});
+    await expect(prepareReserveAttemptInTransaction(f.tx, f.root, voice)).resolves.toEqual({state:'already_prepared', observation:'ack_recorded'});
+    expect(f.store.size).toBe(2);
+    expect(f.store.get(ackPath(voice))).toMatchObject({version:2, seconds:3, source:'reserve_ack', snapshot:{voice:voice.voice}});
+    expect(JSON.stringify([...f.store.values()])).not.toContain(privateText);
+    expect(JSON.stringify([...f.store.values()])).not.toContain(key);
+  });
+
+  it('detects a changed and restored review or receipt by version and tolerates unrelated balance updates', () => {
+    const f = voiceFixture(), voice = create(f);
+    const versionChanged = (field: 'review' | 'receipt') => ({
+      ...f.binding, versions: {...f.binding.versions, [field]: timestamp('2:000000000')},
+    });
+    expect(matchesReviewedVoiceReserveSource(voice, versionChanged('review'), key, timestamp())).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, versionChanged('receipt'), key, timestamp())).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, {...f.binding, voiceTextSha256: '1'.repeat(64)}, key, timestamp())).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, f.binding, key + '-other', timestamp())).toBe(false);
+    expect(matchesReviewedVoiceReserveSource(voice, f.binding, key, timestamp())).toBe(true);
+    const balanceChanged = {...f.binding, versions: {...f.binding.versions, account: timestamp('2:000000000')}};
+    expect(matchesReviewedVoiceReserveSource(voice, balanceChanged, key, timestamp())).toBe(true);
+    const accountRecreated = {...f.binding, versions: {...f.binding.versions, account: {exists:true, createTime:'2:000000000', updateTime:'2:000000000'}}};
+    expect(matchesReviewedVoiceReserveSource(voice, accountRecreated, key, timestamp())).toBe(false);
+  });
+
+  it('binds the intended account, input, identity, revision, seconds and reservation ID before preparing a write', () => {
+    const f = voiceFixture();
+    for (const changed of [
+      {accountId: randomUUID()}, {inputId: randomUUID()}, {identityKey: '1'.repeat(64)}, {intentId: '2'.repeat(64)},
+      {revision: 3}, {seconds: 2}, {reservationId: randomUUID()}, {operation:'translation:en'},
+    ]) {
+      expect(() => create({...f, witness: {...f.witness, ...changed}})).toThrow(expect.objectContaining(invalid));
+    }
+    const mismatched = {...f.versions, identity: timestamp('2:000000000')};
+    expect(() => create({...f, versions:mismatched})).toThrow(expect.objectContaining(invalid));
+    expect(() => create({...f, attemptId:randomUUID()})).toThrow(expect.objectContaining(invalid));
+  });
+
+  it('rejects incomplete external source histories and detects a rewritten external origin', () => {
+    const f = voiceFixture();
+    const external = {
+      payerIdentity:timestamp(), intent:timestamp(), origin:timestamp(), request:timestamp(), jobMarker:timestamp(), intentGuard:timestamp(),
+    };
+    const versions = {...f.binding.versions, reserveMovement:missing, billingOutbox:timestamp(), external};
+    const binding = {...f.binding, versions};
+    const voice = create({...f, binding});
+    expect(matchesReviewedVoiceReserveSource(voice, binding, key, timestamp())).toBe(true);
+    expect(matchesReviewedVoiceReserveSource(voice, {...binding, versions:{...versions, external:{...external, origin:timestamp('2:000000000')}}}, key, timestamp())).toBe(false);
+    expect(() => create({...f, binding:{...binding, versions:{...versions, external:{...external, origin:missing}}}})).toThrow(expect.objectContaining(invalid));
+    expect(() => create({...f, binding:{...binding, versions:{...versions, reserveMovement:timestamp()}}})).toThrow(expect.objectContaining(invalid));
+  });
+
+  it('does not acknowledge an unprepared, mismatched or status-shaped result', async () => {
+    const f = fakeTransaction(), voice = create();
+    await expect(recordReserveAckInTransaction(f.tx, f.root, voice, response(voice))).rejects.toMatchObject(conflict);
+    await prepareReserveAttemptInTransaction(f.tx, f.root, voice);
+    for (const candidate of [
+      {...response(voice), source:'status'}, {...response(voice), seconds:2}, {...response(voice), reservationId:randomUUID()},
+    ]) {
+      await expect(recordReserveAckInTransaction(f.tx, f.root, voice, candidate)).rejects.toMatchObject(invalid);
+    }
+    const otherSource = {...voice, voice:{...voice.voice, sourceVersionsSha256:'0'.repeat(64)}};
+    await expect(recordReserveAckInTransaction(f.tx, f.root, otherSource, response(voice))).rejects.toMatchObject(conflict);
+    expect(f.store.has(ackPath(voice))).toBe(false);
+    await expect(prepareReserveAttemptInTransaction(f.tx, f.root, voice)).resolves.toEqual({state:'already_prepared', observation:'unknown'});
+  });
+
+  it('preserves an identical ACK when its response was lost and rejects a rewritten observation', async () => {
+    const f = fakeTransaction(), voice = create();
+    await prepareReserveAttemptInTransaction(f.tx, f.root, voice);
+    await recordReserveAckInTransaction(f.tx, f.root, voice, response(voice));
+    const next = fakeTransaction(f.store);
+    await expect(recordReserveAckInTransaction(next.tx, next.root, voice, response(voice))).resolves.toEqual({state:'already_recorded', attribution:'unverified'});
+    expect(next.tx.create).not.toHaveBeenCalled();
+    const ack = f.store.get(ackPath(voice)) as {snapshot:{voice:Record<string,string>}};
+    f.store.set(ackPath(voice), {...ack, snapshot:{...ack.snapshot, voice:{...ack.snapshot.voice, markerFingerprint:'0'.repeat(64)}}});
+    await expect(prepareReserveAttemptInTransaction(f.tx, f.root, voice)).rejects.toMatchObject(conflict);
+  });
+
+  it('supports staging the ACK alongside caller writes and rejects malformed v2 precursors', async () => {
+    const f = fakeTransaction(), voice = create();
+    const malformed = {...voice, voice:{...voice.voice, privateText}};
+    await expect(prepareReserveAttemptInTransaction(f.tx, f.root, malformed)).rejects.toMatchObject(invalid);
+    expect(f.tx.getAll).not.toHaveBeenCalled();
+    await prepareReserveAttemptInTransaction(f.tx, f.root, voice);
+    const snap = (value: unknown) => ({exists:value !== undefined, data:() => structuredClone(value)} as any);
+    const prepared = snap(f.store.get(preparedPath(voice)));
+    const badAck = {...response(voice), seconds:2};
+    expect(() => stageReserveAck(f.tx, f.root, voice, badAck, prepared, snap(undefined))).toThrow(expect.objectContaining(invalid));
+    expect(f.store.has(ackPath(voice))).toBe(false);
+    expect(stageReserveAck(f.tx, f.root, voice, response(voice), prepared, snap(undefined))).toEqual({state:'recorded', attribution:'unverified'});
+    const ack = snap(f.store.get(ackPath(voice)));
+    expect(stageReserveAck(f.tx, f.root, voice, response(voice), prepared, ack)).toEqual({state:'already_recorded', attribution:'unverified'});
+    expect(f.tx.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('verifies both durable rows before a replay can return existing work', async () => {
+    const f = fakeTransaction(), fixture = voiceFixture();
+    const voice = create(fixture);
+    const check = (binding = fixture.binding, selected = selectedVoice, marker = timestamp()) =>
+      verifyReviewedVoiceReserveReplay(f.store.get(preparedPath(voice)), f.store.get(ackPath(voice)), binding, key, selected, marker);
+    await prepareReserveAttemptInTransaction(f.tx, f.root, voice);
+    expect(check()).toBe(false);
+    await recordReserveAckInTransaction(f.tx, f.root, voice, response(voice));
+    expect(check()).toBe(true);
+    expect(check(fixture.binding,selectedVoice,timestamp('2:000000000'))).toBe(false);
+    expect(check(fixture.binding,selectedVoice,{...timestamp('2:000000000'),createTime:'2:000000000'})).toBe(false);
+    expect(check(fixture.binding,'narration:en:male')).toBe(false);
+    expect(check({...fixture.binding, versions:{...fixture.binding.versions, receipt:timestamp('2:000000000')}})).toBe(false);
+    expect(check({...fixture.binding, identityKey:'1'.repeat(64)})).toBe(false);
+    const {markerVersion:_,...oldVoice}=voice.voice;
+    f.store.set(preparedPath(voice),{...voice,voice:oldVoice});
+    expect(check()).toBe(false);
   });
 });
