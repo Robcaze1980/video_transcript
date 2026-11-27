@@ -1,0 +1,331 @@
+No usé herramientas ni modifiqué archivos. Entrego el cambio propuesto para el lado Video y el contrato exacto del adaptador de prueba; marco como **INCONCLUYENTE** lo que no puedo garantizar sin los tres tests y el punto de montaje del `AccountStore` en el fixture.
+
+## Cambio mínimo
+
+El camino productivo queda igual: sin `deps.successor`, un `pending` de un intento ya incierto sigue lanzando `conflict`. La costura sólo se consulta si `NODE_ENV==='test'` **y** el adaptador declara `emulator:true`.
+
+Reglas que implementa:
+
+- Cuenta recibe `holdId`, nunca `clean.incidentKey`.
+- `pending` de un intento incierto no reenvía. Sólo `reconcile` puede resolver a `confirmed` o `permitted`.
+- `confirmed` cierra por recibo, sin segundo envío.
+- `permitted` exige un claim nuevo de Video, determinista y único, creado en la misma transacción que `recheck` + corte.
+- Sólo la transacción que crea el claim despacha una vez.
+- Claim existente + recibo pendiente: `unresolved`, cero envíos.
+- ACK de conciliación perdido: misma tupla, `reconcile` otra vez, sin doble intención.
+- ACK de confirmación perdido: recibo del intento activo, sin reenvío.
+- Fase 3, filas, dueño, generación, alertas, identidad y contadores no cambian.
+
+## Diff: `server/commercial/billingUnblock.ts`
+
+### 1. Constante nueva
+
+Junto a las colecciones existentes:
+
+```ts
+/** Immutable Video record of the ONE successor attempt an Account grant authorizes for an uncertain request. */
+export const UNBLOCK_SUCCESSOR_COLLECTION='billingUnblockSuccessors';
+```
+
+### 2. Tipos y `UnblockDeps`
+
+Reemplaza el bloque actual de `UnblockDeps` (líneas 91-94) por:
+
+```ts
+/** The tuple Account's closed fenced seam pins in `videoBillingUnblockAttempts` and its grant. */
+export interface SuccessorAttempt{
+  previousAttemptId:string;previousEpoch:number;
+  reconcileId:string;attemptId:string;epoch:number;
+  authorizationSha256:string;
+}
+type PlainAccountAttemptState=
+  |{state:'pending'}
+  |{state:'confirmed';epoch:number;createdAtMs:number;blocked:boolean};
+export type FencedAttemptState=
+  |{state:'pending';attemptId:string;epoch:number;createdAtMs:number}
+  |{state:'confirmed';attemptId:string;epoch:number;createdAtMs:number;blocked:boolean;replayed:boolean};
+export type FencedReconcileState=
+  |{state:'confirmed';attemptId:string;epoch:number;createdAtMs:number;blocked:boolean;replayed:boolean}
+  |{state:'permitted';reconcileId:string;attemptId:string;epoch:number;createdAtMs:number;replayed:boolean};
+/**
+ * Test-only adapter over Account's emulator store. `receipt` reports the anchor's ACTIVE attempt (successor once
+ * the anchor is fenced, initial otherwise). It is ignored outside NODE_ENV==='test' and must never be built by a
+ * production route. It cannot bypass `recheck`: Video runs every check itself before claiming or advancing.
+ */
+export interface SuccessorBilling{
+  emulator:true;
+  attempt:SuccessorAttempt;
+  receipt(identityKey:string,incidentId:string,accountCreatedAtMs:number,reviewRef:string):Promise<FencedAttemptState>;
+  reconcile(identityKey:string,incidentId:string,accountCreatedAtMs:number,reviewRef:string):Promise<FencedReconcileState>;
+  confirm(identityKey:string,incidentId:string,accountCreatedAtMs:number,reviewRef:string):Promise<FencedAttemptState>;
+}
+export interface UnblockDeps{
+  db:Firestore;root:DocumentReference;
+  accountBilling:Pick<AccountBillingClient,'unblock'|'unblockReceipt'>;
+  /** Closed test seam. Absent in production; ignored unless NODE_ENV==='test' and emulator===true. */
+  successor?:SuccessorBilling;
+}
+```
+
+### 3. Helpers nuevos
+
+Inserta después de `guardBornAfterWriterCut` (línea 154):
+
+```ts
+function successorClaimId(accountId:string,requestId:string,attempt:SuccessorAttempt):string{
+  return hash(['billing-unblock-successor-v1',accountId,requestId,attempt.previousAttemptId,
+    attempt.previousEpoch,attempt.reconcileId,attempt.attemptId,attempt.epoch]);
+}
+function successorOf(deps:UnblockDeps):SuccessorBilling|null{
+  const successor=deps.successor;
+  if(!successor)return null;
+  if(process.env.NODE_ENV!=='test'||successor.emulator!==true)return null;
+  const a=successor.attempt;
+  if(!digest(a.authorizationSha256)||!uuid.test(a.previousAttemptId)||!uuid.test(a.reconcileId)||
+    !uuid.test(a.attemptId)||a.attemptId===a.previousAttemptId||!whole(a.previousEpoch,1)||
+    !whole(a.epoch,a.previousEpoch))throw new UnblockFault('invalid');
+  return successor;
+}
+function successorClaimRecord(requestId:string,request:Record<string,unknown>,holdId:string,
+  attempt:SuccessorAttempt,accountCreatedAtMs:number):Record<string,unknown>{
+  if(!whole(request.recordedAtMs))throw new UnblockFault('corrupt');
+  return {v:1,kind:'successor',requestId,
+    accountId:request.accountId,incidentKey:request.incidentKey,alertKey:request.alertKey,
+    videoKind:request.kind,videoEpoch:request.epoch,videoCreatedAtMs:request.createdAtMs,
+    accountIncidentId:holdId,
+    previousAttemptId:attempt.previousAttemptId,previousEpoch:attempt.previousEpoch,
+    reconcileId:attempt.reconcileId,attemptId:attempt.attemptId,epoch:attempt.epoch,
+    accountCreatedAtMs,reviewRef:request.evidenceRef,
+    authorizationSha256:attempt.authorizationSha256,authorizedBy:request.authorizedBy,
+    recordedAtMs:request.recordedAtMs};
+}
+function sameSuccessorClaim(doc:DocumentSnapshot,expected:Record<string,unknown>):boolean{
+  return doc.exists&&immutable(doc)&&isDeepStrictEqual(doc.data(),expected);
+}
+```
+
+### 4. Sustituir el bloque de recibo/envío (líneas 392-420)
+
+```ts
+  let observed=opened.observed;
+  let accepted={epoch:clean.accountEpoch,createdAtMs:clean.accountCreatedAtMs};
+  let account:{replayed:boolean;blocked:boolean};
+  const identityKey=await accountPhase(()=>identityKeyOf(root,accountId));
+  const successor=successorOf(deps);
+  const successorClaimRef=successor?root.collection(UNBLOCK_SUCCESSOR_COLLECTION)
+    .doc(successorClaimId(accountId,requestedRef.id,successor.attempt)):null;
+  const claimRecord=successor?successorClaimRecord(requestedRef.id,record,holdId,successor.attempt,
+    clean.accountCreatedAtMs):null;
+  // Verified again inside the phase 3 transaction before any row advances.
+  let successorExpected:Record<string,unknown>|null=null;
+  // Account's incident id is the hold of THIS occurrence (`holdId`), never `clean.incidentKey`.
+  const receipt:PlainAccountAttemptState|FencedAttemptState=successor?
+    await accountPhase(()=>successor.receipt(identityKey,holdId,clean.accountCreatedAtMs,clean.evidenceRef)):
+    await accountPhase(()=>deps.accountBilling.unblockReceipt(identityKey,holdId,clean.evidenceRef));
+  if(receipt.state==='confirmed'){
+    if('fresh' in opened)throw new UnblockFault('conflict');
+    accepted={epoch:receipt.epoch,createdAtMs:receipt.createdAtMs};
+    account={replayed:true,blocked:receipt.blocked};
+  }else if(receipt.state==='pending'&&'fresh' in opened){
+    // Only the FIRST, fresh attempt may dispatch once. An uncertain attempt never does.
+    if(!guardBornAfterWriterCut(observed.guard,observed.cut))throw new UnblockFault('conflict');
+    await db.runTransaction(async tx=>{
+      const [guard,alert,requested,done,released,witness,dispatch,cut]=await tx.getAll(
+        guardRef,alertRef,requestedRef,doneRef,releasedRef,witnessRef,dispatchRef,cutRef);
+      if(requested.exists||done.exists||released.exists||witness.exists||dispatch.exists||
+        !sameVersion(observed.guard,guard)||!sameVersion(observed.cut,cut)||!guardBornAfterWriterCut(guard,cut)||
+        !isDeepStrictEqual(await freshRecord(tx,guard,alert),record))throw new UnblockFault('conflict');
+      tx.create(requestedRef,record);
+      tx.create(witnessRef,continuityRecord(requestedRef.id,record,'request'));
+      tx.create(dispatchRef,continuityRecord(requestedRef.id,record,'dispatch'));
+    });
+    observed=await db.runTransaction(tx=>recheck(tx,observed));
+    account=await accountPhase(()=>deps.accountBilling.unblock(identityKey,{incidentId:holdId,...accepted,reviewRef:clean.evidenceRef}));
+  }else if(receipt.state==='pending'&&successor&&successorClaimRef&&claimRecord&&!('partial' in opened)){
+    // An uncertain attempt: pending is never permission to resend. Account's closed fenced seam must first
+    // return confirmed (already decided) or permitted (a new, authorized attempt).
+    if(!guardBornAfterWriterCut(observed.guard,observed.cut))throw new UnblockFault('conflict');
+    const decision=await accountPhase(()=>successor.reconcile(identityKey,holdId,clean.accountCreatedAtMs,clean.evidenceRef));
+    if(decision.state==='confirmed'){
+      // Reconcile may confirm the ORIGINAL attempt (it succeeded before the fence) or the successor.
+      const successorConfirmed=decision.attemptId===successor.attempt.attemptId;
+      if(decision.createdAtMs!==clean.accountCreatedAtMs||
+        (!successorConfirmed&&decision.attemptId!==successor.attempt.previousAttemptId)||
+        decision.epoch!==(successorConfirmed?successor.attempt.epoch:successor.attempt.previousEpoch))
+        throw new UnblockFault('conflict');
+      accepted={epoch:decision.epoch,createdAtMs:decision.createdAtMs};
+      account={replayed:true,blocked:decision.blocked};
+    }else if(decision.state==='permitted'){
+      if(decision.reconcileId!==successor.attempt.reconcileId||decision.attemptId!==successor.attempt.attemptId||
+        decision.epoch!==successor.attempt.epoch||decision.createdAtMs!==clean.accountCreatedAtMs)
+        throw new UnblockFault('conflict');
+      const claim=await db.runTransaction(async tx=>{
+        // Same guard, alert, request, continuity and cut checks phase 3 uses. No bypass.
+        const current=await recheck(tx,observed);
+        if(!guardBornAfterWriterCut(current.guard,current.cut))throw new UnblockFault('conflict');
+        const existing=await tx.get(successorClaimRef);
+        if(existing.exists){
+          if(!sameSuccessorClaim(existing,claimRecord))throw new UnblockFault('conflict');
+          return {created:false as const,snap:existing};
+        }
+        tx.create(successorClaimRef,claimRecord);
+        return {created:true as const,snap:null};
+      });
+      successorExpected=claimRecord;
+      if(claim.created){
+        // Only the transaction that CREATED the claim dispatches, and it dispatches once.
+        const confirmed=await accountPhase(()=>successor.confirm(identityKey,holdId,clean.accountCreatedAtMs,clean.evidenceRef));
+        if(confirmed.state!=='confirmed'||confirmed.attemptId!==successor.attempt.attemptId||
+          confirmed.epoch!==successor.attempt.epoch||confirmed.createdAtMs!==clean.accountCreatedAtMs)
+          throw new UnblockFault('conflict');
+        accepted={epoch:confirmed.epoch,createdAtMs:confirmed.createdAtMs};
+        account={replayed:confirmed.replayed,blocked:confirmed.blocked};
+      }else{
+        if(!sameSuccessorClaim(claim.snap,claimRecord))throw new UnblockFault('conflict');
+        // A claim already exists. Never dispatch again: its POST may be in flight.
+        const state=await accountPhase(()=>successor.receipt(identityKey,holdId,clean.accountCreatedAtMs,clean.evidenceRef));
+        if(state.state!=='confirmed')throw Object.assign(new UnblockFault('unresolved'),{stage:'successor_in_flight'});
+        if(state.attemptId!==successor.attempt.attemptId||state.epoch!==successor.attempt.epoch||
+          state.createdAtMs!==clean.accountCreatedAtMs)throw new UnblockFault('conflict');
+        accepted={epoch:state.epoch,createdAtMs:state.createdAtMs};
+        account={replayed:true,blocked:state.blocked};
+      }
+    }else{
+      throw new UnblockFault('conflict');
+    }
+  }else{
+    // Production default and partial repeats: an uncertain pending stays blocked; nothing is dispatched.
+    throw new UnblockFault('conflict');
+  }
+```
+
+### 5. Fase 3: verificar el claim antes de escribir
+
+Dentro del `return db.runTransaction(...)` de fase 3, añade justo después de `await recheck(tx,observed);`:
+
+```ts
+    const expectedSuccessor=successorExpected;
+    if(expectedSuccessor){
+      if(!successorClaimRef)throw new UnblockFault('conflict');
+      const pinned=await tx.get(successorClaimRef);
+      // Read-before-write: a concurrent change to the claim makes this transaction retry/abort.
+      if(!sameSuccessorClaim(pinned,expectedSuccessor))throw new UnblockFault('conflict');
+    }
+```
+
+No cambies nada más de fase 3: `planned`, `unresolvedRows`, `clear`, `advanced`, `doneRef`, `releasedRef`, alerta y contadores quedan intactos.
+
+## Contrato del adaptador de prueba
+
+El fixture de Video debe construir, sólo en los tests fenced, un `accountBilling` y un `successor` sobre el `AccountStore` real del emulador. No hay ruta HTTP nueva ni envío de producción.
+
+```js
+// Insertar en billingUnblock.emulator.mjs junto al fixture que ya crea el servidor/store de Cuenta.
+function fencedTestAdapter({store,accountRoot,accountId,holdId,attempt,accountCreatedAtMs}){
+  const anchorRef=accountRoot.collection('videoBillingUnblockAttempts').doc(hash([accountId,holdId]));
+  const active=async()=>{
+    const anchor=await anchorRef.get();
+    if(!anchor.exists)throw Object.assign(new Error('anchor missing'),{code:'conflict'});
+    return anchor.get('successorAttemptId')!==undefined?
+      {attemptId:anchor.get('successorAttemptId'),epoch:anchor.get('successorEpoch')}:
+      {attemptId:anchor.get('initialAttemptId'),epoch:anchor.get('initialEpoch')};
+  };
+  const successorInput=(identityKey,incidentId,createdAtMs,reviewRef)=>({
+    incidentId,attemptId:attempt.attemptId,epoch:attempt.epoch,createdAtMs,reviewRef,
+    authorizationSha256:attempt.authorizationSha256,
+  });
+  return {
+    emulator:true,
+    attempt,
+    receipt:async(identityKey,incidentId,createdAtMs,reviewRef)=>{
+      const {attemptId,epoch}=await active();
+      return store.fencedVideoBillingUnblockReceipt(identityKey,{
+        incidentId,attemptId,epoch,createdAtMs,reviewRef,authorizationSha256:attempt.authorizationSha256});
+    },
+    reconcile:async(identityKey,incidentId,createdAtMs,reviewRef)=>
+      store.reconcileVideoBillingUnblockAttempt(identityKey,{
+        ...successorInput(identityKey,incidentId,createdAtMs,reviewRef),
+        previousAttemptId:attempt.previousAttemptId,previousEpoch:attempt.previousEpoch,
+        reconcileId:attempt.reconcileId}),
+    confirm:async(identityKey,incidentId,createdAtMs,reviewRef)=>
+      store.confirmFencedVideoBillingUnblockAttempt(identityKey,
+        successorInput(identityKey,incidentId,createdAtMs,reviewRef)),
+  };
+}
+```
+
+Y el `accountBilling` de esos tests, para que el primer envío sea la confirmación inicial fenced:
+
+```js
+const accountBilling={
+  unblock:async(identityKey,req)=>{
+    if(req.incidentId!==holdId||req.epoch!==attempt.previousEpoch||req.createdAtMs!==accountCreatedAtMs)
+      throw Object.assign(new Error('tuple mismatch'),{code:'conflict'});
+    const r=await store.confirmFencedVideoBillingUnblockAttempt(identityKey,{
+      incidentId:req.incidentId,attemptId:attempt.previousAttemptId,epoch:attempt.previousEpoch,
+      createdAtMs:req.createdAtMs,reviewRef:req.reviewRef,authorizationSha256:attempt.authorizationSha256});
+    if(r.state!=='confirmed')throw Object.assign(new Error('not confirmed'),{code:'conflict'});
+    return {unblocked:true,replayed:r.replayed,blocked:r.blocked};
+  },
+  unblockReceipt:async(identityKey,incidentId,reviewRef)=>{
+    const r=await store.fencedVideoBillingUnblockReceipt(identityKey,{
+      incidentId,attemptId:attempt.previousAttemptId,epoch:attempt.previousEpoch,
+      createdAtMs:accountCreatedAtMs,reviewRef,authorizationSha256:attempt.authorizationSha256});
+    return r.state==='confirmed'?
+      {state:'confirmed',epoch:r.epoch,createdAtMs:r.createdAtMs,blocked:r.blocked}:
+      {state:'pending'};
+  },
+};
+const depsWithFence={db:c.db,root:c.root,accountBilling,successor:fencedTestAdapter({...})};
+```
+
+Precondiciones sintéticas del grant/ancla, sin tocar aserciones:
+
+```js
+async function seedFencedAnchorAndGrant({accountRoot,identityKey,accountId,holdId,guard,incident,attempt,accountCreatedAtMs,reviewRef}){
+  const stamp=(doc,field)=>{const s=doc[field];return s&&s.seconds+':'+String(s.nanoseconds).padStart(9,'0');};
+  const identity=await accountRoot.collection('identities').doc(identityKey).get();
+  const original={ownerAccountId:accountId,identityKey,incidentId:holdId,unblockProtocol:'fenced_v1',
+    createdAtMs:accountCreatedAtMs,reviewRef,authorizationSha256:attempt.authorizationSha256,
+    identityVersion:stamp(identity,'updateTime'),
+    incidentVersion:stamp(await incident.get(),'createTime'),
+    guardVersion:stamp(await guard.get(),'createTime')};
+  await accountRoot.collection('videoBillingUnblockAttempts').doc(hash([accountId,holdId])).set({
+    ...original,initialAttemptId:attempt.previousAttemptId,initialEpoch:attempt.previousEpoch});
+  await accountRoot.collection('videoBillingUnblockReconciliationGrants')
+    .doc(hash([accountId,holdId,attempt.reconcileId])).set({...original,
+      previousAttemptId:attempt.previousAttemptId,previousEpoch:attempt.previousEpoch,
+      reconcileId:attempt.reconcileId,attemptId:attempt.attemptId,epoch:attempt.epoch});
+}
+```
+
+Además, el incidente real de Cuenta debe llevar `unblockProtocol:'fenced_v1'` y el `incidentId` debe ser el `holdId` de Video. Si el fixture usó la ruta productiva para crearlo, ese campo se añade como precondición de test; no se cambia ninguna aserción.
+
+## Casos que deben cubrir los tests
+
+- **Confirmación inicial confirmada + ACK perdido:** `receipt`/`reconcile` devuelve `confirmed`; un `unblocked`, cero envíos del sucesor.
+- **Pending inicial:** `reconcile` → `permitted`; un claim, un `confirm`, un recibo, un `unblocked`.
+- **ACK de conciliación perdido:** primera llamada falla tras el cerco; segunda usa la misma tupla, un claim, un `confirm`.
+- **ACK de confirmación perdido:** el primer `confirm` commitea y falla; la segunda recupera el recibo activo, cero `confirm` extra.
+- **Dos recuperadores simultáneos, misma tupla:** un claim, un `confirm`, un `done`; el perdedor termina `unresolved` o replay idempotente.
+- **Dos recuperadores con tuplas distintas:** el cerco de Cuenta acepta una y rechaza la otra; no hay claim de la rechazada.
+- **Dos cuentas:** claims, anclas, grants, recibos y guardias independientes; la cuenta rival intacta.
+- **Claim existente + recibo pendiente:** `unresolved`, cero envíos, firmas intactas.
+- **Claim existente + recibo confirmado:** cierra por recibo, cero envíos.
+- **Corte ausente o posterior a la guardia:** `conflict` antes de `reconcile`/claim; sin escrituras de Video.
+- **Grant/ancla ausentes o tupla incorrecta:** Cuenta rechaza; sin claim ni envío. Incluye el caso de usar `incidentKey` en lugar de `holdId`.
+- **`partial`/replay:** comportamiento actual, sin sucesor.
+
+## Pendientes de producción
+
+- No hay IAM, emisor ni autoridad real que acuñe `previousAttemptId`, `reconcileId`, `attemptId` y `authorizationSha256`; el test los presiembra.
+- No hay ruta HTTP autenticada para `reconcile`/`confirm`/`receipt` fenced; el adaptador llama al `AccountStore`, que ya se cierra fuera de `NODE_ENV==='test'`.
+- El corte de binarios confiable sigue siendo el documento sintético `verified-writer-cut-v1`; no se certifica en este cambio.
+- Si el proceso muere después de crear el claim pero antes de que Cuenta confirme, el caso queda deliberadamente sin reenvío y requiere resolución operativa. Es el lado conservador de saldo.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Revisión estática del diff propuesto: las llamadas de Cuenta usan `holdId`; ningún camino `confirmed` llama a `confirm`; `permitted` crea un claim determinista y único con `recheck`, corte y `tx.create`; sólo `created:true` despacha; claim existente + recibo pendiente lanza `unresolved`; la recuperación usa la misma tupla o el recibo activo; fase 3 conserva filas, dueño, generación, alerta, identidad y contadores; sin `successor` el comportamiento productivo sigue siendo `conflict`. Costo no medido (cero herramientas).
+NEGATIVOS: No compilado ni ejecutado. No están en el paquete los tres tests, el punto exacto donde el fixture expone el `AccountStore` ni el adaptador fenced ya existente; por tanto no puedo demostrar rojo→verde sin simular éxito. El helper de sellado y el adaptador son contratos, no código aplicado.
+BLOQUEOS: Falta el archivo/pruebas reales y la instancia del `AccountStore` en el fixture para montar `successor`; falta la autoridad/emisor/IAM y la ruta fenced reales para producción. Sin esos puntos, el cambio queda limitado al entorno de prueba y no debe promoverse.
+=== FIN RESUMEN ===

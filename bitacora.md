@@ -2072,3 +2072,7 @@ El cargador de reglas aislado `c64a96e` pasó **3/3** con controles de hash, pri
 El seguimiento restauró los casos originales: **5/8** aprobaron y **3** siguen fallando por recuperación del intento incierto. [Evidencia](docs/evidence/lv019-b-financial-preserved-20261127/README.md). No se acepta la fase.
 
 La revisión documental de GLM por T3 dio PASS acotado; tras fallar una ejecución posterior de T3, el respaldo directo autorizado volvió a revisar el corte 5/8 y dio PASS. Se precisó en Gantt que el saldo exige dos revisiones. [Revisión y límites](docs/reviews/LV-019-B-estado-financiero-GLM-openrouter-20261127.txt).
+
+La candidata local `a3efa8d` pasó **5/5** al conectar Video y Cuenta con transporte ficticio: recuperó un recibo sin segundo envío, devolvió dos reservas una vez y mantuvo otra cuenta intacta. DeepSeek por T3 y GLM por respaldo dieron PASS acotados; la autoridad y el ancla fueron sembradas. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/a3efa8d13b58adedbdfd74f5ad13f72627ec127e/docs/evidence/lv019-b-fenced-video-local-20261127/README.md). La propuesta de sucesor sigue sin aceptar tras observaciones de ambos revisores. [Propuesta, revisiones y contraste](docs/evidence/lv019-b-successor-proposal-20261127/README.md).
+
+El respaldo GLM revisó el seguimiento documental y dio PASS acotado, con límites sobre enlaces y revisiones. [Informe](docs/reviews/LV-019-B-seguimiento-saldo-GLM-openrouter-20261127.txt).
