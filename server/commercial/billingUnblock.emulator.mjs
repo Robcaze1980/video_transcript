@@ -2661,3 +2661,28 @@ test('successor stale Account clear: a newer incident between receipt and releas
   assert.equal(done.size,1);assert.equal(done.docs[0].get('videoBlocked'),true);
   assert.deepEqual(await c.store.videoBalance(c.identity),before,'no balance moved');
 });
+
+test('successor: an incident AFTER the last receipt and BEFORE the release keeps the Video guard',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_post_read_clear'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+  let receiptCalls=0;
+  const stale={...base,successor:{...base.successor,async receipt(input){
+    const value=await base.successor.receipt(input);receiptCalls++;
+    if(receiptCalls===2)   // la ÚLTIMA lectura ya devolvió clear; la incidencia entra después
+      assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+    return value;
+  }}};
+  const before=await c.store.videoBalance(c.identity);
+  const result=await unblockBillingAccount(stale,c.account,body,'operator-ana',9_500_002_000);
+  assert.equal(receiptCalls,2,'one snapshot and one pre-release revalidation');
+  assert.equal(result.videoBlocked,true,'the post-read incident never releases Video');
+  assert.equal(result.accountBlocked,true,'the result must not claim the account is clear');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the Video guard survives');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0);
+  const done=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get();
+  assert.equal(done.size,1);
+  assert.equal(done.docs[0].get('videoBlocked'),true);
+  assert.equal(done.docs[0].get('accountBlocked'),true,'the audit is coherent');
+  assert.deepEqual(await c.store.videoBalance(c.identity),before,'no balance moved');
+});

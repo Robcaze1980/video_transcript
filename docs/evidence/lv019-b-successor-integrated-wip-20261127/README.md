@@ -17,3 +17,5 @@ La reconciliación, el ancla, los grants y el acceso entre raíces de esta candi
 ## Siguiente paso
 
 Añadir una prueba que inserte una nueva incidencia **después** de la última lectura de Cuenta; resolver el bloqueo de forma verificable en el alcance local; repetir las revisiones independientes y la batería financiera completa, conservando sus cinco omisiones de voz declaradas hasta cerrar esa fase. Los manifiestos y los ejecutores se fijan a una revisión base y deben regenerarse para cada corte.
+
+La prueba nueva que inserta una incidencia después de la última lectura de Cuenta se ejecutó contra el código anterior: **22/23** pasaron y esa prueba falló porque Video quedó abierto. Se conserva `FOCO-23-ROJO.tap`; es una contraprueba real del riesgo, no un fallo de privacidad de producción. La corrección sigue en desarrollo.

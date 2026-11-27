@@ -19,7 +19,7 @@ import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedR
 
 const project = 'demo-vistavo-financial';
 const host = '127.0.0.1:8198';
-// The focus runs exactly these eight synthetic cases. All other cases are excluded, not passed.
+// The focus runs exactly these 23 synthetic cases. All other cases are excluded, not passed.
 // Case A is preserved verbatim; a failure is reported, never rewritten or skipped.
 const selectedNames = [
   '11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt',
@@ -44,6 +44,7 @@ const selectedNames = [
   'guard corruption: an invalid reviewedCount fails the fenced receipt before pending and writes nothing',
   'successor partial resume derives the claim from the durable request, not from the done close',
   'successor stale Account clear: a newer incident between receipt and release keeps the Video guard',
+  'successor: an incident AFTER the last receipt and BEFORE the release keeps the Video guard',
 ];
 
 const exactExtendedFocusNames = new Set([
@@ -53,8 +54,8 @@ const exactExtendedFocusNames = new Set([
 ]);
 
 if (
-  selectedNames.length !== 22 ||
-  new Set(selectedNames).size !== 22 ||
+  selectedNames.length !== 23 ||
+  new Set(selectedNames).size !== 23 ||
   selectedNames.some(name =>
     !/^[A-Za-z0-9:, _\/-]+$/.test(name) &&
     !exactExtendedFocusNames.has(name)
