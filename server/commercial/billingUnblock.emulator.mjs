@@ -798,26 +798,67 @@ test('11 negative: every kind of unresolved row of the account stops the unblock
   assert.equal(result.unblocked,true);assert.equal(result.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
   assert.equal((await ref(c.root,'billingOutbox',sha('foreign|billingOutbox|'+JSON.stringify({state:'needs_review'}))).get()).get('state'),'needs_review','a foreign row is never advanced');
 });
-test('11 resume: an audited request only resumes on the SAME guard generation, operator and payload',{timeout:90000},async()=>{
-  const blocked=await blockedAccount('unblock_resume_drift'),c=blocked.c,requestBody=await request(c,blocked);let calls=0;
-  const fail=async()=>{calls++;throw Object.assign(new Error('synthetic'),{code:'unavailable'});};
-  const failing={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
+test('11 resume: a pending claim on the SAME guard generation, operator and payload keeps the Video block and never sends twice',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_resume_drift'),c=blocked.c,requestBody=await request(c,blocked);
+  let unblockCalls=0,receiptReads=0;
+  const client=c.accountBilling;
+  const failing={...deps(c),accountBilling:{
+    unblock:async()=>{unblockCalls++;throw Object.assign(new Error('synthetic uncertain POST'),{code:'unavailable'});},
+    unblockReceipt:async(...args)=>{receiptReads++;return client.unblockReceipt(...args);}}};
+  const balanceBefore=await c.store.videoBalance(c.identity);
   await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
-  assert.equal(calls,1);const before=withoutGuard(c,await signatures(c.root));
-  for(const [name,body,who] of [['another operator',requestBody,'operator-bob'],['another evidence',{...requestBody,evidenceRef:'ticket-other'},'operator-ana'],['another note',{...requestBody,note:'another note'},'operator-ana']])
+  assert.equal(unblockCalls,1,'the first attempt is the only POST to Account');
+  assert.ok(receiptReads>=1,'the write is preceded by a receipt read');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the pending claim keeps the Video block');
+  const requested=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(requested.size,1,'the audited request is durable after the uncertain POST');
+  assert.equal(requested.docs[0].get('action'),'unblock_requested');
+  const before=withoutGuard(c,await signatures(c.root));
+  for(const [name,body,who] of [['another operator',requestBody,'operator-bob'],['another evidence',{...requestBody,evidenceRef:'ticket-other'},'operator-ana'],['another note',{...requestBody,note:'another note'},'operator-ana']]){
     await assert.rejects(unblockBillingAccount(failing,c.account,body,who,9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
+  }
+  assert.equal(unblockCalls,1,'operator and payload drift are refused without a new mutation to Account');
   const original=(await guardOf(c).get()).data();
-  await guardOf(c).delete();
-  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_002_000),error=>error instanceof UnblockFault&&error.code==='conflict');
-  await guardOf(c).set(original);
   for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}]]){
     await guardOf(c).update(change);
     await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_002_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
     await guardOf(c).set(original);
   }
-  assert.equal(calls,1,'a refused repeat never reaches Account');assert.deepEqual(withoutGuard(c,await signatures(c.root)),before,'a refused repeat writes nothing');
-  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_003_000);
-  assert.equal(resumed.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
+  assert.equal(unblockCalls,1,'guard field drift is refused without a new mutation to Account');
+  assert.deepEqual((await guardOf(c).get()).data(),original,'the same guard document is restored to its original fields');
+  const readsBeforeRepeat=receiptReads;
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_003_000),error=>error instanceof UnblockFault&&error.code==='conflict','an identical repeat over a pending claim is refused too');
+  assert.equal(unblockCalls,1,'a refused repeat never sends another POST to Account');
+  assert.ok(receiptReads>readsBeforeRepeat,'the identical repeat consults the receipt');
+  assert.deepEqual(withoutGuard(c,await signatures(c.root)),before,'a refused repeat writes nothing');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'pending conserves the Video block');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no completion while the claim stays pending');
+  assert.deepEqual(await c.store.videoBalance(c.identity),balanceBefore,'the balance is untouched');
+});
+test('retry generation missing: a claim left by an uncertain POST still refuses a later call after the guard document is gone',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_missing_guard_claim'),c=blocked.c,requestBody=await request(c,blocked);
+  let unblockCalls=0;
+  const client=c.accountBilling;
+  const failing={...deps(c),accountBilling:{
+    unblock:async()=>{unblockCalls++;throw Object.assign(new Error('synthetic uncertain POST'),{code:'unavailable'});},
+    unblockReceipt:async(...args)=>client.unblockReceipt(...args)}};
+  const balanceBefore=await c.store.videoBalance(c.identity);
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(unblockCalls,1,'the claim is left by the only POST, which fails uncertainly');
+  const requested=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(requested.size,1,'the audited request is durable after the uncertain POST');
+  assert.equal(requested.docs[0].get('action'),'unblock_requested');
+  await guardOf(c).delete();
+  const before=await signatures(c.root);
+  assert.equal((await guardOf(c).get()).exists,false,'the guard document is gone for this fixture');
+  // The refusal below is the guard check over a claim already on disk; it does NOT prove
+  // that the claim alone refuses, and no generation continuity is asserted for the deleted guard.
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict','a missing guard does not resurrect the send');
+  assert.equal(unblockCalls,1,'no second POST to Account');
+  assert.equal((await guardOf(c).get()).exists,false,'the refused call does not recreate the guard');
+  assert.deepEqual(await signatures(c.root),before,'the refused call writes nothing');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no completion is written');
+  assert.deepEqual(await c.store.videoBalance(c.identity),balanceBefore,'the balance is untouched');
 });
 test('11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted',{timeout:90000},async()=>{
   const blocked=await blockedAccount('unblock_partial_drift'),c=blocked.c;

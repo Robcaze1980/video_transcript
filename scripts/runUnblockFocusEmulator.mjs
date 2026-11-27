@@ -19,7 +19,7 @@ import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedR
 
 const project = 'demo-vistavo-financial';
 const host = '127.0.0.1:8198';
-// The focus runs exactly these fifteen synthetic cases. All other cases are excluded, not passed.
+// The focus runs exactly these seventeen synthetic cases. All other cases are excluded, not passed.
 const selectedNames = [
   'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',
   'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',
@@ -36,6 +36,8 @@ const selectedNames = [
   '11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives',
   '11 an INTENT unblock completes when the admission guard names an observation incident of the same incident',
   '11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back',
+  '11 resume: a pending claim on the SAME guard generation, operator and payload keeps the Video block and never sends twice',
+  'retry generation missing: a claim left by an uncertain POST still refuses a later call after the guard document is gone',
 ];
 if(selectedNames.some(name=>!/^[A-Za-z0-9:, _]+$/.test(name)))throw Error('Unsafe focus name');
 const expectedSelected = selectedNames.length;
