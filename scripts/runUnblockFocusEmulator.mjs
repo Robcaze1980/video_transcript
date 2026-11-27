@@ -19,7 +19,7 @@ import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedR
 
 const project = 'demo-vistavo-financial';
 const host = '127.0.0.1:8198';
-// The focus runs exactly these ten synthetic cases. All other cases are excluded, not passed.
+// The focus runs exactly these eleven synthetic cases. All other cases are excluded, not passed.
 const selectedNames = [
   'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',
   'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',
@@ -30,6 +30,7 @@ const selectedNames = [
   '11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock',
   '11 negative: a second incident arriving between the read and the write aborts and is never overwritten',
   '11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch',
+  '11 negative: a failed Account phase leaves Video blocked and its rows untouched',
   '11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it',
 ];
 if(selectedNames.some(name=>!/^[A-Za-z0-9:, _]+$/.test(name)))throw Error('Unsafe focus name');
@@ -210,11 +211,12 @@ function acceptableChecks(checks) {
 if(process.argv.length===3&&process.argv[2]==='--self-check'){
   const guards='VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS\n'.repeat(2);
   const rows=selectedNames.map((name,index)=>'ok '+(index+1)+' - '+name).join('\n');
-  const suffix='\n# tests 10\n# pass 10\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n';
+  const suffix='\n# tests '+expectedSelected+'\n# pass '+expectedSelected+'\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n';
   const good=rows+suffix,accept=(a,b=guards)=>{const c=summary(a,b);return acceptableChecks(c)&&c.failCount===0;};
   if(!accept(good)||accept(good.replace(selectedNames[0],'unselected case'))||
      accept(good.replace('ok 1 -','not ok 1 -'))||accept(good.replace('# skipped 0','# skipped 1'))||
-     accept(good.replace('# tests 10','# tests 9'))||accept(good.replace('# tests 10','# tests 11'))||
+     accept(good.replace('# tests '+expectedSelected,'# tests '+(expectedSelected-1)))||
+     accept(good.replace('# tests '+expectedSelected,'# tests '+(expectedSelected+1)))||
      accept(good.replace('ok 2 - '+selectedNames[1],'ok 2 - '+selectedNames[0]))||
      accept(good.replace('# cancelled 0','# cancelled 1'))||accept(good.replace('# todo 0','# todo 1'))||
      accept(good.replace('ok 3 - '+selectedNames[2]+'\n',''))||accept(good,'')||

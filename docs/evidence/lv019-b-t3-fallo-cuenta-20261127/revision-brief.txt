@@ -1,0 +1,272 @@
+Revisión financiera independiente Vistavo LV-019.B, repo Robcaze1980/video_transcript, base c395315be05bc12f9b9bdc9da7effe1ab95e8883. Paquete autocontenido: cero herramientas, cero pasos, no ejecutes comandos ni escribas archivos; una sola respuesta. AGENTS: decisiones inciertas no se reenvían, revisiones independientes para saldo, no datos reales ni secretos. No inventar PASS ni afirmar producción o el cierre de saldo.
+Objetivo: verificar que el caso histórico 77 ahora consulta receipt real en el doble sintético, inyecta una respuesta incierta antes de mutar Cuenta, registra una sola solicitud auditada y ningún segundo envío ante pending, mantiene los dos bloqueos, la fila y el saldo, y no crea escrituras durante la reanudación. Juzga si se perdió algún control esencial o si la prueba afirma algo que no demuestra. Revisa que el arnés seleccione exactamente 11 nombres y conserve todas las 12 contrapruebas, y que los pins de base no reduzcan la seguridad. El autocontrol y sintaxis pasaron; las 11 pruebas están EN CURSO y tú no las ejecutaste.
+Revisa también el diff de especificación: pending por sí solo NO prueba ausencia de envío en vuelo ni autoriza reenvío; debe reflejar el contrato previo sin inventar que ya existe una autoridad real. Señala cualquier contradicción o palabra que exceda la evidencia.
+Breve, con hallazgos y límites. Cierra con:
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: rutas y controles examinados.
+NEGATIVOS: controles negativos y lo no verificado.
+BLOQUEOS: ninguno o detalle; tokens y costo no medidos si no son visibles.
+=== FIN RESUMEN ===
+
+--- DIFF CANDIDATA ---
+diff --git a/scripts/prepareUnblockFocusIsolation.mjs b/scripts/prepareUnblockFocusIsolation.mjs
+index 13c066d..fb7398b 100644
+--- a/scripts/prepareUnblockFocusIsolation.mjs
++++ b/scripts/prepareUnblockFocusIsolation.mjs
+@@ -5,7 +5,7 @@ import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,statSync,writeF
+ import path from 'node:path';
+ import {fileURLToPath} from 'node:url';
+ 
+-const base='ac6f0730bc4f7d116f591951c61057f76e1b29a0';
++const base='c395315be05bc12f9b9bdc9da7effe1ab95e8883';
+ const repo=realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'));
+ const [candidateArg,jdkArg,jarArg]=process.argv.slice(2);
+ if(process.argv.length!==5||process.platform!=='win32'||!/^v24\./.test(process.version)||process.env.NODE_OPTIONS||!candidateArg||!jdkArg||!jarArg)
+@@ -18,7 +18,7 @@ if(head!==base)throw Error('Unexpected base revision');
+ const candidate=ordinary(path.resolve(candidateArg)),manifestDir=realpathSync(path.join(repo,'outputs','lv019-b-unblock-focus-manifests'));
+ if(path.dirname(candidate).toLowerCase()!==manifestDir.toLowerCase())throw Error('Candidate manifest is outside its task directory');
+ const snapshot=JSON.parse(readFileSync(candidate,'utf8'));
+-if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==10||!snapshot.files)
++if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==11||!snapshot.files)
+   throw Error('Unexpected candidate manifest');
+ const node=ordinary(process.execPath),nodeSha=sha(node);
+ if(snapshot.node?.path?.toLowerCase()!==node.toLowerCase()||snapshot.node?.sha256!==nodeSha||snapshot.node?.version!==process.version)
+diff --git a/scripts/runUnblockFocusEmulator.mjs b/scripts/runUnblockFocusEmulator.mjs
+index 581bc65..cab200b 100644
+--- a/scripts/runUnblockFocusEmulator.mjs
++++ b/scripts/runUnblockFocusEmulator.mjs
+@@ -19,7 +19,7 @@ import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedR
+ 
+ const project = 'demo-vistavo-financial';
+ const host = '127.0.0.1:8198';
+-// The focus runs exactly these ten synthetic cases. All other cases are excluded, not passed.
++// The focus runs exactly these eleven synthetic cases. All other cases are excluded, not passed.
+ const selectedNames = [
+   'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',
+   'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',
+@@ -30,6 +30,7 @@ const selectedNames = [
+   '11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock',
+   '11 negative: a second incident arriving between the read and the write aborts and is never overwritten',
+   '11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch',
++  '11 negative: a failed Account phase leaves Video blocked and its rows untouched',
+   '11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it',
+ ];
+ if(selectedNames.some(name=>!/^[A-Za-z0-9:, _]+$/.test(name)))throw Error('Unsafe focus name');
+@@ -210,11 +211,12 @@ function acceptableChecks(checks) {
+ if(process.argv.length===3&&process.argv[2]==='--self-check'){
+   const guards='VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS\n'.repeat(2);
+   const rows=selectedNames.map((name,index)=>'ok '+(index+1)+' - '+name).join('\n');
+-  const suffix='\n# tests 10\n# pass 10\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n';
++  const suffix='\n# tests '+expectedSelected+'\n# pass '+expectedSelected+'\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n';
+   const good=rows+suffix,accept=(a,b=guards)=>{const c=summary(a,b);return acceptableChecks(c)&&c.failCount===0;};
+   if(!accept(good)||accept(good.replace(selectedNames[0],'unselected case'))||
+      accept(good.replace('ok 1 -','not ok 1 -'))||accept(good.replace('# skipped 0','# skipped 1'))||
+-     accept(good.replace('# tests 10','# tests 9'))||accept(good.replace('# tests 10','# tests 11'))||
++     accept(good.replace('# tests '+expectedSelected,'# tests '+(expectedSelected-1)))||
++     accept(good.replace('# tests '+expectedSelected,'# tests '+(expectedSelected+1)))||
+      accept(good.replace('ok 2 - '+selectedNames[1],'ok 2 - '+selectedNames[0]))||
+      accept(good.replace('# cancelled 0','# cancelled 1'))||accept(good.replace('# todo 0','# todo 1'))||
+      accept(good.replace('ok 3 - '+selectedNames[2]+'\n',''))||accept(good,'')||
+diff --git a/scripts/runUnblockFocusIsolated.ps1 b/scripts/runUnblockFocusIsolated.ps1
+index 40592e1..d26b3ea 100644
+--- a/scripts/runUnblockFocusIsolated.ps1
++++ b/scripts/runUnblockFocusIsolated.ps1
+@@ -40,7 +40,7 @@ $jdkInputs = [ordered]@{java=$javaPath;javac=$javacPath;javaDll=(Join-Path $jdkP
+ function AssertFrozenSystem {
+   if ((Sha256 $systemManifestPath) -cne $ExpectedSystemManifestSha256 -or
+       (Sha256 $manifestPath) -cne $ExpectedManifestSha256 -or
+-      $system.version -ne 1 -or $system.base -cne 'ac6f0730bc4f7d116f591951c61057f76e1b29a0' -or
++      $system.version -ne 1 -or $system.base -cne 'c395315be05bc12f9b9bdc9da7effe1ab95e8883' -or
+       $system.project -cne 'demo-vistavo-financial' -or $system.host -cne '127.0.0.1:8198' -or
+       (($system.fixedPorts -join ',') -cne '8198,9198,9298') -or
+       $system.candidate.path -ine $manifestPath -or $system.candidate.sha256 -cne $ExpectedManifestSha256 -or
+diff --git a/server/commercial/billingUnblock.emulator.mjs b/server/commercial/billingUnblock.emulator.mjs
+index addf187..a040de1 100644
+--- a/server/commercial/billingUnblock.emulator.mjs
++++ b/server/commercial/billingUnblock.emulator.mjs
+@@ -1053,21 +1053,40 @@ for(const [exitState,prepared] of [['release_pending',true],['reserve_pending',f
+     assert.equal(intent.get('state'),exitState);assert.equal(intent.get('reviewReason'),undefined);assert.equal(intent.get('reviewOutboxIncidentId'),undefined);
+   });
+ }
+-test('11 negative: a failed Account phase leaves Video blocked and its rows untouched',{timeout:30000},async()=>{
++test('11 negative: a failed Account phase leaves Video blocked and its rows untouched',{timeout:120000},async()=>{
+   const blocked=await blockedAccount('unblock_account_fails'),c=blocked.c,requestBody=await request(c,blocked);
+-  const failing={db:c.db,root:c.root,accountBilling:{unblock:async()=>{throw Object.assign(new Error('synthetic'),{code:'unavailable'});}}};
+-  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000));
++  const ownerBefore=await c.store.videoBalance(c.identity);
++  let posts=0,receipts=0;
++  const billing={
++    unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
++    // Delivery is unknown to Video: Account records no receipt, so the durable claim is the only evidence.
++    unblock:async(...args)=>{posts++;throw new Error('synthetic uncertain delivery before Account mutation');},
++  };
++  const isolated={db:c.db,root:c.root,accountBilling:billing};
++  await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
++  assert.equal(posts,1);assert.equal(receipts,1);
+   // Account is asked BEFORE any Video row is advanced: the only Video record is the audited request of phase 1.
+   const audits=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+   assert.equal(audits.size,1);assert.equal(audits.docs[0].get('action'),'unblock_requested');
+   assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is untouched');
+   const guardData=(await guardOf(c).get()).data();
+   assert.equal(guardData.epoch,requestBody.epoch);assert.equal(guardData.updatedAtMs,requestBody.updatedAtMs);
+-  assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
++  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
+   assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+-  // The pending request is visible for a retry, and the retry completes it.
+-  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000);
+-  assert.equal(resumed.replayed,false);assert.equal((await guardOf(c).get()).exists,false);assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'retry_wait');
++  const videoAfterFirst=await signatures(c.root),accountAfterFirst=await signatures(c.accountRoot);
++  // The receipt stays pending, so the existing claim never authorizes a second POST: the resume is rejected.
++  await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
++  assert.equal(posts,1,'pending receipt does not authorize another POST');assert.equal(receipts,2);
++  assert.deepEqual(await signatures(c.root),videoAfterFirst);assert.deepEqual(await signatures(c.accountRoot),accountAfterFirst);
++  const auditsAfter=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
++  assert.equal(auditsAfter.size,1,'a single audited request is kept');
++  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
++  assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is still untouched');
++  const guardDataAfter=(await guardOf(c).get()).data();
++  assert.equal(guardDataAfter.epoch,requestBody.epoch);assert.equal(guardDataAfter.updatedAtMs,requestBody.updatedAtMs);
++  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
++  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
++  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+ });
+ test('11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it',{timeout:40000},async()=>{
+   const blocked=await blockedAccount('unblock_video_fails'),c=blocked.c,requestBody=await request(c,blocked);
+
+--- DIFF CONTRATO DOCUMENTAL ---
+diff --git a/docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md b/docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md
+index f654200..9a33bef 100644
+--- a/docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md
++++ b/docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md
+@@ -114,7 +114,7 @@ La operación de Cuenta está certificada en local ([recibo de la pieza 1](../ev
+ 2. **Fase 1 · Registro auditado en Video** (`unblock_requested`). Una clave determinista por incidente, época, fecha de creación del bloqueo y acción identifica el registro, que preserva el dueño, autor autenticado, evidencia, nota, primera generación consultada de Cuenta y filas revisadas.
+ 3. **Fase 2 · Cuenta.** La mutación exige la generación exacta de Cuenta, revisa el incidente y guarda un recibo inmutable en una sola transacción. Cuenta elimina su bloqueo cuando se revisa el último incidente. Cada nuevo bloqueo del mismo origen lleva un identificador distinto.
+    - Al reanudar, Video comprueba que corresponden la solicitud, el operador, el dueño, la ocurrencia del bloqueo y su alerta. La solicitud conserva el `updatedAtMs` que el operador comprobó en la primera autorización; no se exige que la hora actual sea idéntica si una escritura idempotente volvió a nombrar el mismo incidente sin cambiar su época ni `createdAtMs`. La reanudación exige la carga auditada original y la misma ocurrencia; cuando se consume un recibo confirmado, compara además las versiones de guardia y solicitud observadas durante esa reanudación antes de cerrar Video. Esto no reconstruye cambios anteriores a su primera lectura ni implica atomicidad entre bases. El principal de liquidación consulta `/api/internal/video/billing-holds/unblock-receipt` con la identidad, el incidente exacto de Cuenta y la referencia de evidencia. La lectura valida el dueño, el incidente revisado y su recibo y devuelve la generación aceptada junto con el estado del bloqueo de Cuenta observado en esa transacción. Una confirmación perdida se recupera sin otra mutación.
+-   - Para un incidente activo sin recibo, Cuenta devuelve un estado explícito `pending`. Solo una reanudación de una solicitud pendiente puede usar entonces la generación indicada por el operador en la mutación condicional. Un error de lectura, una evidencia diferente o un resultado incoherente deja el bloqueo en revisión. En un desbloqueo parcial ya registrado, Video requiere que la generación confirmada coincida con la que guardó.
++   - Para un incidente activo sin recibo, Cuenta devuelve un estado explícito `pending`. Ese estado no demuestra que una solicitud anterior haya terminado: por sí solo no autoriza reenviar la mutación al reanudar. El primer envío requiere una solicitud nueva y un reclamo durable autorizado. Si ya existe el reclamo y el recibo continúa pendiente, Video conserva el bloqueo y solicita conciliación hasta demostrar que no hay otro envío en curso mediante una exclusión válida. Un error de lectura, una evidencia diferente o un resultado incoherente también deja el bloqueo en revisión. En un desbloqueo parcial ya registrado, Video requiere que la generación confirmada coincida con la que guardó.
+ 4. **Fase 3 · Video** (`unblocked`). Tras confirmar Cuenta, Video comprueba en una transacción el dueño, el incidente y la generación del bloqueo, la alerta y las filas auditadas. Registra la generación que aceptó Cuenta y avanza solo las filas de ese incidente. Conserva el bloqueo si Cuenta reporta otros incidentes abiertos o si Video detecta otras filas pendientes. Si ya adelantó las filas, una reanudación confirmada puede registrar `video_released` y cerrar la alerta cuando desaparezcan ambos impedimentos. Cuenta sigue siendo la autoridad para reservar y liquidar saldo.
+ 
+ **Registro de auditoría que deja.** Uno por (incidente, acción), inmutable, con autor, evidencia, nota y marca de tiempo del servidor — estructuralmente igual a `billingPendingAudit` (`:65`), más el `epoch` del guard desbloqueado.
+
+--- TRANSPORTE ---
+class LocalAccountTransport{
+  bodies=[];
+  constructor(store){this.store=store;}
+  async request(request){
+    const pathname=new URL(request.url).pathname,body=request.data??{};this.bodies.push({pathname,data:copy(body)});
+    const parts=pathname.split('/'),reservationId=parts.at(-2);
+    const httpFault=(status,code)=>Object.assign(Error('Synthetic Account refusal'),{response:{status,data:{error:code}}});
+    const guard=async action=>{try{return {data:await action()};}catch(error){if(error?.response)throw error;throw httpFault(accountStatus[error?.code]??503,error?.code??'invariant');}};
+    if(pathname==='/api/internal/video/billing-holds/unblock')return guard(()=>this.store.unblockVideoBilling(body.identityKey,{incidentId:body.incidentId,epoch:body.epoch,createdAtMs:body.createdAtMs,reviewRef:body.reviewRef}));
+    if(pathname==='/api/internal/video/billing-holds/unblock-receipt')return guard(()=>this.store.videoBillingUnblockReceipt(body.identityKey,body.incidentId,body.reviewRef));
+    if(pathname==='/api/internal/video/billing-holds/status')return guard(()=>this.store.videoBillingHold(body.identityKey,body.incidentId));
+    if(pathname==='/api/internal/video/billing-holds')return guard(()=>this.store.blockVideoBilling(body.identityKey,body.incidentId));
+    if(pathname==='/api/internal/video/reservations')return guard(async()=>({...await this.store.reserveVideo(body.identityKey,body.reservationId,body.seconds),reservationId:body.reservationId}));
+    if(pathname==='/api/internal/video/balance')return guard(()=>this.store.videoBalance(body.identityKey));
+    if(pathname.endsWith('/status'))return guard(()=>this.store.videoReservation(body.identityKey,reservationId));
+    if(pathname.endsWith('/resolution'))return guard(()=>this.store.videoReservationResolution(body.identityKey,reservationId,body.seconds));
+    if(pathname.endsWith('/admit'))return guard(()=>this.store.admitVideoCall(body.identityKey,reservationId,body.seconds,body.jobId,body.attemptId,body.callKey,body.model,body.requestSha256));
+    if(pathname.endsWith('/seal'))return guard(()=>this.store.sealVideoReservation(body.identityKey,reservationId,body.seconds));
+    if(pathname.endsWith('/release')||pathname.endsWith('/capture')){
+      const action=pathname.endsWith('/release')?'release':'capture';
+      const admission=body.jobId!==undefined?{jobId:body.jobId,attemptId:body.attemptId}:undefined;
+      const options=body.resolutionKind!==undefined?{resolution:{kind:body.resolutionKind,evidenceSha256:body.evidenceSha256}}:body.capturedSeconds!==undefined?{capturedSeconds:body.capturedSeconds}:undefined;
+      return guard(async()=>({...await this.store.settleVideo(body.identityKey,reservationId,action,body.seconds,admission,options),reservationId}));
+    }
+    throw httpFault(404,'not_found');
+  }
+}
+
+--- SETUP ---
+async function blockedAccount(scope,options={}){
+  const c=await fixture(scope),job=await captureJob(c);
+  // Extra captured jobs are prepared BEFORE the block: a blocked account refuses new work, which is the point of the guard.
+  const extras=[];for(let n=0;n<(options.extraJobs??0);n++)extras.push(await captureJob(c));
+  const releases=[];for(let n=0;n<(options.extraReleases??0);n++)releases.push(await releaseJob(c));
+  const {expected,snapshot}=await expectedAndSnapshot(c,job.id),version=await versionOf(c,job.id);
+  const outcome=await c.backend.quarantineExternalBillingOutbox(job.id,{phase:'after_ack',snapshotVersion:version,expected,ack:{reservationId:randomUUID(),seconds:expected.seconds,state:'released'},settlementSnapshot:snapshot});
+  assert.equal(outcome.state,'needs_review');assert.equal(outcome.ownerBlocked,true);
+  const guard=await fixtureGuardAfterWriterCut(c);
+  const holds=await c.root.collection('billingHoldOutbox').where('state','==','pending').get();
+  assert.equal(holds.size,1,'the real writer leaves exactly one pending hold');
+  const hold=holds.docs[0].get('id');
+  const receipt=await c.accountBilling.block(c.identity,hold);
+  assert.equal(receipt.created,true);
+  await ref(c.root,'billingHoldOutbox',hold).update({state:'applied',appliedAtMs:Date.now()});
+  const report=await readPendingReport(c.root,Date.now()),raised=await raisePendingAlerts(c.db,c.root,report,Date.now());
+  const alert=(await c.root.collection(ALERT_COLLECTION).get()).docs.find(doc=>doc.get('kind')==='guard');
+  assert.ok(alert,'the guard raises a D-4 alert');assert.equal(raised.created>=1,true);
+  // The occurrence named by the guard: the incident key of the outbox review, never the hold id (which also carries the generation).
+  const incident=guard.lastOutboxIncidentId??guard.lastIncidentId;
+  return {c,job,extras,releases,guard,hold,incident,alertKey:alert.id,accountRoot:c.accountRoot};
+}
+
+--- TEST FINAL ---
+test('11 negative: a failed Account phase leaves Video blocked and its rows untouched',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('unblock_account_fails'),c=blocked.c,requestBody=await request(c,blocked);
+  const ownerBefore=await c.store.videoBalance(c.identity);
+  let posts=0,receipts=0;
+  const billing={
+    unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+    // Delivery is unknown to Video: Account records no receipt, so the durable claim is the only evidence.
+    unblock:async(...args)=>{posts++;throw new Error('synthetic uncertain delivery before Account mutation');},
+  };
+  const isolated={db:c.db,root:c.root,accountBilling:billing};
+  await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(posts,1);assert.equal(receipts,1);
+  // Account is asked BEFORE any Video row is advanced: the only Video record is the audited request of phase 1.
+  const audits=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(audits.size,1);assert.equal(audits.docs[0].get('action'),'unblock_requested');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is untouched');
+  const guardData=(await guardOf(c).get()).data();
+  assert.equal(guardData.epoch,requestBody.epoch);assert.equal(guardData.updatedAtMs,requestBody.updatedAtMs);
+  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+  const videoAfterFirst=await signatures(c.root),accountAfterFirst=await signatures(c.accountRoot);
+  // The receipt stays pending, so the existing claim never authorizes a second POST: the resume is rejected.
+  await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(posts,1,'pending receipt does not authorize another POST');assert.equal(receipts,2);
+  assert.deepEqual(await signatures(c.root),videoAfterFirst);assert.deepEqual(await signatures(c.accountRoot),accountAfterFirst);
+  const auditsAfter=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(auditsAfter.size,1,'a single audited request is kept');
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is still untouched');
+  const guardDataAfter=(await guardOf(c).get()).data();
+  assert.equal(guardDataAfter.epoch,requestBody.epoch);assert.equal(guardDataAfter.updatedAtMs,requestBody.updatedAtMs);
+  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+});
+
+--- DECISIÓN DE CUENTA ---
+  let observed=opened.observed;
+  let accepted={epoch:clean.accountEpoch,createdAtMs:clean.accountCreatedAtMs};
+  let account:{replayed:boolean;blocked:boolean};
+  const identityKey=await accountPhase(()=>identityKeyOf(root,accountId));
+  const receipt=await accountPhase(()=>deps.accountBilling.unblockReceipt(identityKey,holdId,clean.evidenceRef));
+  if(receipt?.state==='confirmed'){
+    if('fresh' in opened)throw new UnblockFault('conflict');
+    accepted={epoch:receipt.epoch,createdAtMs:receipt.createdAtMs};
+    account={replayed:true,blocked:receipt.blocked};
+  }else{
+    // Pending establishes that Account has no receipt yet. An existing claim
+    // may already have a POST in flight, so it never confers a second send.
+    if(!('fresh' in opened)||receipt?.state!=='pending'||
+      !guardBornAfterWriterCut(observed.guard,observed.cut))throw new UnblockFault('conflict');
+    await db.runTransaction(async tx=>{
+      const [guard,alert,requested,done,released,witness,dispatch,cut]=await tx.getAll(
+        guardRef,alertRef,requestedRef,doneRef,releasedRef,witnessRef,dispatchRef,cutRef);
+      if(requested.exists||done.exists||released.exists||witness.exists||dispatch.exists||
+        !sameVersion(observed.guard,guard)||!sameVersion(observed.cut,cut)||!guardBornAfterWriterCut(guard,cut)||
+        !isDeepStrictEqual(await freshRecord(tx,guard,alert),record))throw new UnblockFault('conflict');
+      // The trusted writer creates all three records in one commit. The claim
+      // is retained even after transport errors or if the sender dies.
+      tx.create(requestedRef,record);
+      tx.create(witnessRef,continuityRecord(requestedRef.id,record,'request'));
+      tx.create(dispatchRef,continuityRecord(requestedRef.id,record,'dispatch'));
+    });
+    observed=await db.runTransaction(tx=>recheck(tx,observed));
+    account=await accountPhase(()=>deps.accountBilling.unblock(identityKey,{incidentId:holdId,...accepted,reviewRef:clean.evidenceRef}));
+  }
+

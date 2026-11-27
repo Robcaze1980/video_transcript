@@ -1,0 +1,25 @@
+## Revisión de seguimiento — LV-019.B, caso "11 negative: a failed Account phase…" (fase acotada)
+
+**Remediaciones confirmadas**
+- **`accountPhase`:** ahora visible; el `catch` envuelve cualquier causa en `UnblockFault('conflict')` con `stage:'account'`. El `assert.rejects(..., code==='conflict' && stage==='account')` de ambos casos (POST incierto y recibo confirmado) queda respaldado. Se cierra la premisa que antes quedó sin contraste.
+- **Especificación:** la frase nueva ya no sobreafirma. Distingue explícitamente el reclamo *local* ("registrado antes del envío; esto no demuestra por sí solo la exclusión de todos los escritores") de una *exclusión global*, y declara que la conciliación entre escritores "aún no está implementada". Es coherente con el código (registro `requested/witness/dispatch` en una transacción previa al envío) y no inventa autoridad real. Objeción de redacción anterior: **resuelta**.
+- **Contrapruebas:** 11 nombres + `expectedSelected = selectedNames.length` (sin 11 hardcodeado en el emulador). Cuento **12 negativos** en el autocontrol (nombre ajeno, `not ok`, skip, tests−1, tests+1, nombre duplicado, cancelado, todo, fila omitida, sin guardas, guarda denegada, guarda única) — coincide con "positivo y doce negativos".
+- **Recuperación de recibo confirmado:** el caso nuevo recupera por recibo con `posts`=1 (no reenvía), `receipts`=2, un solo `unblock` por reserva y saldos esperados; cierra el hueco de "reanudación exitosa" que señalé, para el escenario de recibo confirmado, no para el residual pendiente.
+
+**Objeciones persistentes (acotadas, no invalidantes)**
+- **Conflación de errores:** todo fallo de Cuenta (definitivo o incierto) se mapea a `conflict`. Es conservador y coherente con "no reenviar", pero un rechazo 4xx permanente y una incertidumbre de transporte quedan indistinguibles; conviene mencionarlo.
+- **Reclamo sin envío queda bloqueado:** si la transacción de reclamo confirma y el envío nunca ocurre (o el proceso muere), la reanudación se rechaza *para siempre*. No hay doble envío —correcto— pero el estado depende de una conciliación que la especificación reconoce como no implementada. Es el costo asumido del diseño.
+- **Nombre `…its rows untouched`:** con el alcance de `signatures` ya divulgado (solo documentos inmediatos de las colecciones bajo ambas raíces; no subcolecciones ni documento raíz), "rows untouched" solo se sostiene por las firmas observadas más los `assert` explícitos (auditoría, guard, outbox, guard de Cuenta, `videoBalance`), no universalmente.
+
+**Límites**
+- Las 11 pruebas (11 PASS, limpieza 11/11, inventarios 22 raíces vacíos, manifiestos consistentes) las reporta el ejecutor; **no las ejecuté**. Es evidencia sintética, no producción.
+- `signatures` no es recursiva: la no-escritura probada es acotada a lo descrito.
+- No verifico el parser `summary/acceptableChecks` completo ni el resto de `DECISIÓN DE CUENTA` (`guardBornAfterWriterCut`, `recheck`, `sameVersion`); acepto el rechazo/aceptación por los `assert.rejects`/`assert.equal` mostrados.
+- No afirmo producción ni cierre de la batería financiera integrada; este PASS rige solo para esta fase de diseño acotada.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/billingUnblock.emulator.mjs` (caso `11 negative: a failed Account phase…`: `posts`/`receipts`, rechazo de reanudación, `audits.size==1`, guard/outbox/guard de Cuenta intactos, `deepEqual` de `signatures`, `videoBalance==ownerBefore`; caso de recibo confirmado con recuperación y una sola devolución por reserva), `accountPhase` (`catch`→`UnblockFault('conflict')`, `stage:'account'`), `signatures` (documentos inmediatos por colección, alcance divulgado), `scripts/runUnblockFocusEmulator.mjs` (11 nombres, `expectedSelected=length`, `selectedPattern`, 12 contrapruebas), `docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md` (frase reformulada). Señal del ejecutor: 11/11 PASS, 0 fail/skip, limpieza 11/11, 22 inventarios raíz vacíos.
+NEGATIVOS: No ejecuté las 11 pruebas; ejecución sintética. `signatures` no cubre subcolecciones ni documento raíz → no se afirma ausencia universal de escrituras. Objeciones persistentes: conflación de errores de Cuenta en `conflict`; reclamo confirmado sin envío deja el bloqueo dependiente de conciliación no implementada; el nombre "rows untouched" acotado a las firmas/`assert` observados. No verifiqué el resto de la rama Cuenta ni el parser de autocontrol completo. No se afirma producción ni cierre de saldo.
+BLOQUEOS: Ninguno para esta fase acotada. Sin cierre de la batería financiera integrada. Tokens y costo: no medidos (no visibles).
+=== FIN RESUMEN ===

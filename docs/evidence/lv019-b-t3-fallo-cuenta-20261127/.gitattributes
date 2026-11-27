@@ -1,0 +1,5 @@
+*.tap -text -diff
+*.json -text -diff
+*.log -text -diff
+revision-brief.txt -text -diff
+revision-seguimiento-brief.txt -text -diff

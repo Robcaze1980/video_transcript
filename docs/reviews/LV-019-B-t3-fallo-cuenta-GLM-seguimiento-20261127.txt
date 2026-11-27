@@ -1,0 +1,16 @@
+**Seguimiento LV-019.B — coherencia tras ajustes**
+
+- La frase de especificación ahora es fiel al código: distingue el reclamo durable local (creado en la transacción antes del envío) de una exclusión global de escritores, y declara explícitamente que la conciliación no está implementada. Ya no excede la evidencia; no veo contradicción con la rama de decisión (`pending` + reclamo existente → conflicto, sin reenvío).
+- El caso de POST incierto sin recibo ya no pretende recuperación: exige bloqueo persistente, `posts===1`, auditoría única y cero escrituras en la reanudación. La recuperación exitosa queda cubierta por el caso separado de recibo confirmado (`posts===1`, `receipts===2`, un solo recibo en Cuenta, ambas devoluciones exactamente una vez, saldos exactos y cuenta ajena intacta). Reparto coherente.
+- `signatures()` limitada a documentos inmediatos de colecciones de primer nivel es una limitación real, pero correctamente divulgada. Las afirmaciones críticas del caso fallido descansan en comprobaciones explícitas (auditoría única, guardia, outbox, fila de Cuenta, saldo), no en la firma universal. Solo debe evitarse afirmar "cero escrituras absolutas"; las aserciones del diff no lo hacen.
+- Arnés: `expectedSelected = selectedNames.length` elimina el riesgo de desincronización numérica; el autocontrol conserva la contraprueba positiva y exactamente doce negativas (nombre no seleccionado, `not ok`, skipped, N−1, N+1, nombre duplicado, cancelled, todo, línea ausente, salida vacía, guard denegado extra y guard único), consistente con el mensaje "twelve negative cases".
+- La evidencia del ejecutor (11/11 PASS, 0 skip, limpieza 11/11, inventarios vacíos, `selectedNamesMatch`) la tomo como reportada, no verificada por mí; es sintética y no afirma producción ni cierre de saldo.
+
+Objeción persistente: ninguna bloqueante. Menor: la segunda aserción de rechazo del caso fallido sigue comprobando solo `code==='conflict'` sin `stage`; aceptable.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md` (frase revisada, sin exceder lo implementado), decisión de Cuenta (reclamo en transacción previa al envío; `pending`+reclamo → conflicto), caso fallido (`posts===1`, `receipts` 1→2, auditoría única, firmas comparadas con alcance declarado, guardia/outbox/fila/saldo intactos), caso de recibo confirmado (recuperación por recibo, dos devoluciones únicas, saldos exactos), arnés y autocontrol (11 nombres exactos, `expectedSelected` derivado, 12 contrapruebas), evidencia reportada del ejecutor (11 PASS, 0 fail/skip, limpieza e inventarios).
+NEGATIVOS: sin reenvío ante `pending` (dos intentos, `posts===1`); reenvío prohibido verificado en ambos casos; auditoría única tras reanudación; reclamo registrado antes del POST (código). No verificado por mí: ejecución de las 11 pruebas (reportada por el ejecutor), `signatures()` limitada a documentos inmediatos sin subcolecciones ni raíz —no prueba ausencia universal de escrituras—, mecanismo de conciliación entre escritores (declarado no implementado), fixtures y cola completa del emulador fuera del paquete. No se afirma producción, cierre de saldo ni resolución automática del estado pendiente.
+BLOQUEOS: ninguno; tokens y costo no medidos (no visibles).
+=== FIN RESUMEN ===

@@ -1053,21 +1053,40 @@ for(const [exitState,prepared] of [['release_pending',true],['reserve_pending',f
     assert.equal(intent.get('state'),exitState);assert.equal(intent.get('reviewReason'),undefined);assert.equal(intent.get('reviewOutboxIncidentId'),undefined);
   });
 }
-test('11 negative: a failed Account phase leaves Video blocked and its rows untouched',{timeout:30000},async()=>{
+test('11 negative: a failed Account phase leaves Video blocked and its rows untouched',{timeout:120000},async()=>{
   const blocked=await blockedAccount('unblock_account_fails'),c=blocked.c,requestBody=await request(c,blocked);
-  const failing={db:c.db,root:c.root,accountBilling:{unblock:async()=>{throw Object.assign(new Error('synthetic'),{code:'unavailable'});}}};
-  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000));
+  const ownerBefore=await c.store.videoBalance(c.identity);
+  let posts=0,receipts=0;
+  const billing={
+    unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+    // Delivery is unknown to Video: Account records no receipt, so the durable claim is the only evidence.
+    unblock:async(...args)=>{posts++;throw new Error('synthetic uncertain delivery before Account mutation');},
+  };
+  const isolated={db:c.db,root:c.root,accountBilling:billing};
+  await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(posts,1);assert.equal(receipts,1);
   // Account is asked BEFORE any Video row is advanced: the only Video record is the audited request of phase 1.
   const audits=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
   assert.equal(audits.size,1);assert.equal(audits.docs[0].get('action'),'unblock_requested');
   assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is untouched');
   const guardData=(await guardOf(c).get()).data();
   assert.equal(guardData.epoch,requestBody.epoch);assert.equal(guardData.updatedAtMs,requestBody.updatedAtMs);
-  assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
+  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
   assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
-  // The pending request is visible for a retry, and the retry completes it.
-  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000);
-  assert.equal(resumed.replayed,false);assert.equal((await guardOf(c).get()).exists,false);assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'retry_wait');
+  const videoAfterFirst=await signatures(c.root),accountAfterFirst=await signatures(c.accountRoot);
+  // The receipt stays pending, so the existing claim never authorizes a second POST: the resume is rejected.
+  await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(posts,1,'pending receipt does not authorize another POST');assert.equal(receipts,2);
+  assert.deepEqual(await signatures(c.root),videoAfterFirst);assert.deepEqual(await signatures(c.accountRoot),accountAfterFirst);
+  const auditsAfter=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(auditsAfter.size,1,'a single audited request is kept');
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is still untouched');
+  const guardDataAfter=(await guardOf(c).get()).data();
+  assert.equal(guardDataAfter.epoch,requestBody.epoch);assert.equal(guardDataAfter.updatedAtMs,requestBody.updatedAtMs);
+  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
 });
 test('11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it',{timeout:40000},async()=>{
   const blocked=await blockedAccount('unblock_video_fails'),c=blocked.c,requestBody=await request(c,blocked);

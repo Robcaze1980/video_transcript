@@ -5,7 +5,7 @@ import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,statSync,writeF
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const base='ac6f0730bc4f7d116f591951c61057f76e1b29a0';
+const base='c395315be05bc12f9b9bdc9da7effe1ab95e8883';
 const repo=realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'));
 const [candidateArg,jdkArg,jarArg]=process.argv.slice(2);
 if(process.argv.length!==5||process.platform!=='win32'||!/^v24\./.test(process.version)||process.env.NODE_OPTIONS||!candidateArg||!jdkArg||!jarArg)
@@ -18,7 +18,7 @@ if(head!==base)throw Error('Unexpected base revision');
 const candidate=ordinary(path.resolve(candidateArg)),manifestDir=realpathSync(path.join(repo,'outputs','lv019-b-unblock-focus-manifests'));
 if(path.dirname(candidate).toLowerCase()!==manifestDir.toLowerCase())throw Error('Candidate manifest is outside its task directory');
 const snapshot=JSON.parse(readFileSync(candidate,'utf8'));
-if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==10||!snapshot.files)
+if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==11||!snapshot.files)
   throw Error('Unexpected candidate manifest');
 const node=ordinary(process.execPath),nodeSha=sha(node);
 if(snapshot.node?.path?.toLowerCase()!==node.toLowerCase()||snapshot.node?.sha256!==nodeSha||snapshot.node?.version!==process.version)
