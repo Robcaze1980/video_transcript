@@ -1,0 +1,32 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# RULES_FOCUS_PREFLIGHT negative=false-sha-rejected clientGet=403 adminRead=PASS rulesLoad=200 issues=0
+# Subtest: concurrent duplicate verified captures credit exactly once
+ok 1 - concurrent duplicate verified captures credit exactly once
+  ---
+  duration_ms: 4903.1225
+  type: 'test'
+  ...
+# Subtest: concurrent reservations cannot spend more than available
+ok 2 - concurrent reservations cannot spend more than available
+  ---
+  duration_ms: 3116.3133
+  type: 'test'
+  ...
+# Subtest: default-deny client rules reject reads and writes of actual Admin-created documents
+ok 3 - default-deny client rules reject reads and writes of actual Admin-created documents
+  ---
+  duration_ms: 422.0672
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 15161.7055
