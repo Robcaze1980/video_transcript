@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { estimateVoiceQuote } from './voiceQuotePreview.mjs';
 
 test('the 2 min 10 s example defaults to the text estimate', () => {
