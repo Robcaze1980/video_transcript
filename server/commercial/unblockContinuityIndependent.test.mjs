@@ -208,6 +208,32 @@ test('a legitimate hold-outbox delivery while waiting for the direct ACK allows 
   assert.deepEqual(remote.store,accepted);
 });
 
+test('an applied hold belonging to another account cannot authorize Video to finish after the ACK',async()=>{
+  const f=await unblockFixture({}),{account,remote,accepted}=accountForDirectAck(f);
+  const other='40000000-0000-4000-8000-000000000001';
+  const otherBalance={unit:'video_seconds',credited:11,available:8,reserved:3,consumed:0};
+  remote.store.set('accounts/'+other,otherBalance);
+  accepted.set('accounts/'+other,otherBalance);
+  const path='billingHoldOutbox/'+f.holdId,hold=f.s.store.get(path);
+  f.s.store.set(path,{...hold,state:'pending'});
+  let calls=0,afterChange;
+  f.deps.accountBilling.unblock=async(...args)=>{
+    calls++;
+    const ack=await account.unblockVideoBilling(...args);
+    // This represents inconsistent privileged data, not an asserted client-access path.
+    f.s.store.set(path,{...hold,accountId:other,state:'applied',appliedAtMs:33});
+    afterChange=structuredClone(f.s.store);
+    return ack;
+  };
+  await assert.rejects(f.unblock,{code:'conflict'});
+  assert.equal(calls,1);
+  assert.deepEqual(f.s.store,afterChange);
+  assert.equal(f.s.store.get('billingGuards/'+accountId).blocked,true);
+  assert.equal(f.s.store.get('billingReviewIncidents/'+incident).state,'needs_review');
+  assert.deepEqual(remote.store,accepted);
+  assert.deepEqual(remote.store.get('accounts/'+other),otherBalance);
+});
+
 
 test('pending before the first POST reaches Account does not authorize a second coordinator',async()=>{
   const f=await unblockFixture({}),{account,remote,before,accepted}=accountForDirectAck(f);

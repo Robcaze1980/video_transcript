@@ -460,10 +460,11 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
       // still a conflict.
       const holdSettled=row.collection==='billingHoldOutbox';
       if(row.state!==null&&data.state!==row.state&&!(holdSettled&&(data.state==='applied'||data.state==='needs_review')))throw new UnblockFault('conflict');
+      // Even an already-applied row must still belong to the account in this decision.
+      // Only the admission guard has no `accountId`.
+      if(row.collection!=='billingIntentAdmissionGuards'&&data.accountId!==accountId)throw new UnblockFault('conflict');
       if(holdSettled&&data.state==='applied')continue;
       if(row.reviewField&&data[row.reviewField]!==clean.incidentKey)throw new UnblockFault('conflict');
-      // A row handed to another account between phases must not be advanced: only the admission guard has no `accountId`.
-      if(row.collection!=='billingIntentAdmissionGuards'&&data.accountId!==accountId)throw new UnblockFault('conflict');
       if(row.collection==='billingIntents'){
         const [intent,witness]=await tx.getAll(snap.ref,root.collection('billingIntentWitnesses').doc(row.id));
         rows.push({planned:row,snap,exit:intentExit(intent,witness)});
