@@ -1,0 +1,61 @@
+# Revisión estática independiente
+
+Solicitud: 4f43205dfcd52b34fe9a87f9c0f0f1ddf5b7b4970ba68c6d6bb937343067c286
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 20955/0/42573
+Costo observado USD: 0.030231815625
+SHA-256 del informe original: 9d38fcd819e7cfbdfde6bf57da82265d3f05d99c5f961a904decb1d0695c6f61
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# Revisión estática independiente — dos candidatas aisladas
+
+## PIEZA A — Constancia durable de edad (3b96286 sobre 55ec1b0)
+
+**RESULTADO: PASS (limitado; no autoriza producción ni integración)**
+
+**Qué examiné (ruta/línea):**
+- `server/commercial/firestoreBackend.ts:2430-2498` — barrido: orden por (id,colección) 2445, corte sin partir grupos 2448-2452, cursor/`next` 2455, puertas y `stopped` 2461-2465/2492, regla de grupo para `completed` 2494-2495, ruta genérica 2470-2490.
+- Método nuevo `escalateObservedIntentAge` (diff, desde :2500) — preparación (intento previo, estado/versión/lease/edad, `pending`), acción (revalida versión/estado/lease; observación+transición+`applied` atómicos), confirmación por lectura (`inspect`) con relección que nunca repite la escritura incierta.
+- `firestoreBackend.ts:2570-2624` — `deferVerifiedReleaseAge`: escrituras de pausa (2608, 2622) solo en ramas que retornan true; en las tres transacciones todas las lecturas preceden a toda escritura (sin violación de Firestore), y los reintentos son seguros porque todas las comprobaciones están dentro de la transacción.
+- `server/commercial/billingUnblock.ts:392-398` — la reapertura borra `ageObservationId` de la fila y conserva el documento de observación.
+- `firestoreAgeDurability.test.ts:1-190`, `billingFirestoreStub.ts:1-43`, `docs/evidence/lv019-b-age-durable-20261126/README.md`.
+
+**Hallazgos** (no encontré falsa confirmación, duplicado ni pérdida de evidencia dentro del modelo de fallos; caminos `pending`/`applied` distinguidos):
+1. **Bloqueo permanente en `pending`**: la preparación devuelve `failed` ante intento previo `pending`/`applied`; el barrido nunca reanuda. Consecuencia concreta: si la transacción de acción se aborta limpiamente (contención tras agotar reintentos → `catch{action='unknown'}`), queda `pending` y la fila `reserve_pending` (fondos reservados) no se escala jamás sin reparación manual inexistente. Las pruebas cubren ACK perdido y parada, pero no este disparador.
+2. **`applied` sin reconciliar**: tras parada post-acción (prueba 108) la fila pasa a `needs_review` y sale del conjunto de candidatos; ninguna pasada posterior confirma el intento. Igual si la confirmación falla. Terminal sin reparación.
+3. `report.failed++` para `stopped` (:2492): mezcla parada con fallo; fijado por las pruebas (100, 111) pero engañoso operativo.
+4. La reapertura borra la referencia solo en la rama genérica de `unblockBillingAccount`; el paquete no permite verificar que toda ruta de reapertura de intents pase por ahí (una que no la borre → fallo cerrado, prueba 164, pero bloqueo).
+5. **Calidad de evidencia**: inyecciones de ACK solo sobre stub sin contención/abort/reintento (`billingFirestoreStub.ts:34-41`); fixture de emulador de una sola corrida con `Transaction lock timeout` de causa no adjudicada y JVM terminada a la fuerza; los crudos (TAP 12/12, 171/171, manifiestos) no están en el paquete — son aserciones del README con hashes.
+
+**Controles negativos conservados**: ACK de preparación/acción/confirmación perdido (28, 44, 79), solape de barredores sin duplicado (55), paradas pre/post-acción con B avanzando (97, 108), `applied` bloqueando fila reabierta (118), recreación mismo-valor por versión (138), referencias malformadas fail-closed sin bloquear B (155), puntero obsoleto no adoptado (164), intento confirmado sin observación no autoriza (173), sin metadatos → cero escrituras (184), saldos de otra cuenta intactos (41); lock timeout y colisión inyectada preservados sin re-corrida.
+
+**Falta verificar**: crudos y causa del lock timeout; acción abortada limpiamente; contexto completo de `billingUnblock.ts`/`staleScan`/`hasIntentLease`; flota mixta; semántica real de Firestore para los fallos; inventario/reparación, IAM, retención, costo, guarda de admisión, regresión financiera.
+
+## PIEZA B — Proyección de identidad del verificador interno (3d2c9bf sobre 2b1b141)
+
+**RESULTADO: PASS (limitado)**
+
+**Qué examiné (ruta/línea):**
+- `server/account/runtime.ts` (diff, ~:15-34) — `trustedServiceClaims` exige `iss` presente, `aud===audience`, sub/correo/`email_verified`, y devuelve exactamente cinco claims; `accountServiceIdentityVerifier` verifica audiencia esperada antes de llamar al SDK y fija `audience` en `verifyIdToken`; `accountRuntime` conserva el mismo `OAuth2Client` y la lista legada de dos correos.
+- `server/account/http.ts:4-6` (solo se amplía el tipo), `:29-34` (solo `email`/`email_verified` autorizan; catch→401), `:86` (404 a ruta interna desconocida; sin registro de ruta nueva en el diff).
+- `server/account/http.test.ts` (diff): fixture RSA efímera que sustituye solo `getFederatedSignonCertsAsync`; el SDK real verifica firma, emisor, vigencia y audiencia.
+
+**Hallazgos:**
+1. La verificación real se conserva: el mock toca solo la obtención de certificados; firma alterada, payload sin refirmar, emisor/audiencia ajenos, expiración y audiencia esperada incorrecta (sin fetch de certs) son rechazados por el SDK.
+2. Proyección exacta sin filtración: `toEqual` con los cinco claims; `operatorRef`/`scopeId`/`purpose` inyectados no aparecen en la salida; el router no los copia a cuerpo/respuesta ni los errores los hacen eco.
+3. Sin autorización accidental ni ruta abierta: `iss/sub/aud` retenidos son inertes (autorización legada por correo + doble fijación de audiencia SDK/proyección); la prueba del alias `accounts.google.com` con otro `sub` demuestra que no se introdujo el control futuro por acción.
+4. Menores: `http.ts:29` mapea todo error del verificador a 401 (preexistente, fail-closed); `iss` se valida por presencia, no por valor — diferido deliberadamente a la política futura, que deberá fijar emisor+sujeto antes de tocar el almacén; sin `checkRevoked` para tokens de servicio (sin cambio).
+
+**Controles negativos conservados**: firma/payload alterados; emisor y audiencia ajenos; expirado; audiencia esperada incorrecta sin consumo de certs; `iss/aud/sub/correo/email_verified` ausentes o falsos; sujeto malformado; correo fuera de lista; claims de operador/propósito descartados; router 404/401 con cero llamadas al almacén (citado en CLAIMS; cuerpo no visible en el paquete).
+
+**Falta verificar**: log crudo `claims-focal.log` (SHA-256 asertado, no incluido); Google real/JWKS (nunca consultados); cuerpo completo de pruebas y de `runtime.ts`; otros consumidores de `trustedServiceClaims` tras el cambio de firma; sitios de registro de rutas fuera del fragmento; parser, emisor dedicado, autenticación de operador, origen de hold, política por propósito e IAM; los INCONCLUYENTE del corte base 2b1b141 se conservan.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: A: diff de runtime 3b96286 (firestoreBackend.ts:2430-2626, billingUnblock.ts:392-398) + 12 pruebas en firestoreAgeDurability.test.ts:1-190 sobre stub en memoria; resultados 171/171 y 12/12+12/12 solo como aserción documental con hashes (crudos fuera del paquete). B: diffs de runtime.ts/http.ts/http.test.ts @3d2c9bf con fixture RSA en memoria (solo obtención de certs sustituida); 133/133 y tsc como aserción de CLAIMS-CUENTA.md (log fuera del paquete).
+NEGATIVOS: A: ACK perdido de preparación/acción/confirmación, solape de barredores, paradas pre/post-acción, versión/recreación, referencias malformadas, puntero obsoleto, observación faltante, ausencia de metadatos, saldos ajenos intactos; lock timeout sin causa adjudicada y colisión inyectada preservados sin re-corrida. B: firma/payload alterados, emisor/audiencia ajenos, expirado, audiencia esperada incorrecta sin fetch, claims ausentes/falsos, correo fuera de lista, claims de operador/propósito descartados, alias de emisor sin control por acción, ruta de inscripción 404.
+BLOQUEOS: A: pending/applied sin reanudación ni reparación (acción abortada → bloqueo permanente, escenario sin prueba), ventana de lease sin cercar reconocida, inventario/IAM/retención/costo/guarda de admisión/regresión financiera pendientes. B: emisor/sujeto sin fijar por acción, parser, emisor dedicado, operador, origen de hold, política por propósito, IAM pendientes; INCONCLUYENTE del corte base 2b1b141 se conservan. Ninguna pieza está integrada ni desplegada; el PASS no autoriza producción.
+=== FIN RESUMEN ===

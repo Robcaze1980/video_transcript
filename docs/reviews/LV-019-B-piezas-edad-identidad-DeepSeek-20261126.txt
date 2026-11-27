@@ -1,0 +1,63 @@
+# Revisión estática independiente
+
+Solicitud: 01b1c86c5dd902a00801c5fba59f45d7b23f47848fd8b17c8278a3e483cb6d25
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: INCONCLUYENTE
+Tokens entrada/cache/salida: 22856/0/20281
+Costo observado USD: 0.01253833317
+SHA-256 del informe original: a539a1369bc2dd1bfece32941d09550fbf0782eca1b33a7a68a7a5d0d5dedd03
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática, paquete aislado. No evalúo C2 ni producción.
+
+## PIEZA A — constancia durable de edad (3b96286 sobre 55ec1b0)
+
+**Examinado**
+- `server/commercial/firestoreBackend.ts`: helpers nuevos `AgeAttempt`/`readAgeAttempt`/`ageObservation`/`sameAgeAttempt`/`matchesAppliedAgeRow` (insertados tras `:304`), rama del barrido `:2466-2496` y método `escalateObservedIntentAge` desde `:2499` (prep ≈`:2505-2536`, acción ≈`:2538-2550`, `inspect`+fallback ≈`:2552-2566`).
+- `server/commercial/billingUnblock.ts:392` (borra `ageObservationId` al salir de revisión).
+- `server/commercial/firestoreAgeDurability.test.ts:1-190` y `billingFirestoreStub.ts:1-43`.
+
+**Hallazgos**
+- Forma/validación fail-closed correcta: `Object.keys(row).length!==8`, UUID v4, enteros seguros, regex de `sourceVersion` (`:308-321`). Un intento legado/malformado no autoriza (test `:155-162`).
+- Orden lecturas→escrituras se respeta en prep, acción e `inspect`; el orden de `getAll` coincide con el destructuring.
+- No hay falsa confirmación: `inspect` exige coincidencia exacta triple (intento + observación + fila con `ageObservationId`/`updatedAtMs`) y el fallback de ACK perdido es **solo lectura**, nunca repite el `update` a `confirmed` (`:2552-2554`); un `applied` no reconciliable devuelve `failed`, no `escalated` (tests `:44-53,79-95,118-136`).
+- Sin efecto en otra cuenta: el código no toca cuentas y los tests afirman saldos A/B intactos (`:41,160-161`).
+- **Riesgo no resuelto (versión):** `outboxVersion` = `doc.updateTime` (`:304`). Firestore no documenta `updateTime` como versión monótona por documento; el stub la fabrica con un contador (`billingFirestoreStub.ts:13-14`), así que la garantía anti-recreación (`:138-153`) descansa en semántica no probada. *Contraprueba:* en Firestore real, delete+recreate con valores idénticos y comprobar que `outboxVersion` cambia.
+- **Caminos que requieren reparación** (reconocidos, `README:5,30-32` pero severos): prior `pending`/`applied` ⇒ `failed` permanente (≈`:2516-2519`); una fila reabierta con intento `applied` nunca vuelve a escalar (`:118-136`); la observación histórica queda huérfana al reescribir el intento con `tx.set` (≈`:2533`).
+- **Conflación de reporte:** `outcome==='stopped'` incrementa `report.failed` (`:2492`), igual que un fallo real; no distingue incertidumbre de fallo.
+- `hasIntentLease`/`validUnleasedBillingMetadata` y `deferVerifiedReleaseAge` (`:2570-2624`) no se muestran completos; la ventana de lease ya se reconoce (`README:7`).
+
+**Negativos conservados:** ACK de prep/acción/confirmación perdidos, dos barredores solapados, recreación same-value, puntero obsoleto, observación desaparecida, metadata de versión ausente, intento legado malformado; y avance de B/outbox mientras A queda atascada.
+
+**Falta por comprobar:** semántica real de `updateTime`/reintentos de transacción en emulador y prod; `171/171` y `12/12` (solo en README, no en el paquete); el aviso de lock y la JVM terminada por handle limitan el 12/12; inventario+reparación, IAM, retención, costo y guarda de admisión.
+
+**Resultado A: INCONCLUYENTE.**
+
+## PIEZA B — proyección de identidad del verificador interno (3d2c9bf sobre 2b1b141)
+
+**Examinado**
+- `server/account/http.ts:4-6` (ensanche del tipo de retorno) y `:26-34` (autorización del router).
+- `server/account/runtime.ts:15-26` (`trustedServiceClaims` + `accountServiceIdentityVerifier`) y `:58-62` (cableado).
+- `server/account/http.test.ts:1-43` (fixture) y pruebas nuevas (`~:208-256`).
+
+**Hallazgos**
+- Verificación real preservada: `OAuth2Client` es real; solo se sustituye `getFederatedSignonCertsAsync` (`http.test.ts:15-18`), y los negativos de firma/payload/emisor/audiencia/expiración pasan.
+- Puerta de audiencia antes de obtener certificados (`runtime.ts:23`; el test afirma `certificates` no llamado).
+- Proyección mínima: solo `iss/sub/aud/email/email_verified`; claims de operador/scope/purpose se descartan (`test :229-233`). Sin autorización accidental: el router sigue exigiendo correo en lista + `email_verified===true` (`http.ts:30`); `iss/sub` no autorizan. Los adaptadores legados siguen satisfaciendo el tipo ensanchado (props nuevas opcionales). Router no registrado ⇒ sin ruta abierta (desconocidas → 404, `http.ts:26`).
+- **Frontera a tensar (no defecto actual):** `trustedServiceClaims` exige `iss` presente pero no lo fija (`runtime.ts:16-19`); un alias de emisor aceptado por el SDK pasa (`test :236-240`). La autorización no depende de ello, pero la futura política por propósito debe fijar emisor+sujeto.
+- No verificado aquí: `http.ts` líneas ~35-75 (rama de liquidación/release/capture) no se suministran; el cambio de tipo no añade fuga y en las ramas mostradas `caller` no se difunde a la respuesta (`:34-35`).
+
+**Negativos conservados:** firma/ payload alterados, emisor y audiencia ajenos, token expirado, `iss/aud/sub/email` ausentes o inválidos, correo fuera de lista, audiencia esperada incorrecta, ruta desconocida cerrada y cero llamadas al almacén.
+
+**Falta por comprobar:** obtención/rotación real de certificados y llamada real a Google; política por propósito, autenticación de operador, emisor de inscripción y origen de hold; IAM y corte/restauración; el log `133/133` como artefacto; integración/registro del router.
+
+**Resultado B: PASS** (solo del diff aislado; no es autorización de producción).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: A: protocolo prep→acción→confirmación internamente coherente y fail-closed (firestoreBackend.ts :304-326,:2466-2566; tests :1-190), con ventana de lease, versión basada en `updateTime` no probada y caminos pending/applied sin reparación. B: proyección mínima que conserva la verificación del SDK y la autorización legada por correo (runtime.ts:15-26, http.ts:4-6,30; tests :1-43).
+NEGATIVOS: A: ACK preparación/acción/confirmación perdidos, barredores solapados, recreación same-value, puntero obsoleto, observación desaparecida, metadata ausente, intento legado, sin mutación de cuentas. B: firma/payload alterados, emisor/audiencia ajenos, expirado, claims ausentes, correo no admitido, ruta interna desconocida 404, sin retención de claims de operador.
+BLOQUEOS: A: `updateTime` como versión, emulador con aviso de lock y JVM forzada, logs 171/171 y 12/12 solo en README, inventario/reparación, IAM/retención/costo/guarda de admisión. B: certificados y Google reales no consultados, líneas ~35-75 del router no aportadas, router sin registrar, política por propósito/operador/origen/IAM pendientes. No se declara ninguna integración terminada.
+=== FIN RESUMEN ===

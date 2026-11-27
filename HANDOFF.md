@@ -1,6 +1,6 @@
-# Continuidad de Vistavo · 26 nov 2026
+# Continuidad de Vistavo · 27 nov 2026
 
-Repositorio `Robcaze1980/video_transcript`. Este corte se prepara en `vistavo-checkpoint-20261125`, rama `codex/vistavo-checkpoint-20261125`. Desde otra PC, abre el commit que incorpore este corte y comprueba la rama y la revisión antes de continuar. Las candidatas aisladas citadas aún no están integradas solo por aparecer aquí.
+Repositorio `Robcaze1980/video_transcript`. El corte de continuidad está en la rama `codex/vistavo-continue-20261127`. Desde otra PC, comprueba la rama y la revisión antes de continuar. Las candidatas aisladas citadas aún no están integradas solo por aparecer aquí.
 
 Empieza por [MASTERPLAN](MASTERPLAN.md), [backlog](backlog.md) y [gantt](gantt.md). El [recibo del corte](docs/evidence/lv019-b-checkpoint-20261126/README.md) identifica las instantáneas probadas, los informes disponibles en `docs/reviews/` y las rutas de evidencia local. Git ignora `outputs/`; esos registros no viajan al clonar. [HANDOFF anterior archivado íntegro · histórico](docs/history/HANDOFF-before-checkpoint-2026-11-26.md).
 
@@ -13,6 +13,8 @@ La [investigación de Firestore](docs/reviews/LV-019-B-firestore-commit-concilia
 El prototipo `0e6876b` de ese cerco pasó **120/120** en memoria y obtuvo dos revisiones PASS acotadas; el seguimiento `61c54b1` añadió controles y pasó **127/127** sin cambiar runtime. La autorización y el ancla se siembran en las pruebas; aún faltan emisor, ruta e IAM reales, corte y migración. [Alcance](docs/reviews/LV-019-B-cerco-cuenta-0e6876b-adjudicacion-20261126.md).
 
 El diseño de inscripción `fca7bd3` conserva la ruta cerrada; el seguimiento documental `2b1b141` repitió **130/130** pruebas existentes. GLM y DeepSeek siguen INCONCLUYENTES: faltan concretar autoridad, origen, idempotencia y conexión real. [Contraste](docs/reviews/LV-019-B-inscripcion-2b1b141-adjudicacion-20261126.md).
+
+El foco aislado `39e0529` pasó **5/5** en emulador para respuestas inciertas, devolución y cortes inválidos; no sustituye la batería completa. El seguimiento de edad `3b96286` pasó **171/171** en memoria y **12/12** en emulador, sin guarda de entrada; GLM dio PASS limitado y DeepSeek INCONCLUYENTE. La proyección de identidad `3d2c9bf` pasó **133/133** locales y obtuvo dos PASS limitados, con la ruta cerrada. Falta resolver los estados ambiguos de edad y las dependencias de identidad. [Contraste](docs/reviews/LV-019-B-piezas-edad-identidad-adjudicacion-20261126.md) · [Foco](https://github.com/Robcaze1980/video_transcript/blob/39e05297b27811b14aafbbf29156dab5c6f7ea8a/docs/evidence/lv019-b-unblock-focus-20261126/README.md).
 
 ## Estado para retomar
 
