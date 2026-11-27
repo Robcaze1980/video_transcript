@@ -1,7 +1,7 @@
 import {createHash,generateKeyPairSync,randomUUID,sign} from 'node:crypto';
 import {expect,it,vi} from 'vitest';
 import {AccountStore} from './backend';
-import {unblockPermitBytes,unblockReceiptBytes} from './unblockHistoryProof';
+import {unblockPermitBytes,unblockReceiptBytes,type UnblockHistoryTrust} from './unblockHistoryProof';
 
 type Row=Record<string,unknown>;
 type Ref={path:string};
@@ -141,8 +141,8 @@ function fixture(){
  const economicSnapshot=()=>[...a.economic,...b.economic].map(path=>structuredClone(rows.get(path)));
  const unconfiguredStore=()=>new AccountStore(db as never,root as never,()=>100);
  const sharedKeyStore=()=>new AccountStore(db as never,root as never,()=>100,{...trust,receiptKey:trust.permitKey});
- const storeWithMalformedTrust=(overrides:Record<string,unknown>)=>
-  new AccountStore(db as never,root as never,()=>100,{...trust,...overrides} as never);
+ const storeWithMalformedTrust=(configure:(trust:UnblockHistoryTrust)=>unknown)=>
+  new AccountStore(db as never,root as never,()=>100,configure({...trust}) as never);
  return {a,b,store,rows,writes,at,put,recreate,freshStore,unconfiguredStore,sharedKeyStore,storeWithMalformedTrust,
   economicSnapshot,snapshot:()=>structuredClone(rows),
   transactions:()=>transactions,dropNextAck:()=>{dropAck=true;},rejectNextCommit:()=>{failCommit=true;}};
@@ -279,16 +279,28 @@ it('rejects a receipt signed for a different unblock protocol even when every ot
  expect(f.writes).toEqual([a.receiptPath,a.incidentPath,a.guardPath]);
 });
 
-it.each([
- ['receipt private key',()=>({receiptKey:generateKeyPairSync('ed25519').privateKey})],
- ['receipt public key from another algorithm',()=>({receiptKey:generateKeyPairSync('ec',{namedCurve:'prime256v1'}).publicKey})],
- ['missing permit key',()=>({permitKey:undefined})],
- ['missing receipt key',()=>({receiptKey:undefined})],
- ['non-key permit value',()=>({permitKey:{}})],
-] as const)('rejects malformed trusted configuration (%s) before a transaction',async(_label,overrides)=>{
+const rejectProxyPropertyAccess=()=>{throw Error('invalid trust proxy was inspected');};
+const proxyTraps={get:rejectProxyPropertyAccess,getOwnPropertyDescriptor:rejectProxyPropertyAccess};
+const invalidTrustCases:[string,(trust:UnblockHistoryTrust)=>unknown][]=[
+ ['permit private key',trust=>({...trust,permitKey:generateKeyPairSync('ed25519').privateKey})],
+ ['permit public key from another algorithm',trust=>({...trust,
+  permitKey:generateKeyPairSync('ec',{namedCurve:'prime256v1'}).publicKey})],
+ ['receipt private key',trust=>({...trust,receiptKey:generateKeyPairSync('ed25519').privateKey})],
+ ['receipt public key from another algorithm',trust=>({...trust,
+  receiptKey:generateKeyPairSync('ec',{namedCurve:'prime256v1'}).publicKey})],
+ ['missing permit key',trust=>({...trust,permitKey:undefined})],
+ ['missing receipt key',trust=>({...trust,receiptKey:undefined})],
+ ['non-key permit value',trust=>({...trust,permitKey:{}})],
+ ['empty realm',trust=>({...trust,realm:''})],
+ ['whitespace-only realm',trust=>({...trust,realm:' \t\n'})],
+ ['configuration proxy',trust=>new Proxy(trust,proxyTraps)],
+ ['receipt key proxy',trust=>({...trust,receiptKey:new Proxy(trust.receiptKey,proxyTraps)})],
+];
+
+it.each(invalidTrustCases)('rejects malformed trusted configuration (%s) before a transaction',async(_label,configure)=>{
  const f=fixture(),{a}=f;
  a.grant();
- const store=f.storeWithMalformedTrust(overrides());
+ const store=f.storeWithMalformedTrust(configure);
  const before=f.snapshot();
  const answers=await Promise.allSettled([
   store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command),
