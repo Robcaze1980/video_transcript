@@ -2,17 +2,18 @@
 // Contract: docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md (2 decisions 4 and 8, 3.3, 3.6, 4 tests 11/12/13, 6).
 // A real AccountStore runs against the fixed emulator; every fixture is deleted in the finally cleanup.
 import assert from 'node:assert/strict';
+import {prepareFinancialOwnedRoot,deleteFinancialOwnedRoot} from '../commercial/financialOwnedRootGuard.mjs';
 import {test,before,afterEach} from 'node:test';
 import {createHash,randomUUID} from 'node:crypto';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getFirestore,FieldValue} from 'firebase-admin/firestore';
 import {AccountStore} from './backend.ts';
-if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8185')throw Error('Dedicated loopback emulator required, no fallback');
+if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8198')throw Error('Dedicated loopback emulator required, no fallback');
 const fixtures=[];
-before(async()=>{assert.equal((await fetch('http://127.0.0.1:8185/')).status,200);});
-afterEach(async()=>{for(const f of fixtures.splice(0)){await f.db.recursiveDelete(f.root);await f.db.terminate();await deleteApp(f.app);}});
+before(async()=>{assert.equal((await fetch('http://127.0.0.1:8198/')).status,200);});
+afterEach(async()=>{for(const f of fixtures.splice(0))try{await deleteFinancialOwnedRoot(f.db,f.root,f.marker);}finally{await f.db.terminate();await deleteApp(f.app);}});
 // Injectable clock: the guard `createdAtMs` is the discriminator a stale unblock must miss.
-function fixture(){const app=initializeApp({projectId:'demo-vistavo-ledger'},'unblock-'+randomUUID()),db=getFirestore(app),root=db.collection('vistavo_account_test').doc(randomUUID()),f={app,db,root,time:1_800_000_000_000};f.store=new AccountStore(db,root,()=>f.time);fixtures.push(f);return f;}
+async function fixture(){const app=initializeApp({projectId:'demo-vistavo-financial'},'unblock-'+randomUUID()),db=getFirestore(app),root=db.collection('vistavo_account_test').doc(randomUUID()),f={app,db,root,time:1_800_000_000_000,marker:{project:'demo-vistavo-financial',purpose:'account-unblock-synthetic',nonce:randomUUID()}};f.store=new AccountStore(db,root,()=>f.time);fixtures.push(f);await prepareFinancialOwnedRoot(db,root,f.marker);return f;}
 const reject=(p,code)=>assert.rejects(p,e=>e.code===code,'expected '+code);
 const guardRef=(f,accountId)=>f.root.collection('videoBillingGuards').doc(accountId);
 const incidentRef=(f,accountId,incident)=>f.root.collection('videoBillingIncidents').doc(createHash('sha256').update(JSON.stringify([accountId,incident])).digest('hex'));
@@ -34,7 +35,7 @@ async function owner(f,uid,credited=90){
 const callKey='text-window:0000',model='gemini-3.8-flash';
 
 test('an audited unblock of the only incident deletes the guard and restores reserve, admit and settle',async()=>{
- const f=fixture(),{key,accountId}=await owner(f,'unblock-single'),incident=randomUUID(),ref='review-ref-'+randomUUID();
+ const f=await fixture(),{key,accountId}=await owner(f,'unblock-single'),incident=randomUUID(),ref='review-ref-'+randomUUID();
  assert.equal((await guardRef(f,accountId).get()).exists,false);
  assert.deepEqual(await f.store.blockVideoBilling(key,incident),{blocked:true,recorded:true,created:true});
  const guard=await guardRef(f,accountId).get();assert.equal(guard.get('epoch'),1);assert.equal(guard.get('createdAtMs'),f.time);assert.equal(guard.get('incidentCount'),1);
@@ -54,7 +55,7 @@ test('an audited unblock of the only incident deletes the guard and restores res
 });
 
 test('an identical unblock is a replay without writes; a different payload is a conflict',async()=>{
- const f=fixture(),{key,accountId}=await owner(f,'unblock-replay'),incident=randomUUID(),ref='review-ref-'+randomUUID();
+ const f=await fixture(),{key,accountId}=await owner(f,'unblock-replay'),incident=randomUUID(),ref='review-ref-'+randomUUID();
  await f.store.blockVideoBilling(key,incident);const guard=await guardRef(f,accountId).get();
  const request={incidentId:incident,epoch:guard.get('epoch'),createdAtMs:guard.get('createdAtMs'),reviewRef:ref};
  assert.deepEqual(await f.store.unblockVideoBilling(key,request),{unblocked:true,replayed:false,blocked:false});
@@ -68,7 +69,7 @@ test('an identical unblock is a replay without writes; a different payload is a 
 });
 
 test('an unblock naming a stale epoch or createdAtMs is refused; after a re-block only the current guard applies',async()=>{
- const f=fixture(),{key,accountId}=await owner(f,'unblock-stale'),first=randomUUID(),second=randomUUID(),ref='review-ref-'+randomUUID();
+ const f=await fixture(),{key,accountId}=await owner(f,'unblock-stale'),first=randomUUID(),second=randomUUID(),ref='review-ref-'+randomUUID();
  await f.store.blockVideoBilling(key,first);const a=await guardRef(f,accountId).get(),createdA=a.get('createdAtMs');
  assert.equal(createdA,f.time);
  await f.store.unblockVideoBilling(key,{incidentId:first,epoch:a.get('epoch'),createdAtMs:createdA,reviewRef:ref});
@@ -87,7 +88,7 @@ test('an unblock naming a stale epoch or createdAtMs is refused; after a re-bloc
 });
 
 test('a missing or reviewed incident, a stale guard and a missing or oversized reviewRef are refused without writes',async()=>{
- const f=fixture(),{key,accountId}=await owner(f,'unblock-invalid'),incident=randomUUID(),ref='review-ref-'+randomUUID();
+ const f=await fixture(),{key,accountId}=await owner(f,'unblock-invalid'),incident=randomUUID(),ref='review-ref-'+randomUUID();
  await f.store.blockVideoBilling(key,incident);const guard=await guardRef(f,accountId).get();
  const base={incidentId:incident,epoch:guard.get('epoch'),createdAtMs:guard.get('createdAtMs'),reviewRef:ref};
  const before=await signature(f);
@@ -107,7 +108,7 @@ test('a missing or reviewed incident, a stale guard and a missing or oversized r
 });
 
 test('two incidents keep the account blocked after the first unblock and open it only after the second',async()=>{
- const f=fixture(),{key,accountId}=await owner(f,'unblock-two'),first=randomUUID(),second=randomUUID(),ref='review-ref-'+randomUUID();
+ const f=await fixture(),{key,accountId}=await owner(f,'unblock-two'),first=randomUUID(),second=randomUUID(),ref='review-ref-'+randomUUID();
  await f.store.blockVideoBilling(key,first);await f.store.blockVideoBilling(key,second);
  const guard=await guardRef(f,accountId).get();assert.equal(guard.get('incidentCount'),2);assert.equal(guard.get('epoch'),2);
  assert.deepEqual(await f.store.unblockVideoBilling(key,{incidentId:first,epoch:2,createdAtMs:guard.get('createdAtMs'),reviewRef:ref}),{unblocked:true,replayed:false,blocked:true});
@@ -125,7 +126,7 @@ test('two incidents keep the account blocked after the first unblock and open it
 // open while the second incident is still unreviewed, and a live newer incident is never silently absorbed.
 test('a concurrent incident never lets a stale unblock open an account that still owes a review',async()=>{
  for(let round=0;round<6;round++){
-  const f=fixture(),{key,accountId}=await owner(f,'unblock-race'),first=randomUUID(),second=randomUUID(),ref='review-ref-'+randomUUID();
+  const f=await fixture(),{key,accountId}=await owner(f,'unblock-race'),first=randomUUID(),second=randomUUID(),ref='review-ref-'+randomUUID();
   await f.store.blockVideoBilling(key,first);const guard=await guardRef(f,accountId).get();
   const [unblock,block]=await Promise.allSettled([
    f.store.unblockVideoBilling(key,{incidentId:first,epoch:guard.get('epoch'),createdAtMs:guard.get('createdAtMs'),reviewRef:ref}),
@@ -155,7 +156,7 @@ test('a concurrent incident never lets a stale unblock open an account that stil
 });
 
 test('the reviewed reader reports blocked without recorded, and rejects corruption',async()=>{
- const f=fixture(),{key,accountId}=await owner(f,'unblock-reader'),first=randomUUID(),second=randomUUID(),third=randomUUID(),ref='review-ref-'+randomUUID();
+ const f=await fixture(),{key,accountId}=await owner(f,'unblock-reader'),first=randomUUID(),second=randomUUID(),third=randomUUID(),ref='review-ref-'+randomUUID();
  // (a) A single reviewed incident with the guard gone: not recorded (no ACTIVE incident with that id) and not blocked.
  await f.store.blockVideoBilling(key,first);let guard=await guardRef(f,accountId).get();
  await f.store.unblockVideoBilling(key,{incidentId:first,epoch:guard.get('epoch'),createdAtMs:guard.get('createdAtMs'),reviewRef:ref});
@@ -178,7 +179,7 @@ test('the reviewed reader reports blocked without recorded, and rejects corrupti
 });
 
 test('a new incident keeps the reviewed counter, and only the last review deletes the guard',async()=>{
- const f=fixture(),{key,accountId}=await owner(f,'unblock-counter'),a=randomUUID(),b=randomUUID(),c=randomUUID(),ref='review-ref-'+randomUUID();
+ const f=await fixture(),{key,accountId}=await owner(f,'unblock-counter'),a=randomUUID(),b=randomUUID(),c=randomUUID(),ref='review-ref-'+randomUUID();
  await f.store.blockVideoBilling(key,a);await f.store.blockVideoBilling(key,b);
  const ab=await guardRef(f,accountId).get();assert.equal(ab.get('incidentCount'),2);assert.equal(ab.get('epoch'),2);
  assert.deepEqual(await f.store.unblockVideoBilling(key,{incidentId:a,epoch:2,createdAtMs:ab.get('createdAtMs'),reviewRef:ref}),{unblocked:true,replayed:false,blocked:true});
@@ -199,13 +200,13 @@ test('a new incident keeps the reviewed counter, and only the last review delete
 
 // Codex additions after the independent review and the mutation round: the identity gate and the status reader.
 test('an unprovisioned identity is refused with account_not_provisioned and nothing is written',async()=>{
- const f=fixture(),key=AccountStore.identityKey('unblock-nobody');
+ const f=await fixture(),key=AccountStore.identityKey('unblock-nobody');
  await reject(f.store.unblockVideoBilling(key,{incidentId:randomUUID(),epoch:1,createdAtMs:1,reviewRef:'review-ref'}),'account_not_provisioned');
  assert.deepEqual(await signature(f),[]);
 });
 
 test('the status reader fails closed on an ACTIVE incident whose guard is absent and tolerates a reviewed one',async()=>{
- const f=fixture(),{key,accountId}=await owner(f,'unblock-status'),incident=randomUUID();
+ const f=await fixture(),{key,accountId}=await owner(f,'unblock-status'),incident=randomUUID();
  await f.store.blockVideoBilling(key,incident);
  assert.deepEqual(await f.store.videoBillingHold(key,incident),{blocked:true,recorded:true});
  // An active incident can never exist without its guard: that is corruption and must not read as «open».

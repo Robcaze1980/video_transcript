@@ -38,10 +38,10 @@ class MemoryObjects{
  async read(object,range){const x=this.data.get(object.key);if(!x||x.generation!==object.generation)throw new ObjectFault('missing');return Readable.from(range?x.bytes.subarray(range.start,range.end+1):x.bytes);}
  async barrier(key){if(this.failBarrier){this.failBarrier=false;throw new ObjectFault('remote');}const old=this.meta(key);return old?.marker?old:this.save(key,Buffer.alloc(0),true);}
 }
-before(async()=>{assert.equal(process.env.FIRESTORE_EMULATOR_HOST,'127.0.0.1:8185','No native cloud fallback');assert.equal((await fetch('http://127.0.0.1:8185/')).status,200);});
+before(async()=>{assert.equal(process.env.FIRESTORE_EMULATOR_HOST,'127.0.0.1:8198','No native cloud fallback');assert.equal((await fetch('http://127.0.0.1:8198/')).status,200);});
 afterEach(async()=>{for(const c of contexts.splice(0))try{if(c.server){c.server.closeAllConnections();await new Promise(r=>c.server.close(r));}await cleanupFinancialFixture(c,'vistavo_ai_integration_test');}finally{await c.db.terminate();if(c.app)await deleteApp(c.app);}});
 async function fixture(){
- const app=process.env.LV_FINANCIAL_REGRESSION==='1'?null:initializeApp({projectId:'demo-vistavo-ledger'},'lv-ai-test-'+randomUUID()),db=app?getFirestore(app):new Firestore({projectId:'demo-vistavo-ledger',host:'127.0.0.1:8185',ssl:false,preferRest:false}),root=db.collection('vistavo_ai_integration_test').doc(randomUUID()),backend=new FirestoreBackend(db,root),objects=new MemoryObjects();
+ const app=process.env.LV_FINANCIAL_REGRESSION==='1'?null:initializeApp({projectId:'demo-vistavo-financial'},'lv-ai-test-'+randomUUID()),db=app?getFirestore(app):new Firestore({projectId:'demo-vistavo-financial',host:'127.0.0.1:8198',ssl:false,preferRest:false}),root=db.collection('vistavo_ai_integration_test').doc(randomUUID()),backend=new FirestoreBackend(db,root),objects=new MemoryObjects();
  const ai=new FirestoreAi(db,root,backend,objects),files=new FirestoreFiles(db,root,objects,{chunkBytes:4},(account,input)=>ai.purgeInput(account,input));
  const c={app,db,root,backend,objects,ai,files};contexts.push(c);await prepareFinancialFixture(c,'vistavo_ai_integration_test');
  const uid='fixture-ai-owner-'+randomUUID(),foreignUid='fixture-ai-foreign-'+randomUUID(),account=await backend.accountForUid(uid),foreign=await backend.accountForUid(foreignUid);
