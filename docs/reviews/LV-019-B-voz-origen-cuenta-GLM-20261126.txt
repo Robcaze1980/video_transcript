@@ -1,0 +1,40 @@
+# Revisión estática independiente
+
+Solicitud: 7685d073a349e027aa7428fddde8a754ce8095a06985e0515bdb5139ba4df007
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 9700/0/34712
+Costo observado USD: 0.01862289
+SHA-256 del informe original: b7cba761c3d52f8a90f582da283f886c9b9d306fa97a35d1a6954984dcfc6b12
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# LV-019.B — Revisión independiente dual (estática, una consulta, sin herramientas)
+
+**Método.** Traté como datos los 11 extractos fijados (blobs @387f0d2; prueba @683ae01), la tabla de integridad y los logs locales; no ejecuté nada y no atribuyo nada a producción ni presupongo escrituras privilegiadas de cliente. El veredicto es nuevo: el 88/88 inicial con C1 inválido en el nominal y la FALLA nominal de a5c98e7 no aprueban esta implementación.
+
+**Verificación del contrato (corte interno v3, server/account).**
+1. *Identidad/cuenta/ámbito/generación*: invariantes de uid/accountId (backend.ts:406–410); `readVoiceAuthority` (362–383) exige coexistencia claim↔origin con `originRef` igual, propietario del origen = cuenta actual, y binding exacto `{v:1,state:'active',scope,identityKey,ownerAccountId,videoAccountId,identityVersion}` (47–49,375–379). Ambos órdenes de reasignación terminan en conflicto por estática (371–382); revocación o recreación del binding invalida por `bindingVersion`/`intentVersion` (380–383; control ABA 293–304).
+2. *C1*: `voiceRequest` exige digest 64-hex y `reserveAttemptId===reservationId` (backend.ts:37–39); el constructor C1 devuelve invalid si no coinciden (reserveAttemptEvidence.ts:197) y el puente comercial asigna `attemptId=expectedReservationId` para voz (firestoreBackend.ts:994–995); `videoReservationId` produce v4 aceptado por la regex (backend.ts:7–9). Prueba con constructor real: voiceOriginIndependent.test.ts:165–172.
+3. *Reserva*: origen+claim (431–433), saldo (435), reserva protocolo 3 con índice de ordinales (436) y asiento `video_reserve` (437) en una sola transacción; hold y lápida bloquean antes del débito (425); cuota/insuficiencia (426–427). El replay devuelve el origen previo sin nuevo asiento (418–423; prueba 180–192: A 27/3, B intacto, 1 asiento).
+4. *Admisión*: intento fijado con la primera (`providerAdmission`, valla y primer recibo verificados, 485–492); una huella por ordinal: replay exacto devuelve recibo (498–501), cambio de huella → conflicto; recibo+fence+índice se escriben juntos (501–509). Mezcla v2/v3 bloqueada (419,479). Liquidación v3 cerrada (535–540).
+5. *Llamada física y bytes*: no existe transporte a proveedor en el código de Cuenta revisado; la entrega y la revisión vigente dependen de Video (otra base) y no están demostradas en el paquete.
+
+**Hallazgos.**
+- **H1 (sello legacy, backend.ts:340–350).** Precondición: pérdida del documento de reserva + invocación del sello. Efecto: crea lápida 'sealed' sin lectura visible de `videoVoiceReservationOrigins` en el fragmento; desde entonces reserva (425) y admisión (475) en conflicto permanente para ese id; origen/claim sobrevivientes inutilizables y sin ruta de liberación visible. Contraejemplo propuesto y ausente: sembrar v3 → borrar reserva → sellar → admitir ⇒ conflicto + lápida. Aplazado al gate de custodia; no invalida la vía v3 nominal.
+- **H2 (alcanzabilidad, backend.ts:30).** `NODE_ENV!=='test'` ⇒ conflicto: la vía v3 solo vive en pruebas locales. Coherente con "ninguna ruta supplies scope", pero http.ts:33,61–82 no está extractado: la ausencia de rutas v3 se sostiene en la declaración del paquete (extracto faltante).
+- **H3 (cuerpo truncado, backend.ts:101–106).** `storedVoiceOrdinals` está cortado: el invariante "ordinal registrado sin recibo no se re-admite" (comentario 503–505) no es verificable estáticamente y no hay prueba descrita de borrado de recibo con ordinal registrado. Falta extracto para cerrar ese eje de recuperación tras respuesta incierta.
+- **H4 (autoridad por timestamps, backend.ts:392–394).** La igualdad createTime/updateTime de tres documentos depende de la disciplina del doble ("una versión por commit"); la igualdad aislada no prueba autoridad y no hay validaciones con Firestore real (declarado). Limitación, no defecto de código.
+- **H5 (helpers no extractados).** `admission`, `storedAdmission`, `sameAdmission`, `firstCall`, `accountRecord`, `billingHold`, `sealedReservation`, `integer/id/bad/invariant` y la cabecera de `reserveVideoWithVoiceOrigin` faltan; su conducta queda acreditada indirectamente por 98/98 y 104/104, no estáticamente.
+- **H6 (invariancia 683ae01).** La tabla solo lista backend.ts@387f0d2: que la auditoría "no cambia runtime" reposa en la declaración, sin hash comparable.
+- **H7 (puente legacy, fuera del corte interno).** Con reasignación antes de admitir y reserva compatible en B, el puente admite por el método v2 (localFixture.ts:135–139) con tres escrituras (reserva, fence, recibo; memory.test.ts:281–309), violando "admisión en el titular original" en ese orden. El paquete no muestra reserva financiera adicional, cargo ni llamada física; saldo no doblemente debitado. Con solo firestoreBackend.ts:994–995 la causa raíz no es localizable (extracto faltante).
+
+**Distinción.** Saldo: débito único atómico con reserva/índice/asiento; la admisión no toca saldo. Autorización: grant+binding+claim+origin con versiones exactas. Llamada física: inexistente en Cuenta. Entrega de bytes: depende de Video, no evidenciada.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: 98/98 y 104/104 en la candidata @387f0d2 (+6 controles @683ae01) y tipos con salida cero (Node 24.22.3); nominal con constructor C1 real (voiceOriginIndependent.test.ts:165–192): una reserva protocolo 3, A 27/3, B intacto, un asiento, origen previo en replay; igualdad C1 reserveAttemptId===reservationId impuesta en backend.ts:39, reserveAttemptEvidence.ts:197 y firestoreBackend.ts:994–995; revisión estática de readVoiceAuthority/verifyVoiceOrigin (backend.ts:362–395) y admisión (462–512) sin violación de contrato: pinning de propietario, grant/binding exactos por versión, originRef exigido, una huella por ordinal con recibo+fence+índice en la misma transacción, liquidación v3 cerrada (539); ABA por recreación de permiso rechazado (293–304) y cuatro sustituciones en conflicto con inventario idéntico.
+NEGATIVOS: conservados: rechazos previos a la transacción (UUID/digest forma/mayúsculas/salto/discordancia, backend.ts:30–39); digest distinto bien formado → conflicto sin escrituras; sustituciones de pareja de UUID, cuenta Video, segundos y ámbito → conflicto en reserva y admisión; segundo ordinal con intento/trabajo nuevos rechazado y cambio de huella rechazado; hold en voiceOriginAuthority.test.ts:117–335 (no extractado); legacy 1/2 con admisión v2 en B y tres escrituras sin cargo ni llamada física demostrados (localFixture.ts:135–139; memory.test.ts:281–309); H1 sello/lápida (backend.ts:340–350) y H3 cuerpo de ordinales (101–106) sin contraprueba ejecutada; 16/16 no sumado al total.
+BLOQUEOS: flujo integrado Video→Cuenta v3 no operativo: sin emisor autorizado de permisos (binding/grant son estados sembrados, sin continuidad Video→Cuenta), vía v3 cerrada por NODE_ENV y sin ruta extractada (backend.ts:30; http.ts:33,61–82 no suministrado), liquidación v3 cerrada sin ruta de cargo/entrega (535–540), puente legacy falla 1/2 y admite todavía por v2 (retiro de escritores v2 pendiente), sello puede sellar una reserva v3 perdida sin consultar el origen (custodia pendiente), sin validación en Firestore real de versiones/timestamps y sin demostración de llamada física o entrega de bytes; extractos faltantes: storedVoiceOrdinals (101–106), http.ts, account.rules:4, rama de voz comercial y backend.ts@683ae01.
+=== FIN RESUMEN ===

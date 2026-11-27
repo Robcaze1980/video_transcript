@@ -1,0 +1,7 @@
+# LV-019.B · Candidata de integración financiera, trabajo en curso
+
+**26 nov 2026. No es una aceptación ni un despliegue.** Esta rama une la corrección de titular de `613ea52cc3b67ffb520ead9b0530d0ee6b066dcf` con el checkpoint documental `0acf3476e52c47c0f03009cd3308799e00997784`. El código financiero procede de la primera rama; la unión no incorpora el prototipo de Cuenta `d01541c`, que conserva dos contrapruebas rojas, ni la guarda de entrada aún inexistente.
+
+En el árbol combinado, con Node 24.22.3 y dependencias instaladas con `npm ci --ignore-scripts`, las suites `unblockContinuityIndependent.test.mjs` y `alertContractReview.test.mjs` pasaron **57/57** en memoria y `tsc --noEmit` terminó sin errores. La [salida focal](focal-vitest.log) tiene SHA-256 `f9c0319aa8186df95f320c632005819f8cce5139bd74a517041b423f129b68f5`; la salida vacía de tipos tiene SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`. No se usó un emulador ni servicio real en esta ejecución.
+
+La prueba previa **29/29** en Firestore Emulator pertenece a la candidata de la corrección anterior, con sus [propios límites](https://github.com/Robcaze1980/video_transcript/blob/54240217d2e247a7c72cbbb3572525ef476f3ff7/docs/evidence/lv019-b-applied-owner-firestore-20261126/README.md). No se extrapola como batería completa del árbol combinado. Siguen abiertos los casos de respuesta perdida, procedencia, D2, guarda de admisión, corte y migración. Se requieren la regresión financiera completa y las revisiones independientes del corte final antes de su aceptación.

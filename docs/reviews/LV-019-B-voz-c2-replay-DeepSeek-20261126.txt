@@ -1,0 +1,24 @@
+# Revisión estática independiente
+
+Solicitud: 61f3906b2fc260a822517aba15fd21dcb5b9b4d8c28ad0703812da13ccef9241
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 11604/0/37370
+Costo observado USD: 0.047841948
+SHA-256 del informe original: 4c8530f7fb967f1b8f069363f28ddff95158e7c6083cf49f217db83eefc71e85
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Defectos probados: no encuentro un fallo concreto en el alcance corregido por `975ce3e`. El rojo previo de `542a758` queda atacado en `server/commercial/reviewedVoiceFragment.memory.ts:157-165`: tras la primera lectura, si `original` es nulo y existe una entrada previa exacta sin bytes, devuelve `unknown` antes de llamar a Cuenta. La comparación de `requestFingerprint` en `:160-161` impide que principal, cuerpo, modelo u operación distintos se beneficien del fallback. La entrega sigue ligada a `receipt.created` y a la segunda lectura con historial idéntico en `:178-183`. La inspección separa recibo y bytes en `:194-197`.
+
+Contratos intencionales y evidencia: el replay tras `sent` con lectura que no permite iniciar devuelve `rejected` por `previous.bytes` en `:164`; con lectura válida devuelve `unknown` por `:165`. El recibo sin bytes conserva `unknown` y no entrega. Las banderas `NODE_ENV`/`LV_VOICE_C2_MEMORY_TEST` se comprueban antes de puertos en `:151` y después de la primera lectura en `:159`; si se cierran durante la admisión, `:176` conserva recibo y `:178` impide bytes. El replay no crea nueva admisión porque `:164-165` retornan antes de `admitForTest`. La cerca de reserva y el contrato ordinal de Cuenta están en `server/account/backend.ts:371-398`: mismo ordinal con otro hash conflictúa, replay exacto devuelve `receiptOnly`, y una clave ordinal nueva de la misma familia/modelo/mismo intento obtiene su propio recibo. La prueba unitaria `server/account/videoAdmissionFragments.test.ts:48-67` usa doble de transacción; el emulador lo cubre en `server/account/backendProtected.emulator.mjs:517-525`. La prueba de memoria `server/commercial/reviewedVoiceFragment.memory.test.ts:220-253` cubre la pérdida de admisión; `:278-323` cubre segunda lectura perdida y cierre de banderas. El emulador pasa de rojo 7/8 en `run-f5ca3b75` a verde 8/8 en `run-d37da831`.
+
+Límites no probados: el control adicional de replay con `LV_VOICE_C1_FIXTURE`/`LV_VOICE_C2_FIXTURE` apagados sigue pendiente (`[[EMULATOR_CONTROLES_C1_C2_APAGADOS_PENDIENTE]]`). Estáticamente, `reviewedVoiceFragment.localFixture.ts:106` devuelve nulo antes de Firestore si la puerta está cerrada, y `reviewedVoiceFragment.memory.ts:164` conservaría `unknown`; pero no está ejecutado. La hipótesis de cambio de titularidad antes de la admisión con otra reserva compatible bajo vínculo alterado no es un fallo probado en este paquete: la relectura posterior en `reviewedVoiceFragment.memory.ts:179` impediría la entrega si cambia el historial, pero no prueba que AccountStore impida la admisión durable previa; requiere autoridad de Cuenta/emulador. Tampoco está medido el conteo de lecturas Firestore en replay exacto sin bytes cuando la puerta del adaptador está abierta: el puente llama a `readVerifiedC1` en `:157` antes de resolver el fallback de diario en `:160-164`.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: El candidato 975ce3e corrige el rojo de 542a758 en server/commercial/reviewedVoiceFragment.memory.ts:164 al devolver unknown si existe entrada exacta sin bytes; requestFingerprint en :160-161 liga el fallback a principal y solicitud; entrega solo con receipt.created e historial idéntico en :178-183; pruebas unitarias 100/100, tipos exit=0, emulador 8/8 en run-d37da831 y rojo previo 7/8 en run-f5ca3b75.
+NEGATIVOS: Verificados replay exacto tras pérdida de admisión, recibo sin bytes, segunda lectura perdida, cierre de NODE_ENV/LV_VOICE_C2_MEMORY_TEST, rechazo de principal/contenido/modelo/operación distintos, replay tras sent con lectura bloqueada, y contrato ordinal en backend.ts:371-398 con pruebas unitaria y de emulador; pendiente el control de replay con C1/C2 apagados.
+BLOQUEOS: Pendiente [[EMULATOR_CONTROLES_C1_C2_APAGADOS_PENDIENTE]]; hipótesis de cambio de titularidad antes de la admisión requiere verificación de AccountStore/emulador; no medido el conteo de lecturas Firestore en replay exacto sin bytes con puerta de adaptador abierta.
+=== FIN RESUMEN ===

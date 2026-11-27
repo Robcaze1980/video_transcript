@@ -1,0 +1,55 @@
+# Revisión estática independiente
+
+Solicitud: 42efce574ca919662946e3b8cf67ac293e014e8de4e675774e578a72a753d77e
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 8229/19/36084
+Costo observado USD: 0.01826844525
+SHA-256 del informe original: 7a247bdc79f53e09c799210351b3ece04bd7ae57815c0b9c93155576732e18d9
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+## Revisión estática LV-019.B — fachada de conteos (commit 8ad5b3c4 sobre 4cb0cf09)
+
+**Alcance tratado.** Solo la candidata aislada: tres módulos de lectura (readOnlyFirestoreRoot.ts, billingReadOnlyRoot.ts, billingQueueCounts.ts) y dos suites (billingReadOnlyRoot.test.ts, billingQueueCounts.test.ts). billingPendingReport.ts se trata como contexto sin cambios. Quedan fuera, conforme al encargo: A2 (billingSweepSection.ts / billingPendingSweep.ts), la API del operador, la otra candidata financiera y los módulos no modificados. Sin herramientas; los recortes y huellas se toman como datos.
+
+**1. Tipo, valor y ausencia (el parche).**
+- Proyección en readOnlyFirestoreRoot.ts:50–54: campo ausente se omite (:51 `if(!has(data,key))continue;`); valor escalar —incluido null almacenado, porque `isScalar` (:43) acepta null— se copia tal cual (:53); compuesto recorre dropIfNotScalar → nullIfNotScalar → '[object]' (:54). Con la política de guardia (billingReadOnlyRoot.ts:17–19) el compuesto en lastIncidentId/lastOutboxIncidentId queda null y un literal '[object]' permanece cadena. Fila 3 de la tabla fijada por billingReadOnlyRoot.test.ts:57–69.
+- Prioridad del filtro de omisión: dropIfNotScalar se evalúa antes que nullIfNotScalar (else-if en :54); un campo en ambas listas se omitiría, no se anularía. En el paquete no hay solape: guardia declara solo nullIfNotScalar (:19) y queue declara dropIfNotScalar:['state'] sin nullIfNotScalar (billingReadOnlyRoot.ts:15). Sin defecto.
+- Copia congelada de la política: readOnlyFirestoreRoot.ts:62–67 congela cada nivel (mapa de colecciones, configuración por colección, arrays de select/expose/drop/null, presence y valores de where); proyección congelada (:57) y documento congelado (:78). Mutar la política de entrada tras crear la raíz no puede ensancharla.
+- El reporte (sin cambios) detecta null presente como inválido mediante `hasOwn`, no mediante `present()`: billingPendingReport.ts:76–77, con precedencia correcta (&& antes de ||). `guardIncidentId` (:33–37) acepta '[object]' como ID opaco, lo que explica el comportamiento «antes» de las filas 1–2 y 4 de la tabla.
+
+**2. Privacidad y compatibilidad.**
+- billingQueueCounts.ts:32 colapsa el estado de guardia a la constante 'blocked'; el tipo del mapa y los contadores no cambian (KindCounts :13; inicialización :28 deja el mapa vacío si no hay filas de guardia). Los demás grupos conservan row.state (ternario en :32); bucket hold verificado en billingQueueCounts.test.ts:62.
+- Vías de salida revisadas en summarizeQueues (:39): sizes (:24, números), total/byKind (:33–34), oldestAgeMs solo como número (:35, :39; las filas de guardia llevan createdAtMs:null, billingPendingReport.ts:79), byLastErrorCode (:36; guardia siempre 'none', :79). En el código mostrado no se publica id, accountId, época, marca ni compuesto. El único componente no mostrado es inventory (billingScheduleInventory.ts, fuera de la candidata), cubierto a nivel de fixture por el control negativo de billingQueueCounts.test.ts:65.
+- Compatibilidad: en el paquete no aparece consumidor alguno de las claves dinámicas 'blocked:<epoch>:<createdAtMs>:<incidentId>'; la ausencia de consumidores es afirmación del encargo, no verificable aquí. Un consumidor externo vería cambio de contenido (límite reconocido).
+
+**3. Frontera de lectura.**
+- nullIfNotScalar se consume únicamente dentro de project() (:54), que solo recorre policy.expose (:50): no habilita campo, operador ni escritura. La superficie visible sigue siendo where/orderBy/select/limit/startAfter/get/count; los operadores visibles validan argumentos (orderBy :87–88, select :91–92, limit :95–96, startAfter :99–102) y el documento devuelto es {id,data} congelado (:78). No hay superficie de escritura en lo mostrado; las pruebas fijan writes==[].
+- El cast de billingQueueCounts.ts:26 reutiliza los lectores sobre el objeto fachada en tiempo de ejecución; las restricciones se mantienen porque el objeto es la fachada, y la equivalencia informe-fachada ≡ informe-crudo queda fijada por billingReadOnlyRoot.test.ts:51–54.
+- Colecciones, select, expose, journal y presupuesto se declaran conservados; en los extractos no están collection() (líneas 24–39), get()/count() ni la limitación previa al presupuesto (posterior a :103), y la cadena de serialización (:70) se declara sin cuerpo visible.
+
+**4. Cobertura.**
+- Los cinco casos focales corresponden uno a uno a la tabla: dos parametrizados (billingReadOnlyRoot.test.ts:33–55), el literal '[object]' con compañera ausente (:57–69) y dos de conteo (billingQueueCounts.test.ts:43–53 y :54–66). El rojo 4F/1P es coherente: la fila 3 es el único caso que pasaba antes. Verde 5P/26S; regresión 116/116 en las siete suites listadas, incluida la frontera A2 (firestoreBlocksA.test.ts). tsc focal sobre los cinco archivos modificados exit 0 (billingPendingReport.ts y billingScheduleInventory.ts quedan cubiertos transitivamente como importados).
+- Controles negativos: claves exactas y proyección congelada (billingReadOnlyRoot.test.ts:47–48), sin fuga de contenido sintético ni campo no listado (:49), sin escrituras (:50, :63; billingQueueCounts.test.ts:50, :63), ausencia de compañera (:64), JSON de conteos sin 'synthetic-hidden' (:51) y sin referencias, ids, épocas ni marcas (:65), mapa hold intacto (:62). En la segunda prueba de conteo, `toMatchObject` (:64) es coincidencia por subconjunto, pero el colapso estructural de billingQueueCounts.ts:32 impide claves ajenas a 'blocked' y el control :65 atraparía claves compuestas.
+
+**Defectos.** Ninguno en las líneas cambiadas por la candidata. Observación preexistente, fuera del cambio: byState puede recibir la cadena vacía como clave para filas no-guardia malformadas (billingQueueCounts.ts:33 con state='' de billingPendingReport.ts:46); no identifica nada y no forma parte del parche.
+
+**Falta por comprobar / límites.**
+- readOnlyFirestoreRoot.ts:82–84 (cuerpo de `where` entre la firma :81 y el return :85) no está en el paquete: la validación de campo/valor contra la política que afirma el encabezado (:6) y el tipo (:23) no puede confirmarse desde los extractos. Operador preexistente que la candidata no toca.
+- Líneas 24–39 y posteriores a :103: collection() (lista permitida), get()/count(), límite previo al presupuesto y serialización por chain — no mostrados, no auditados.
+- scripts/oneCReadOnlyCounts.mjs no está en el paquete: el contrato del ejecutor (solo conteos) es afirmado, no mostrado.
+- billingScheduleInventory.ts y billingPendingReport.ts:86+ (attentionOf, readPendingReport) no están: clasificación de atención e inventario parcialmente inferidos; las aserciones mostradas fijan el comportamiento observado.
+- Búsqueda de consumidores: solo la afirmación del encargo; sin recibo de búsqueda en el paquete.
+- tsc completo agotó 70 s sin resultado; sin nube, IAM, emulador ni integración financiera; el preload corta red de Node (net/dgram/dns/fetch, deny-network.cjs:6–12) pero los procesos nativos quedan fuera, como admite el encargo.
+- Costo/uso: no medido.
+
+Conclusión: el parche hace lo declarado en su alcance, los controles negativos pertinentes están presentes y la regresión pasa; los huecos señalados son regiones preexistentes fuera del cambio o afirmaciones no verificables desde el paquete. PASS con alcance limitado a la candidata de lectura.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Proyección readOnlyFirestoreRoot.ts:50–54 (ausente omitido :51, escalar/null copiado :53, compuesto→null solo con nullIfNotScalar, literal '[object]' sigue cadena; prioridad drop>null :54), política congelada :62–67, guardia billingReadOnlyRoot.ts:17–19 con nullIfNotScalar solo en lastIncidentId/lastOutboxIncidentId y queue :15 sin cambios, colapso byState→'blocked' billingQueueCounts.ts:32 con salida :39 solo agregados, reporte intacto billingPendingReport.ts:72–77 (hasOwn marca null presente como inválido) y :33–37 acepta '[object]'; 5 focales↔tabla (rojo 4F/1P, verde 5P/26S, regresión 116/116, tsc focal exit 0).
+NEGATIVOS: billingReadOnlyRoot.test.ts:47–48 claves exactas y proyección congelada, :49 sin fuga synthetic/unlisted, :50 y :63 sin escrituras, :51–54 informe fachada≡crudo, :64 ausencia de compañera; billingQueueCounts.test.ts:51 sin 'synthetic-hidden', :62 hold intacto, :65 sin referencias/ids/épocas/marcas, :50/:63 sin escrituras; límites del preload admitidos (deny-network.cjs:6–12, procesos nativos fuera).
+BLOQUEOS: Ninguno para el alcance de la candidata; por comprobar: cuerpo de where (readOnlyFirestoreRoot.ts:82–84 no incluidas, contrato :6/:23 sin confirmar), collection()/get()/count()/presupuesto (:24–39 y >:103 no mostrados), scripts/oneCReadOnlyCounts.mjs, billingScheduleInventory.ts y attentionOf (billingPendingReport.ts:86+) ausentes del paquete, búsqueda de consumidores solo afirmada, tsc completo agotó 70 s, sin nube/IAM/emulador/integración; costo no medido.
+=== FIN RESUMEN ===

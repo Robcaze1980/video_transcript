@@ -1,0 +1,72 @@
+# Revisión estática independiente
+
+Solicitud: db055481f704a9ed1285869421ecc04172ceb176e7d43d47844016e6dc145896
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: INCONCLUSIVE
+Resultado: INCONCLUYENTE
+Tokens entrada/cache/salida: 21188/0/35811
+Costo observado USD: 0.00521821575
+SHA-256 del informe original: 9f09d7ed0600f7522634bc142853527895d23c84037819319d4c4b8ac5651ef3
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# LV-019.B D-4 · Revisión estática dual (foco: cerca del titular, forma, retiro de hint, legado A2)
+
+## Hallazgos por pregunta
+
+**1. Guardia A, alerta histórica con B — cerca del titular demostrada en los cinco puntos de uso.**
+- Lectura: `validAlertAccount` (`billingPendingAlerts.ts:60–62`) exige, para `kind:'guard'`, `accountId===rowId`; `validAlertShape` (`:63–69`) y `alertIdentity` (`:71–76`) devuelven null en caso contrario. Emulador: `alertIdentity(...)==null` y `recordDisposition` rechaza con `corrupt` (fixture A3, test «owner fence rejects…», línea ~1075 del bloque 912–1106).
+- Contar/reabrir: `raiseOne` revalida la tupla y la forma en transacción (`:94–101`); una alerta con B lanza «Corrupt alert document» y `raisePendingAlerts` falla ruidosamente (`:153`), lo que dispara la alerta `sweep_failed` (`billingPendingSweep.ts:27–70`). Verificado con `writes=[]` en la suite unitaria (`billingPendingAlerts.test.ts:279–331`).
+- Disponer: `billingPendingAudit.ts:50` lanza `AuditFault('corrupt')` antes de la rama de replay (`:51–55`), así que B no genera recibos nuevos.
+- Cerrar: `checkAlert` cuenta `corrupt` sin modificar (`billingPendingAlerts.ts:183–185`); nunca cleared/superseded (fixture: `cleared:0, superseded:0, corrupt:1/2`).
+- Desbloqueo auditado: `billingUnblock.ts:229–236` rechaza con `corrupt`/`alert_identity` **antes** de llamar a Cuenta (fixture usa `unexpectedAccountCall` como deps y afirma que no se invocó); `sameOpenAlert` (`:124–128`) además exige identidad válida, fila propia y estado vigente. Distinción solicitud/reanudación/replay codificada en `:249–288` (`released`/`done`/`requested` con `samePayload`/`sameOperator`/`sameGuard`); no re-ejercitada con alerta corrupta — límite, no defecto.
+- Efectos ajenos: fixture test 1 compara datos y `updateTime` de guardias, recibos de auditoría y la alerta dañada antes/después; saldos Video y ledger intactos, sin `ledgerEntries`/`movements`/transport bodies. La alerta original persiste corrupta como evidencia (`alertIdentity(await previous.get())===null`).
+- El hint B tampoco se propaga a recibos ya creados: los registros de auditoría guardan `accountId` tomado de la identidad **en el momento** de la disposición (`billingPendingAudit.ts:68`), antes de la corrupción; tras ella ninguna disposición nueva es posible.
+
+**2. Retiro B→null — acotado como se describe.**
+- `dropAccountHint` (`billingPendingAlerts.ts:99–101`): solo para tuplas `intent|guard` con `reason:'malformed'`, `fields.accountId===null` y hint almacenado **string**; revalida toda la forma con `{...data,accountId:null}`. No convierte B en A: solo anula; con `fields.accountId` string distinto del almacenado la forma falla y lanza corrupto. Mapa almacenado no es retirable (`typeof==='string'` falla) → corrupto. Demostrado en `firestoreBlocksA.test.ts:229–249` (retiro, luego «never restores it»: la reparación posterior del guardia no repone el hint) y en el emulador (test 2: `history` pasa a `accountId:null, seenCount:2`; `known` con `updateTime` intacto).
+- Fechas/disposición: primera marca solo en creación (`:91`); el estado `dispositioned` conserva estatus e historial (`:104–111`); el replay del `resolve` devuelve `replayed:true` sin tocar `updateTime` (fixture test 1).
+- Reporte antiguo antes de `raiseOne`: la transacción relee solo la alerta (`:89`); la fila viene del reporte (`:122–126`). Un reporte desfasado puede crear/contar una alerta de una tupla ya no vigente; converge después por `superseded` (sucesor abierto + releída de fila, `:205–217`) o `cleared` (lectura terminal en transacción, `:223–229`). Límite de diseño, sin efecto financiero demostrado; no es defecto.
+
+**3. Forma y límite de búsqueda — impactos concretos.**
+- `accountId` objeto con status string: seleccionado por el filtro `status=='open'` y denunciado como `corrupt` (`:184`) → contador + alerta `sweep_review` (`billingPendingSweep.ts:44–47`); `recordDisposition` y detail lo marcan. Demostrado (emulador test «map accountId»: `corrupt=1`, existe `sweep_review`).
+- Status `['open']`: queda **fuera** de la consulta por igualdad string (Firestore no iguala arrays) en el barrido (`billingPendingAlerts.ts:234`) y en la lista del operador (`billingOperatorHttp.ts:96`). Detectable solo por reavistamiento (fallo en `raiseOne`, alerta `sweep_failed`), lectura por clave (detail 422, `:113–115`) o desbloqueo. Demostrado (test «array status»: `corrupt=0`, `sweep_review` inexistente, `sweep_failed` abierto). **Pendiente**: si la fila deja de requerir atención y nadie re-lee por clave, el barrido ordinario no lo descubre nunca; no se agregó inventario exhaustivo. Impacto: alerta abierta invisible en lista/detalle-lista, sin efecto sobre saldos; mitiga la visibilidad de la fila en el reporte pendiente mientras lo reaviste.
+- Array escrito entre selección y cierre: `openAlertState` (`:78–83`) clasifica identidad inválida como `corrupt`, no `raced`; demostrado por el interleaving del test 5 (`corrupt:1`, resto 0, documento sin cambios posteriores).
+
+**4. Legado y alcance A2 — consistente con lo afirmado; una hipótesis sin prueba.**
+- Sin `epoch` ni `createdAtMs` → `blocked:1:0:<incidente>` y no malformed (`billingPendingReport.ts:65–66,79–80`); test `firestoreBlocksA.test.ts:151–162`. `epoch`/`createdAtMs` presentes e inválidos → malformed, nunca leídos como legado (`:65–66,80`); presencia dispareja → malformed (`hasEpoch!==hasCreated`).
+- Incidentes opacos: `guardIncidentId` (`:35–37`) admite `inc-1`; inválidos ('', '  ', '/', '..', `__…__`, NUL, >1500 bytes) → `incidentKey:''`, malformed, sin atribución (`firestoreBlocksA.test.ts:79–87`).
+- Dos referencias válidas → identidad outbox-first (`:72–73`); una referencia presente inválida → `invalidReference` → `accountId:null` + malformed aunque la otra sea usable (`:76–80`), con test (`firestoreBlocksA.test.ts:68–77`).
+- **Hipótesis no probada**: una alerta legado sin campo `accountId` (ausente) leería como corrupta (`validAlertAccount(undefined)` falso, `billingPendingAlerts.ts:60–62`), pero no está demostrado que el escritor anterior emitiera documentos sin el campo; quedaría pendiente un censo de documentos históricos. Impacto si existiera: fricción operatoria (corrupto, indisponible para disponer/desbloquear), sin efecto financiero.
+- Alcance A2: el test de cierre (`billingSweepSection.test.ts:261–267`) congela exactamente `billingPendingAlerts.ts`, `billingPendingReport.ts`, `billingPendingSweep.ts`, `billingSweepSection.ts` dentro de `server/commercial`, y el segundo test verifica que no importan rutas de escritura. El barrido lee filas con paginación independiente por fuente (`billingPendingReport.ts:123–160`) y escribe solo en `billingPendingAlerts` (`billingPendingAlerts.ts:91,111,196,215,228`); las lecturas de polls/witnesses son de solo lectura (`:43–53`, `fieldMask:[]` en `:137`).
+
+**5. Criterio focal.**
+- Dedup: `alertKey` (`:23–25`) sobre `[kind,rowId,state,reason]`; estados/motivos distintos son alertas distintas; reencuentro tras `cleared`/`superseded` reabre con historial (`:105–110`), `dispositioned` no reabre.
+- Cierre: solo con estado terminal conocido releído **dentro** de la transacción (`:223–229`; polls: `:187–198`) o sucesor abierto vigente con fila releída (`:205–217`). `terminal_recovery` con `terminalStates:[]` cae siempre en `unverified` (no `kept`, nit documental en `:165` vs `:219`), sin defecto.
+- Autoridad: el retiro toca únicamente el campo `accountId` de la alerta; ningún módulo de la cerca llama a Cuenta y el desbloqueo no consulta `identity.accountId` (usa `rowId` + guardia, `billingUnblock.ts:118–128`). El hint no autoriza bloqueo/devolución/captura ni autenticación; demostrado por rechazo previo a toda llamada (`unexpectedAccountCall`).
+- Observación estática menor (no demostrada en pruebas): un documento forjado con `kind` desconocido y clave autocalculada pasaría `validAlertShape` como string y resultaría `kept` perpetuo (`:218–219`), sin señal de review ni vía de disposición (`billingPendingAudit.ts:62–63` → `corrupt`). Ruido operatorio, sin efecto financiero; candidato a contar como corrupto o revisar.
+
+## Alcance comprobado
+Cinco suites unitarias focales (123/123, 5 archivos), 5/5 del emulador en copia independiente con inventarios y limpieza verificados, y el código numerado citado. Coincidencia byte a byte checkpoint↔corrida salvo `billingHoldIdentity.ts` (CRLF→LF).
+
+## Negativos (controles conservados)
+- Saldos y guardias ajenos intactos en tests 1–4; `transport.bodies` vacío; sin `ledgerEntries`/`movements`/`videoBillingGuards`.
+- Documentos dañados no modificados: `store.get(path)` igual tras el fallo; `updateTime` intacto en `known`, recibos y guardia; `writes=[]`.
+- `sweep_review` solo cuando hay corrupto>0; `sweep_failed` en fallo duro; desbloqueo rechazado antes de Cuenta; replay de `resolve` idempotente sin escritura.
+
+## Límites y pendientes
+- Invisibilidad del status-array sin reavistamiento/lectura por clave (no hay inventario exhaustivo).
+- Tipos: el log vacío no prueba por sí solo el código de salida; depende del ejecutor.
+- El 5/5 del emulador se ejecutó en la copia adaptada (fixture hoy idéntica al checkpoint); no es un nuevo resultado de regresión sobre checkpoint.
+- Alerta legado sin campo `accountId` y alerta forjada con `kind` desconocido: hipótesis estáticas sin prueba.
+- Re-`acknowledge` tras reapertura chocaría con el id de auditoría `alertKey+action` (`billingPendingAudit.ts:45,51–55`): colisión no ejercitada, fricción menor.
+- Índices de nube, IAM, admisión y regresión financiera completa: evidencia independiente; costo/uso de producción: no medido.
+
+~~~text
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Cerca del titular, retiro B→null, clasificación corrupt/raced, dedup y cierre transaccional verificados en código citado + 123/123 unitarias + 5/5 emulador con negativos intactos; sin defecto demostrado en el alcance.
+NEGATIVOS: Saldos, guardias, recibos y updateTime intactos en todos los daños inyectados; raise/clear/dispose/unblock rechazan antes de escribir o de llamar a Cuenta; sweep_failed/sweep_review solo según corresponda.
+BLOQUEOS: Status-array invisible al filtro 'open' sin inventario exhaustivo (pendiente); censo de alertas legado sin accountId y forjadas con kind desconocido sin prueba; código de salida de tipos no probado por el log vacío; 5/5 no es regresión sobre checkpoint; índices/IAM/regresión financiera y admisión requieren evidencia independiente.
+=== FIN RESUMEN ===
+~~~

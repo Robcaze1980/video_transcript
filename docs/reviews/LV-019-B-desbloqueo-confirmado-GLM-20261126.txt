@@ -1,0 +1,34 @@
+# Revisión estática independiente
+
+Solicitud: 43897f338fd9639034617c150afd71de596f62c790fb92d0e15b7fded73d6354
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 11925/0/28056
+Costo observado USD: 0.003914645625
+SHA-256 del informe original: 04f502ee7fefdd995ef20697d1fc0070dd9f4e95f5c9584c7b116565fc52540a
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+## Dictamen de revisión independiente · LV-019.B (camino de recibo `confirmed`)
+
+**Delimitación del cambio.** El único cambio de ejecución es la llamada `await recheck(tx)` dentro de la rama de recibo confirmado de la transacción final (billingUnblock.ts:383-386). `recheck` (:329-341) relee las cinco referencias y fija, mediante `sameVersion` (:133-135, comparación de `updateTime` del mismo documento, sin relojes entre bases), la versión de la solicitud durable (`requested`), de la guardia y de `done` contra las instantáneas capturadas en la primera transacción de la reanudación (:252; observadas en :280 y :289). El plan ejecutado (`planned`, :325) proviene de esa misma versión, y `recheck` revalida contenido (dueño, operador, acción, tipo, holdId, :336-338), de modo que plan y versión coinciden.
+
+**Q1 · Escritura y restauración.** Ambas escrituras —alteración y restauración con contenido idéntico— bumpen `updateTime`; `sameVersion` solo acepta igualdad exacta, por lo que ambas terminan en conflicto (:339). `recheck` es la primera sentencia de la transacción final (:361 y :386), antes de toda escritura (:368-374, :419-435), de modo que el aborto deja cero escrituras: la prueba unitaria lo afirma por conteos (alertContractReview.test.mjs:329: guardia viva, alerta `open`, incidencia sin revisar, `done:0`, `mutations:1`) y el emulador por firmas de raíz idénticas al estado previo (alertContractFocus.emulator.mjs:432) con Account intacto (:421). Los reintentos internos reejecutan todas las lecturas, incluido `recheck`, así que el cercado sobrevive a la contención. Una segunda solicitud concurrente encuentra IDs deterministas de `done`/`released` y los cheques de existencia/versión de :339-340 que abortan la perdedora; esto está razonado pero no ejercitado (los arneses no modelan concurrencia real de Firestore).
+
+**Q2 · Condiciones de exclusión.** Se conservan: `sameGuard` (:120-125: dueño, `blocked`, época/marca de creación, intent≠outbox), `sameOpenAlert` (:126-130: identidad, `open`, estado de la ocurrencia), `samePayload`/`sameOperator` (:246-248; aplicadas en :264/:273/:286-287 y en :336), igualdad de generación para parcial (:359, contrato 115), rivales (:365-367, :416-417), respuestas puras de replay antes de llamar a Cuenta (:262-283) y revalidación del lado de Cuenta (server/account/backend.ts:243-253, incluida `reviewRef` y estado `reviewed`). Todo anómalo deriva en `conflict` o replay; nunca en éxito sintético. Limitación observada: `observed` no incluye la alerta, así que su `updateTime` no se fija —solo revalidación semántica en :334—; ediciones cosméticas de la alerta pasan, pero los campos que afectan la decisión están cubiertos.
+
+**Q3 · Caminos ACK directo.** Primera llamada: sin recibo (:347), POST con la generación indicada por el operador (contrato 115 lo faculta; Cuenta la valida en :280), y la fase 3 relee guardia y alerta solo semánticamente (:388-389) — la solicitud no queda fijada en ese commit final. Mutación tras `pending`: `recheck` autónomo (:353) fija versiones, pero tras el POST la fase 3 vuelve al modo semántico; queda una ventana residual posterior a :353 para el documento de solicitud. Reescrituras previas a la primera lectura de la reanudación: indetectables por construcción (límite declarado). El contrato 116 no exige fijar el documento de solicitud en la fase 3, así que nada contractual bloquea aceptar el cambio delimitado; extender el mismo patrón a esos dos caminos sería el refuerzo natural siguiente.
+
+**Q4 · Distinción de efectos.** (i) Decisión sintética ya registrada en Cuenta: la reanudación la recupera por lectura (:85-96, :228-255) sin mutación — afirmado con `mutations:1`, rutas `[unblockPath,receiptPath]` y firmas de Account iguales. (ii) POST físico repetido: no se simula y se afirma ausente en el camino confirmado; la idempotencia del lado de Cuenta (:275-277) existe pero sin prueba en estos casos. (iii) Cambio indebido de estado de Video: imposible ante alteración (conflicto con cero escrituras). El recibo de Cuenta se preserva intacto en todas las pruebas.
+
+**Controles negativos.** Conservados: control intacto (cierre + replay puro sin llamadas extra, :322-326 y :422-429), alteración de evidencia, restauración (control discriminatorio: contenido igual, versión distinta, :328/:410-411), Account sin efectos, sin segundo POST. Ausentes: alteración de la alerta entre lecturas en el camino confirmado, contención concurrente real, IAM/permisos (el escritor privilegiado es sintético; no se observó que un cliente tuviera el permiso, pero no hay prueba de reglas), segundo POST de saldo.
+
+**Falta por comprobar.** Recomputar los SHA-256 listados y leer el diff del parche (contenidos no incluidos en el paquete); regiones eludidas: billingUnblock.ts:293-313 (fase 0 del camino fresco, incluida la relectura de `updatedAtMs` del contrato 111), :183-238, :410-415, y los auxiliares de los arneses; semántica real de reintentos y reglas de seguridad de Firestore en producción.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: billingUnblock.ts:383-386 y :329-341 con sameVersion :133-135 fijan el updateTime de la solicitud frente a la captura de la primera transacción (:252,:280,:289); recheck precede a toda escritura (:361,:386); alertContractReview.test.mjs:294-332 y alertContractFocus.emulator.mjs:382-435 muestran conflicto con cero escrituras en Video, Account intacto, un solo POST y replay puro; la restauración con contenido idéntico también conflicta (control discriminatorio por versión); 165/165 unitarias con tsc 0 y réplica independiente del gate.
+NEGATIVOS: sin prueba de alteración de alerta ni de contención concurrente en el camino confirmado; escritor privilegiado sintético sin modelo de IAM; ventana preexistente sin fijar la solicitud en el commit final de los caminos ACK directo (fresco :388-389 y pendiente tras :353); reescrituras previas a la primera lectura de la reanudación indetectables (límite declarado); segundo POST de saldo no simulado; atribución del escritor e incidencia permanente por alteración restaurada fuera de alcance.
+BLOQUEOS: ninguno dentro del alcance delimitado; quedan para el coordinador recomputar los SHA-256 listados, leer el diff del parche (contenido no incluido) y las regiones eludidas :293-313, :183-238 y :410-415.
+=== FIN RESUMEN ===

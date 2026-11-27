@@ -1,0 +1,37 @@
+# Revisión estática independiente
+
+Solicitud: 981cedda8ef745f8c53a53ec1179b9f3a77511efacd670ad59e64b7583886533
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 10241/0/39053
+Costo observado USD: 0.008354775429
+SHA-256 del informe original: 290f4cda702fede109afe3b3823915e8ee40240ffd4cd9f8b993a1592260415b
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+He revisado únicamente el paquete suministrado, sin ejecutar el modelo ni acceder a repositorios, Firestore, IAM o proveedores. Los TAP y hashes se tratan como datos.
+
+**Hallazgos y límites**
+
+- El defecto original está localizado en `server/account/backend.ts:354-371`: `accountId` se obtiene del documento de identidad vigente y después se forma `reservationKey=hash([accountId,reservationId])`. Por eso un cambio de vínculo A→B hace que la misma solicitud busque y acepte la reserva de B. `server/account/backend.ts:384-398` confirma que, tras esa selección, el recibo y la cerca se escriben bajo el titular actual. La prueba de `server/commercial/reviewedVoiceFragment.memory.test.ts:280-336` es coherente con ese fallo: el último control detecta escrituras en la reserva, recibo o cerca de B.
+- El diseño de `05a11be` corrige conceptualmente ese punto: el modelo usa `originRef`, obtiene el dueño original del origen y compara vínculo, generación, cuenta y reserva antes de escribir (`server/commercial/reviewedVoiceFragment.ownerGeneration.model.mjs:41-66`). No veo una contradicción lógica con el criterio de que Cuenta no elija reserva usando el UID vigente.
+- No obstante, el modelo no prueba varios controles que la propia prosa exige:
+  - `handoff` asigna la generación recibida sin verificar monotonicidad ni autorización del escritor (`:35-36`); los tests ABA y recreación colocan manualmente las generaciones 5/6 y la nueva generación de reserva (`:92-104`). Falta una prueba negativa de retroceso/reescritura de generación.
+  - El vínculo del modelo no contiene `identityKey` (`:27`, `:35-36`), y `admit` compara identidad solo contra el origen y la cuenta (`:46-50`). No hay control negativo para un vínculo con mismo `owner`/`videoOwner`/generación pero identidad discordante.
+  - `admit` es una transición síncrona (`:39-41`). Los tests de traspaso antes de la admisión (`:76`) y admisión antes del traspaso (`:139-141`) son secuenciales; no reproducen el intercalado entre lectura de vínculo/origen y escritura del recibo, que depende de la transacción Firestore.
+  - La autenticación se representa como un parámetro `authenticatedNamespace` (`:41`); el test de emisor ajeno solo cambia ese valor (`:109`). No hay prueba de IAM, credencial de servicio ni autorización por cuenta de Video.
+  - El origen y la petición no modelan `protocolo`/`propósito`/versión (`:9-16`); solo se contrasta `videoIntentId`. Falta el negativo de una referencia de otro propósito.
+  - Tras el traspaso, la repetición exacta se rechaza (`:142`) y no se modela la lectura de conciliación autenticada que el diseño menciona. Tampoco se modela tombstone/borrado durable: el test 3 cambia la generación en el mismo documento (`:101-104`) y el test 7 usa `state:'released'` (`:156`).
+  - Quedan fuera del modelo: ACK perdido, operación suspendida por commit, escritores legacy, continuidad entre bases, guardia de devolución vencida y capturas/postimágenes D2.
+
+**Controles negativos conservados**
+
+El modelo sí conserva y verifica: solicitud A tras traspaso a B sin escrituras; creación válida con origen propio de B; ABA contra la generación original; recreación de reserva con nueva generación; namespace ajeno, origen desconocido, vínculo revocado y fila sin origen; replay exacto con `receiptOnly` sin mutación; SHA discordante, intento distinto, intención distinta y familia distinta en conflicto; ordinal nuevo válido; admisión previa seguida de traspaso conservando solo el recibo histórico; hold y reserva terminal bloqueando llamadas nuevas pero manteniendo legible el recibo exacto; y saldos/movimientos sin cambios.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática de `server/account/backend.ts:354-398`, `server/commercial/reviewedVoiceFragment.memory.test.ts:280-336`, `docs/reviews/LV-019-B-c2-admision-titular-generacion-20261126.md` y `server/commercial/reviewedVoiceFragment.ownerGeneration.model.mjs:1-161`; el defecto original A→B se explica por derivar `accountId` del vínculo vigente y hashear la reserva con ese dueño; el diseño lo sustituye por origen, dueño original y generaciones de Cuenta; el modelo 7/7 se acepta solo como evidencia local de dos ámbitos en memoria; costo: no medido.
+NEGATIVOS: Verificados en el modelo: A tras traspaso a B sin escrituras, B con origen propio admitido, ABA contra generación original, recreación de reserva, emisor/origen ajenos, vínculo revocado, ausencia de origen, replay exacto, SHA/intento/intención/familia discordantes, ordinal nuevo, hold, reserva terminal, recibo histórico y saldos sin cambios. Faltantes: monotonía/retroceso de generación, identidad del vínculo discordante, autenticación IAM real, carrera lectura-escritura en transacción, lectura autorizada tras revocación, ACK perdido, commit suspendido, escritores legacy, tombstone/borrado durable, continuidad entre bases y D2.
+BLOQUEOS: Para el alcance de diseño no hay bloqueo lógico demostrado; para implementación quedan pendientes la transacción real de AccountStore/Firestore Emulator, la emisión y autenticación del origen por Video, la verificación del trabajo y cuerpo canónico por Video, la inventarización y separación de escritores legacy, el traspaso durable entre bases, la recuperación autorizada, la guardia de devolución vencida y las capturas/pre-postimágenes de D2; no se aprueba implementación, emulador, IAM ni despliegue.
+=== FIN RESUMEN ===

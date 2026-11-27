@@ -1,0 +1,30 @@
+# Revisión estática independiente
+
+Solicitud: 16741bf55e7620eb6f748a4ac3308f83d76e7e105486c403fc48d294a180343d
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: INCONCLUYENTE
+Tokens entrada/cache/salida: 24375/0/13441
+Costo observado USD: 0.01046947275
+SHA-256 del informe original: 2c4f758ff6ecef2c42751f8f7939416d1923725c584f4da2a4e617fb534a210c
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Alcance: revisión estática, solo lectura, sobre `a14eb93`; no certifica C1 completo ni C2/IAM/GCS/proveedor.
+
+H2: resuelto en lo estático. `billingPendingReport.ts:172-176` define `TerminalRecoveryDocumentVersion` y `terminalDocumentVersion`; `firestoreBackend.ts:202-204` define `sameTerminalDocumentVersion`. La ausencia da `{exists:false}` y falla contra `exists:true`; un timestamp inválido devuelve `null` y falla; una edición/restauración conserva contenido y `createTime` pero cambia `updateTime`, por lo que falla la versión; un borrado/recreación cambia `createTime` y `updateTime`, por lo que también falla aunque el contenido sea idéntico. Esto enlaza con preflight, ACK tardío y repetición de NACK/trabajo en casos 60–65 y 73: el ACK puede conservarse como `unverified`, pero no se reenvía ni se fabrica trabajo. La igualdad de timestamps solo ata versión documental; no autentica por sí sola al escritor. No hay defecto C1 demostrado en este punto.
+
+H3: cotejo estático suficiente, sin contradicción interna. Caso 30 cubre canarios y claves privadas; casos 32–48 cubren titular/`foreignPrincipal`, segundos, ACK/NACK, revocación, colisión genérica, replay tras commit perdido y límites; casos 51–65 incluyen vectores parametrizados de NACK tardío, ACK contradictorio y reescritura/restauración; casos 66–74 cubren historia alterada, causa neutra, NACK exacto, borrado/recreación y texto v1. Ambos órdenes de colisión están en los casos de texto externo antes/después de C1. Quedan fuera de este anexo los cuerpos 29, 31 y 49–50, y no hay rerun del emulador 74/74 en este anexo; se hereda la corrida indicada. No se demuestra defecto de contrato C1.
+
+H5: resuelto para la cerca A2. El grafo observado da exactamente `billingPendingAlerts.ts`, `billingPendingReport.ts`, `billingPendingSweep.ts`, `billingSweepSection.ts`; la corrida aislada A2 pasó 28/28 con log `7e30e...` y el cableado de `cloudFilesRuntime.ts:94-105` inicia `runBillingSweepSection` antes de los drains y lo espera después. `localVoiceConflictReview.ts` queda excluido porque no es alcanzable desde `billingSweepSection.ts`; sus llamadores visibles están en `firestoreReviewedTranslation.emulator.mjs` y `localVoiceConflictReview.test.ts`, no en el mantenimiento. Distinto es que el mantenimiento más amplio no evidencie invocar `raiseLocalVoiceConflictAlerts`; si eso se exigiera, sería hueco de cobertura, no fallo de la cerca A2. Las líneas 282–314 del test H5 no se muestran, por lo que la cobertura literal de `require`/hostiles no es verificable aquí.
+
+H1: compatibilidad literal, no defecto demostrado bajo el contrato v1 y los llamadores listados. `videoReservationId.ts:1-12` y `priorExternalRequestForEnqueue` (`firestoreBackend.ts:1200-1224`) usan `requestKey` literal; la voz C1 baja a minúsculas en `firestoreBackend.ts:724-735`. El caso 74 confirma dos literales distintos, dos trabajos, dos `reservationId`, mismo token de reclamo `text`, dos llamadas y dos asientos, con saldo A `[14,6,0]` y B intacta. En los llamadores públicos/financieros, `firestoreAiHttp.ts:4-13` y `firestoreHttp.ts:145-159` cierran la vía externa con `disabled`; `cloudThreeFixesProbe.ts:104-105` llama `enqueue` sin UID, que falla si hay Cuenta externa. No aparece llamador que cambie la caja y lo presente como reintento pagado. Falta observación de clientes/red de producción; una unificación futura exigiría decisión de contrato y migración.
+
+UNKNOWN: no hay violación C1 demostrada. Casos 34 y 41 cuentan envíos al callback de la fixture: no reenvían Account tras respuesta desconocida ni tras eliminar la fila de intento, no fabrican ACK y no crean trabajo; el ACK real solo se conserva cuando existe. La conciliación de un intento preparado o de un ACK sin commit local depende de B1/C3 y de la decisión de aceptar/activar, que no se adjudica aquí. Uso/costo: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: H2/H3/H5 cotejados estáticamente y sin contradicción; H1 resulta compatibilidad literal v1; A2 28/28 sobre a14eb93; 74/74 y 618/618 se heredan, no se rerunean aquí; el UNKNOWN depende de conciliación B1/C3.
+NEGATIVOS: no reenvío de Account en unknown; no ACK fabricado; no trabajo/job nuevo; rechazo de principal ajeno; claves inválidas sin escritura; colisión en ambos órdenes; fallo por borrado/recreación y por edición/restauración; v1 conserva literales distintos.
+BLOQUEOS: 96/96 sin log localizado y excluido; 74/74 sin rerun en este anexo; IAM/GCS/proveedor/C2 real/teléfonos/regresión financiera final pendientes; líneas 282–314 del test H5 no mostradas; localVoiceConflictReview fuera de A2 y sin evidencia de llamada desde maintenance; uso/costo no medido.
+=== FIN RESUMEN ===

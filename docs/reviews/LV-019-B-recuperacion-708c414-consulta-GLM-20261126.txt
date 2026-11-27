@@ -1,0 +1,33 @@
+# Revisión estática independiente
+
+Solicitud: f66539b355fe341731de39e93961c881eac7a85f0406d9c970f59735216a6cf6
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: FALLA
+Tokens entrada/cache/salida: 3960/0/13863
+Costo observado USD: 0.0056857086
+SHA-256 del informe original: 06c4b47ba80c77a116deb036f9fd37338d95fabf69fd87577afd984d868588fe
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+**Revisión estática (fragmentos como datos; base 708c414, no aceptada).**
+
+Defectos concretos:
+- `billingUnblock.ts:404-405`: claim existente (no 'fresh') + recibo 'pending' ⇒ `conflict` sin ruta de reanudación: el estado "commit local, respuesta perdida" es irrecuperable tal como está.
+- `billingUnblock.ts:398`: recibo 'confirmed' con observación 'fresh' ⇒ `conflict`: Video no puede adoptar un efecto ya ejecutado.
+- `backend.ts:279-280`: si la generación del guard avanzó legítimamente, `unblock` devuelve `conflict` sin escribir marca alguna; el incidente queda 'active' y la consulta (244-247) dirá 'pending' indefinidamente: segundo estado bloqueado.
+- `backend.ts:244-247`: 'pending' solo certifica ausencia de recibo, no ausencia de POST en vuelo; no existe documento de llegada.
+- `accountBillingClient.ts:46`: todo 409 colapsa a 'conflict'; no hay contrato que separe 'superseded'.
+
+**Incremento mínimo en AccountStore (no solución completa).** Autoridad que debe existir ANTES: el recibo `videoBillingUnblocks/{hash(accountId,incident,'unblock')}` ya existe y es la única autoridad del efecto; ninguna decisión de recuperación debe tomarse sin consultarlo. Incremento propuesto: en `videoBillingUnblockReceipt` (244-247), devolver en 'pending' la generación vigente del guard (epoch/createdAtMs, ya leídos en 235-241). Solo lectura, cero escrituras nuevas. Resuelve: el estado 2 vuelve decidible (generación distinta ⇒ reiniciar bajo la nueva; igual ⇒ el efecto no existe aún y un reenvío único explícito del mismo payload es absorbido por la tx del recibo 288/275-277); el estado 1 queda habilitado para decisión, no automatizada. No resuelve: no certifica 'superseded' (el record no guarda su generación: no hay autoridad para eso hoy; exigiría migración); no reanuda el claim de Video (404-405); sin emisor autenticado ni corte, los writers viejos siguen válidos, por eso no propongo cerca nueva que el código antiguo ignoraría (sería autoridad falsa). El desbloqueo no mueve saldo/reserva (258-261): riesgo bajo.
+
+**Disponibilidad vs duplicación:** lo demostrable es indisponibilidad/bloqueo; no hay evidencia de doble efecto.
+
+**Por comprobar:** sameVersion, sameGuard, sameOpenAlert, continuousRequest, guardBornAfterWriterCut, freshRecord, opened (<365, >420), rutas/contrato HTTP, migración, autenticación.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: billingUnblock.ts:404-405 (claim no fresco + 'pending' ⇒ conflict sin reanudación), backend.ts:279-280 (generación avanzada ⇒ conflict sin marca durable; 244-247 deja 'pending' perpetuo), billingUnblock.ts:398 (confirmed + fresh ⇒ conflict); el recibo backend.ts:275-277/288 es la única autoridad idempotente existente y basta para absorber un único reenvío explícito.
+NEGATIVOS: backend.ts:277 payload distinto ⇒ conflict sin escritura; backend.ts:280 generación distinta ⇒ conflict (un desbloqueo viejo no limpia bloque nuevo); backend.ts:242/246 'pending' solo con incidente activo consistente; backend.ts:286-287 invariant de conteos; billingUnblock.ts:388 released.exists ⇒ conflict; igualdad de timestamps en emulador no prueba continuidad histórica.
+BLOQUEOS: helpers no incluidos en el paquete (sameVersion, sameGuard, sameOpenAlert, continuousRequest, guardBornAfterWriterCut, freshRecord, videoHoldId, billingHold, flujo opened <365/>420); sin rutas ni contrato HTTP, sin autenticación de emisor, sin corte de escritores ni migración; sin ellos no hay integración sin reenvío incierto.
+=== FIN RESUMEN ===

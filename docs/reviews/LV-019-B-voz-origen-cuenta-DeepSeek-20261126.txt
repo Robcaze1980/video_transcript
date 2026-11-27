@@ -1,0 +1,59 @@
+# Revisión estática independiente
+
+Solicitud: 10a5309b8fa086d4a4edc146abea91d808426bea5de9abdf7c68a860c0a37ea4
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: FALLA
+Tokens entrada/cache/salida: 10366/0/50868
+Costo observado USD: 0.03830313168
+SHA-256 del informe original: db0ea6823da3ec1b27bbf3c587b19304503f5e039a0bd59243b9229a65e70b25
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Examiné estáticamente el contrato, los extractos de `server/account/backend.ts`, `server/commercial/firestoreBackend.ts`, `reserveAttemptEvidence.ts`, `videoReservationId.ts`, la fixture local, la prueba de memoria, las pruebas de `voiceOriginIndependent`, las referencias a `voiceOriginAuthority`, `http.ts`, `account.rules` y la tabla de integridad. No ejecuté herramientas, tests ni Codex; no verifiqué logs ni recomputé hashes. Trato los resultados 98/98 y 104/104 como evidencia local sintética, no como producción.
+
+**Hallazgos**
+
+1. **Sello legacy sin verificar el origen de voz** — `server/account/backend.ts:340–350`.
+   - Precondición: reserva ausente o pérdida de la reserva; puede sobrevivir el origen/claim v3; no hay lápida coincidente.
+   - Efecto: crea `videoReservationTombstones` con `state:'sealed'` sin leer `videoVoiceReservationOrigins`, `videoVoiceOriginClaims` ni comprobar `admissionProtocol`. Si la reserva existe, devuelve su estado sin verificar el origen. Puede sellar una reserva v3 sin autoridad de voz y bloquear luego reserve/admit con `conflict`.
+   - Contraprueba: crear una reserva v3 con origen, borrar el documento de reserva y llamar al sello; debería rechazar o no crear lápida sin origen. El extracto muestra que crea la lápida.
+
+2. **Puente legacy v2 con reasignación** — `server/commercial/reviewedVoiceFragment.localFixture.ts:135–139`; prueba `server/commercial/reviewedVoiceFragment.memory.test.ts:281–309`.
+   - Precondición: reasignación del vínculo antes de admitir y reserva compatible en B.
+   - Efecto: `admitForTest` llama a `store.admitVideoCall` v2, no a la admisión con origen de voz. El doble registró tres escrituras de admisión: documento de reserva, cerca y recibo. Admite en B sin conservar el titular original ni verificar el vínculo/origen.
+   - Contraprueba: sin reserva compatible en B el control pasó; con reserva compatible en B falló. El puente usa v2 y no sirve como puente seguro para v3.
+
+3. **Falta de verificación del ledger en la autorización/replay** — `server/account/backend.ts:386–396` y `401–442`.
+   - Precondición: borrar el asiento de ledger dejando origen, claim y reserva intactos.
+   - Efecto: `verifyVoiceOrigin` comprueba tiempos de origen/claim/reserva, pero no lee ni valida el ledger. Un replay de reserve o admit puede devolver éxito/recibo sin detectar el ledger ausente. El contrato exige registrar origen, índice, saldo, reserva y ledger en la misma transacción; el código los crea, pero no verifica el ledger en la recuperación.
+   - Contraprueba: eliminar `ledgerEntries/...` y repetir reserve/admit; debería dar conflicto. No hay extracto que muestre esa lectura.
+
+4. **Validadores y extractos incompletos**:
+   - `voiceRequest` (`server/account/backend.ts:25–40`) valida `videoAccountId`, `reservationId`, digest de `intentId` y igualdad de UUID de reserva/intento, pero no valida `identityKey` ni `seconds` en ese punto. Falta ver `identityFromKey` y el arranque de `admitVideoCallTransaction` para saber si se rechazan antes de la transacción.
+   - Cuerpo de `storedVoiceOrdinals` no incluido (`server/account/backend.ts:101–102` en adelante). No puedo concluir si un ordinal ya registrado con recibo desaparecido se rechaza o se recrea; el comentario de `admitVideoCallTransaction` afirma que no se admite de nuevo, pero la comprobación no está en el extracto.
+   - Cuerpo de `sealedReservation` no incluido. No puedo verificar si una lápida con segundos distintos bloquea o permite una nueva reserva con el mismo `reservationId`.
+   - Cuerpo de `billingHold` no incluido. No puedo verificar la semántica exacta de hold en replay y en creación.
+   - `server/account/http.ts:33,61–82` solo conecta rutas v2; la ruta de voz está cerrada fuera de `NODE_ENV=test` (`voiceRequest`). No hay extracto de la ruta pública v3.
+
+**Controles negativos y resultados conservados**
+
+- 98/98 en diez suites sin modificar; 104/104 con los seis controles añadidos. La prueba nominal crea una reserva y un asiento de tres segundos para A, conserva B y devuelve el origen previo al repetir.
+- Cuatro sustituciones de forma válida (pareja de UUID de reserva, cuenta Video, segundos y ámbito) dieron conflicto en reserva y admisión; el inventario completo quedó idéntico.
+- Tras admisión registrada y recreación exacta del permiso, otra instancia rechazó replay de reserva y admisión; el snapshot no cambió.
+- Para un segundo ordinal se rechazaron intento nuevo y otro trabajo; la tupla correcta se admitió, su replay devolvió recibo y cambiar la huella se rechazó; saldo y asiento se conservaron.
+- UUID en lugar de digest, digest truncado, mayúsculas, salto de línea y discordancia de UUID de reserva fallaron antes de la transacción. Un digest bien formado distinto falló al consultar autorización sin escrituras.
+- Tipos con las seis adiciones: salida cero. Node 24.22.3. El log adicional 16/16 repite casos y no se suma.
+- Puente legacy: sin reserva compatible en B el control pasó; con reasignación antes de admitir y reserva compatible en B falló (1/2). 37 casos quedaron fuera del filtro.
+- No se atribuye nada a producción; no se presume escritura privilegiada disponible para un cliente. Los logs son archivos locales y no los verifiqué.
+
+**Limitaciones**
+
+No verifiqué el código completo acumulado: faltan extractos de `storedVoiceOrdinals`, `sealedReservation`, `billingHold`, `identityFromKey`, la ruta HTTP completa, `voiceOriginAuthority.test.ts:117–335`, `backend.ts:593–623` y las pruebas de hold/revocación/ABA. Tampoco hay prueba de emisor autenticado, continuidad entre el último estado de Video y la autorización de Cuenta, validaciones Firestore, conciliación financiera, transporte público, IAM de Admin ni proveedor. La igualdad de timestamps no prueba autoridad por sí sola. No se demuestra llamada física ni entrega de bytes.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Revisión estática de extractos: sello legacy en server/account/backend.ts:340–350 crea lápida sin consultar origen/claim ni admissionProtocol; puente v2 en server/commercial/reviewedVoiceFragment.localFixture.ts:135–139 admite con reasignación y reserva compatible en B, con tres escrituras y fallo 1/2; verifyVoiceOrigin en server/account/backend.ts:386–396 no verifica ledger; validadores/extractos faltantes en voiceRequest 25–40, storedVoiceOrdinals 101–102, sealedReservation, billingHold, identityFromKey y http.ts:33,61–82.
+NEGATIVOS: 98/98 y 104/104 en evidencia local sintética; reserva nominal única con asiento de 3 s para A y B intacta; cuatro sustituciones válidas con conflicto e inventario idéntico; replay tras admisión y recreación exacta de grant rechazado sin cambios; segundo ordinal correcto con replay y huella alterada rechazada; UUID/digest/forma inválidos fallan antes de transacción; tipos con salida cero; control sin reserva compatible en B pasó; no se ejecutaron herramientas ni se verificaron logs/hashes.
+BLOQUEOS: Flujo integrado 1/2 por puente v2 y reasignación con reserva compatible en B; HTTP solo v2 y voz cerrada fuera de test; falta emisor autorizado y continuidad Video-Cuenta; timestamps no prueban autoridad; faltan validaciones Firestore; sello legacy puede sellar v3 sin origen; liquidación v3 cerrada y puente v2; writers v2 no retirados; faltan extractos de storedVoiceOrdinals, sealedReservation, billingHold, identityFromKey, http y pruebas de hold/revocación/ABA; sin prueba de llamada física, entrega de bytes, conciliación, IAM ni proveedor.
+=== FIN RESUMEN ===

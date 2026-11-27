@@ -1,0 +1,78 @@
+# Revisión estática independiente
+
+Solicitud: 09e4bd7e6ce1b7d8ab6c06e11b044c388050e5698ec4872d5fcd0075ee1e8503
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 18466/0/36431
+Costo observado USD: 0.039011544
+SHA-256 del informe original: 743feb5ff8fbfb4edb7d053bd2f1e0170f0e06f5f30934780da64443f5abc514
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+## Dictamen 1 · Categorías y atribución de alertas
+
+**Evidencia.**
+`server/commercial/billingPendingAlerts.ts:13-24` define `AlertKind`, `AlertReason`, `SWEEP_REASONS`. `:77-89` exige `alertKey` coherente y `validAlertShape`. `:103-119` limita `dropAccountHint` a `intent|guard`, `reason==='malformed'`, `accountId===null` y hint histórico string. `:185-191` marca corrupto un tipo/motivo desconocido antes de contar o disponer. `server/commercial/billingPendingReport.ts:17-27` fija `PENDING_SOURCES`; `:64-87` normaliza guard y deja visible como malformed la referencia dañada, con `accountId:null` si no puede atribuir. El ajuste `billingUnblock.emulator.mjs:887-895` cambia la expectativa a `corrupt` al leer una alerta atribuida a otra cuenta.
+
+**Precondición.**
+Alerta con `alertKey` coherente, `kind/reason` admitidos, `rowId` seguro y, para guard con hint no nulo, `accountId===rowId` y UUID válido.
+
+**Efecto.**
+Un tipo o motivo desconocido no se cuenta, no se cierra ni se dispone. Una guardia malformada puede permanecer visible con hint nulo. La retirada de cadena histórica queda restringida a la misma tupla malformed sin cuenta conocida. El `recordDisposition` rechaza corrupto y no escribe.
+
+**Control faltante / límite.**
+No hay evidencia de reglas Firestore ni inventario completo de IDs históricos no UUID. Hipótesis no demostrada: una alerta guard histórica con `reason:'age'` coherente sería aceptada por `validAlertCategory`; no hay writer que la cree y `checkAlert` usa `reasonFor` contra la fila viva, por lo que no se cierra incorrectamente. No se identifica defecto alcanzable en este alcance.
+
+## Dictamen 2 · Referencia compañera de guardia
+
+**Evidencia.**
+`server/commercial/billingPendingReport.ts:37-43` introduce `hasInvalidGuardReference`; `:81-87` mantiene prioridad outbox y conserva visible la compañera dañada. `server/commercial/billingUnblock.ts:113` hace que `generation` lance `corrupt` ante referencia inválida; `:120-129` conserva `sameGuard`/`sameOpenAlert`; `:172-184` acepta la fila legacy solo cuando corresponde; `:298-305` verifica dueño, guardia, época, `createdAtMs` y `updatedAtMs` antes de autorizar.
+
+**Precondición.**
+Toda referencia presente debe ser usable. Si una referencia existe y es inválida, la guardia queda malformed y sin atribución. Si la otra es válida, puede conservar identidad de estado.
+
+**Efecto.**
+La negativa ocurre antes de la primera autorización, al reanudar y al cerrar Video. Una referencia inválida no deduce titular. La prioridad outbox se conserva. Un ID válido no prueba por sí solo que el documento de respaldo exista, pero el incidente se contrasta contra filas y guardia.
+
+**Control faltante / límite.**
+No se aporta regla Firestore que impida escritura privilegiada sobre `billingGuards`. No se demuestra que todos los IDs opacos históricos sean aceptados por `guardIncidentId`; el propio comentario declara esa compatibilidad, pero no se incluye su implementación completa. No se identifica defecto alcanzable.
+
+## Dictamen 3 · Relectura después de pending y parcial
+
+**Evidencia.**
+`server/commercial/billingUnblock.ts:326-345` define `recheck`: relee guardia, alerta, solicitud, cierre y liberación, y compara versiones contra `observed`. `:326-359` exige relectura local antes de un POST condicional tras recibo `pending`. `:382-387` vuelve a recheckear en parcial confirmado antes de devolver bloqueo o liberar Video. `alertContractFocus.emulator.mjs:318-326` cubre pending con daño; `:350-359` cubre recibo confirmado y daño; `alertContractReview.test.mjs:213-231` cubre pending intacto y mutación condicional.
+
+**Precondición.**
+`opened.observed` existe para reanudación y parcial. `recheck` compara `updateTime` de guardia y solicitud, ausencia de cierre, ausencia de liberación y ausencia/versión de `done`.
+
+**Efecto.**
+La carrera en que el rival ya cerró se resuelve como conflicto. El replay de cierre completo, en `:262-270`, no consulta ni muta Cuenta. En parcial confirmado, “sigue bloqueado” pasa por relectura antes de responder. La carga original puede recuperarse desde la solicitud auditada y la relectura compara el intervalo de esa revisión.
+
+**Fricción legítima / límite.**
+Una versión de guardia puede cambiar legítimamente si el escritor repite el mismo incidente y modifica `updatedAtMs` sin cambiar época ni `createdAtMs`; eso se acepta en reanudación según contrato, pero `recheck` sí detecta cambios durante la ventana de revisión. La relectura local y el POST a Cuenta no son atómicos; una verificación local no cancela una mutación en vuelo. Declarado, no defecto alcanzable.
+
+## Dictamen 4 · Cierre no parcial con confirmed y límites del ACK directo
+
+**Evidencia.**
+`server/commercial/billingUnblock.ts:382-387` usa `recheck` cuando el recibo es `confirmed`; `:326-345` ancla versiones de guardia/solicitud antes de consumir el plan. `accountBillingClient.ts:85-98` valida el recibo confirmado. `server/account/backend.ts:235-254` devuelve recibo confirmado con generación y bloqueo; `:267-291` decide con recibo y generación. `alertContractFocus.emulator.mjs:404-434` cubre evidencia distinta, restaurada e intacta; `:350-359` cubre daño durante recibo confirmado.
+
+**Precondición.**
+Recibo `confirmed` y snapshots `observed` de la transacción previa. La transacción final de Video debe verificar versiones antes de consumir el plan.
+
+**Efecto.**
+Evidencia distinta o restaurada durante el recibo produce conflicto y conserva guardia/alerta. El control intacto cierra y el replay no repite consulta ni mutación. La primera llamada con ACK directo y la mutación posterior a pending conservan la comprobación final anterior de guardia/alerta para esa otra ruta.
+
+**Control faltante / límite.**
+La última lectura local y el POST no son atómicos entre bases. Dos coordinadores pueden alcanzar el transporte y Cuenta decide con su recibo y generación. No se debe suponer que una verificación local cancela una mutación en vuelo ni que restaura una historia anterior al inicio de esa lectura. Declarado, no defecto alcanzable.
+
+## Contrato de relojes y hallazgo previo
+
+No mantengo la objeción contractual del informe previo. La cláusula pertinente es `docs/specs/LV-019-B-bloqueos-y-ierres-diseno.md:111-116`. El renglón 111 exige al inicio misma época y `updatedAtMs` del operador; eso se cumple en `billingUnblock.ts:298-305`. Los renglones 114-116 exigen, al reanudar, solicitud inmutable, actor, dueño, alerta y misma ocurrencia; `sameGuard` no compara `updatedAtMs` porque el escritor legítimo puede repetir el mismo incidente y modificar `updatedAtMs` sin cambiar época ni `createdAtMs`. La solicitud auditada conserva el payload original y `recheck` compara `updateTime` del mismo documento durante esa revisión. El informe externo previo se conserva como histórico, pero no como FALLA vigente para esta candidata.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Diff runtime de billingPendingAlerts.ts, billingPendingReport.ts y billingUnblock.ts; pruebas 165/165 en 7 suites; 9/9 focal en Firestore demo run-a77e310b-66d9-439e-9326-78d8fadbb0e7; TAP SHA-256 3412b8664b814d9de1b4e24650326291d6dde61ca02276bb37ab83c4de62efd7; manifiesto a3b2990ce6c02732ab6c215161fffcf02ad56efdfe8370ec7d9fe1dea1ad41fd; blob alerts d03f4388836cd112f7480cb4e9bb4ec4f570c5a7d857ab066d7540621d64e707; report 9c8ac42ac6ee63b4ac925d025b0e32f24c2afa8e843bd3670b20046d63915202; unblock 17eedb0b99bf7a448207009e5c1f4c060fbc8833588b7f341bb54ebd7712a2b2; focus 9ffab8b1e3a00042cd8b263cbe377ed3cd398ee1ac88a3276b9aad82fa979330.
+NEGATIVOS: Tipo/motivo desconocido no cuenta ni dispone; guard con dueño no UUID no se atribuye; compañera inválida, referencias idénticas, prioridad outbox y generación legada conservados; guardia dañada, cambio/restauración de solicitud, alerta cerrada, lectura fallida y cierre de rival quedan en conflicto/corrupto; pending intacto usa generación aprobada de Cuenta; parcial con rival conserva bloqueo; recibo exacto posterior a reparación termina sin otro POST; confirmado no parcial con evidencia distinta/restaurada no toca decisión remota y conserva guardia/alerta; intacto cierra y replay sin nueva consulta o mutación.
+BLOQUEOS: No bloqueantes para el alcance estático revisado; quedan fuera batería financiera completa aún en curso, despliegue real, IAM/producción, credenciales y costo/uso no medido; no se incluyen reglas Firestore ni inventario completo de IDs históricos no UUID.
+=== FIN RESUMEN ===

@@ -1,0 +1,86 @@
+# Revisión estática independiente
+
+Solicitud: ed0f06dc346ffd0ad85d3747edebe1574c05f6f418d3a326b6a273b1600d9c4e
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 13801/20/83546
+Costo observado USD: 0.0420379245
+SHA-256 del informe original: 66f24193472a6bfee0904a2e2db3c9e1490d698eefe0952e9431684a0276b81e
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# LV-019.B · Revisión estática de los dos guiones de ensayo sintético
+
+**Método.** Solo lectura del paquete suministrado (4 archivos, 2 commits). No ejecuté nada; no accedí a archivos ausentes. Numeración de líneas según el paquete tal como se entrega. Dictamen exclusivo sobre integridad de los ensayos y sus afirmaciones, no para activar producto.
+
+**Coincidencias de recibos comprobables.** Los SHAs de cabecera coinciden con la tabla del README móvil (`runRealCandidateMobile.ps1` 4f3170b6…; `qaRealCandidateMobile.browser.mjs` 669d005f…; `result.json` ef433f06…), y el hash de bundle 1691bb71… coincide con el recibo del usuario.
+
+## 1. Ensayo móvil (78d3753) — orden de eventos y controles
+
+1. ps1 L14-19 crea `outputs/browser-real-build-<guid>/{profile,temp,bundle}`; L22-28 construye el entorno limpio antes de Node; L54 `npm run build:candidate --outDir <bundle>` (fallo ⇒ throw); L57 ejecuta el guion con `LV_REAL_CANDIDATE_TASK`.
+2. mjs L15-22: plataforma/Node fijados y **allowlist de entorno exacta** (control negativo de arranque limpio).
+3. L28-34: manifiesto Vite debe mapear `server/commercial/web/cloudCandidate.tsx → cloudCandidate.js` con CSS. **No hay plugin de esbuild ni sustitución de módulos**: la única sustitución es de red.
+4. L45-50: perfil/temp sin symlinks; ausencia de `profile/gcloud/application_default_credentials.json`.
+5. L51-62: snapshot recursivo del bundle (rechaza symlinks) antes del run.
+6. L70-78: datos sintéticos; idToken **alg:none** con iss/aud `vistavo-prod`; L84-85 bytes originales.
+7. L92-141: servidor local 127.0.0.1 (403 si no loopback/host incorrecto, L96; 404/400, L98/139); HTML del repo con CSP (L99-104); assets solo del bundle con guard de path traversal (L108-114); API en memoria: config sin auth, resto exige Bearer (L117-118); PUT review exige inputId/expectedRevision=3/2 edits (L125-131); descarga exige `revision=4` y format txt|srt con `X-Vistavo-Revision: 4` (L132-138).
+8. L145-154: proxy TCP agujero negro (L145); Chrome fijado por pin, con `--proxy-server`, `MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`, WebRTC policy; `Browser.getVersion` validado (L154).
+9. L159-177: router CDP Fetch: continúa lo local; **fulfill sintético** de `identitytoolkit…/accounts:signInWithPassword` y `:lookup` (L167-173); todo lo demás → `blocked` + failRequest; excepciones registradas (L162); Fetch '*' Request-stage (L180); emulación 390×844 táctil; precarga localStorage (L184).
+10. L188-199: navega → login → espera botón habilitado (fix del intento 1, L190) → credenciales sintéticas → 'Tu espacio privado' → 'Recuperamos el último archivo' → 'Cargar frases' → edita cue 0 → 'Guardar revisión' → 'Revisión guardada y reabierta'.
+11. L200-210: descarga TXT y SRT; verificación byte-exacta: TXT `'The technician checks the pump.\nNo leaks.\n'` y SRT `'1\n00:00:00,000 --> 00:00:01,200\nThe technician checks the pump.\n\n2\n00:00:01,500 --> 00:00:03,500\nNo leaks.\n'` (cue 0 editado, cue 1 intacto, tiempos preservados).
+12. L211-218: anchos 320/390/428 con `scrollWidth<=viewport` (L215); voz `:disabled` y «solo texto» marcado (L217-218).
+13. L219-223: **0 POST a `/api/cloud/ai/jobs`**; signInWithPassword y lookup presentes; `blocked==[]` y `exceptions==[]`.
+14. L227-239: finally cierra Chrome (Browser.close + kill de respaldo) y servidores; snapshot posterior; `confirmed` exige PASS ∧ cleanup ∧ bundle idéntico ∧ sin bloqueos ∧ sin excepciones (L234); escribe result.json; exit 1 si no (L238). No hay ruta de falso PASS: `testResult` solo se fija tras todas las aserciones (L224) y `confirmed` lo revalida.
+
+## 2. Ensayo de audio (a351846) — orden de eventos y controles
+
+1. L20-26: vectores `unicode-two-cues` (1 llamada); `reviewTranslation` deriva `voiceText`; digest debe igualar `voiceSha256` del vector (auto-referencial; vector ausente).
+2. L28-40: `tone()` seno determinista; Kore 440 Hz/0,85 s; Charon 660 Hz/1,15 s; jobIds de voz ≠ jobId de texto (L40).
+3. L42-54: cuerpo canónico del vector con voz sustituida; `validateReviewedVoiceCall` exige voz correcta; **controles negativos**: voz intercambiada y texto no guardado deben lanzar `ReviewedVoiceCanonicalError` (L49-54).
+4. L56-81: provider stub (`fetchImpl`) exige URL/modelo/POST y cuerpo idéntico al verificado (L62-64); Kore devuelve L16 crudo, Charon WAV; `synthesis.l16` == PCM (L70); WAV validado (duración/samples/sin clipping, L72-75); orden ['Kore','Charon'], cuerpos y WAVs distintos (L77-79).
+5. L83-129: fixture de navegador: localStorage sembrado; intercepción de blob URLs y clicks de ancla; `window.fetch` solo permite GET `/api/cloud/*` con Bearer `fixture-only`; resto → `fixtureDenied` + 403 (L108-110); gancho de tamper (último byte ^=1, L121-123).
+6. L131-137: **sustitución declarada de módulo**: plugin esbuild reemplaza `./cloudCandidateAuth` por auth fija; bundle IIFE propio, distinto del artefacto Vite.
+7. L141-155: página file:// con CSP `connect-src 'none'`, `media-src blob:`; Chrome con DNS `MAP * ~NOTFOUND`, `--mute-audio`, pipe CDP; `Browser.getVersion` validado (L162).
+8. L166-179: listeners de excepciones y protocolos externos; emulación offline + `setBlockedURLs` http/https/ws/wss; 390×844.
+9. L184-190: navega al fixture → 'Recuperamos el último archivo'; `isSecureContext`; voz `:disabled`; sin overflow a 390.
+10. L192-226: por voz: 'Consultar estado' → preparar habilitado; tarjeta muestra voiceId. **Tamper solo en Kore (L197-206)**: alerta de mismatch, sin elemento audio, sin blob nuevo, reset. Luego preparar → audio `readyState>=2`; duración ±20 ms (L210); `error===null`; **digest del blob == esperado** (L215); play silenciado, **reloj >0,12 s** (L217); 'Descargar WAV' con nombre y **digest del blob de descarga == esperado** (L224-225).
+11. L228-238: lecturas incluyen ambos endpoints de resultados; `fixtureDenied==[]` (ningún POST del cliente); 2 elementos audio; sign-out → tarjetas fuera y **todas las URLs revocadas** (L234-236); `external==[]`; `exceptions==[]`.
+12. L240-263: fallo ⇒ `browser-failure.json` + rethrow; finally: kill, `await closed` (L246, sin timeout), contención de ruta, **perfil y página eliminados con verificación ENOENT** (L251-254); `browser-result.json` PASS solo tras limpieza verificada.
+
+## 3. Qué se sustituye (autenticación/API)
+
+- **Móvil**: SDK Firebase real del bundle; respuestas de identitytoolkit cumplimentadas por CDP con token alg:none; API local en memoria con Bearer sintético; sin Auth Emulator ni Google real. **Sin sustitución de módulos** — coincide con la afirmación del README.
+- **Audio**: módulo de auth reemplazado por fixture (esbuild), API en memoria vía override de `fetch`, provider Gemini sustituido por stub local que devuelve tonos. Todo declarado en el recibo («Admite un plugin de autenticación y respuestas en memoria»). La afirmación «el bundle móvil no reemplace módulos» se cumple **solo** en el ensayo móvil; no es transferible al ensayo de audio.
+
+## 4. Hallazgos (defectos/observaciones)
+
+1. **README móvil sobreestima el control de anchos**: afirma que el ancho de documento «fue igual al ancho de ventana» (README.md, viñeta de resultados, ~L13), pero el guion solo exige `document<=viewport` (qaRealCandidateMobile.browser.mjs L215). La igualdad dependería del arreglo `widths` de result.json, no suministrado. Sobrestatement documental; no invalida el ensayo.
+2. **Trazabilidad del recibo de audio**: el recibo cita `result.json` (SHA 9679de34…), pero el guion escribe `browser-result.json` (reviewedVoicePlayback.browser.mjs L262). Confirmar identidad del archivo.
+3. **Recibo móvil sin identidad del navegador**: el guion valida el navegador contra el pin (L154) pero no persiste versión/hash en result.json (L235); el guion de audio sí (`browserSha256`). Brecha menor de completitud.
+4. **Control de tamper parcial**: solo se ejercita en la primera voz (Kore) (L197 `if(index===0)`); la ruta de Charon queda sin medir.
+5. **Posible cuelgue en limpieza de audio**: `await closed` sin carrera de tiempo límite (L246); si Chrome no termina, el finally se bloquea (riesgo de bloqueo, no de falso PASS).
+6. **Descargas extra no medidas (móvil)**: no se verifica que la carpeta de descargas contenga únicamente los dos archivos esperados.
+7. **Control de 0 POST con ruta literal** (L219): un POST a variante de ruta daría 404 y fallaría el flujo, pero el filtro es exacto de ruta.
+8. **Commit base ambiguo**: el README móvil (~L3) cita base `a14eb935…` distinta del commit de evidencia `78d3753…`; la relación de commits no es verificable estáticamente (los SHAs de los guiones sí coinciden con el paquete).
+
+## 5. Limitaciones declaradas (no defectos)
+
+- Móvil: auth/API sintéticas; sin Google/proveedor/saldo/teléfono real; CDP+proxy+DNS «defensas parciales, no un cortafuegos del sistema»; perfil retenido para inspección; hash antes/después ≠ instantánea inmutable; clasificación `sandbox` del diagnóstico de Chrome genérica; sin carga de video, IA, audio, saldo, aislamiento de dos usuarios ni revocación.
+- Audio: tonos, no voz real; reproducción silenciada (evidencia = reloj de medios + digests, no salida audible); plugin de auth declarado; red bloqueada por capas parciales; unitarias 83/83 declaradas y no reejecutadas.
+
+## 6. Falta por comprobar (no suministrado)
+
+`reviewBrowserCdp.mjs` y `reviewBrowserBinaryIdentity.mjs` (pipe CDP, pin/hash del navegador, `assertHeadlessBrowserProduct`); `cloudCandidate.html` (referencia al JS del bundle); `vite.pilot.config.ts`/implementación de `build:candidate`; `reviewedVoiceCanonical.vectors.json` y módulos canónicos/voz (`reviewedVoiceCanonical.ts`, `reviewedTranslation.ts`, `pipelineVoiceProvider.ts`, `pipelineVoiceWav.ts`); contenidos de `result.json` ef433f06… y `browser-result.json` 9679de34… (valores 18/widths/0,153/0,137 s no re-derivables); los dos result.json INCONCLUYENTES previos; `build.stdout.txt`/`browser.stdout.txt`; las unitarias 83/83; los «siete controles del arnés anterior».
+
+## 7. Controles negativos conservados
+
+- **Móvil**: allowlist de entorno (L21-22); sin ADC de Google (L50); snapshot del bundle antes/después (L62, L233-234); rechazo de symlinks (L47, L56); guard de path traversal (L109-112); 403 no-loopback (L96); 401 sin Bearer (L118); 413 cuerpo >8192 (L126); 404 rutas desconocidas (L139); `revision=4` y format exigidos (L133-135); 0 POST jobs (L219); signInWithPassword+lookup presentes (L220-221); `blocked==[]` y `exceptions==[]` (L223); voz `:disabled` + «solo texto» (L217-218); TXT/SRT byte-exactos (L209-210); PASS solo con cleanup y bundle idéntico, exit 1 si no (L234-238); dos intentos INCONCLUYENTES documentados con SHAs (README ~L35).
+- **Audio**: jobIds de voz ≠ texto (L40); validator rechaza voz equivocada y texto no guardado (L49-54); stub exige URL/método/cuerpo (L62-64); `synthesis.l16` == PCM (L70); cuerpos y WAVs distintos (L77-79); fixture niega todo lo que no sea GET `/api/cloud/*` con Bearer (L108-110, L126); tamper → alerta sin audio ni blob (L197-206); digests de blob y descarga igualados (L215, L225); duración ±20 ms (L210); `fixtureDenied==[]` (L231); URLs revocadas al salir (L234-236); `external==[]` y `exceptions==[]` (L237-238); perfil/página eliminados con ENOENT (L251-254); fallos registrados (`browser-failure.json` L241, `cleanup-failure.json` L256); PASS solo tras limpieza verificada (L261-263).
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: qaRealCandidateMobile.browser.mjs L21-22/L33-34/L62/L167-173/L209-210/L215-223/L234-238: bundle real Vite sin sustitución de módulos (solo mock de red CDP + servidor local), TXT/SRT byte-exactos, voz deshabilitada, 0 POST jobs, bundle 18 archivos igual antes/después, limpieza y exit-code verificados; README y SHAs coinciden con el paquete; reviewedVoicePlayback.browser.mjs L20-26/L37-40/L49-54/L62-79/L197-206/L215-225/L234-238/L251-254/L261-263: tonos 0,85/1,15 s (440/660 Hz), validator canónico con rechazo de voz/texto alterados, tamper→alerta sin blob, digest de blob y descarga verificados, reloj >0,12 s, revocación al salir, perfil/página eliminados con ENOENT; sustitución declarada de auth vía plugin esbuild y API en memoria.
+NEGATIVOS: allowlist de entorno; sin ADC de Google en perfil; snapshot bundle antes/después; rechazo de symlinks; guard de path traversal; 403 no-loopback; 401 sin Bearer; 413; revision=4 y format txt|srt exigidos; 0 POST /api/cloud/ai/jobs; signInWithPassword+lookup presentes; blocked==[] y exceptions==[]; voz :disabled y «solo texto»; jobIds de voz ≠ texto; validator rechaza voz equivocada y texto no guardado; fixture niega todo lo que no sea GET /api/cloud/* con Bearer (fixtureDenied==[]); tamper→alerta sin audio ni blob; digests de blob y descarga igualados; URLs revocadas al salir; external==[]; perfil/página ENOENT; PASS solo si cleanup y bundle idéntico (exit 1 si no); fallos registrados (INCONCLUYENTE, browser-failure.json, cleanup-failure.json).
+BLOQUEOS: no ejecutables ni re-derivables estáticamente: reviewBrowserCdp.mjs, reviewBrowserBinaryIdentity.mjs, cloudCandidate.html, vite.pilot.config.ts/build:candidate, reviewedVoiceCanonical.vectors.json y módulos canónicos/voz, result.json ef433f06… y browser-result.json 9679de34… (valores 18/widths/0,153/0,137 s no re-derivables), dos intentos INCONCLUYENTES previos, build/browser stdout, unitarias 83/83, arnés anterior; README afirma ancho «igual» pero el guion solo exige ≤; recibo de audio nombra result.json pero el guion emite browser-result.json; recibo móvil no registra identidad/hash del navegador; tamper solo en Kore; commit base a14eb935… vs evidencia 78d3753… no contrastable.
+=== FIN RESUMEN ===

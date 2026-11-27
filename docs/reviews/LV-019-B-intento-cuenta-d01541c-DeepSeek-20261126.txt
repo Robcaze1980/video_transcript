@@ -1,0 +1,26 @@
+# Revisión estática independiente
+
+Solicitud: c30fe76bbf7794f3e6b33db96a0e6f35e6daa3122f0ef78cb8ff5102ae2ca67d
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: FALLA
+Tokens entrada/cache/salida: 16628/0/32448
+Costo observado USD: 0.0244115586
+SHA-256 del informe original: ef0f11b11cb8c6830af5ec172eaf0d39034b28a9d4f3f6b274c8a28d92f1174b
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática: el flujo compara tupla, cuenta, incidente, autoridad, recibo y versiones de forma consistente; `pending` es solo lectura (`apply=false`) aunque valida y puede lanzar `invariant`. Repetición exacta/respuesta perdida: en el test serial simulado produce una sola escritura y replay; en Firestore real no verificado.
+
+Defecto concreto: `server/account/backend.ts:354-362` y `:376` usan `createTime`/`updateTime` y `record.unblockAuthorityVersion` como prueba de continuidad. Si se recrean juntos autoridad, incidente, identidad y guardia (o se actualiza `unblockAuthorityVersion`), los nuevos timestamps pueden coincidir y las comprobaciones pasan. El test solo recrea un documento aislado (`unblockAttemptReceipt.test.ts:175`) y no cubre recreación coordinada; por tanto no prueba rechazo de generación cambiada y asume que timestamps iguales son autoridad.
+
+Controles negativos conservados: tests 111-131 (ACK perdido/replay), 133-149 (commit fallido), 151-166 (cruce de cuentas), 168-196 (recreación aislada, epoch, identidad), 252-268 (alteraciones), 270-278 (`reviewedCount`), 280-293 (legacy), 295-308 (`NODE_ENV`). Legacy: `unblockVideoBilling` y `videoBillingUnblockReceipt` rechazan v2; `blockVideoBilling`/`videoBillingHold` no lo hacen pero no desbloquean v2, compatible dentro de lo declarado.
+
+Límites: no se verifica 110/110, SHA, emisor real, corte de escritores, fencing, integración Video/Cuenta ni Firestore real. Falta prueba de recreación coordinada con timestamps compartidos.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: server/account/backend.ts:354-362,376; server/account/unblockAttemptReceipt.test.ts:175; tests 111-308
+NEGATIVOS: tests 111-131,133-149,151-166,168-196,252-268,270-278,280-293,295-308 conservan ACK perdido, commit fallido, cruce de cuentas, recreación aislada, alteraciones, reviewedCount, legacy y NODE_ENV
+BLOQUEOS: no verificables 110/110, SHA, emisor real, corte de escritores, fencing, integración Video/Cuenta, Firestore real, recreación coordinada con timestamps compartidos
+=== FIN RESUMEN ===
