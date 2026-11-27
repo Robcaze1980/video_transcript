@@ -9,3 +9,5 @@ Dos inferencias de la revisión GLM requieren corrección: un epoch sucesor mayo
 GLM fue consultado por el respaldo autorizado después de fallar una ejecución de T3. El modelo servido fue `z-ai/glm-5.3-flash`; el recibo reporta 15.673 tokens de entrada, 52.661 de salida y **US$0.021295976625**. Modelo servido/uso/costo de la revisión T3 de DeepSeek: no medidos. Se conserva el texto completo de la propuesta y de ambas revisiones; una revisión corregida y pruebas reales quedan pendientes.
 
 La revisión documental posterior señaló la coincidencia de modelo entre autor y revisor DeepSeek. Fueron hilos separados; GLM aportó además un contraste de otro modelo. El ancla sembrada está indicada en `MASTERPLAN.md`. La huella de `firebaseAccess.ts` se verificó contra el archivo local antes de ocultarla, por una alerta falsa del detector; no se ocultó una clave.
+
+Una segunda propuesta T3 también quedó INCONCLUYENTE y sin aplicar; Codex documentó otros tres puntos y pidió corregirlos. [Contraste](02-codex-observations.md).

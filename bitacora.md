@@ -2076,3 +2076,5 @@ La revisión documental de GLM por T3 dio PASS acotado; tras fallar una ejecuci�
 La candidata local `a3efa8d` pasó **5/5** al conectar Video y Cuenta con transporte ficticio: recuperó un recibo sin segundo envío, devolvió dos reservas una vez y mantuvo otra cuenta intacta. DeepSeek por T3 y GLM por respaldo dieron PASS acotados; la autoridad y el ancla fueron sembradas. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/a3efa8d13b58adedbdfd74f5ad13f72627ec127e/docs/evidence/lv019-b-fenced-video-local-20261127/README.md). La propuesta de sucesor sigue sin aceptar tras observaciones de ambos revisores. [Propuesta, revisiones y contraste](docs/evidence/lv019-b-successor-proposal-20261127/README.md).
 
 El respaldo GLM revisó el seguimiento documental y dio PASS acotado, con límites sobre enlaces y revisiones. [Informe](docs/reviews/LV-019-B-seguimiento-saldo-GLM-openrouter-20261127.txt).
+
+Una segunda propuesta de sucesor se conservó sin aplicar: su lectura ficticia de Cuenta, reapertura parcial y carrera de confirmación previa requieren corrección. [Contraste](docs/evidence/lv019-b-successor-proposal-20261127/02-codex-observations.md).
