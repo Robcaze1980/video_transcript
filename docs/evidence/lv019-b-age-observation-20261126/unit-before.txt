@@ -1,0 +1,69 @@
+
+ RUN  v5.0.5 C:/Users/rob62/Documents/Codex/2026-11-11/vistavo-account-admission-20261126
+
+ × server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > records the exact prior intent state for two accounts; leaves legacy review and other row types alone 13ms
+   → .toMatch() expects to receive a string, but got undefined
+ × server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > retains the first observation after a reopen, and a second transition gets a different ID 7ms
+   → expected [] to have a length of 1 but got +0
+ × server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > does not partly change the row when the observation create fails 5ms
+   → expected { scanned: 1, escalated: 1, …(3) } to match object { failed: 1, escalated: +0 }
+(3 matching properties omitted from actual)
+ ✓ server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > does not create observations for an active lease, invalid age or state changed since scan 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > records the exact prior intent state for two accounts; leaves legacy review and other row types alone
+TypeError: .toMatch() expects to receive a string, but got undefined
+ ❯ server/commercial/firestoreAgeObservation.test.ts:21:21
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > retains the first observation after a reopen, and a second transition gets a different ID
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ server/commercial/firestoreAgeObservation.test.ts:38:29
+     36|     const first=s.store.get('billingIntents/item')!.ageObservationId a…
+     37|     expect((await store.escalateStaleBillingRows({now:now+1,maxAgeMs:1…
+     38|     expect(observations(s)).toHaveLength(1);
+       |                             ^
+     39|     // A privileged fixture simulates a later reopen; it does not auth…
+     40|     s.store.set('billingIntents/item',{...s.store.get('billingIntents/…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > does not partly change the row when the observation create fails
+AssertionError: expected { scanned: 1, escalated: 1, …(3) } to match object { failed: 1, escalated: +0 }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "escalated": 0,
+-   "failed": 1,
++   "escalated": 1,
++   "failed": 0,
+  }
+
+ ❯ server/commercial/firestoreAgeObservation.test.ts:58:20
+     56|     })};
+     57|     const report=await new FirestoreBackend(rejecting as never,s.root …
+     58|     expect(report).toMatchObject({failed:1,escalated:0});
+       |                    ^
+     59|     expect(s.store.get('billingIntents/item')).toEqual(before);expect(…
+     60|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+   Start at  17:48:02
+   Duration  2.01s (import 87%, transform 11%, tests 2%, worker 1%)

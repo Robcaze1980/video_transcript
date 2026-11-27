@@ -2444,6 +2444,9 @@ export class FirestoreBackend {
         if(!proceed){report.stopped=true;report.next=completed??after;break;}
       }
       let outcome:'escalated'|'skipped'|'failed';
+      // Stable across retries of this transaction. This is only an observation
+      // of the source state, not ownership or authorization to block/refund.
+      const ageObservationId=candidate.collection==='billingIntents'?randomUUID():null;
       try{
         outcome=await this.db.runTransaction(async tx=>{
           const ref=this.ref(candidate.collection,candidate.id);
@@ -2464,7 +2467,12 @@ export class FirestoreBackend {
           if(await this.deferVerifiedReleaseAge(tx,candidate.collection,doc,clock,limitAge))return 'skipped' as const;
           // A dangling or expired lease must not survive on a reviewed row; the audited release (1.4b) reopens it.
           const clearLease=hasIntentLease(doc.data()!)?{leaseToken:FieldValue.delete(),leaseOwner:FieldValue.delete(),leaseUntil:FieldValue.delete()}:{};
-          tx.update(ref,{state:'needs_review',reviewReason:'max_age',updatedAtMs:clock,...clearLease});return 'escalated' as const;
+          if(ageObservationId){
+            tx.create(this.ref('billingIntentAgeObservations',ageObservationId),{protocol:1,id:ageObservationId,intentId:candidate.id,
+              priorState:state,reason:'max_age',observedAtMs:clock,sourceCreatedAtMs:createdAtMs});
+          }
+          tx.update(ref,{state:'needs_review',reviewReason:'max_age',updatedAtMs:clock,
+            ...(ageObservationId?{ageObservationId}:{}),...clearLease});return 'escalated' as const;
         });
       }catch{outcome='failed';}
       if(outcome==='escalated')report.escalated++;else if(outcome==='failed')report.failed++;

@@ -1,0 +1,112 @@
+VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: RED: overdue A denies a new external reserve intent while B can still open one
+not ok 1 - RED: overdue A denies a new external reserve intent while B can still open one
+  ---
+  duration_ms: 19.4133
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-account-admission-20261126\\server\\commercial\\overdueReleaseEntry.diagnostic.mjs:87:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected rejection.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    code: 'conflict'
+  operator: 'rejects'
+  stack: |-
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async TestContext.<anonymous> (file:///C:/Users/rob62/Documents/Codex/2026-11-11/vistavo-account-admission-20261126/server/commercial/overdueReleaseEntry.diagnostic.mjs:92:3)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+# Subtest: RED: overdue A denies a new job commit, preserving prior authorized replay and B
+not ok 2 - RED: overdue A denies a new job commit, preserving prior authorized replay and B
+  ---
+  duration_ms: 8.4536
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-account-admission-20261126\\server\\commercial\\overdueReleaseEntry.diagnostic.mjs:95:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected rejection.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    code: 'conflict'
+  operator: 'rejects'
+  stack: |-
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async TestContext.<anonymous> (file:///C:/Users/rob62/Documents/Codex/2026-11-11/vistavo-account-admission-20261126/server/commercial/overdueReleaseEntry.diagnostic.mjs:102:3)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+# Subtest: ownership proof limit: Account status and resolution cannot distinguish stable A from A to B to A
+ok 3 - ownership proof limit: Account status and resolution cannot distinguish stable A from A to B to A
+  ---
+  duration_ms: 5.9595
+  type: 'test'
+  ...
+# Subtest: an observed Account response cannot attest a later Video commit after revocation
+ok 4 - an observed Account response cannot attest a later Video commit after revocation
+  ---
+  duration_ms: 2.7887
+  type: 'test'
+  ...
+# Subtest: a fallible owner hint in a legacy row does not close B
+ok 5 - a fallible owner hint in a legacy row does not close B
+  ---
+  duration_ms: 2.4601
+  type: 'test'
+  ...
+# Subtest: an independent Account hold permits consultation but prevents an ordinary release; B still reserves
+ok 6 - an independent Account hold permits consultation but prevents an ordinary release; B still reserves
+  ---
+  duration_ms: 8.0521
+  type: 'test'
+  ...
+# Subtest: entry authority: previously indistinguishable reserve and refund histories now retain their prior states
+ok 7 - entry authority: previously indistinguishable reserve and refund histories now retain their prior states
+  ---
+  duration_ms: 12.4555
+  type: 'test'
+  ...
+# Subtest: entry authority: a normally emitted open alert can inherit the wrong owner hint despite a genuine A origin
+ok 8 - entry authority: a normally emitted open alert can inherit the wrong owner hint despite a genuine A origin
+  ---
+  duration_ms: 4.5003
+  type: 'test'
+  ...
+# Subtest: entry authority: a financial guard written by the review flow rejects only new A work
+ok 9 - entry authority: a financial guard written by the review flow rejects only new A work
+  ---
+  duration_ms: 7.1299
+  type: 'test'
+  ...
+# Subtest: entry continuity: an already invoking simulated job completes once while the Video financial guard is active
+ok 10 - entry continuity: an already invoking simulated job completes once while the Video financial guard is active
+  ---
+  duration_ms: 8.5781
+  type: 'test'
+  ...
+# Subtest: entry continuity: Video guard alone does not prevent independent Account capture, refund or their receipts
+ok 11 - entry continuity: Video guard alone does not prevent independent Account capture, refund or their receipts
+  ---
+  duration_ms: 6.8461
+  type: 'test'
+  ...
+# Subtest: entry continuity: a separately applied Account hold blocks new settlement and admissions, not receipt replays or B
+ok 12 - entry continuity: a separately applied Account hold blocks new settlement and admissions, not receipt replays or B
+  ---
+  duration_ms: 4.1191
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 10
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2550.9889

@@ -1,0 +1,35 @@
+
+ RUN  v5.0.5 C:/Users/rob62/Documents/Codex/2026-11-11/vistavo-account-admission-20261126
+
+ ✓ server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > records the exact prior intent state for two accounts; leaves legacy review and other row types alone 15ms
+ ✓ server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > retains the first observation after a reopen, and a second transition gets a different ID 2ms
+ ✓ server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > does not partly change the row when the observation create fails 2ms
+ ✓ server/commercial/firestoreAgeObservation.test.ts > age transition observations are unassigned evidence, not a guard > does not create observations for an active lease, invalid age or state changed since scan 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows parameters > refuses a bad clock, limit, maxAgeMs, cursor or gate instead of touching a row 11ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows parameters > defaults to a 48 h maximum age 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows age boundary > leaves a row of exactly the maximum age and a younger one untouched, and escalates one millisecond older 4ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows age boundary > never reads the wall clock to decide: the same row is young or stale depending only on `now` 4ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > counts a missing, textual, negative or future createdAtMs as a failure and leaves the row intact 2ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > never overwrites a row whose state changed between the page read and its own transaction 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > covers the three non-terminal collections and only their non-terminal states 3ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > moves no balance, no hold and no guard: it only ever writes the escalated row 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > is idempotent: a second pass over an escalated row writes nothing more 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > rotates with its cursor and limit, wrapping to the beginning 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > stops inside a tie group on the last COMPLETED id, so the rest of the group is reached next 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > advances the stop cursor past a fully completed tie group and resumes at the next one 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > requires the exact state seen by the scan, skipping a row that moved to another non-terminal state 0ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > escalates a dangling or expired intent lease and clears its three fields, but never an active one 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > escalateStaleBillingRows malformed age, changed state and collections > stops row by row when the gate refuses and resumes right after the last attended row 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > recordExternalBillingIntentStall > advances attempts, sets the growing wait and reaches needs_review at the eighth attempt without blocking the owner 2ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > recordExternalBillingIntentStall > uses min(15 min, 1 s times two to the attempts) and coerces an unknown code to unavailable 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > recordExternalBillingIntentStall > counts one attempt per due window: a second call inside the new wait writes nothing 2ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > recordExternalBillingIntentStall > refuses a row that is no longer pending, a leased row and another account without writing 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > the age section of the drain executor > runs the age sweep LAST, after the unknown resolver, with its own cursor and gate 6ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > the age section of the drain executor > counts a failed age row and a stop, and never lets the age section throw out of the pass 2ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > the age section of the drain executor > skips the age section when the backend has no such method and still emits the heartbeat 1ms
+ ✓ server/commercial/firestoreAgeEscalation.test.ts > the age section of the drain executor > emits staleEscalated in the single-line heartbeat and declares the age cursor kind 1ms
+
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+   Start at  17:48:33
+   Duration  2.66s (import 74%, transform 24%, tests 2%, worker 1%)

@@ -1,0 +1,9 @@
+
+ RUN  v5.0.5 C:/Users/rob62/Documents/Codex/2026-11-11/vistavo-account-admission-20261126
+
+······················································································································
+
+ Test Files  6 passed (6)
+      Tests  118 passed (118)
+   Start at  18:17:50
+   Duration  3.81s (import 80%, transform 12%, tests 6%, worker 1%)

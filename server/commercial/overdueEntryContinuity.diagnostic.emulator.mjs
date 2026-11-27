@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import {after,afterEach,before,test} from 'node:test';
 import {createHash,randomUUID} from 'node:crypto';
 import {existsSync,realpathSync} from 'node:fs';
-import {join,resolve} from 'node:path';
+import {join,relative,resolve,sep} from 'node:path';
 import {Firestore} from 'firebase-admin/firestore';
-import {FirestoreBackend} from './firestoreBackend.ts';
+import {FirestoreBackend,EXTERNAL_BILLING_MAX_AGE_MS} from './firestoreBackend.ts';
 import {FirestoreAi} from './firestoreAi.ts';
 import {AccountBillingClient,accountIdentityKey} from './accountBillingClient.ts';
 import {AccountStore} from '../account/backend.ts';
@@ -33,8 +33,9 @@ function assertEnvironment(){
     'GCE_METADATA_HOST','GCE_METADATA_IP','FIREBASE_CONFIG','VISTAVO_PROJECT_ID','K_SERVICE','K_REVISION','K_CONFIGURATION','K_JOB',
     'FUNCTION_TARGET','FUNCTION_NAME','GAE_SERVICE','GAE_ENV'])assert.ok(!process.env[name]);
   assert.ok(process.env.APPDATA&&process.env.APPDATA===process.env.USERPROFILE&&process.env.APPDATA===process.env.LOCALAPPDATA);
-  const profile=resolve(process.env.APPDATA),expected=resolve('outputs/admission-isolated/profile');
-  assert.equal(profile.toLowerCase(),expected.toLowerCase());assert.equal(realpathSync(profile).toLowerCase(),expected.toLowerCase());
+  const profile=resolve(process.env.APPDATA),base=resolve('outputs/age-observation-runs'),parts=relative(base,profile).split(sep);
+  assert.equal(parts.length,2);assert.match(parts[0],/^run-[a-f0-9-]{36}$/);assert.equal(parts[1],'profile');
+  assert.equal(realpathSync(profile).toLowerCase(),profile.toLowerCase());
   assert.equal(existsSync(join(profile,'gcloud','application_default_credentials.json')),false);
 }
 function assertRoot(c,entry){
@@ -46,7 +47,12 @@ function assertRoot(c,entry){
   assert.equal(settings.ssl,false);assert.equal(settings.preferRest,false);
   for(const key of ['auth','credentials','keyFilename','authClient'])assert.equal(settings[key],undefined);
 }
-before(async()=>{assertEnvironment();assert.equal((await fetch(`http://${host}/`,{signal:AbortSignal.timeout(5000)})).status,200);});
+async function rootsEmpty(){
+  const db=new Firestore({projectId:project,host,ssl:false,preferRest:false});
+  try{for(const collection of collections)assert.deepEqual(await db.collection(collection).listDocuments(),[]);}
+  finally{await db.terminate();}
+}
+before(async()=>{assertEnvironment();assert.equal((await fetch(`http://${host}/`,{signal:AbortSignal.timeout(5000)})).status,200);await rootsEmpty();});
 afterEach(async()=>{
   for(const c of fixtures.splice(0))try{
     for(const entry of c.roots){
@@ -60,7 +66,7 @@ afterEach(async()=>{
     cleaned++;
   }finally{await c.db.terminate();}
 });
-after(()=>{assert.equal(cleaned,created);console.log(`Synthetic fixture cleanup verified: ${cleaned}/${created}`);});
+after(async()=>{assert.equal(cleaned,created);await rootsEmpty();console.log(`Synthetic fixture cleanup verified: ${cleaned}/${created}; roots 0->0`);});
 
 class LocalAccountTransport{
   bodies=[];
@@ -110,6 +116,177 @@ async function fixture(){
 }
 const enqueue=(c,p,key)=>c.ai.enqueue(p.videoId,p.inputId,'translation:en',1,key,p.uid);
 const prior=(c,p,key)=>c.backend.priorExternalRequestForEnqueue(p.videoId,p.inputId,key,'translation:en',1,'ai-candidate-v1',p.uid);
+async function intent(c,p){
+  const key=randomUUID(),billing={provider:'account_seconds',identityKey:p.identityKey,
+    reservationId:videoReservationId(p.videoId,p.identityKey,p.inputId,'translation:en',1,key),seconds:3};
+  await c.backend.beginExternalBillingIntent(p.videoId,p.inputId,key,'translation:en',1,billing);
+  await c.store.reserveVideo(p.identityKey,billing.reservationId,3);
+  const id=sha(JSON.stringify([p.videoId,key]));
+  return {key,billing,id,ref:ref(c.video,'billingIntents',id)};
+}
+
+test('age sweeps record each intent preimage once; a legacy review and outbox stay outside the observation',{timeout:60000},async()=>{
+  const c=await fixture(),a=await c.person(),b=await c.person(),refund=await intent(c,a),reserve=await intent(c,b);
+  await c.backend.claimExternalBillingRelease(a.videoId,refund.key,refund.billing);
+  const legacy=ref(c.video,'billingIntents','synthetic-legacy-review');
+  await legacy.create({state:'needs_review',reviewReason:'max_age',createdAtMs:1});
+  const outbox=ref(c.video,'billingOutbox','synthetic-outbox');
+  await outbox.create({accountId:b.videoId,state:'pending',action:'release',createdAtMs:1,nextAttemptAt:0,attempts:0});
+  const now=Date.now()+EXTERNAL_BILLING_MAX_AGE_MS+1000,options={now,limit:20};
+  const results=await Promise.all([c.backend.escalateStaleBillingRows(options),c.backend.escalateStaleBillingRows(options)]);
+  assert.equal(results.reduce((sum,result)=>sum+result.escalated,0),3);
+  assert.equal(results.reduce((sum,result)=>sum+result.failed,0),0);
+  const aRow=await refund.ref.get(),bRow=await reserve.ref.get();
+  assert.equal(aRow.get('state'),'needs_review');assert.equal(bRow.get('state'),'needs_review');
+  assert.equal(aRow.get('reviewReason'),'max_age');assert.equal(bRow.get('reviewReason'),'max_age');
+  const obsA=await ref(c.video,'billingIntentAgeObservations',aRow.get('ageObservationId')).get();
+  const obsB=await ref(c.video,'billingIntentAgeObservations',bRow.get('ageObservationId')).get();
+  assert.equal(obsA.get('priorState'),'release_pending');assert.equal(obsA.get('intentId'),refund.id);
+  assert.equal(obsB.get('priorState'),'reserve_pending');assert.equal(obsB.get('intentId'),reserve.id);
+  for(const doc of [obsA,obsB]){assert.equal(doc.get('accountId'),undefined);assert.equal(doc.get('identityKey'),undefined);}
+  assert.equal((await c.video.collection('billingIntentAgeObservations').get()).size,2);
+  assert.equal((await legacy.get()).get('ageObservationId'),undefined);
+  assert.equal((await outbox.get()).get('state'),'needs_review');assert.equal((await outbox.get()).get('ageObservationId'),undefined);
+  assert.equal((await c.video.collection('billingGuards').get()).size,0);
+  assert.equal((await c.video.collection('billingHoldOutbox').get()).size,0);
+  assert.deepEqual(await c.store.videoBalance(a.identityKey),oneBalance(17,3,0,1));
+  assert.deepEqual(await c.store.videoBalance(b.identityKey),oneBalance(17,3,0,1));
+  const repeated=await c.backend.escalateStaleBillingRows(options);
+  assert.equal(repeated.escalated,0);assert.equal((await c.video.collection('billingIntentAgeObservations').get()).size,2);
+  const bJob=await enqueue(c,b,randomUUID());assert.equal((await ref(c.video,'jobs',bJob).get()).get('accountId'),b.videoId);
+});
+
+test('reopening and recreating a row leave prior observations intact but never prove a historical owner',{timeout:60000},async()=>{
+  const c=await fixture(),a=await c.person(),b=await c.person(),p=await intent(c,a);
+  await c.backend.claimExternalBillingRelease(a.videoId,p.key,p.billing);
+  const now=Date.now()+EXTERNAL_BILLING_MAX_AGE_MS+1000;
+  assert.equal((await c.backend.escalateStaleBillingRows({now,limit:10})).escalated,1);
+  const firstRow=await p.ref.get(),firstId=firstRow.get('ageObservationId');
+  const first=await ref(c.video,'billingIntentAgeObservations',firstId).get();
+  // These are privileged, synthetic perturbations; they do not authorize reopening or deletion in production.
+  await p.ref.update({state:'reserve_pending',reviewReason:'synthetic-reopened'});
+  assert.equal((await c.backend.escalateStaleBillingRows({now:now+1,limit:10})).escalated,1);
+  const secondRow=await p.ref.get(),secondId=secondRow.get('ageObservationId');
+  assert.notEqual(secondId,firstId);
+  assert.equal((await ref(c.video,'billingIntentAgeObservations',secondId).get()).get('priorState'),'reserve_pending');
+  const recreated={...secondRow.data(),accountId:b.videoId,state:'release_pending',reviewReason:'synthetic-recreated'};
+  await p.ref.delete();await p.ref.create(recreated);
+  assert.equal((await ref(c.video,'billingIntentAgeObservations',firstId).get()).exists,true);
+  assert.equal((await c.backend.escalateStaleBillingRows({now:now+2,limit:10})).escalated,1);
+  const thirdId=(await p.ref.get()).get('ageObservationId');assert.notEqual(thirdId,firstId);assert.notEqual(thirdId,secondId);
+  const third=await ref(c.video,'billingIntentAgeObservations',thirdId).get();
+  assert.equal(third.get('priorState'),'release_pending');assert.equal(third.get('accountId'),undefined);
+  assert.deepEqual((await ref(c.video,'billingIntentAgeObservations',firstId).get()).data(),first.data());
+  assert.equal((await c.video.collection('billingIntentAgeObservations').get()).size,3);
+  assert.equal((await c.video.collection('billingGuards').get()).size,0);
+  assert.deepEqual(await c.store.videoBalance(a.identityKey),oneBalance(17,3,0,1));
+  const bJob=await enqueue(c,b,randomUUID());assert.equal((await ref(c.video,'jobs',bJob).get()).get('accountId'),b.videoId);
+});
+
+test('two sweepers scan the same pending row before either transaction starts and create one observation',{timeout:60000},async()=>{
+  const c=await fixture(),a=await c.person(),b=await c.person(),p=await intent(c,a);
+  await c.backend.claimExternalBillingRelease(a.videoId,p.key,p.billing);
+  let scans=0,found=0,releaseGate,rejectGate;
+  const gate=new Promise((resolve,reject)=>{releaseGate=resolve;rejectGate=reject;});
+  const timer=setTimeout(()=>rejectGate(Error('both scans did not reach the barrier')),12000);
+  const backends=[new FirestoreBackend(c.db,c.video),new FirestoreBackend(c.db,c.video)];
+  for(const backend of backends){
+    const original=backend.staleScan.bind(backend);
+    backend.staleScan=async(collection,state,...args)=>{
+      const rows=await original(collection,state,...args);
+      if(collection==='billingIntents'&&state==='release_pending'&&rows.some(row=>row.id===p.id))found++;
+      if(collection==='billingHoldOutbox'&&state==='pending'){
+        scans++;if(scans===2){clearTimeout(timer);releaseGate();}await gate;
+      }
+      return rows;
+    };
+  }
+  try{
+    const now=Date.now()+EXTERNAL_BILLING_MAX_AGE_MS+1000;
+    const results=await Promise.all(backends.map(backend=>backend.escalateStaleBillingRows({now,limit:10})));
+    assert.equal(scans,2);assert.equal(found,2);
+    assert.equal(results.reduce((n,result)=>n+result.escalated,0),1);assert.equal(results.reduce((n,result)=>n+result.failed,0),0);
+    const after=await p.ref.get(),observation=await ref(c.video,'billingIntentAgeObservations',after.get('ageObservationId')).get();
+    assert.equal(after.get('state'),'needs_review');assert.equal(observation.get('priorState'),'release_pending');
+    assert.equal((await c.video.collection('billingIntentAgeObservations').get()).size,1);
+    assert.equal((await c.video.collection('billingGuards').get()).size,0);
+    const bJob=await enqueue(c,b,randomUUID());assert.equal((await ref(c.video,'jobs',bJob).get()).get('accountId'),b.videoId);
+  }finally{clearTimeout(timer);}
+});
+
+test('an injected transaction abort reruns the callback with the same observation ID',{timeout:60000},async()=>{
+  const c=await fixture(),a=await c.person(),b=await c.person(),p=await intent(c,a);
+  await c.backend.claimExternalBillingRelease(a.videoId,p.key,p.billing);
+  let callbacks=0,aborted=false;const proposed=[];
+  const retrying={runTransaction:work=>c.db.runTransaction(async tx=>{
+    callbacks++;
+    const result=await work(new Proxy(tx,{get(target,name){
+      if(name==='create')return (doc,data)=>{if(doc.path.includes('/billingIntentAgeObservations/'))proposed.push(doc.id);return target.create(doc,data);};
+      const value=Reflect.get(target,name,target);return typeof value==='function'?value.bind(target):value;
+    }}));
+    if(result==='escalated'&&!aborted){aborted=true;throw Object.assign(Error('synthetic transaction abort before commit'),{code:10});}
+    return result;
+  })};
+  const backend=new FirestoreBackend(retrying,c.video),now=Date.now()+EXTERNAL_BILLING_MAX_AGE_MS+1000;
+  const result=await backend.escalateStaleBillingRows({now,limit:10});
+  assert.equal(aborted,true);assert.ok(callbacks>=2);assert.equal(result.escalated,1);assert.equal(result.failed,0);
+  assert.equal(proposed.length,2);assert.equal(proposed[0],proposed[1]);
+  assert.equal((await p.ref.get()).get('ageObservationId'),proposed[0]);
+  assert.equal((await c.video.collection('billingIntentAgeObservations').get()).size,1);
+  const bJob=await enqueue(c,b,randomUUID());assert.equal((await ref(c.video,'jobs',bJob).get()).get('accountId'),b.videoId);
+});
+
+test('a discarded commit response is reconciled by reading the row before a repeat sweep',{timeout:60000},async()=>{
+  const c=await fixture(),a=await c.person(),b=await c.person(),p=await intent(c,a);
+  await c.backend.claimExternalBillingRelease(a.videoId,p.key,p.billing);
+  let dropped=false;
+  const lostResponse={runTransaction:async work=>{
+    let staged=false;
+    const result=await c.db.runTransaction(tx=>work(new Proxy(tx,{get(target,name){
+      if(name==='update')return (doc,...args)=>{if(doc.path===p.ref.path)staged=true;return target.update(doc,...args);};
+      const value=Reflect.get(target,name,target);return typeof value==='function'?value.bind(target):value;
+    }})));
+    if(staged&&!dropped){dropped=true;throw Error('synthetic response lost after committed transaction');}
+    return result;
+  }};
+  const backend=new FirestoreBackend(lostResponse,c.video),now=Date.now()+EXTERNAL_BILLING_MAX_AGE_MS+1000;
+  const first=await backend.escalateStaleBillingRows({now,limit:10});
+  assert.equal(dropped,true);assert.equal(first.failed,1);assert.equal(first.escalated,0);
+  // Reconcile the possibly committed effect before repeating anything.
+  const committed=await p.ref.get(),id=committed.get('ageObservationId');
+  assert.equal(committed.get('state'),'needs_review');assert.equal((await ref(c.video,'billingIntentAgeObservations',id).get()).get('priorState'),'release_pending');
+  assert.equal((await c.video.collection('billingIntentAgeObservations').get()).size,1);
+  const repeated=await backend.escalateStaleBillingRows({now:now+1,limit:10});
+  assert.equal(repeated.escalated,0);assert.equal(repeated.failed,0);
+  assert.equal((await p.ref.get()).get('ageObservationId'),id);assert.equal((await c.video.collection('billingIntentAgeObservations').get()).size,1);
+  assert.deepEqual(await c.store.videoBalance(a.identityKey),oneBalance(17,3,0,1));
+  const bJob=await enqueue(c,b,randomUUID());assert.equal((await ref(c.video,'jobs',bJob).get()).get('accountId'),b.videoId);
+});
+
+test('a create collision at commit aborts both staged writes without changing the original row',{timeout:60000},async()=>{
+  const c=await fixture(),a=await c.person(),b=await c.person(),p=await intent(c,a);
+  await c.backend.claimExternalBillingRelease(a.videoId,p.key,p.billing);
+  const before=(await p.ref.get()).data();
+  const sentinel=ref(c.video,'billingIntentAgeObservations','synthetic-existing');await sentinel.create({purpose:'preexisting-sentinel'});
+  let stagedCreate=0,stagedUpdate=0,commitError=null;
+  const rejecting={runTransaction:async work=>{
+    try{return await c.db.runTransaction(tx=>work(new Proxy(tx,{get(target,name){
+      if(name==='create')return (doc,data)=>{if(doc.path.includes('/billingIntentAgeObservations/')){stagedCreate++;return target.create(sentinel,data);}return target.create(doc,data);};
+      if(name==='update')return (doc,...args)=>{if(doc.path===p.ref.path)stagedUpdate++;return target.update(doc,...args);};
+      const value=Reflect.get(target,name,target);return typeof value==='function'?value.bind(target):value;
+    }})));}catch(error){commitError=error;throw error;}
+  }};
+  const backend=new FirestoreBackend(rejecting,c.video),now=Date.now()+EXTERNAL_BILLING_MAX_AGE_MS+1000;
+  const result=await backend.escalateStaleBillingRows({now,limit:10});
+  assert.equal(result.failed,1);assert.equal(result.escalated,0);
+  assert.ok(stagedCreate>0);assert.ok(stagedUpdate>0);assert.equal(commitError?.code,6);
+  assert.deepEqual((await p.ref.get()).data(),before);
+  assert.deepEqual((await sentinel.get()).data(),{purpose:'preexisting-sentinel'});
+  assert.equal((await c.video.collection('billingIntentAgeObservations').get()).size,1);
+  assert.equal((await c.video.collection('billingGuards').get()).size,0);
+  assert.deepEqual(await c.store.videoBalance(a.identityKey),oneBalance(17,3,0,1));
+  const bJob=await enqueue(c,b,randomUUID());assert.equal((await ref(c.video,'jobs',bJob).get()).get('accountId'),b.videoId);
+});
 
 test('existing Video financial guard stops the next step and external replay; a second account and an unrelated refund continue',{timeout:60000},async()=>{
   const c=await fixture(),a=await c.person(),b=await c.person(),key=randomUUID(),refund=randomUUID();

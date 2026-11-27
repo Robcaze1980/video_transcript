@@ -1,0 +1,24 @@
+vite v6.4.5 building for production...
+transforming...
+✓ 98 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/pilot-editor/assets/worker-BAOIWoxA.js                   2.53 kB
+dist/pilot-editor/.vite/manifest.json                         3.20 kB │ gzip:      0.60 kB
+dist/pilot-editor/assets/ffmpeg-core-CI9Irx9p.js            111.80 kB
+dist/pilot-editor/assets/ffmpeg-core-CgUfceKH.wasm       32,232.42 kB │ gzip: 10,287.55 kB
+dist/pilot-editor/assets/isolatedCandidate-DKe5XihY.css       3.39 kB │ gzip:      1.22 kB
+dist/pilot-editor/assets/cloudCandidate-COXa2h8L.css          8.90 kB │ gzip:      2.55 kB
+dist/pilot-editor/editor.js                                   0.12 kB │ gzip:      0.11 kB
+dist/pilot-editor/accountUi.js                                0.35 kB │ gzip:      0.24 kB
+dist/pilot-editor/driveAuthorization.js                       1.09 kB │ gzip:      0.63 kB
+dist/pilot-editor/firebaseAuth.js                             3.27 kB │ gzip:      1.48 kB
+dist/pilot-editor/commercialLanding.js                        7.42 kB │ gzip:      2.91 kB
+dist/pilot-editor/assets/ffmpegUtil-lcsH0vxF.js               8.78 kB │ gzip:      3.68 kB
+dist/pilot-editor/isolatedCandidate.js                       15.27 kB │ gzip:      4.94 kB
+dist/pilot-editor/publicAuth.js                              47.81 kB │ gzip:     20.13 kB
+dist/pilot-editor/cloudCandidate.js                          75.19 kB │ gzip:     23.51 kB
+dist/pilot-editor/assets/pilotEditor-QfKZbozH.js            153.11 kB │ gzip:     52.64 kB
+dist/pilot-editor/assets/index-Bz2J43nW-_EmXtn3-.js         173.83 kB │ gzip:     35.06 kB
+dist/pilot-editor/assets/client-Bb048-hH.js                 193.81 kB │ gzip:     60.54 kB
+✓ built in 4.52s

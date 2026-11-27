@@ -89,11 +89,12 @@ describe('escalateStaleBillingRows malformed age, changed state and collections'
     for(const key of ['billingIntents/i_res','billingIntents/i_rel','billingOutbox/o_pending','billingOutbox/o_retry','billingHoldOutbox/h_pending'])expect(s.store.get(key)!.state).toBe('needs_review');
     for(const key of ['billingIntents/i_closed','billingOutbox/o_settled','billingHoldOutbox/h_applied'])expect(s.store.get(key)!.state).not.toBe('needs_review');
   });
-  it('moves no balance, no hold and no guard: it only ever writes the escalated row',async()=>{
+  it('moves no balance, hold or guard while recording the escalation observation',async()=>{
     const {s,b}=backend({billingIntents:{a:{...intentRow(),createdAtMs:NOW-DAY-1}},accounts:{[ACCOUNT]:{available:5,reserved:2}},ledgerEntries:{l1:{kind:'video_reserve'}}});
     await b.escalateStaleBillingRows({now:NOW,maxAgeMs:DAY,limit:10});
     expect(writesTo(s,'accounts')).toEqual([]);expect(writesTo(s,'ledgerEntries')).toEqual([]);
     expect(writesTo(s,'billingHoldOutbox')).toEqual([]);expect(writesTo(s,'billingGuards')).toEqual([]);
+    expect(writesTo(s,'billingIntentAgeObservations')).toHaveLength(1);
     expect(s.store.get('accounts/'+ACCOUNT)).toEqual({available:5,reserved:2});
     expect(s.store.get('ledgerEntries/l1')).toEqual({kind:'video_reserve'});
   });

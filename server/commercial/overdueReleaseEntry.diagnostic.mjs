@@ -174,7 +174,7 @@ async function escalateAndReadAlert(f,pending,now) {
   return alert.data();
 }
 
-test('entry authority: reserve and refund histories produce the same current row, origin, open alert and Account resolution',async context=>{
+test('entry authority: previously indistinguishable reserve and refund histories now retain their prior states',async context=>{
   const reserve=fixture(),refund=fixture(),a=reserve.a;
   const pending=await reserve.begin(a);
   const reservation=await reserve.store.reserveVideo(a.identityKey,pending.billing.reservationId,duration);
@@ -200,7 +200,27 @@ test('entry authority: reserve and refund histories produce the same current row
   const first=await escalateAndReadAlert(reserve,pending,now);
   const second=await escalateAndReadAlert(refund,pending,now);
   assert.deepEqual(first,second);assert.equal(first.accountId,a.videoId);
-  assert.deepEqual(reserve.video.store,refund.video.store);
+  const observation=f=>{
+    const id=f.video.store.get(pending.intentPath).ageObservationId;
+    assert.match(id,/^[0-9a-f-]{36}$/);
+    const entry=f.video.store.get('billingIntentAgeObservations/'+id);
+    assert.equal(entry.intentId,pending.intentPath.split('/')[1]);
+    assert.equal(entry.reason,'max_age');
+    assert.equal(Object.hasOwn(entry,'accountId'),false);
+    return entry;
+  };
+  assert.equal(observation(reserve).priorState,'reserve_pending');
+  assert.equal(observation(refund).priorState,'release_pending');
+  // Other original evidence is still identical; the new observations alone
+  // establish which state each transaction actually reread.
+  const withoutAgeObservation=f=>{
+    const entries=[...f.video.store].filter(([path])=>!path.startsWith('billingIntentAgeObservations/'));
+    return new Map(entries.map(([path,value])=>{
+      const copy=structuredClone(value);if(path===pending.intentPath)delete copy.ageObservationId;
+      return [path,copy];
+    }));
+  };
+  assert.deepEqual(withoutAgeObservation(reserve),withoutAgeObservation(refund));
   assert.deepEqual(reserve.account.store,refund.account.store);
   const read=f=>f.store.videoReservationResolution(a.identityKey,pending.billing.reservationId,duration);
   assert.deepEqual(await read(reserve),await read(refund));
@@ -218,6 +238,11 @@ test('entry authority: a normally emitted open alert can inherit the wrong owner
   f.video.store.set(p.intentPath,{...row,accountId:f.b.videoId});
   const alert=await escalateAndReadAlert(f,p,row.createdAtMs+EXTERNAL_BILLING_MAX_AGE_MS+1);
   assert.equal(alert.accountId,f.b.videoId);
+  const observationId=f.video.store.get(p.intentPath).ageObservationId;
+  const observation=f.video.store.get('billingIntentAgeObservations/'+observationId);
+  assert.equal(observation.priorState,'release_pending');
+  assert.equal(Object.hasOwn(observation,'accountId'),false);
+  assert.equal(Object.hasOwn(observation,'identityKey'),false);
   assert.equal((await f.store.videoReservation(f.a.identityKey,p.billing.reservationId)).state,'reserved');
   assert.equal(f.video.store.has('billingGuards/'+f.b.videoId),false);
   const bJob=await f.genericJob(f.b);assert.equal(f.video.store.get('jobs/'+bJob).accountId,f.b.videoId);
