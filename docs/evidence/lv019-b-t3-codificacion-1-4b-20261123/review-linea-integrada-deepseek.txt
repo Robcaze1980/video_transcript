@@ -1,0 +1,16 @@
+Examiné las cuatro piezas provistas: `server/commercial/billingUnblock.ts` (completo), `server/account/backend.ts` 186-310 (block/status/recibo/unblock), `server/commercial/accountBillingClient.ts` 80-125 y `server/account/http.ts` 36-75. No pude comprobar los ayudantes referenciados pero no mostrados (`accountHoldId`/`legacyHoldId`, `alertIdentity`, `billingHold`, `accountRecord`, `integer`, `invariant`, `json`) ni las pruebas de la tarea 1.4c; tampoco el escritor del bloqueo de Video. Costo: `no medido`.
+
+Hallazgos:
+
+1. MEDIA — `blockVideoBilling` (backend.ts 186-205) deja de ser idempotente tras una revisión. Secuencia: llega el hold H y se crea el incidente H (state `active`); el drenador pierde el ACK y no marca el hold `applied`; el desbloqueo audita H (record H → `reviewed`, guarda borrada si es el último); el drenador reintenta entregar H → `previous.exists` con `state!=='active'` → `invariant()` (500). Resultado: reintentos en 500 indefinido, pese a que el propio módulo documenta la Cuenta como idempotente. Corrección mínima: si `previous` existe con `state==='reviewed'`, devolver un recibo benigno (`recorded:false`, `blocked` según la guarda) en lugar de `invariant()`.
+
+2. MEDIA — Los identificadores por ocurrencia omiten `accountId`: `videoHoldId`/`accountHoldId(kind, incidentKey, epoch, createdAtMs)` (doc de `billingHoldOutbox`) y `unblockAuditId(incidentKey, action, epoch, createdAtMs)` (docs de `billingUnblockAudit`). Si dos cuentas coinciden en `incidentKey`+`epoch`+`createdAtMs`, comparten documento: el hold de una se pierde (la cuenta queda abierta en Cuenta con Video bloqueado = categoría 1) y la auditoría provoca `conflict` perpetuo (`samePayload` exige `data.accountId===accountId`). Corrección mínima: incluir `accountId` en ambas tuplas (id del hold y de la auditoría).
+
+3. BAJA — La fase 2 captura todo error de Cuenta y lo reetiqueta como `UnblockFault('conflict')` (`stage:'account'`), incluida una falla transitoria (`AccountBillingFault('unavailable')`, red/5xx). El módulo no expone un código retryable, así que una caída temporal se reporta igual que un conflicto real y puede inducir a no reintentar (la cuenta queda bloqueada). Corrección mínima: propagar un código distinto (p. ej. `unavailable`) y reservar `conflict` para desacuerdos de estado.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: backend.ts `blockVideoBilling` (rama `previous.exists`) no idempotente tras `reviewed`; `billingUnblock.ts` `videoHoldId`/`unblockAuditId` sin `accountId`; fase 2 de `unblockBillingAccount` mapea todo fallo a `conflict`.
+NEGATIVOS: no verifiqué los ayudantes no mostrados ni las pruebas de 1.4c/1.4b; los flujos principales (fases 0/1/3, ramas `released`/`done`/`requested`, carrera de generación) resultaron consistentes en lectura estática.
+BLOQUEOS: faltan `billingHoldIdentity.ts`, `billingPendingAlerts.ts` y las pruebas para confirmar el alcance de los hallazgos 1-3.
+=== FIN RESUMEN ===

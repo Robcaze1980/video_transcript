@@ -899,6 +899,27 @@ test('11 negative: an alert of another kind or account, and an ambiguous owner i
   assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,0,'Account was never asked');
   assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
 });
+// GLM review of the integrated line (27 nov 2026), finding 3: phase 3 re-reads state and owner of every audited row, but the RELATION that made a
+// row belong to this incident (an observation incident's `intentId`, an admission guard's `incidentId`) must still hold at release time.
+for(const [name,tamper] of [
+  ['an observation incident that now names another intent',(c,blocked,obs)=>obs.update({intentId:sha('another intent')})],
+  ['an admission guard that now names another incident',(c,blocked)=>ref(c.root,'billingIntentAdmissionGuards',blocked.incident).update({incidentId:sha('another incident')})],
+]){
+  test('11 negative: '+name+' in phase 3 aborts the release and the guard survives',{timeout:90000},async()=>{
+    const blocked=await blockedIntentAccount('unblock_relation_drift_'+name.replace(/[^a-z]+/g,'_')),c=blocked.c;
+    const obs=ref(c.root,'billingIntentObservationIncidents',sha('observation|'+blocked.incident));
+    await obs.create({accountId:c.account,intentId:blocked.incident,state:'needs_review'});
+    const requestBody=await request(c,blocked),real=c.accountBilling.unblock.bind(c.accountBilling);
+    c.accountBilling.unblock=async(...args)=>{await tamper(c,blocked,obs);return real(...args);};
+    await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
+    c.accountBilling.unblock=real;
+    assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard survives');
+    assert.equal((await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).get('status'),'open','the alert stays open');
+    assert.equal((await obs.get()).get('state'),'needs_review','the observation incident is not marked reviewed');
+    assert.equal((await ref(c.root,'billingIntentAdmissionGuards',blocked.incident).get()).get('state'),'needs_review','the admission guard is not reopened');
+    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no completion record');
+  });
+}
 test('11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back',{timeout:60000},async()=>{
   const blocked=await blockedIntentAccount('unblock_intent_kind'),c=blocked.c,intentRef=ref(c.root,'billingIntents',blocked.incident);
   const obs=ref(c.root,'billingIntentObservationIncidents',sha('observation|'+blocked.incident));

@@ -1,0 +1,14 @@
+Examiné el flujo completo de desbloqueo en `billingUnblock.ts`, el backend de Cuenta, el cliente y la ruta interna; no ejecuté pruebas, mutaciones ni verifiqué los escritores externos, y el costo es `no medido`.
+
+1. ALTA — En un reintento con `unblock_requested`, `unblockReceipt` puede devolver una generación confirmada distinta de `accountEpoch/accountCreatedAtMs`; `unblockBillingAccount` la adopta sin validarla en esa rama. Puede liberar Video con una generación no autorizada por la solicitud y luego dejar un conflicto parcial. Corrección: en toda respuesta `confirmed`, exigir igualdad con la generación auditada antes de fase 3.
+
+2. MEDIA — Un `done` de liberación completa puede confundirse con un resultado parcial si la guarda se recrea con el mismo incidente, `epoch=1` y el mismo `createdAtMs`; la rama actual clasifica cualquier guarda viva compatible como parcial y puede borrar una guarda nueva si no hay filas rivales. Corrección: tratar como parcial sólo un `done` cuyo propio registro indique bloqueo pendiente; en caso contrario devolver `conflict`. Además, usar un token de generación persistente/único en los ids.
+
+3. MEDIA — En fase 3 no se revalida la relación original de las filas de observación ni de la guarda de admisión: sólo se comprueba estado y cuenta. Si `intentId` o `incidentId` cambia tras la auditoría, la fila ajena puede marcarse revisada/`clear` y contribuir a liberar la cuenta. Corrección: exigir en la relectura que esas relaciones sigan apuntando al incidente planificado.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `billingUnblock.ts::unblockBillingAccount` fases 0-3; `account/backend.ts::videoBillingUnblockReceipt` y `unblockVideoBilling`; `accountBillingClient.ts::unblockReceipt`; adopción de recibo sin validar generación, ambigüedad de `done` tras recreación y revalidación incompleta de relaciones.
+NEGATIVOS: no se ejecutaron pruebas, mutaciones ni integración real; no se inspeccionaron escritores del bloqueo ni drenador; costo no medido.
+BLOQUEOS: ninguno
+=== FIN RESUMEN ===

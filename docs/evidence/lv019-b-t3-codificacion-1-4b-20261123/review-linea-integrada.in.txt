@@ -1,0 +1,664 @@
+Eres REVISOR independiente (T3), de SOLO LECTURA y SIN HERRAMIENTAS: no leas archivos, no ejecutes comandos, no modifiques nada. Todo lo que necesitas esta abajo en este mismo mensaje. Responde DIRECTAMENTE con el resultado final: no escribas borradores, razonamiento intermedio ni correcciones de tus propios hallazgos. Idioma: espanol neutro latinoamericano. Maximo 450 palabras mas el bloque final.
+
+SALIDA: (1) una linea: que examinaste, que NO pudiste comprobar y el costo si lo conoces (si no, `no medido`); (2) hallazgos numerados con severidad ALTA/MEDIA/BAJA, cada uno con la secuencia concreta (estado inicial, eventos, resultado errado) y la correccion minima; no repitas lo correcto; (3) EXACTAMENTE este bloque como ultimo texto:
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: rutas, funciones y hallazgos criticos
+NEGATIVOS: controles y pruebas no ejecutadas
+BLOQUEOS: pendientes o ninguno
+=== FIN RESUMEN ===
+
+CONTEXTO. Hay DOS bases Firestore independientes sin transaccion conjunta: Video `(default)` y Cuenta `vistavo-live` (la Cuenta es idempotente). Una divergencia de cobro escribe en Video un BLOQUEO (`billingGuards/<accountId>`, con `epoch` y `createdAtMs`) y un HOLD (`billingHoldOutbox/<id>`) que el drenador envia a la Cuenta; la Cuenta registra un incidente y su propia guarda (`videoBillingGuards/<accountId>`). El id del hold es el mismo valor que el id del incidente en la Cuenta y nombra la generacion de la guarda (`accountHoldId(tipo, incidente, epoch, createdAtMs)`), asi que cada ocurrencia tiene un id nuevo. El DESBLOQUEO AUDITADO (billingUnblock.ts, Video) corre en fases con registros inmutables `billingUnblockAudit` (ids por ocurrencia): (0+1) en una transaccion prueba la alerta `guard` abierta del estado `blocked:<epoch>:<createdAtMs>:<incidente>`, la guarda, el incidente nombrado y que no haya filas rivales de la cuenta, y crea `unblock_requested`; (2) pregunta primero a la Cuenta (`AccountStore.unblockVideoBilling`: borra su guarda solo cuando todos sus incidentes estan revisados, devuelve `blocked` y la generacion aceptada; `unblocked:true` NUNCA significa cuenta abierta); en un reintento primero lee el RECIBO de la Cuenta (`videoBillingUnblockReceipt`) para recuperar una confirmacion perdida sin repetir una mutacion incierta; (3) en una transaccion relee la misma generacion y la alerta, avanza solo las filas auditadas (hold, incidencias, salida, intencion y su guarda de admision) y borra la guarda de Video y dispone la alerta SOLO si la Cuenta ya no esta bloqueada y Video no tiene fila rival. Resultado parcial (Cuenta `blocked:true`): la guarda de Video sobrevive y la misma peticion repetida puede completarlo (`video_released`).
+
+YA VERIFICADO POR CODEX (no lo repitas): `tsc` limpio; 1740 pruebas unitarias aprobadas; regresion financiera completa 521 pruebas (516 aprobadas, 5 omitidas por voz cerrada, 0 fallidas) y regresion de Cuenta protegida PASS, ambas sobre esta misma version; la version anterior de esta pieza (sin el recibo) tuvo 116 mutantes con 0 sin explicar y cuatro parejas de revisiones adjudicadas.
+
+LIMITES DECLARADOS (no los reportes): (a) NO hay ruta HTTP de operador ni autenticacion de operador (paso 3.5); (b) varios incidentes del mismo tipo sobre una misma guarda, un incidente ya revisado que re-diverge con la guarda viva, la alerta de guardas con incidentes de los dos tipos y las filas rivales sin ruta de resolucion son de la tarea 1.4c; (c) ramas de holds legados (sin generacion) inalcanzables hasta que exista una migracion; (d) la devolucion bajo bloqueo (A-5/E-4) esta en otras candidatas aun sin integrar.
+
+BUSCA FALLOS REALES: (1) un camino que borre la guarda de Video o deje la cuenta abierta con una fila sin revisar (Video o Cuenta); (2) un desbloqueo o una repeticion VIEJA que limpie o aparente limpiar un bloqueo NUEVO; (3) la recuperacion por RECIBO: que una confirmacion perdida se recupere sin repetir una mutacion incierta, que la generacion devuelta por la Cuenta no pueda ser adoptada por error, y estados parciales que queden en bucle; (4) idempotencia: repeticion identica sin escrituras, otro operador u otra carga = conflict; (5) el id del hold y de la auditoria por ocurrencia; (6) carreras entre drenador, escritores del bloqueo y desbloqueo; (7) pruebas que pasarian con el codigo roto.
+
+=== CODIGO A REVISAR ===
+
+--- server/commercial/billingUnblock.ts (completo) ---
+﻿/**
+ * LV-019.B step 1.4b piece 2: the audited reopening of a blocked Video account (phases 0, 1 and 3; phase 2 is Account).
+ *
+ * What it is NOT: it never moves balance, never captures and never edits a reservation. It never takes the drain lease
+ * (design 2.8) and it never implements the exit of a blocked account's reservations (piece 3).
+ * What it IS: an operator names ONE incident and the exact guard generation (epoch + createdAtMs) plus the durable
+ * evidence, and this module (0) proves the state, (1) writes an immutable `unblock_requested` record, (2) lets the
+ * caller ask Account first and only then (3) releases the Video guard and advances exactly the rows of that incident.
+ *
+ * ORDER. Account goes first: if Video failed after Account confirmed, Video stays blocked, which is the conservative
+ * side, and a repeat resumes the pending phase. Every phase re-reads the guard generation, so a block that lands in
+ * between aborts the attempt instead of being overwritten.
+ *
+ * PRECONDITIONS for any endpoint (this module is a library, wired to no route): `authorizedBy` must come from an
+ * authenticated principal on the allowlist, never from the request body, and `nowMs` must be the server clock; nothing
+ * here can verify either. The authenticated operator tool supplies the Account guard generation for a new mutation.
+ * On a repeat, Account can confirm the generation already accepted for this exact audited request.
+ *
+ * `AccountBillingClient.unblock` returns `blocked:true` when OTHER Account incidents remain: `unblocked:true` never
+ * means the account is open, so the Video guard is only released when Account reports `blocked:false` AND Video has no
+ * other unresolved row.
+ *
+ * Design: docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md (v2, 2.4/2.5/2.8, 3.3, 3.4, 3.6)
+ */
+import {createHash} from 'node:crypto';
+import {FieldValue,type DocumentReference,type DocumentSnapshot,type Firestore,type Transaction} from 'firebase-admin/firestore';
+import {ALERT_COLLECTION,alertIdentity} from './billingPendingAlerts';
+import {accountHoldId,legacyHoldId} from './billingHoldIdentity';
+import type {AccountBillingClient} from './accountBillingClient';
+
+/** Immutable Video records of one audited unblock; one document per (incident, action). */
+export const UNBLOCK_AUDIT_COLLECTION='billingUnblockAudit';
+export type UnblockAction='unblock_requested'|'unblocked'|'video_released';
+export class UnblockFault extends Error{constructor(readonly code:'invalid'|'not_found'|'conflict'|'corrupt'|'unresolved'){super(code);}}
+
+const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[a-f0-9]{12}$/i;
+const hex64=/^[a-f0-9]{64}$/;
+const digest=(value:unknown):value is string=>typeof value==='string'&&hex64.test(value);
+const actorPattern=/^[a-z0-9][a-z0-9._:-]{0,63}$/i;
+const evidencePattern=/^[^\u0000-\u001f\u007f]{1,200}$/;
+const notePattern=/^[^\u0000-\u001f\u007f]{1,500}$/;
+const whole=(value:unknown,minimum=0):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=minimum;
+
+/**
+ * The deterministic id of one audited step of one OCCURRENCE: a repeat of the same step of the same guard generation
+ * is the same document. An intent's incident key is the intent id, which does not change when the row diverges again,
+ * so the guard generation (epoch + createdAtMs) is part of the id: without it a second occurrence would find the
+ * `unblocked` record of the first and answer as a replay/conflict forever.
+ */
+export function unblockAuditId(incidentKey:string,action:UnblockAction,epoch:number,createdAtMs:number):string{
+  return hash(['billing-unblock-v2',incidentKey,epoch,createdAtMs,action]);
+}
+/**
+ * The hold document id AND Account's incident id of one OCCURRENCE of a Video incident. Both sides use ONE value (the
+ * drainer sends `hold.id` as the incident id), and it already carries the guard generation, which is exactly what
+ * changes between two occurrences of the same row -- the reason a re-block after an unblock is accepted by Account.
+ */
+export function videoHoldId(kind:'intent'|'outbox',incidentKey:string,epoch:number,createdAtMs:number):string{
+  return accountHoldId(kind,incidentKey,epoch,createdAtMs);
+}
+
+export interface UnblockRequest{
+  /** The Video incident key the guard names (`lastIncidentId` or `lastOutboxIncidentId`). */
+  incidentId:string;
+  /** The open `guard` alert of that account and generation. */
+  alertKey:string;
+  /** The guard generation the operator read: an old one cannot clear a newer block. */
+  epoch:number;createdAtMs:number;updatedAtMs:number;
+  /** Account's own guard generation (trusted: supplied by the authenticated operator tool, never by the identity body). */
+  accountEpoch:number;accountCreatedAtMs:number;
+  /** Durable reference to the evidence the operator reviewed (also Account's `reviewRef`). */
+  evidenceRef:string;note?:string;
+}
+export interface UnblockReceipt{
+  unblocked:true;replayed:boolean;
+  /** Account still holds this owner because other incidents remain unreviewed. */
+  accountBlocked:boolean;
+  /** Whether the Video guard still blocks after this call. */
+  videoBlocked:boolean;
+  /** Rows handed back by this call (Video side). */
+  advanced:string[];
+  auditId:string;
+}
+export interface UnblockDeps{
+  db:Firestore;root:DocumentReference;
+  accountBilling:Pick<AccountBillingClient,'unblock'|'unblockReceipt'>;
+}
+
+type Clean={incidentKey:string;alertKey:string;epoch:number;createdAtMs:number;updatedAtMs:number;accountEpoch:number;accountCreatedAtMs:number;evidenceRef:string;note:string|null};
+type PlannedRow={collection:string;id:string;state:string|null;reviewField?:string;to:string|null;toReviewField?:string|null;exitState?:string};
+type AccountRow={accountId:string;state:string|null;reviewedAtMs:number|null};
+
+function cleanRequest(request:unknown):Clean{
+  if(!request||typeof request!=='object'||Array.isArray(request))throw new UnblockFault('invalid');
+  const r=request as Record<string,unknown>;
+  const allowed=['incidentId','alertKey','epoch','createdAtMs','updatedAtMs','accountEpoch','accountCreatedAtMs','evidenceRef','note'];
+  if(Object.keys(r).some(key=>!allowed.includes(key)))throw new UnblockFault('invalid');
+  const {incidentId,alertKey,epoch,createdAtMs,updatedAtMs,accountEpoch,accountCreatedAtMs,evidenceRef}=r,note=r.note??null;
+  if(!digest(incidentId)||!digest(alertKey))throw new UnblockFault('invalid');
+  if(!whole(epoch,1)||!whole(createdAtMs)||!whole(updatedAtMs)||!whole(accountEpoch,1)||!whole(accountCreatedAtMs))throw new UnblockFault('invalid');
+  if(typeof evidenceRef!=='string'||!evidencePattern.test(evidenceRef))throw new UnblockFault('invalid');
+  if(note!==null&&(typeof note!=='string'||!notePattern.test(note)))throw new UnblockFault('invalid');
+  return {incidentKey:incidentId as string,alertKey:alertKey as string,epoch:epoch as number,createdAtMs:createdAtMs as number,updatedAtMs:updatedAtMs as number,accountEpoch:accountEpoch as number,accountCreatedAtMs:accountCreatedAtMs as number,evidenceRef,note:note as string|null};
+}
+/**
+ * The `state` a `guard` report row carries (`billingPendingReport.ts`): the guard generation. The epoch restarts at 1 after
+ * the guard is deleted, so the creation mark is required too, or an old alert would answer for a newer block.
+ */
+export function blockedState(epoch:number,createdAtMs:number,incidentKey:string):string{return 'blocked:'+epoch+':'+createdAtMs+':'+incidentKey;}
+/** The guard generation, with the declared legacy rule: no `epoch` is epoch 1, but no `createdAtMs` cannot be named. */
+function generation(doc:DocumentSnapshot):{epoch:number;createdAtMs:number;updatedAtMs:number}{
+  const stored=doc.get('epoch'),createdAtMs=doc.get('createdAtMs'),updatedAtMs=doc.get('updatedAtMs');
+  if(stored!==undefined&&(!whole(stored,1)))throw new UnblockFault('corrupt');
+  if(!whole(createdAtMs)||!whole(updatedAtMs))throw new UnblockFault('corrupt');
+  return {epoch:stored===undefined?1:stored,createdAtMs,updatedAtMs};
+}
+function sameGuard(guard:DocumentSnapshot,accountId:string,clean:Clean):boolean{
+  if(!guard.exists||guard.get('blocked')!==true||guard.get('accountId')!==accountId)return false;
+  const current=generation(guard);
+  const intent=guard.get('lastIncidentId')===clean.incidentKey,outbox=guard.get('lastOutboxIncidentId')===clean.incidentKey;
+  return current.epoch===clean.epoch&&current.createdAtMs===clean.createdAtMs&&intent!==outbox;
+}
+function sameOpenAlert(alert:DocumentSnapshot,accountId:string,clean:Clean):boolean{
+  const identity=alert.exists?alertIdentity(alert):null;
+  return !!identity&&identity.kind==='guard'&&identity.rowId===accountId&&identity.status==='open'&&
+    identity.state===blockedState(clean.epoch,clean.createdAtMs,clean.incidentKey);
+}
+
+/**
+ * Every row of the account that still needs attention, read with one equality per collection on `accountId` (served by
+ * the automatic single-field index; no composite index). A row that belongs to the incident being unblocked is kept
+ * apart: everything else must be resolved before any guard is released (design 3.3, phase 0).
+ */
+async function accountRows(tx:Transaction,root:DocumentReference,accountId:string){
+  // Read through the caller's transaction: a rival row that commits between this read and the release makes the
+  // transaction retry (or abort), instead of slipping past a non-transactional snapshot. Every caller runs these reads
+  // before its first write, as Firestore requires.
+  const read=async(collection:string)=>{
+    const page=await tx.get(root.collection(collection).where('accountId','==',accountId));
+    return page.docs.map(doc=>({id:doc.id,data:doc.data() as Record<string,unknown>}));
+  };
+  const intents=await read('billingIntents'),outboxes=await read('billingOutbox'),holds=await read('billingHoldOutbox'),
+    reviews=await read('billingReviewIncidents'),outboxIncidents=await read('billingOutboxReviewIncidents'),observationIncidents=await read('billingIntentObservationIncidents');
+  return {intents,outboxes,holds,reviews,outboxIncidents,observationIncidents};
+}
+function unresolvedRows(rows:Awaited<ReturnType<typeof accountRows>>,owned:Set<string>){
+  const out:string[]=[];
+  const add=(collection:string,doc:{id:string;data:Record<string,unknown>})=>{const path=collection+'/'+doc.id;if(!owned.has(path))out.push(path);};
+  for(const doc of rows.intents)if(doc.data.state==='needs_review')add('billingIntents',doc);
+  for(const doc of rows.outboxes)if(doc.data.state==='needs_review')add('billingOutbox',doc);
+  for(const doc of rows.holds)if(doc.data.state==='pending'||doc.data.state==='needs_review')add('billingHoldOutbox',doc);
+  for(const doc of rows.reviews)if(!whole(doc.data.reviewedAtMs))add('billingReviewIncidents',doc);
+  for(const doc of rows.outboxIncidents)if(!whole(doc.data.reviewedAtMs))add('billingOutboxReviewIncidents',doc);
+  for(const doc of rows.observationIncidents)if(!whole(doc.data.reviewedAtMs))add('billingIntentObservationIncidents',doc);
+  return out.sort();
+}
+
+/** Which incident the guard names, and the rows that belong to it. */
+function incidentOf(guard:DocumentSnapshot,rows:Awaited<ReturnType<typeof accountRows>>,incidentKey:string,generation:{epoch:number;createdAtMs:number}){
+  const intentKey=guard.get('lastIncidentId'),outboxKey=guard.get('lastOutboxIncidentId');
+  const intent=intentKey===incidentKey,outbox=outboxKey===incidentKey;
+  if(intent===outbox)return null; // neither names it, or both do (corrupt)
+  const kind:'intent'|'outbox'=intent?'intent':'outbox',
+    // The hold of this occurrence is named after the guard generation the operator read; a legacy guard (no generation)
+    // still has its hold under the pre-1.4b id, and that row is accepted only as a legacy row.
+    holdId=videoHoldId(kind,incidentKey,generation.epoch,generation.createdAtMs),legacyId=legacyHoldId(kind,incidentKey);
+  const owned=new Set<string>(['billingHoldOutbox/'+holdId,'billingHoldOutbox/'+legacyId]);
+  const planned:PlannedRow[]=[];
+  const hold=rows.holds.find(doc=>doc.id===holdId&&(doc.data.epoch===undefined||doc.data.epoch===generation.epoch&&doc.data.createdAtMs===generation.createdAtMs))
+    ??rows.holds.find(doc=>doc.id===legacyId&&doc.data.epoch===undefined);
+  if(hold&&(hold.data.state==='pending'||hold.data.state==='needs_review')){planned.push({collection:'billingHoldOutbox',id:hold.id,state:String(hold.data.state),to:'applied'});}
+  if(kind==='intent'){
+    owned.add('billingReviewIncidents/'+incidentKey);
+    const review=rows.reviews.find(doc=>doc.id===incidentKey);
+    if(review&&!whole(review.data.reviewedAtMs))planned.push({collection:'billingReviewIncidents',id:incidentKey,state:null,to:null});
+    for(const doc of rows.observationIncidents)if(doc.data.intentId===incidentKey&&!whole(doc.data.reviewedAtMs)){owned.add('billingIntentObservationIncidents/'+doc.id);planned.push({collection:'billingIntentObservationIncidents',id:doc.id,state:String(doc.data.state??'needs_review'),to:'reviewed'});}
+    const intentRow=rows.intents.find(doc=>doc.id===incidentKey);
+    if(intentRow){owned.add('billingIntents/'+incidentKey);
+      if(intentRow.data.state==='needs_review')planned.push({collection:'billingIntents',id:incidentKey,state:'needs_review',reviewField:typeof intentRow.data.reviewIncidentId==='string'?'reviewIncidentId':'reviewOutboxIncidentId',to:null,toReviewField:null});
+    }
+  }else{
+    owned.add('billingOutboxReviewIncidents/'+incidentKey);
+    const incident=rows.outboxIncidents.find(doc=>doc.id===incidentKey);
+    if(incident){
+      if(!whole(incident.data.reviewedAtMs))planned.push({collection:'billingOutboxReviewIncidents',id:incidentKey,state:String(incident.data.state??'needs_review'),to:'reviewed'});
+      const outboxId=incident.data.outboxId;
+      if(typeof outboxId==='string'){owned.add('billingOutbox/'+outboxId);
+        const row=rows.outboxes.find(doc=>doc.id===outboxId);
+        if(row&&row.data.state==='needs_review')planned.push({collection:'billingOutbox',id:outboxId,state:'needs_review',reviewField:'reviewIncidentId',to:'retry_wait',toReviewField:null});
+      }
+      // The outbox incident does not store the intent id: the intent is the row this incident named, read back through
+      // its own review pointer. Only an intent that points at THIS incident is owned and advanced.
+      for(const intentRow of rows.intents)if(intentRow.data.reviewOutboxIncidentId===incidentKey||intentRow.data.reviewIncidentId===incidentKey){
+        const field=intentRow.data.reviewOutboxIncidentId===incidentKey?'reviewOutboxIncidentId':'reviewIncidentId';
+        owned.add('billingIntents/'+intentRow.id);
+        if(intentRow.data.state==='needs_review')planned.push({collection:'billingIntents',id:intentRow.id,state:'needs_review',reviewField:field,to:null,toReviewField:null});
+      }
+    }
+  }
+  return {kind,holdId,owned,planned};
+}
+/**
+ * An intent incident closes its intent's admission: `billingIntentAdmissionGuards/<intentId>` goes to `needs_review` with
+ * `incidentId` + `updatedAtMs` (firestoreBackend.ts). Many paths demand the EXACT 4-field `clear` shape, so an unblock
+ * that hands the intent back must also restore it, or the intent can never be admitted again. Only a guard that names
+ * THIS incident (or one of the observation incidents this unblock already hands back) belongs to it; never an outbox
+ * incident, and never a guard that is absent or already clear.
+ */
+function intentAdmissionRow(admission:DocumentSnapshot,incidentKey:string,planned:PlannedRow[]):PlannedRow|null{
+  if(!admission.exists||admission.get('state')!=='needs_review')return null;
+  const named=admission.get('incidentId');
+  if(named!==incidentKey&&!planned.some(row=>row.collection==='billingIntentObservationIncidents'&&row.id===named))return null;
+  return {collection:'billingIntentAdmissionGuards',id:incidentKey,state:'needs_review',to:'clear'};
+}
+
+/**
+ * The audited unblock. Phases: (A) prove the state and record `unblock_requested` in one transaction, (B) ask Account,
+ * (C) re-read the same generation and release. A repeat resumes the pending phase; an identical, completed call is a
+ * replay without writes; any different payload for the same incident is a conflict.
+ */
+export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,request:UnblockRequest,authorizedBy:string,nowMs:number):Promise<UnblockReceipt>{
+  if(!deps||typeof deps!=='object'||!deps.db||!deps.root||!deps.accountBilling)throw new UnblockFault('invalid');
+  if(!uuid.test(accountId))throw new UnblockFault('invalid');
+  if(typeof authorizedBy!=='string'||!actorPattern.test(authorizedBy))throw new UnblockFault('invalid');
+  if(!whole(nowMs))throw new UnblockFault('invalid');
+  const clean=cleanRequest(request);
+  const {db,root}=deps,guardRef=root.collection('billingGuards').doc(accountId),alertRef=root.collection(ALERT_COLLECTION).doc(clean.alertKey);
+  const requestedRef=root.collection(UNBLOCK_AUDIT_COLLECTION).doc(unblockAuditId(clean.incidentKey,'unblock_requested',clean.epoch,clean.createdAtMs));
+  const doneRef=root.collection(UNBLOCK_AUDIT_COLLECTION).doc(unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs));
+  const releasedRef=root.collection(UNBLOCK_AUDIT_COLLECTION).doc(unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs));
+  const payload={incidentKey:clean.incidentKey,alertKey:clean.alertKey,epoch:clean.epoch,createdAtMs:clean.createdAtMs,updatedAtMs:clean.updatedAtMs,evidenceRef:clean.evidenceRef,note:clean.note,authorizedBy};
+
+  // Phase 0 + 1: the read and the first immutable record share one transaction, so the audited state is the proven one.
+  const opened=await db.runTransaction(async tx=>{
+    const [guard,alert,requested,done,released]=await tx.getAll(guardRef,alertRef,requestedRef,doneRef,releasedRef);
+    // The caller is authenticated BEFORE this module: `authorizedBy` is its verified identity, not payload. Re-using an
+    // audited unblock with a different principal is not a replay of the same request, so it is a conflict (an argument
+    // mismatch), not a second operator's write; the same principal repeating the call is the replay.
+    const samePayload=(data:Record<string,unknown>|undefined)=>data?.accountId===accountId&&
+      Object.entries(payload).every(([key,value])=>key==='authorizedBy'||data[key]===value);
+    const sameOperator=(data:Record<string,unknown>|undefined)=>!!data&&data.authorizedBy===authorizedBy;
+    // An audited record only answers while it still describes the CURRENT guard: the epoch restarts at 1 when the guard
+    // is deleted, so a record of another generation must not replay as success over a newer block.
+    // The generation alone is not enough: the epoch restarts at 1 when the guard is deleted, and the creation mark can
+    // repeat in the same millisecond, so a record also has to name the SAME incident the live guard names.
+    // A partial release already finished (Account had no other incident and Video released): a pure replay, checked
+    // BEFORE any Account call so a third identical request writes nothing and never asks Account again.
+    if(released.exists){
+      const data=released.data() as Record<string,unknown>|undefined;
+      if(!samePayload(data)||!sameOperator(data))throw new UnblockFault('conflict');
+      // `video_released` was created in the same transaction that deleted the guard, so a live BLOCKED guard is a NEWER
+      // block (another incident on the same row) and never the generation this record released. Answering `replayed`
+      // here would tell the operator the account is open while another incident blocks it.
+      if(guard.exists&&guard.get('blocked')===true)throw new UnblockFault('conflict');
+      return {replayed:true as const,record:data!,videoReleased:true as const};
+    }
+    if(done.exists){
+      const data=done.data() as Record<string,unknown>|undefined;
+      if(!samePayload(data)||!sameOperator(data))throw new UnblockFault('conflict');
+      if(guard.exists&&guard.get('blocked')===true){
+        // `unblocked` is created in the SAME transaction that deletes the guard, so a live guard here is the PARTIAL
+        // result: Account still had other incidents and the Video guard survived. It is not a newer block unless the
+        // generation moved; the epoch restarts at 1 after a delete, so the creation mark is what distinguishes them.
+        if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
+        // Same occurrence: the repeat can read Account's receipt and may finish the release.
+        return {replayed:false as const,record:data!,partial:true as const};
+      }
+      return {replayed:true as const,record:data!};
+    }
+    if(requested.exists){
+      const data=requested.data() as Record<string,unknown>|undefined;
+      if(!samePayload(data))throw new UnblockFault('conflict');
+      if(authorizedBy!==data.authorizedBy)throw new UnblockFault('conflict');
+      if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
+      return {replayed:false as const,record:data!,resume:true as const};
+    }
+    if(!alert.exists)throw Object.assign(new UnblockFault('not_found'),{stage:'alert_missing'});
+    const identity=alertIdentity(alert);
+    if(!identity)throw Object.assign(new UnblockFault('corrupt'),{stage:'alert_identity'});
+    if(identity.kind!=='guard'||identity.rowId!==accountId)throw Object.assign(new UnblockFault('conflict'),{stage:'alert_owner'});
+    if(identity.status!=='open')throw Object.assign(new UnblockFault('conflict'),{stage:'alert_status'});
+    // The alert is per account AND generation: an alert of another epoch (or of a guard recreated with the same epoch
+    // after a delete) is not this block.
+    if(identity.state!==blockedState(clean.epoch,clean.createdAtMs,clean.incidentKey))throw Object.assign(new UnblockFault('conflict'),{stage:'alert_state:'+identity.state});
+    if(!guard.exists||guard.get('blocked')!==true||guard.get('accountId')!==accountId)throw Object.assign(new UnblockFault('conflict'),{stage:'guard_shape'});
+    const current=generation(guard);
+    if(current.epoch!==clean.epoch||current.createdAtMs!==clean.createdAtMs||current.updatedAtMs!==clean.updatedAtMs)throw Object.assign(new UnblockFault('conflict'),{stage:'generation:'+JSON.stringify([current,clean.epoch,clean.createdAtMs,clean.updatedAtMs])});
+    // The operator-selected incident must be the one the guard names.
+    const rows=await accountRows(tx,root,accountId);
+    const incident=incidentOf(guard,rows,clean.incidentKey,current);
+    if(!incident)throw Object.assign(new UnblockFault('conflict'),{stage:'incident:keys:'+JSON.stringify([guard.get('lastIncidentId'),guard.get('lastOutboxIncidentId'),clean.incidentKey])});
+    const rivals=unresolvedRows(rows,incident.owned);
+    if(rivals.length)throw Object.assign(new UnblockFault('unresolved'),{stage:'rivals:'+rivals.join(',')});
+    // Read (still before this transaction's first write) the intent's admission guard. It carries no `accountId`, so it
+    // never appears in `accountRows`; an intent incident of THIS occurrence must return it to its `clear` shape.
+    if(incident.kind==='intent'){
+      const admission=await tx.get(root.collection('billingIntentAdmissionGuards').doc(clean.incidentKey));
+      const admissionRow=intentAdmissionRow(admission,clean.incidentKey,incident.planned);
+      if(admissionRow){incident.planned.push(admissionRow);incident.owned.add('billingIntentAdmissionGuards/'+clean.incidentKey);}
+    }
+    const auditId=unblockAuditId(clean.incidentKey,'unblock_requested',clean.epoch,clean.createdAtMs);
+    tx.create(requestedRef,{auditId,action:'unblock_requested',...payload,kind:incident.kind,accountId,holdId:incident.holdId,
+      accountEpoch:clean.accountEpoch,accountCreatedAtMs:clean.accountCreatedAtMs,
+      planned:incident.planned,reviewedRivals:rivals,recordedAtMs:nowMs});
+    return {replayed:false as const,record:{planned:incident.planned,kind:incident.kind,holdId:incident.holdId} as Record<string,unknown>,resume:false as const};
+  });
+  if(opened.replayed)return {unblocked:true,replayed:true,accountBlocked:Boolean(opened.record.accountBlocked),
+    videoBlocked:'videoReleased' in opened?false:Boolean(opened.record.videoBlocked),
+    advanced:Array.isArray(opened.record.advanced)?opened.record.advanced.map(String):[],auditId:String(opened.record.auditId)};
+
+  const record=opened.record,planned=record.planned as PlannedRow[];
+  const kind=String(record.kind) as 'intent'|'outbox',holdId=String(record.holdId);
+  // Phase 2: Account goes first. A resume looks up the exact audited decision by hold and evidence. Only a verified
+  // active incident without a receipt can use the operator's generation to try the conditional mutation again.
+  let accepted={epoch:clean.accountEpoch,createdAtMs:clean.accountCreatedAtMs};
+  let account:{replayed:boolean;blocked:boolean};
+  try{
+    const identityKey=await identityKeyOf(root,accountId);
+    const receipt=('partial' in opened||opened.resume)
+      ?await deps.accountBilling.unblockReceipt(identityKey,holdId,clean.evidenceRef):null;
+    if(receipt?.state==='confirmed'){
+      accepted={epoch:receipt.epoch,createdAtMs:receipt.createdAtMs};
+      account={replayed:true,blocked:receipt.blocked};
+    }else{
+      if('partial' in opened)throw new UnblockFault('conflict');
+      account=await deps.accountBilling.unblock(identityKey,{incidentId:holdId,...accepted,reviewRef:clean.evidenceRef});
+    }
+  }catch(error){throw Object.assign(new UnblockFault('conflict'),{stage:'account',cause:error});}
+
+  // These rows have already advanced. A matching receipt and the absence of other incidents permit just the release.
+  if('partial' in opened){
+    if(record.accountEpoch!==accepted.epoch||record.accountCreatedAtMs!==accepted.createdAtMs)throw new UnblockFault('conflict');
+    if(account.blocked)return {unblocked:true,replayed:true,accountBlocked:true,videoBlocked:true,
+      advanced:Array.isArray(record.advanced)?record.advanced.map(String):[],auditId:String(record.auditId)};
+    return db.runTransaction(async tx=>{
+      const [guard,alert]=await tx.getAll(guardRef,alertRef);
+      if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
+      // The incident's rows were advanced by the first call; only a RIVAL row keeps the guard, and then nothing is written.
+      const rivals=unresolvedRows(await accountRows(tx,root,accountId),new Set());
+      if(rivals.length)return {unblocked:true as const,replayed:true as const,accountBlocked:false,videoBlocked:true as const,
+        advanced:Array.isArray(record.advanced)?record.advanced.map(String):[],auditId:String(record.auditId)};
+      tx.delete(guardRef);
+      tx.update(alertRef,{status:'dispositioned',dispositionedAtMs:nowMs,dispositionedBy:authorizedBy,dispositionAuditId:unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs)});
+      const releasedId=unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs);
+      tx.set(root.collection('billingReleaseReopenings').doc(accountId),{accountId,auditId:releasedId});
+      tx.create(releasedRef,{auditId:releasedId,action:'video_released',...payload,kind,accountId,holdId,
+        accountEpoch:accepted.epoch,accountCreatedAtMs:accepted.createdAtMs,
+        advanced:[],accountBlocked:false,videoRivals:rivals,recordedAtMs:nowMs});
+      return {unblocked:true as const,replayed:false as const,accountBlocked:false,videoBlocked:false as const,advanced:[],auditId:releasedId};
+    });
+  }
+
+  // Phase 3: only after Account confirmed, re-read the SAME generation and advance exactly the audited rows.
+  return db.runTransaction(async tx=>{
+    // Every read of this transaction happens before its first write: the guard generation, the alert, the audited rows
+    // and, for an intent, the state its exit depends on.
+    const [guard,alert]=await tx.getAll(guardRef,alertRef);
+    if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
+    const rows:Array<{planned:PlannedRow;snap:DocumentSnapshot;exit?:string}>=[];
+    for(const row of planned){
+      const snap=await tx.get(root.collection(row.collection).doc(row.id));
+      // A planned row that vanished between the audited read and this release is not silently skipped: the
+      // audited tuple no longer describes the account, so the whole transaction aborts without writing.
+      if(!snap.exists)throw new UnblockFault('conflict');
+      const data=snap.data() as Record<string,unknown>;
+      // Only a row whose reread still matches the audited tuple is advanced; anything else aborts untouched.
+      // A hold is not owned by this unblock the way an outbox row is: the drainer may deliver it (`applied`) or the
+      // authorizer may send it to `needs_review` after the audited read, and none of those settle the guard. Accepting
+      // those two extra states keeps a retry from being stranded forever on a frozen `planned` tuple; anything else is
+      // still a conflict.
+      const holdSettled=row.collection==='billingHoldOutbox';
+      if(row.state!==null&&data.state!==row.state&&!(holdSettled&&(data.state==='applied'||data.state==='needs_review')))throw new UnblockFault('conflict');
+      if(holdSettled&&data.state==='applied')continue;
+      if(row.reviewField&&data[row.reviewField]!==clean.incidentKey)throw new UnblockFault('conflict');
+      // A row handed to another account between phases must not be advanced: only the admission guard has no `accountId`.
+      if(row.collection!=='billingIntentAdmissionGuards'&&data.accountId!==accountId)throw new UnblockFault('conflict');
+      if(row.collection==='billingIntents'){
+        const [intent,witness]=await tx.getAll(snap.ref,root.collection('billingIntentWitnesses').doc(row.id));
+        rows.push({planned:row,snap,exit:intentExit(intent,witness)});
+      }else rows.push({planned:row,snap});
+    }
+    // Account says whether OTHER Account incidents remain; Video checks its own side again, because an incident could have
+    // landed after the audited read. Either one keeps the guard blocked: `unblocked:true` never means the account is open.
+    const rivals=unresolvedRows(await accountRows(tx,root,accountId),new Set(rows.map(row=>row.planned.collection+'/'+row.planned.id)));
+    const clear=!account.blocked&&rivals.length===0;
+    const advanced:string[]=[];
+    for(const {planned:row,snap,exit} of rows){
+      const auditId=unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs);
+      if(row.collection==='billingReviewIncidents'||row.collection==='billingOutboxReviewIncidents')tx.update(snap.ref,{state:'reviewed',reviewedAtMs:nowMs,unblockAuditId:auditId});
+      else if(row.collection==='billingIntentObservationIncidents')tx.update(snap.ref,{state:'reviewed',reviewedAtMs:nowMs,unblockAuditId:auditId});
+      else if(row.collection==='billingHoldOutbox')tx.update(snap.ref,{state:'applied',appliedAtMs:nowMs,lastErrorCode:null});
+      else if(row.collection==='billingOutbox')tx.update(snap.ref,{state:'retry_wait',reviewIncidentId:FieldValue.delete(),nextAttemptAt:nowMs,updatedAtMs:nowMs});
+      else if(row.collection==='billingIntentAdmissionGuards')tx.update(snap.ref,{state:'clear',incidentId:FieldValue.delete(),updatedAtMs:FieldValue.delete()});
+      else tx.update(snap.ref,{state:exit,reviewReason:FieldValue.delete(),reviewIncidentId:FieldValue.delete(),reviewOutboxIncidentId:FieldValue.delete(),updatedAtMs:nowMs});
+      advanced.push(row.collection+'/'+row.id);
+    }
+    if(clear){
+      tx.delete(guardRef);
+      tx.update(alertRef,{status:'dispositioned',dispositionedAtMs:nowMs,dispositionedBy:authorizedBy,dispositionAuditId:unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs)});
+    }
+    const auditId=unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs);
+    if(clear)tx.set(root.collection('billingReleaseReopenings').doc(accountId),{accountId,auditId});
+    tx.create(doneRef,{auditId,action:'unblocked',...payload,kind,accountId,holdId,advanced,accountBlocked:account.blocked,videoBlocked:!clear,videoRivals:rivals,accountReplayed:account.replayed,accountEpoch:accepted.epoch,accountCreatedAtMs:accepted.createdAtMs,recordedAtMs:nowMs});
+    return {unblocked:true as const,replayed:false as const,accountBlocked:account.blocked,videoBlocked:!clear,advanced,auditId};
+  });
+}
+
+/** The identity key of the account's owner, read from the account's own identity document (never from the request). */
+async function identityKeyOf(root:DocumentReference,accountId:string):Promise<string>{
+  const page=await root.collection('identities').where('accountId','==',accountId).limit(2).get();
+  const keys=page.docs.filter(doc=>doc.get('accountId')===accountId&&typeof doc.get('uid')==='string').map(doc=>doc.id);
+  if(keys.length!==1||!digest(keys[0]))throw new UnblockFault('conflict');
+  return keys[0];
+}
+/**
+ * Where a reviewed intent goes back to. An intent that already owns a work keeps its head state for that work (the
+ * drainer reads `job_created` as the pre-dispatch state of an admitted job, and sending it to `reserve_pending` would
+ * re-reserve work that exists); otherwise it resumes the release it had prepared, and only otherwise its reservation.
+ */
+function intentExit(intent:DocumentSnapshot,witness:DocumentSnapshot):string{
+  if(intent.exists&&(intent.get('state')==='job_created'||typeof intent.get('jobId')==='string'))return 'job_created';
+  return witness.exists&&witness.get('terminalRecovery')?.releasePrepared===true?'release_pending':'reserve_pending';
+}
+type FirebaseFirestoreTransaction=Parameters<Parameters<Firestore['runTransaction']>[0]>[0];
+
+--- server/account/backend.ts lineas 186-310 (bloqueo, estado, recibo y desbloqueo de la Cuenta) ---
+ async blockVideoBilling(identityKey:string,incident:string){
+  incidentId(incident);const identityRef=this.identityFromKey(identityKey),time=this.now();
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const account=this.root.collection('accounts').doc(accountId),guard=this.root.collection('videoBillingGuards').doc(accountId),record=this.root.collection('videoBillingIncidents').doc(hash([accountId,incident]));
+   const [stored,held,previous]=await tx.getAll(account,guard,record);accountRecord(stored,identityKey);const blocked=billingHold(held,accountId,identityKey);
+   if(previous.exists){
+    if(!blocked||previous.get('ownerAccountId')!==accountId||previous.get('identityKey')!==identityKey||previous.get('incidentId')!==incident||previous.get('state')!=='active'||!integer(previous.get('createdAtMs')))invariant();
+    return {blocked:true as const,recorded:true as const,created:false};
+   }
+   const count=blocked?Number(held.get('incidentCount'))+1:1,epoch=blocked?Number(held.get('epoch'))+1:1;
+   if(!integer(count,1)||!integer(epoch,1)||!integer(time))invariant();
+   tx.create(record,{ownerAccountId:accountId,identityKey,incidentId:incident,state:'active',createdAtMs:time});
+   if(blocked)tx.update(guard,{incidentCount:count,epoch,updatedAtMs:time});
+   else tx.create(guard,{ownerAccountId:accountId,identityKey,blocked:true,incidentCount:count,epoch,createdAtMs:time,updatedAtMs:time});
+   return {blocked:true as const,recorded:true as const,created:true};
+  });
+ }
+ /** Status/replay is read-only; absence of this particular incident does not mean the account is open. */
+ async videoBillingHold(identityKey:string,incident:string){
+  incidentId(incident);const identityRef=this.identityFromKey(identityKey);
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const [stored,guard,record]=await tx.getAll(this.root.collection('accounts').doc(accountId),this.root.collection('videoBillingGuards').doc(accountId),this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])));
+   accountRecord(stored,identityKey);const blocked=billingHold(guard,accountId,identityKey);
+   if(!record.exists)return {blocked,recorded:false};
+   if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
+   // `recorded` is only about THIS incident id: `recorded:true` means there is an ACTIVE incident with that id, so it must be
+   // read together with `blocked` to know whether the account is still closed. An audited unblock leaves the incident
+   // `reviewed` (terminal, so `recorded:false` even though the document persists); any other state is corruption.
+   const state=record.get('state');
+   if(state==='active'){if(!blocked)invariant();return {blocked,recorded:true};}
+   // This operation always writes `reviewedAtMs`: a reviewed incident without an integer timestamp is corruption.
+   if(state==='reviewed'){if(!integer(record.get('reviewedAtMs')))invariant();return {blocked,recorded:false};}
+   invariant();
+  });
+ }
+ /** Recover the accepted generation of this exact decision, with the current Account hold status. */
+ async videoBillingUnblockReceipt(identityKey:string,incident:string,reviewRef:string){
+  incidentId(incident);if(!reviewRefValid(reviewRef))bad();
+  const identityRef=this.identityFromKey(identityKey);
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const [stored,guard,record,receipt]=await tx.getAll(
+    this.root.collection('accounts').doc(accountId),
+    this.root.collection('videoBillingGuards').doc(accountId),
+    this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])),
+    this.root.collection('videoBillingUnblocks').doc(hash([accountId,incident,'unblock'])),
+   );
+   accountRecord(stored,identityKey);const blocked=billingHold(guard,accountId,identityKey);
+   if(!record.exists)throw new AccountFault(receipt.exists?'invariant':'conflict');
+   if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
+   if(!receipt.exists){
+    // Only a consistent active incident can establish that the mutation is still pending.
+    if(!blocked||record.get('state')!=='active'||record.get('reviewedAtMs')!==undefined)invariant();
+    return {state:'pending' as const,incidentId:incident,reviewRef};
+   }
+   if(receipt.get('reviewRef')!==reviewRef)throw new AccountFault('conflict');
+   const epoch=receipt.get('epoch'),createdAtMs=receipt.get('createdAtMs'),unblockedAtMs=receipt.get('unblockedAtMs');
+   if(receipt.get('ownerAccountId')!==accountId||receipt.get('identityKey')!==identityKey||receipt.get('incidentId')!==incident||
+    !integer(epoch,1)||!integer(createdAtMs)||!integer(unblockedAtMs)||
+    record.get('state')!=='reviewed'||record.get('reviewedAtMs')!==unblockedAtMs)throw new AccountFault('invariant');
+   return {state:'confirmed' as const,incidentId:incident,reviewRef,epoch,createdAtMs,blocked};
+  });
+ }
+ /**
+  * The audited reopening of a blocked account: a human decision, executed once per incident, that DELETES the guard
+  * (never writes `blocked:false`, which the `billingHold` reader above would reject as `invariant`). The caller must name
+  * the incident and the guard generation (`epoch` and `createdAtMs`), so an old unblock cannot clear a newer block.
+  * It never takes the drain lease and never moves balance or reservations. Repeating it is a replay without writes.
+  */
+ async unblockVideoBilling(identityKey:string,request:{incidentId:string;epoch:number;createdAtMs:number;reviewRef:string}){
+  if(!request||typeof request!=='object'||Array.isArray(request)||Object.keys(request).sort().join(',')!=='createdAtMs,epoch,incidentId,reviewRef')bad();
+  const {incidentId:incident,epoch,createdAtMs,reviewRef}=request;
+  incidentId(incident);if(!integer(epoch,1)||!integer(createdAtMs)||!reviewRefValid(reviewRef))bad();
+  const identityRef=this.identityFromKey(identityKey),time=this.now();
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const accountRef=this.root.collection('accounts').doc(accountId),guardRef=this.root.collection('videoBillingGuards').doc(accountId),recordRef=this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])),unblockRef=this.root.collection('videoBillingUnblocks').doc(hash([accountId,incident,'unblock']));
+   const [stored,guard,record,unblock]=await tx.getAll(accountRef,guardRef,recordRef,unblockRef);accountRecord(stored,identityKey);
+   // A repeat of the same decision is a receipt; any different payload for the same incident is refused, and neither writes.
+   if(unblock.exists){
+    if(unblock.get('ownerAccountId')===accountId&&unblock.get('identityKey')===identityKey&&unblock.get('incidentId')===incident&&unblock.get('epoch')===epoch&&unblock.get('createdAtMs')===createdAtMs&&unblock.get('reviewRef')===reviewRef)return {unblocked:true as const,replayed:true as const,blocked:guard.exists};
+    throw new AccountFault('conflict');
+   }
+   const blocked=billingHold(guard,accountId,identityKey);
+   if(!blocked||guard.get('epoch')!==epoch||guard.get('createdAtMs')!==createdAtMs)throw new AccountFault('conflict');
+   if(!record.exists)throw new AccountFault('conflict');
+   if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
+   if(record.get('state')!=='active')throw new AccountFault('conflict');
+   // `incidentCount` incidents are known; each unblock adds one reviewed incident, and the guard survives until all are reviewed.
+   const incidentCount=guard.get('incidentCount') as number,reviewed=guard.get('reviewedCount')===undefined?0:guard.get('reviewedCount');
+   if(!integer(reviewed)||reviewed>=incidentCount)invariant();
+   const nextReviewed=reviewed+1;if(!integer(nextReviewed,1)||nextReviewed>incidentCount)invariant();
+   tx.create(unblockRef,{ownerAccountId:accountId,identityKey,incidentId:incident,epoch,createdAtMs,reviewRef,unblockedAtMs:time});
+   tx.update(recordRef,{state:'reviewed',reviewedAtMs:time});
+   if(nextReviewed===incidentCount)tx.delete(guardRef);else tx.update(guardRef,{reviewedCount:nextReviewed});
+   return {unblocked:true as const,replayed:false as const,blocked:nextReviewed!==incidentCount};
+  });
+ }
+ /** Atomically prevent a future reserve or return the existing reservation's receipt. */
+ async sealVideoReservation(identityKey:string,reservationId:string,seconds:number){
+  id(reservationId);if(!integer(seconds,1)||seconds>600)bad();
+  const identityRef=this.identityFromKey(identityKey),time=this.now();
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+   const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+   const key=hash([accountId,reservationId]),reservationRef=this.root.collection('videoReservations').doc(key),tombRef=this.root.collection('videoReservationTombstones').doc(key);
+   const [stored,reservation,tomb]=await tx.getAll(this.root.collection('accounts').doc(accountId),reservationRef,tombRef);accountRecord(stored,identityKey);
+   const sealed=sealedReservation(tomb,accountId,identityKey,reservationId,seconds);
+   if(reservation.exists&&sealed)invariant();
+   if(reservation.exists){
+    if(reservation.get('ownerAccountId')!==accountId||reservation.get('identityKey')!==identityKey||reservation.get('reservationId')!==reservationId||!integer(reservation.get('seconds'),1))invariant();
+    if(reservation.get('seconds')!==seconds)throw new AccountFault('conflict');
+    const state=reservation.get('state');if(!['reserved','captured','released'].includes(state))invariant();
+    return {state:state as 'reserved'|'captured'|'released',reservationId,seconds,created:false};
+
+--- server/commercial/accountBillingClient.ts lineas 80-125 (cliente: recibo y desbloqueo) ---
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountBillingFault('unavailable');const row=value as Record<string,unknown>;
+  if(typeof row.blocked!=='boolean'||typeof row.recorded!=='boolean'||row.recorded&&!row.blocked)throw new AccountBillingFault('unavailable');
+  return {blocked:row.blocked,recorded:row.recorded};
+ }
+ /** Read the durable result without resending an unblock whose outcome is unknown. */
+ async unblockReceipt(identityKey:string,incidentId:string,reviewRef:string){
+  if(!hex64.test(identityKey)||!incident(incidentId)||typeof reviewRef!=='string'||!/^[^\u0000-\u001f\u007f]{1,200}$/.test(reviewRef))throw new AccountBillingFault('invalid');
+  const value=await this.post('/api/internal/video/billing-holds/unblock-receipt',{identityKey,incidentId,reviewRef});
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountBillingFault('unavailable');
+  const row=value as Record<string,unknown>,keys=Object.keys(row).sort().join(',');
+  if(row.incidentId!==incidentId||row.reviewRef!==reviewRef)throw new AccountBillingFault('unavailable');
+  if(row.state==='pending'&&keys==='incidentId,reviewRef,state')return {state:'pending' as const};
+  if(row.state==='confirmed'&&keys==='blocked,createdAtMs,epoch,incidentId,reviewRef,state'&&typeof row.blocked==='boolean'&&
+   typeof row.epoch==='number'&&Number.isSafeInteger(row.epoch)&&row.epoch>=1&&
+   typeof row.createdAtMs==='number'&&Number.isSafeInteger(row.createdAtMs)&&row.createdAtMs>=0){
+   return {state:'confirmed' as const,epoch:row.epoch,createdAtMs:row.createdAtMs,blocked:row.blocked};
+  }
+  throw new AccountBillingFault('unavailable');
+ }
+ /**
+  * The audited reopening of a blocked account: an operator names the incident and the guard generation (epoch + createdAtMs),
+  * and Account deletes the guard (never `blocked:false`). `reviewRef` is the durable reference to the reviewed evidence.
+  * A replay returns the same receipt with `replayed:true`. `blocked` reports whether the guard SURVIVES after this call:
+  * with several incidents, reviewing one leaves the account closed, so `unblocked:true` never implies the account is open.
+  */
+ async unblock(identityKey:string,request:{incidentId:string;epoch:number;createdAtMs:number;reviewRef:string}){
+  if(!hex64.test(identityKey)||!request||typeof request!=='object'||Array.isArray(request))throw new AccountBillingFault('invalid');
+  const {incidentId,epoch,createdAtMs,reviewRef}=request;
+  if(!incident(incidentId)||!Number.isSafeInteger(epoch)||epoch<1||!Number.isSafeInteger(createdAtMs)||createdAtMs<0||typeof reviewRef!=='string'||!/^[^\u0000-\u001f\u007f]{1,200}$/.test(reviewRef))throw new AccountBillingFault('invalid');
+  const value=await this.post('/api/internal/video/billing-holds/unblock',{identityKey,incidentId,epoch,createdAtMs,reviewRef});
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountBillingFault('unavailable');const row=value as Record<string,unknown>;
+  if(row.unblocked!==true||typeof row.replayed!=='boolean'||typeof row.blocked!=='boolean')throw new AccountBillingFault('unavailable');
+  return {unblocked:true as const,replayed:row.replayed,blocked:row.blocked};
+ }
+ /** A 404 is ambiguous; only a matching Account tombstone closes an absent reservation. */
+ async seal(identityKey:string,reservationId:string,seconds:number):Promise<VideoReservationSeal>{
+  if(!validVideoTuple(identityKey,reservationId,seconds))throw new AccountBillingFault('invalid');
+  const value=await this.post('/api/internal/video/reservations/'+reservationId+'/seal',{identityKey,seconds});
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountBillingFault('unavailable');const row=value as Record<string,unknown>;
+  if(row.reservationId!==reservationId||row.seconds!==seconds||typeof row.state!=='string'||!['sealed','reserved','captured','released'].includes(row.state)||typeof row.created!=='boolean'||row.created&&row.state!=='sealed')throw new AccountBillingFault('unavailable');
+  return row as VideoReservationSeal;
+ }
+ /** A replay is only a receipt and never permission to invoke an AI provider again. */
+ async admit(identityKey:string,reservationId:string,seconds:number,jobId:string,attemptId:string,callKey:string,model:string,requestSha256:string):Promise<VideoAdmission>{
+  if(!validVideoTuple(identityKey,reservationId,seconds)||!uuid.test(jobId)||!uuid.test(attemptId)||typeof callKey!=='string'||!/^(text-window|voice-chunk):\d{4}(?![\s\S])/.test(callKey)||model!==(callKey.startsWith('text-window:')?'gemini-3.8-flash':'gemini-3.8-flash-tts')||typeof requestSha256!=='string'||!hex64.test(requestSha256))throw new AccountBillingFault('invalid');
+  const value=await this.post('/api/internal/video/reservations/'+reservationId+'/admit',{identityKey,seconds,jobId,attemptId,callKey,model,requestSha256});
+
+--- server/account/http.ts lineas 36-75 (ruta interna de desbloqueo y recibo) ---
+     if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');const b=await json(req,['identityKey']);
+     if(caller.email!==internal.reservationCaller)throw new HttpFault(403,'forbidden');send(200,await store.videoBalance(b.identityKey as string));return;
+    }
+    if(url.pathname==='/api/internal/video/billing-holds'||url.pathname==='/api/internal/video/billing-holds/status'||
+     url.pathname==='/api/internal/video/billing-holds/unblock'||url.pathname==='/api/internal/video/billing-holds/unblock-receipt'){
+     if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');
+     // Only the general hold status is also available to the reservation caller.
+     if(!url.pathname.endsWith('/status')&&caller.email!==internal.settlementCaller)throw new HttpFault(403,'forbidden');
+     if(url.pathname.endsWith('/unblock')){
+      const b=await json(req,['identityKey','incidentId','epoch','createdAtMs','reviewRef']);
+      if(typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey)||typeof b.incidentId!=='string'||!(uuid.test(b.incidentId)||/^[a-f0-9]{64}(?![\s\S])/.test(b.incidentId))||!Number.isSafeInteger(b.epoch)||(b.epoch as number)<1||!Number.isSafeInteger(b.createdAtMs)||(b.createdAtMs as number)<0||typeof b.reviewRef!=='string'||!/^[^\u0000-\u001f\u007f]{1,200}$/.test(b.reviewRef))throw new HttpFault(400,'invalid');
+      const result=await store.unblockVideoBilling(b.identityKey,{incidentId:b.incidentId as string,epoch:b.epoch as number,createdAtMs:b.createdAtMs as number,reviewRef:b.reviewRef as string});send(200,result);return;
+     }
+     if(url.pathname.endsWith('/unblock-receipt')){
+      const b=await json(req,['identityKey','incidentId','reviewRef']);
+      if(typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey)||typeof b.incidentId!=='string'||
+       !(uuid.test(b.incidentId)||/^[a-f0-9]{64}(?![\s\S])/.test(b.incidentId))||typeof b.reviewRef!=='string'||
+       !/^[^\u0000-\u001f\u007f]{1,200}$/.test(b.reviewRef))throw new HttpFault(400,'invalid');
+      send(200,await store.videoBillingUnblockReceipt(b.identityKey,b.incidentId,b.reviewRef));return;
+     }
+     const b=await json(req,['identityKey','incidentId']);
+     if(typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey)||typeof b.incidentId!=='string'||!(uuid.test(b.incidentId)||/^[a-f0-9]{64}(?![\s\S])/.test(b.incidentId)))throw new HttpFault(400,'invalid');
+     if(url.pathname.endsWith('/status')){send(200,await store.videoBillingHold(b.identityKey,b.incidentId));return;}
+     const result=await store.blockVideoBilling(b.identityKey,b.incidentId);send(result.created?201:200,result);return;
+    }
+    const match=/^\/api\/internal\/video\/reservations\/([a-f0-9-]{36})\/(status|resolution|capture|release|seal|admit)$/.exec(url.pathname);
+    if(match){
+     if([...url.searchParams.keys()].length)throw new HttpFault(400,'invalid');
+     const action=match[2];
+     if(action!=='status'&&caller.email!==internal.settlementCaller)throw new HttpFault(403,'forbidden');
+     const fields=action==='status'?['identityKey']:action==='admit'?['identityKey','seconds','jobId','attemptId','callKey','model','requestSha256']:action==='capture'?['identityKey','seconds','jobId','attemptId','capturedSeconds']:action==='release'?['identityKey','seconds','jobId','attemptId','resolutionKind','evidenceSha256']:['identityKey','seconds'];
+     const b=await json(req,fields);
+     if(!uuid.test(match[1])||typeof b.identityKey!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.identityKey))throw new HttpFault(400,'invalid');
+     if(action!=='status'&&(!Number.isSafeInteger(b.seconds)||Number(b.seconds)<1||Number(b.seconds)>600))throw new HttpFault(400,'invalid');
+     if((action==='capture'||action==='admit')&&(typeof b.jobId!=='string'||!uuid.test(b.jobId)||typeof b.attemptId!=='string'||!uuid.test(b.attemptId)))throw new HttpFault(400,'invalid');
+     if(action==='capture'&&b.capturedSeconds!==undefined&&(!Number.isSafeInteger(b.capturedSeconds)||Number(b.capturedSeconds)<1||Number(b.capturedSeconds)>=Number(b.seconds)))throw new HttpFault(400,'invalid');
+     // A release after a provider admission carries the admission and Video's resolution together; any partial set is refused here.
+     const claim=['jobId','attemptId','resolutionKind','evidenceSha256'].filter(k=>b[k]!==undefined);
+     if(action==='release'&&claim.length>0&&(claim.length!==4||typeof b.jobId!=='string'||!uuid.test(b.jobId)||typeof b.attemptId!=='string'||!uuid.test(b.attemptId)||typeof b.resolutionKind!=='string'||!['no_speech','not_delivered','unknown_expired'].includes(b.resolutionKind)||typeof b.evidenceSha256!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.evidenceSha256)))throw new HttpFault(400,'invalid');
+     if(action==='admit'&&(typeof b.callKey!=='string'||!(/^(text-window|voice-chunk):\d{4}(?![\s\S])/.test(b.callKey))||typeof b.requestSha256!=='string'||!/^[a-f0-9]{64}(?![\s\S])/.test(b.requestSha256)||b.model!==(b.callKey.startsWith('text-window:')?'gemini-3.8-flash':'gemini-3.8-flash-tts')))throw new HttpFault(400,'invalid');

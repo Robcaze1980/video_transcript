@@ -20,7 +20,7 @@ Las lecturas por ID no descubren un sondeo huérfano, un documento en una clave 
 
 Los casos focales cubren guard activo con otra cuenta que progresa, sondeo malformado, vínculo aparentemente válido y evidencia cambiada, deduplicación concurrente, reparación e invalidación, pérdida de documento, reconocimiento del operador y fallo conservador de lectura paginada. [Pruebas sintéticas](../../server/commercial/firestoreAi.emulator.mjs)
 
-## Frontera A2 y coste por pasada
+## Frontera A2 y costo por pasada
 
 El submanejador A2 conserva la clausura exacta de cuatro módulos. La inspección vive en la hoja de solo lectura `billingPendingReport.ts`. La biblioteca financiera importa de esa hoja los predicados del protocolo. El inspector recibe dos fotografías sin referencias a documentos y una función sin argumentos que devuelve cinco fotografías, con claves predeterminadas. Los datos de usuario carecen de métodos y de referencias SDK en esa vista. La proyección conserva las claves desconocidas para que un campo extra invalide el esquema. Los mecanismos de escritura de alertas permanecen en `billingPendingAlerts.ts`. La lista congelada, los módulos prohibidos y la fachada pública de lectura conservan sus controles. Este límite corresponde al submanejador y sus importaciones transitivas. [Prueba de la frontera A2](../../server/commercial/billingSweepSection.test.ts) · [Controles de capacidad](../../server/commercial/billingPendingAlerts.test.ts)
 
