@@ -5,6 +5,25 @@ import {validateAccountEnvironment,verifyDatabaseBoundary,validateAccountOidcAud
 import {AccountFault,type AccountStore} from './backend';
 async function api(test:(origin:string,calls:string[],details:Array<{method:string;args:unknown[]}>)=>Promise<void>){const calls:string[]=[],details:Array<{method:string;args:unknown[]}>=[],reserveCalls={value:0},store=new Proxy({}, {get:(_t,key)=>async(...args:unknown[])=>{calls.push(String(key));details.push({method:String(key),args});if(key==='reserveVideo')return {created:++reserveCalls.value===1,state:'reserved',seconds:60,account:{}};if(key==='unblockVideoBilling')return {unblocked:true,replayed:false,blocked:false};return {created:true,account:{},project:{}};}}) as AccountStore;const apiEmail='vistavo-files-api@vistavo-prod.iam.gserviceaccount.com',workerEmail='vistavo-runtime@vistavo-prod.iam.gserviceaccount.com',server=createServer((req,res)=>{void accountHttp(store,{verifyIdToken:async token=>{if(token==='revoked'||token==='disabled'||token==='expired'||token==='foreign')throw Error('denied');return {uid:token,email_verified:token!=='unverified'};}},'https://vistavo.app',{audience:'https://vistavo-account-api-test-1234567890-uc.a.run.app',allowedEmails:[apiEmail,workerEmail],reservationCaller:apiEmail,settlementCaller:workerEmail,verifier:{verifyIdToken:async(token,audience)=>{if(!['service','worker'].includes(token)||audience!=='https://vistavo-account-api-test-1234567890-uc.a.run.app')throw Error('denied');return {email:token==='service'?apiEmail:workerEmail,email_verified:true};}}})(req,res);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();if(!address||typeof address==='string')throw Error();try{await test('http://127.0.0.1:'+address.port,calls,details);}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}}
 describe('account transport trust boundary',()=>{
+ it('keeps attempt enrollment closed for both configured legacy services and the public user',async()=>api(async(origin,calls)=>{
+  const path='/api/internal/video/billing-holds/unblock-attempts/enroll';
+  const body={protocol:'fenced_v1',purpose:'unblock-enroll',scopeId:'demo-scope',cutId:'demo-cut',
+   sourceOccurrenceId:'a'.repeat(64),videoAuditId:'b'.repeat(64),holdId:'c'.repeat(64),identityKey:'d'.repeat(64),
+   linkGeneration:1,operatorRef:'e'.repeat(64),attemptId:'00000000-0000-4000-8000-000000000001',
+   enrollmentId:'00000000-0000-4000-8000-000000000002',reviewRef:'synthetic review',authorizationSha256:'f'.repeat(64),
+   accountEpoch:1,accountCreatedAtMs:10};
+  const post=(token?:string)=>fetch(origin+path,{method:'POST',headers:{'Content-Type':'application/json',
+   ...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body)});
+  // The fixture verifier accepts these two legacy service tokens. The router must still reject the new action.
+  for(const service of ['service','worker']){
+   const response=await post(service);
+   expect(response.status).toBe(404);
+   expect(await response.json()).toEqual({error:'not_found'});
+  }
+  for(const token of [undefined,'good'])expect((await post(token)).status).toBe(401);
+  expect(calls).toEqual([]);
+ }));
+
  it('reads an unblock receipt only for the settlement caller and exact decision',async()=>api(async(origin,calls,details)=>{
   const identityKey='a'.repeat(64),incidentId='b'.repeat(64),reviewRef='synthetic review';
   const body={identityKey,incidentId,reviewRef},path='/api/internal/video/billing-holds/unblock-receipt';
