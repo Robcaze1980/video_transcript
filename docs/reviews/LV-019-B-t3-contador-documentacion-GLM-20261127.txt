@@ -1,0 +1,18 @@
+**Revisión**
+- Los cuatro registros activos quedan alineados: `MASTERPLAN.md`, `backlog.md`, `HANDOFF.md` y `bitácora.md`.
+- El estado sigue “EN CURSO, SIN CERTIFICAR”; no se declara aceptación del paso 1 ni sustitución de la batería financiera.
+- El dato técnico coincide: contador 0 antes, 1 tras el fallo de Video, 1 tras recuperación; lectura adicional del recibo.
+- Se conservan los límites: transporte sintético, sin HTTP real, sin batería completa.
+- El siguiente paso es coherente: continuar con los casos históricos pendientes, guarda, recuperación y regresión final.
+- Las ramas están separadas: `codex/vistavo-video-retry-count-handoff-20261127` para documentación y `codex/vistavo-video-retry-count-20261127` para la candidata `c395315`.
+
+**Límite**
+- La revisión es solo sobre el diff; no verifiqué SHAs, contenido remoto de evidencia, revisores ni ramas fuera del texto citado.
+- “Una lectura del recibo” debería leerse como al menos una lectura adicional, no como exactitud verificada fuera del resultado indicado.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: diff autocontenido; `MASTERPLAN.md`, `backlog.md`, `HANDOFF.md`, `bitacora.md`.
+NEGATIVOS: no verifiqué SHA, contenido de evidencia remota, ejecución de pruebas ni referencias Git; no se acredita HTTP real ni batería financiera completa.
+BLOQUEOS: ninguno; tokens y costo no medidos.
+=== FIN RESUMEN ===
