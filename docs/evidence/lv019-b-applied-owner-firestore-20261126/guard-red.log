@@ -1,0 +1,48 @@
+node:assert:152
+  throw new AssertionError(obj);
+  ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   negativeCases: 21,
+-   negativeCases: 18,
+    ownedListener: true,
+    positiveControl: true,
+    realConnectCalls: 0,
+    result: 'PASS',
+    syntheticErrors: 2
+
+    at parentMain (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-applied-owner-emulator-20261126\scripts\appliedOwnerEmulatorNetworkGuard.windows.cjs:132:12)
+    at Object.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-applied-owner-emulator-20261126\scripts\appliedOwnerEmulatorNetworkGuard.windows.cjs:154:3)
+    at Module._compile (node:internal/modules/cjs/loader:1929:14)
+    at Object..js (node:internal/modules/cjs/loader:2060:10)
+    at Module.load (node:internal/modules/cjs/loader:1651:32)
+    at Module._load (node:internal/modules/cjs/loader:1443:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: {
+    result: 'PASS',
+    syntheticErrors: 2,
+    negativeCases: 21,
+    realConnectCalls: 0,
+    positiveControl: true,
+    ownedListener: true
+  },
+  expected: {
+    result: 'PASS',
+    syntheticErrors: 2,
+    negativeCases: 18,
+    realConnectCalls: 0,
+    positiveControl: true,
+    ownedListener: true
+  },
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.22.3

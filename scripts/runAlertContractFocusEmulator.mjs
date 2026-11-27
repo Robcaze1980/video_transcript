@@ -16,12 +16,30 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const project = 'demo-vistavo-ledger';
-const host = '127.0.0.1:8185';
+const project = 'demo-vistavo-applied-owner';
+const host = '127.0.0.1:8195';
+const expectedCases = Object.freeze([
+  'alert contract damaged source refuses before Account and isolates a second owner',
+  'alert contract damage during confirmed response recovers the exact receipt without a second mutation',
+  'alert contract pending receipt in flight loses local authority before a new mutation',
+  'alert contract already partial done refuses a damaged live guard before consulting Account',
+  'alert contract partial done with rival and damage during the confirmed receipt keeps reconciliation visible',
+  'alert contract unknown category or reason cannot clear or disposition a stored warning',
+  ...['same account', 'other account'].map(owner => 'alert contract applied hold after direct ACK belongs to '+owner),
+  ...['different evidence', 'restored evidence', 'intact'].map(variant => 'alert contract confirmed nonpartial receipt and '+variant+' at local commit'),
+  ...['altered', 'restored', 'intact'].map(variant => 'alert contract fresh direct ACK with '+variant+' audit'),
+  ...['altered', 'restored', 'intact'].map(variant => 'alert contract pending retry refuses a second dispatch with '+variant+' audit'),
+  'alert contract lost direct ACK with intact audit recovers the one Account decision',
+  ...['requested', 'witness', 'dispatch'].flatMap(target => ['deleted', 'recreated'].map(action => 'alert contract confirmed lost ACK with '+target+' '+action+' stays in review')),
+  'alert contract confirmed Account receipt cannot recreate all missing Video proof',
+  ...['intact', 'pair lost'].map(history => 'alert contract pending cannot resend an in-flight original with '+history+' history'),
+  'alert contract no verified writer cut permits only a fresh receipt lookup',
+  'alert contract explicit Account conflict preserves the claim without a new dispatch',
+]);
 const expectedSkippedNames = [];
 const expectedSkipped = expectedSkippedNames.length;
-const guardFile = 'scripts/financialEmulatorNetworkGuard.cjs';
-const inventoryFile = 'scripts/inspectAlertContractRoots.mjs';
+const guardFile = 'scripts/appliedOwnerEmulatorNetworkGuard.cjs';
+const inventoryFile = 'scripts/inspectAppliedOwnerRoots.mjs';
 const fixtureFiles = ['server/commercial/alertContractFocus.emulator.mjs'];
 const tracked = Object.freeze([
   'server/commercial/firestoreBackend.ts',
@@ -46,6 +64,8 @@ const tracked = Object.freeze([
   'server/commercial/accountReadOnlyRoot.ts',
   ...fixtureFiles,
   'server/commercial/alertContractReview.test.mjs',
+  'server/commercial/unblockContinuityIndependent.test.mjs',
+  'server/commercial/pipelineContracts.ts',
   'server/commercial/billingDrainLease.ts',
   'server/commercial/financialFixtureSafety.mjs',
   'server/commercial/firestoreHttp.ts',
@@ -71,7 +91,9 @@ const tracked = Object.freeze([
   'server/commercial/geminiFileUpload.ts',
   guardFile,
   inventoryFile,
-  'scripts/financialEmulatorNetworkGuard.windows.cjs',
+  'scripts/appliedOwnerEmulatorNetworkGuard.windows.cjs',
+  'scripts/InspectAppliedOwnerFirestore.java',
+  'scripts/runAppliedOwnerIsolated.ps1',
   'scripts/runAlertContractFocusEmulator.mjs',
   'package.json',
   'package-lock.json',
@@ -82,6 +104,8 @@ const tracked = Object.freeze([
   'node_modules/firebase-admin/package.json',
   'node_modules/google-auth-library/package.json',
   'node_modules/@google-cloud/firestore/package.json',
+  'node_modules/@google-cloud/firestore/build/src/document.js',
+  'node_modules/@google-cloud/firestore/build/src/transaction.js',
   'node_modules/@grpc/grpc-js/package.json',
   'node_modules/@grpc/grpc-js/build/src/resolver-dns.js',
   'node_modules/@grpc/grpc-js/build/src/transport.js',
@@ -169,7 +193,9 @@ function summary(stdout, stderr) {
     guardInstances: [...combined.matchAll(/^(?:# )?VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS\s*$/gm)].length,
     guardDeniedDuringRun: combined.includes('VISTAVO_REVIEW_NETWORK_DENIED'),
     syntheticTsxIpcRequests: [...combined.matchAll(/^(?:# )?VISTAVO_REVIEW_TSX_IPC_SYNTHETIC\s*$/gm)].length,
-    tests: totalTests === 9 && rows.every(row => row.name.startsWith('alert contract ')) && new Set(rows.map(row => row.name)).size === 9 && /^# Synthetic alert contract cleanup total: 9\/9\s*$/m.test(stdout),
+    tests: totalTests === expectedCases.length &&
+      JSON.stringify(rows.map(row => row.name).sort()) === JSON.stringify([...expectedCases].sort()) &&
+      stdout.split(/\r?\n/).filter(line => line.trim() === '# Synthetic alert contract cleanup total: '+expectedCases.length+'/'+expectedCases.length).length === 1,
     totalTests, skippedCount,
     numberedCases: rows.length === totalTests,
     passCount, failCount,
@@ -184,8 +210,8 @@ const scriptPath = realpathSync(fileURLToPath(import.meta.url));
 const workspace = realpathSync(path.resolve(path.dirname(scriptPath), '..'));
 if (scriptPath !== repositoryFile(workspace, 'scripts/runAlertContractFocusEmulator.mjs')) fail('Unexpected launcher location');
 const outputRoot = checkedDirectory(workspace, 'outputs');
-const manifests = checkedDirectory(outputRoot, 'lv019-b-alert-contract-manifests', true);
-const runs = checkedDirectory(outputRoot, 'lv019-b-alert-contract-runs', true);
+const manifests = checkedDirectory(outputRoot, 'lv019-b-unblock-continuity-manifests', true);
+const runs = checkedDirectory(outputRoot, 'lv019-b-unblock-continuity-runs', true);
 const node = nodeIdentity();
 const args = process.argv.slice(2);
 
@@ -217,7 +243,7 @@ if (args.length === 1 && args[0] === '--prepare') {
   if ('HOME' in env || 'CODEX_HOME' in env || 'NODE_OPTIONS' in env || 'GOOGLE_APPLICATION_CREDENTIALS' in env) fail('Unexpected child environment');
   writeFileSync(path.join(run, 'manifest.json'), manifestText, { flag: 'wx' });
   writeFileSync(path.join(run, 'environment.json'), `${JSON.stringify({
-    nodeVersion: node.version, project, host, expectedSkipped, profile, temp,
+    nodeVersion: node.version, project, host, expectedCases, expectedSkipped, profile, temp,
     environmentKeys: Object.keys(env).sort(), loader: 'tsx',
     limitation: 'Node preload is not an OS firewall; esbuild and native children are not covered.',
   }, null, 2)}\n`, { flag: 'wx' });
@@ -240,7 +266,7 @@ if (args.length === 1 && args[0] === '--prepare') {
     if (!stderr.includes('VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS') || stderr.includes('VISTAVO_REVIEW_NETWORK_DENIED')) fail(`Synthetic roots ${label} guard failed`);
     const value = JSON.parse(raw);
     if (value.version !== 1 || value.project !== project || value.host !== host || !value.collections ||
-        Object.keys(value.collections).sort().join(',') !== 'vistavo_unblock_ledger_synthetic,vistavo_unblock_video_synthetic' ||
+        Object.keys(value.collections).sort().join(',') !== 'vistavo_applied_owner_ledger_synthetic,vistavo_applied_owner_video_synthetic' ||
         Object.values(value.collections).some(items => !Array.isArray(items) || items.some(item => typeof item !== 'string' || !/^[a-f0-9]{64}$/.test(item)))) fail(`Invalid synthetic roots ${label} inventory`);
     return value;
   };

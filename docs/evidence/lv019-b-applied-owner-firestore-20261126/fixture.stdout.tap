@@ -1,0 +1,188 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: alert contract damaged source refuses before Account and isolates a second owner
+ok 1 - alert contract damaged source refuses before Account and isolates a second owner
+  ---
+  duration_ms: 2806.5961
+  type: 'test'
+  ...
+# Subtest: alert contract damage during confirmed response recovers the exact receipt without a second mutation
+ok 2 - alert contract damage during confirmed response recovers the exact receipt without a second mutation
+  ---
+  duration_ms: 2450.3403
+  type: 'test'
+  ...
+# Subtest: alert contract pending receipt in flight loses local authority before a new mutation
+ok 3 - alert contract pending receipt in flight loses local authority before a new mutation
+  ---
+  duration_ms: 1695.7476
+  type: 'test'
+  ...
+# Subtest: alert contract already partial done refuses a damaged live guard before consulting Account
+ok 4 - alert contract already partial done refuses a damaged live guard before consulting Account
+  ---
+  duration_ms: 2480.3327
+  type: 'test'
+  ...
+# Subtest: alert contract partial done with rival and damage during the confirmed receipt keeps reconciliation visible
+ok 5 - alert contract partial done with rival and damage during the confirmed receipt keeps reconciliation visible
+  ---
+  duration_ms: 1898.6867
+  type: 'test'
+  ...
+# Subtest: alert contract unknown category or reason cannot clear or disposition a stored warning
+ok 6 - alert contract unknown category or reason cannot clear or disposition a stored warning
+  ---
+  duration_ms: 914.9157
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed nonpartial receipt and different evidence at local commit
+ok 7 - alert contract confirmed nonpartial receipt and different evidence at local commit
+  ---
+  duration_ms: 2162.5973
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed nonpartial receipt and restored evidence at local commit
+ok 8 - alert contract confirmed nonpartial receipt and restored evidence at local commit
+  ---
+  duration_ms: 2129.4395
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed nonpartial receipt and intact at local commit
+ok 9 - alert contract confirmed nonpartial receipt and intact at local commit
+  ---
+  duration_ms: 2399.7821
+  type: 'test'
+  ...
+# Subtest: alert contract applied hold after direct ACK belongs to same account
+ok 10 - alert contract applied hold after direct ACK belongs to same account
+  ---
+  duration_ms: 2600.9392
+  type: 'test'
+  ...
+# Subtest: alert contract applied hold after direct ACK belongs to other account
+ok 11 - alert contract applied hold after direct ACK belongs to other account
+  ---
+  duration_ms: 2542.095
+  type: 'test'
+  ...
+# Subtest: alert contract fresh direct ACK with altered audit
+ok 12 - alert contract fresh direct ACK with altered audit
+  ---
+  duration_ms: 2550.1028
+  type: 'test'
+  ...
+# Subtest: alert contract fresh direct ACK with restored audit
+ok 13 - alert contract fresh direct ACK with restored audit
+  ---
+  duration_ms: 2533.6109
+  type: 'test'
+  ...
+# Subtest: alert contract fresh direct ACK with intact audit
+ok 14 - alert contract fresh direct ACK with intact audit
+  ---
+  duration_ms: 2617.4347
+  type: 'test'
+  ...
+# Subtest: alert contract pending retry refuses a second dispatch with altered audit
+ok 15 - alert contract pending retry refuses a second dispatch with altered audit
+  ---
+  duration_ms: 1998.7256
+  type: 'test'
+  ...
+# Subtest: alert contract pending retry refuses a second dispatch with restored audit
+ok 16 - alert contract pending retry refuses a second dispatch with restored audit
+  ---
+  duration_ms: 1945.4877
+  type: 'test'
+  ...
+# Subtest: alert contract pending retry refuses a second dispatch with intact audit
+ok 17 - alert contract pending retry refuses a second dispatch with intact audit
+  ---
+  duration_ms: 2049.5556
+  type: 'test'
+  ...
+# Subtest: alert contract lost direct ACK with intact audit recovers the one Account decision
+ok 18 - alert contract lost direct ACK with intact audit recovers the one Account decision
+  ---
+  duration_ms: 2509.7119
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed lost ACK with requested deleted stays in review
+ok 19 - alert contract confirmed lost ACK with requested deleted stays in review
+  ---
+  duration_ms: 2219.6155
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed lost ACK with requested recreated stays in review
+ok 20 - alert contract confirmed lost ACK with requested recreated stays in review
+  ---
+  duration_ms: 2437.7555
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed lost ACK with witness deleted stays in review
+ok 21 - alert contract confirmed lost ACK with witness deleted stays in review
+  ---
+  duration_ms: 2407.2199
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed lost ACK with witness recreated stays in review
+ok 22 - alert contract confirmed lost ACK with witness recreated stays in review
+  ---
+  duration_ms: 2317.9804
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed lost ACK with dispatch deleted stays in review
+ok 23 - alert contract confirmed lost ACK with dispatch deleted stays in review
+  ---
+  duration_ms: 2332.827
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed lost ACK with dispatch recreated stays in review
+ok 24 - alert contract confirmed lost ACK with dispatch recreated stays in review
+  ---
+  duration_ms: 2332.044
+  type: 'test'
+  ...
+# Subtest: alert contract confirmed Account receipt cannot recreate all missing Video proof
+ok 25 - alert contract confirmed Account receipt cannot recreate all missing Video proof
+  ---
+  duration_ms: 2289.2599
+  type: 'test'
+  ...
+# Subtest: alert contract pending cannot resend an in-flight original with intact history
+ok 26 - alert contract pending cannot resend an in-flight original with intact history
+  ---
+  duration_ms: 2688.7607
+  type: 'test'
+  ...
+# Subtest: alert contract pending cannot resend an in-flight original with pair lost history
+ok 27 - alert contract pending cannot resend an in-flight original with pair lost history
+  ---
+  duration_ms: 2494.0288
+  type: 'test'
+  ...
+# Subtest: alert contract no verified writer cut permits only a fresh receipt lookup
+ok 28 - alert contract no verified writer cut permits only a fresh receipt lookup
+  ---
+  duration_ms: 1624.5665
+  type: 'test'
+  ...
+# Synthetic alert contract cleanup total: 29/29
+# Subtest: alert contract explicit Account conflict preserves the claim without a new dispatch
+ok 29 - alert contract explicit Account conflict preserves the claim without a new dispatch
+  ---
+  duration_ms: 2051.4995
+  type: 'test'
+  ...
+1..29
+# tests 29
+# suites 0
+# pass 29
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 68312.3638

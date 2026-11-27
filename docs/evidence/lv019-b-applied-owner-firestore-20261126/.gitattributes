@@ -1,0 +1,2 @@
+* -text whitespace=cr-at-eol
+emulator.stdout.log whitespace=cr-at-eol,-blank-at-eof
