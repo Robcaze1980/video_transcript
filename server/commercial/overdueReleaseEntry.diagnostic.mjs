@@ -236,3 +236,82 @@ test('entry authority: a financial guard written by the review flow rejects only
   const bJob=await f.genericJob(f.b);assert.equal(f.video.store.get('jobs/'+bJob).accountId,f.b.videoId);
   assert.equal(f.video.store.has('billingGuards/'+f.b.videoId),false);
 });
+
+test('entry continuity: an already invoking simulated job completes once while the Video financial guard is active',async()=>{
+  const f=fixture(),key=randomUUID(),job=await f.genericJob(f.a,key);
+  const attempt=await f.backend.claim(f.a.videoId,job);
+  assert.ok(attempt);
+  assert.equal(await f.backend.beginInvocation(f.a.videoId,job,attempt.attemptId),true);
+  const incident=await f.begin(f.a);
+  // Deliberately synthetic observation, to exercise the existing writer; this is not
+  // an overdue refund or proof that this financial guard is an admission-only guard.
+  await f.backend.recordExternalBillingReview(f.a.videoId,incident.key,incident.billing,
+    {reservationId:incident.billing.reservationId,state:'captured',seconds:duration});
+  assert.equal(f.video.store.get('billingGuards/'+f.a.videoId).blocked,true);
+  assert.equal(await f.backend.finish(f.a.videoId,job,attempt.attemptId,true),true);
+  assert.equal(await f.backend.finish(f.a.videoId,job,attempt.attemptId,true),false);
+  assert.equal(await f.genericJob(f.a,key),job);
+  await assert.rejects(()=>f.genericJob(f.a),{code:'conflict'});
+  const other=await f.genericJob(f.b);
+  assert.equal(f.video.store.get('jobs/'+other).accountId,f.b.videoId);
+  assert.equal(f.video.store.get('jobs/'+job).state,'succeeded');
+  assert.equal(f.video.store.get('movements/terminal:'+job).kind,'capture');
+  assert.deepEqual((({available,reserved,consumed,active})=>({available,reserved,consumed,active}))(f.video.store.get('accounts/'+f.a.videoId)),
+    {available:18,reserved:0,consumed:2,active:0});
+  assert.equal(f.video.writes.filter(write=>write==='create:movements/terminal:'+job).length,1);
+  assert.deepEqual(f.account.writes,[]);
+});
+
+test('entry continuity: Video guard alone does not prevent independent Account capture, refund or their receipts',async()=>{
+  const f=fixture(),completed=randomUUID(),refund=randomUUID(),other=randomUUID(),admission={jobId:randomUUID(),attemptId:randomUUID()};
+  const call=[f.a.identityKey,completed,duration,admission.jobId,admission.attemptId,'text-window:0000','gemini-3.8-flash','a'.repeat(64)];
+  await f.store.reserveVideo(f.a.identityKey,completed,duration);
+  await f.store.reserveVideo(f.a.identityKey,refund,duration);
+  await f.store.reserveVideo(f.b.identityKey,other,duration);
+  assert.equal((await f.store.admitVideoCall(...call)).created,true);
+  const incident=await f.begin(f.a);
+  await f.backend.recordExternalBillingReview(f.a.videoId,incident.key,incident.billing,
+    {reservationId:incident.billing.reservationId,state:'captured',seconds:duration});
+  assert.equal(f.video.store.get('billingGuards/'+f.a.videoId).blocked,true);
+  assert.equal([...f.video.store.keys()].filter(path=>path.startsWith('billingHoldOutbox/')).length,1);
+  assert.equal(f.account.store.has('videoBillingGuards/'+f.a.accountId),false);
+  assert.equal((await f.store.admitVideoCall(...call)).receiptOnly,true);
+  assert.equal((await f.store.settleVideo(f.a.identityKey,completed,'capture',duration,admission)).settled,true);
+  assert.equal((await f.store.settleVideo(f.a.identityKey,completed,'capture',duration,admission)).settled,false);
+  assert.equal((await f.store.settleVideo(f.a.identityKey,refund,'release',duration)).settled,true);
+  assert.equal((await f.store.settleVideo(f.a.identityKey,refund,'release',duration)).settled,false);
+  const beforeCross=structuredClone(f.account.store);
+  await assert.rejects(()=>f.store.settleVideo(f.b.identityKey,refund,'release',duration),{code:'not_found'});
+  await assert.rejects(()=>f.store.settleVideo(f.a.identityKey,refund,'release',duration+1),{code:'conflict'});
+  assert.deepEqual(f.account.store,beforeCross);
+  assert.equal((await f.store.settleVideo(f.b.identityKey,other,'release',duration)).settled,true);
+  assert.deepEqual(await f.store.videoBalance(f.a.identityKey),
+    {unit:'video_seconds',credited:20,available:17,reserved:0,consumed:3,active:0});
+  assert.deepEqual(await f.store.videoBalance(f.b.identityKey),
+    {unit:'video_seconds',credited:20,available:20,reserved:0,consumed:0,active:0});
+  const entries=[...f.account.store.entries()].filter(([path])=>path.startsWith('ledgerEntries/')).map(([,row])=>row);
+  assert.equal(entries.filter(row=>row.ownerAccountId===f.a.accountId&&row.kind==='video_capture').length,1);
+  assert.equal(entries.filter(row=>row.ownerAccountId===f.a.accountId&&row.kind==='video_release').length,1);
+  assert.equal(entries.filter(row=>row.ownerAccountId===f.b.accountId&&row.kind==='video_release').length,1);
+});
+
+test('entry continuity: a separately applied Account hold blocks new settlement and admissions, not receipt replays or B',async()=>{
+  const f=fixture(),reservation=randomUUID(),other=randomUUID(),incident=randomUUID(),admission={jobId:randomUUID(),attemptId:randomUUID()};
+  await f.store.reserveVideo(f.a.identityKey,reservation,duration);
+  const call=[f.a.identityKey,reservation,duration,admission.jobId,admission.attemptId,'text-window:0000','gemini-3.8-flash','a'.repeat(64)];
+  assert.equal((await f.store.admitVideoCall(...call)).created,true);
+  assert.equal((await f.store.blockVideoBilling(f.a.identityKey,incident)).created,true);
+  const before=structuredClone(f.account.store);
+  assert.equal((await f.store.admitVideoCall(...call)).receiptOnly,true);
+  await assert.rejects(()=>f.store.admitVideoCall(...call.slice(0,5),'text-window:0001',call[6],call[7]),{code:'conflict'});
+  await assert.rejects(()=>f.store.settleVideo(f.a.identityKey,reservation,'capture',duration,admission),{code:'conflict'});
+  await assert.rejects(()=>f.store.settleVideo(f.a.identityKey,reservation,'release',duration,admission,
+    {resolution:{kind:'no_speech',evidenceSha256:'b'.repeat(64)}}),{code:'conflict'});
+  assert.deepEqual(f.account.store,before);
+  assert.equal((await f.store.reserveVideo(f.b.identityKey,other,duration)).created,true);
+  assert.equal((await f.store.settleVideo(f.b.identityKey,other,'release',duration)).settled,true);
+  assert.deepEqual(await f.store.videoBalance(f.a.identityKey),
+    {unit:'video_seconds',credited:20,available:17,reserved:3,consumed:0,active:1});
+  assert.deepEqual(await f.store.videoBalance(f.b.identityKey),
+    {unit:'video_seconds',credited:20,available:20,reserved:0,consumed:0,active:0});
+});

@@ -1,0 +1,7 @@
+
+LocalAddress LocalPort RemoteAddress RemotePort State  AppliedSetting OwningProcess
+------------ --------- ------------- ---------- -----  -------------- -------------
+127.0.0.1    58740     0.0.0.0       0          Listen                32096
+127.0.0.1    58739     0.0.0.0       0          Listen                32096
+127.0.0.1    9197      0.0.0.0       0          Listen                32096
+127.0.0.1    8197      0.0.0.0       0          Listen                32096
