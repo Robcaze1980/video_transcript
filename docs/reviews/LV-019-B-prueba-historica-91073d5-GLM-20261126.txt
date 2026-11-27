@@ -1,0 +1,56 @@
+# Revisión estática independiente
+
+Solicitud: dcb4f0c90103f6297d5d0eed7ebff2b958c06825d239327138d60a79fd5a30af
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 17228/0/23593
+Costo observado USD: 0.0085421358
+SHA-256 del informe original: 58523fade9052963cd4f3dc2e790eabd55c174ef0fa36291356cffd16accc04c
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# Revisión estática — incremento de prueba histórica de desbloqueo (dos firmas Ed25519)
+
+**Alcance revisado:** `server/account/backend.ts` (sección `videoBillingUnblockAttempt`), `server/account/unblockHistoryProof.ts` (completo, 40 líneas) y `server/account/unblockAttemptReceipt.test.ts` (549 líneas). Todo lo demás (las otras cinco suites, `tsc`, helpers `billingHold`/`accountRecord`/`blockVideoBilling`/`identityFromKey`/`AccountStore.identityKey`/`me`/`bootstrap`/`create`, el hash del log) no está en el paquete entregado y no pudo comprobarse.
+
+## Verificaciones que sostienen el diseño
+
+- **Cierre fuera de test y misconfiguración:** `backend.ts:339-341` rechaza con `conflict` si `NODE_ENV!=='test'`, falta `realm`, falta `root.path` o `permitKey.equals(receiptKey)`. La prueba 390-403 verifica que no se abre transacción (`transactions 0`) y que el cuerpo malformado da `invalid` antes de transaccionar.
+- **Permisos anclados a versiones:** `backend.ts:363-373` exige coincidencia exacta de tupla+pines en la autoridad y firma Ed25519 del permit sobre realm, rootPath, propietario, intento y todas las versiones históricas. Esto contradice directamente la recreación: cambiar `createTime` de cualquier documento protegido rompe la firma (pruebas 261-287 y 463-502: recreación coordinada con pines nuevos pero firma vieja → `conflict`, cero escrituras).
+- **Separación de propósito:** dominios distintos (`permit.v1` / `receipt.v1`, `unblockHistoryProof.ts:17,29-31`) más llaves distintas forzadas en `backend.ts:340`. La sustitución (firmante del permit firmando el recibo) falla cerrada (prueba 235-250).
+- **`awaiting_proof` no autoriza repetir:** la única rama con escritura exige recibo inexistente (`backend.ts:390`); tras el commit, todo repliegue pasa por la rama de recibo (376-388) que no escribe; sin `receiptSignature` devuelve `awaiting_proof` otra vez (385). Pruebas 146-174 (ACK perdido → replay sin escritura → `confirmed` tras prueba) y 176-194 (commit rechazado no publica recibo; dos intentos → un solo recibo).
+- **Recibo idéntico recreado:** la firma del recibo liga `receiptVersion` (createTime observado en el commit, prueba 406-433: datos idénticos, `created` distinto → `conflict` en ambos puntos de entrada).
+- **Aislamiento entre cuentas:** recibo e historial con clave `hash([accountId,incident,…])`; cruce rechazado (196-214, 216-233 con realm/raíz/llave compartida/receptor B).
+- **Separación de protocolos:** registros v2 rechazados por los métodos legacy y viceversa (375-388; `backend.ts:278,311,321`).
+
+## Hallazgos concretos (menores, no reproducen fallo funcional)
+
+1. `backend.ts:340` — si `trust` existe pero `permitKey`/`receiptKey` son `undefined` en runtime, `trust.permitKey.equals(...)` lanza `TypeError` en vez de `AccountFault`; solo el tipado lo impide.
+2. `unblockHistoryProof.ts:16-24` — `unblockPermitBytes` no valida tipos de campo; la canonicidad depende íntegramente del llamador (`backend.ts:371`).
+3. `backend.ts:385,401` — cambio de contrato: la primera aplicación devuelve `awaiting_proof` sin `blocked` (antes `confirmed`+`blocked`); el estado de retención solo se conoce tras publicar la prueba. Declarado, pero rompe consumidores del contrato d015.
+4. `backend.ts:386-387` — cualquier escritura futura legítima sobre el incidente revisado o la identidad rompe la confirmación para siempre (fail-closed intencional, probado en 504-529); fragilidad operativa preexistente, ahora reforzada por la firma.
+5. Rama sin prueba directa en este archivo: recibo v2 existente leído por `videoBillingUnblockReceipt` legacy (`backend.ts:278`) — cubierto por código, no por test tras un commit v2.
+
+## Distinción defecto vs. prerrequisito declarado
+
+- **Prerrequisito declarado (no defecto del paquete):** no existen emisor/observador autenticados, corte, custodia ni canal real de publicación de la prueba; los documentos de `videoBillingUnblockHistory` los siembra un escritor privilegiado sintético. La firma del recibo pruebaposesión de `receiptKey`, no que un observador real haya visto el commit (la manta `observedCommits` es solo del doble en memoria).
+- **Prerrequisito declarado:** la recreación coordinada con la clave privada del emisor podría re-firmar todo; se presume fuera de toda vía de cliente (no se demuestra canal alguno).
+- **Prerrequisito declarado:** `pending` solo refleja el snapshot comprometido; no excluye un POST en vuelo (serialización del doble en memoria; sin concurrencia real de Firestore ni reintento transaccional).
+
+## No pudo verificarse
+
+- 120/120 en seis suites y `tsc`: solo se recibió una suite; el hash `63de6fa4…` no es recomputable sin el log completo.
+- Internos de `blockVideoBilling` (se infiere que eleva `epoch` del guardia vivo), `billingHold`, `accountRecord`, `identityFromKey`, `AccountStore.identityKey`.
+- Que Cuenta/Video permanezcan en bases distintas: no hay importación de Video en la costura, pero el lado Video no está en el diff.
+
+## Negativos (controles conservados)
+
+Recreación idéntica de autoridad/incidente/guardia; restauración en sitio; identidad alterada y restaurada; recibo recreado con firma diferida; recreación coordinada con pines coherentes; sustitución de firmante del recibo; llave compartida; realm/raíz distintos; historial ausente; guardia inconsistente (`invariant`); alteración de intento/auditoría/referencia/generación antes y después del commit; legado vs. v2 en ambas direcciones; ejecución no-test. Mantengo la no emisión de PASS a producción ni al sistema: la costura es `NODE_ENV=test`, sin ruta HTTP ni integración.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Permiso firmado sobre pines de versión (backend.ts:363-373; unblockHistoryProof.ts:16-24), recibo firmado con llave distinta y dominio propio (unblockHistoryProof.ts:26-33; backend.ts:376-388), `awaiting_proof` sin reautorización (backend.ts:385,390,401), cierre fuera de test (backend.ts:339-341; prueba 390-403), recreaciones de recibo y coordinada rechazadas (pruebas 406-433 y 463-502), sustitución de firmante y llave compartida fallan cerradas (pruebas 235-250 y 216-233), aislamiento entre cuentas (196-214). Contramedidas directas a las dos críticas de d015/DeepSeek.
+NEGATIVOS: TypeError potencial con trust parcial (backend.ts:340); sin validación de campos en unblockPermitBytes (unblockHistoryProof.ts:16-24); contrato modificado: primera aplicación devuelve awaiting_proof sin `blocked` (backend.ts:385,401); escritura futura legítima en identidad/incidente rompe confirmación permanentemente (504-529); recibo v2 leído por lector legacy sin test directo tras commit (backend.ts:278); no verificado: las otras cinco suites, tsc, hash del log, helpers internos, blockVideoBilling, lado Video.
+BLOQUEOS: Para cualquier uso real: emisor/observador autenticados con custodia de claves, canal de publicación de la prueba, decisión sobre el cierre NODE_ENV=test, ruta/integración HTTP, y validación de concurrencia y reintentos en Firestore real; la firma no prueba la existencia del observador; escritor privilegiado con clave del emisor anularía el esquema.
+=== FIN RESUMEN ===

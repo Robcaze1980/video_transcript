@@ -1,0 +1,51 @@
+# Revisión estática independiente
+
+Solicitud: 0aaa4629ee14b51e41513da40702a00f2cf2aefe30f452d3e90b5221d579671c
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: FALLA
+Tokens entrada/cache/salida: 15888/0/18256
+Costo observado USD: 0.019805148
+SHA-256 del informe original: 4481b65af0ba4192e446e74c75ab90265b68b30ae7cbc468c228ed07cedb78f8
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática del paquete; no ejecuté pruebas ni sustituyo la auditoría C2 interrumpida. El cambio crea `billingIntentAgeObservations` solo para `billingIntents`, en el mismo commit que el `needs_review/max_age`, sin mover saldos, holds ni guardas, y sin copiar `accountId`. Eso coincide con el alcance declarado.
+
+**Defectos concretos**
+
+1. **ACK perdido / `failed` ambiguo no se resuelve en producción.**
+   `server/commercial/firestoreBackend.ts:2477` hace `catch{outcome='failed';}`: todo error cae como rechazo, sin distinguir rechazo confirmado de commit aplicado con respuesta perdida. La especificación exige leer y conciliar antes de repetir (`docs/specs/LV-019-B-observacion-edad-intenciones.md:7`). Pero el camino real de drenaje (`server/commercial/billingDrainSection.ts:252-263`) solo acumula `failed` y marca `partial`; no lee la fila ni la observación. La prueba de emulador sí reconcilia, pero de forma manual (`server/commercial/overdueEntryContinuity.diagnostic.emulator.mjs:255-258`), así que no cubre el camino de producción. Esto mantiene la ambigüedad que la revisión interna previa había señalado.
+
+2. **Referencia obsoleta tras reapertura.**
+   `server/commercial/firestoreBackend.ts:2474-2475` escribe `ageObservationId` en la fila. No se ve en el paquete que la reapertura auditada 1.4b —solo mencionada en `server/commercial/firestoreBackend.ts:2468`— limpie ese campo. Una fila reabierta a `release_pending` puede conservar el `ageObservationId` anterior hasta el siguiente escalamiento. La spec advierte que esa referencia no autoriza adoptar una observación previa (`docs/specs/LV-019-B-observacion-edad-intenciones.md:11`), pero el código no fuerza frescura ni correspondencia con el estado actual. Si un consumidor la interpreta como permiso o como observación vigente, hay reuso.
+
+3. **Riesgo no verificado de huella/witness.**
+   `server/commercial/firestoreBackend.ts:2506` pasa la fila completa a `intentWitness`. Si esa función serializa todos los campos, el nuevo `ageObservationId` alteraría la huella y podría romper `deferVerifiedReleaseAge` en `server/commercial/firestoreBackend.ts:2508-2509`. La definición de `intentWitness` no está en el paquete, así que no puede confirmarse ni descartarse.
+
+**Controles negativos conservados**
+
+- No se mueve saldo, hold ni guarda: `server/commercial/firestoreAgeEscalation.test.ts:89-95`, `server/commercial/firestoreAgeObservation.test.ts:28-30`; emulador `150-153`, `181-182`, `212`, `286-287`.
+- Solo se observan intenciones, no `billingOutbox` ni `billingHoldOutbox`: `server/commercial/firestoreAgeObservation.test.ts:25-27`; emulador `148-149`.
+- No se copia `accountId` ni `identityKey`: emulador `146`, `178`.
+- Concurrencia: dos barridos producen una sola observación: emulador `186-215`.
+- Reintento transaccional con el mismo ID: emulador `217-237`.
+- Colisión de creación aborta ambas escrituras: emulador `266-288`.
+- Respuesta perdida: reconciliación manual, no automática: emulador `239-264`.
+- Reapertura: se conserva historial y se genera nuevo ID: emulador `159-184`.
+
+**No verificado / bloqueos**
+
+- IAM y reglas de seguridad para `billingIntentAgeObservations`.
+- Retención, TTL, huérfanos, migración de filas históricas.
+- Costo e índices medidos.
+- Todas las rutas de reintento del SDK; solo se inyectan aborto y respuesta perdida.
+- Producción/nube real; los avisos de `Transaction lock timeout` no tienen causa adjudicada y la JVM se terminó forzadamente.
+- Lectores/validadores externos de `billingIntents` que pudieran rechazar el campo nuevo.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Diff de `firestoreBackend.ts`, pruebas focales/emulador y spec suministrados; revisión estática, sin ejecución ni nube.
+NEGATIVOS: Sin saldo, hold, guarda ni atribución de cuenta; concurrencia, reintento, colisión y reapertura cubiertos según líneas citadas.
+BLOQUEOS: `failed` no reconcilia ACK perdido en `billingDrainSection.ts:252-263`; referencia obsoleta tras reapertura; IAM, retención, migración, costo, SDK completo y producción no verificados.
+=== FIN RESUMEN ===

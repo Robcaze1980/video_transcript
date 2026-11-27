@@ -1,0 +1,36 @@
+# Revisión estática independiente
+
+Solicitud: 54f515952da92e94011ab3ee80db65e248d31ba6f80beee32b5ac10f601dfab8
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 8739/0/5474
+Costo observado USD: 0.00275096745
+SHA-256 del informe original: 108f368d8a6d8c524a52440f182397973c894dacb8ad185138887b840cb72b9c
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática del corte c640dd0, acotada al prototipo test-only.
+
+**Verificado**
+
+1. **Atado del protocolo a permiso y recibo** — `unblockHistoryProof.ts:17-25` y `27-34`: ambas primitivas de bytes incorporan `permit.unblockProtocol` y suben el dominio a `permit.v2`/`receipt.v2`. El recibo firma la forma base64url de los bytes del permiso (`:31`), y el backend reconstruye ese mismo permiso (`backend.ts:371`) y lo reutiliza para validar la firma del recibo (`backend.ts:386-387`), con `trust.receiptKey` (ya no con la clave del permiso). Los tests nuevos (`unblockAttemptReceipt.test.ts:257-268` para permiso con protocolo 3, `270-280` para recibo con protocolo 3) confirman rechazo `conflict` sin escrituras y snapshot intacto; el segundo conserva el control positivo de que la escritura original sí ocurrió (`f.writes` con receipt/incident/guard) antes del rechazo del recibo.
+
+2. **Validación de KeyObject y claves distintas antes de abrir transacción** — `unblockHistoryProof.ts:36-48`: `isUnblockVerificationKey` exige KeyObject real (rechaza Proxy), tipo `public` y `asymmetricKeyType==='ed25519'`; `readUnblockHistoryTrust` exige realm no vacío, ambas claves válidas y distintas (`KeyObject.prototype.equals.call`, alcanzable solo tras los cortocircuitos de validez, sin riesgo de TypeError sobre claves parciales). `backend.ts:339-341` valida todo antes de `runTransaction` (`:344`), y el test de configuración malformada (`test.ts:281-297`, cinco casos: clave privada, pública EC prime256v1, permitKey ausente, receiptKey ausente, objeto no-clave) afirma `transactions:0, writes:[]` y snapshot sin cambios — demuestra exactamente lo que declara.
+
+3. **Controles negativos conservados** — `verifiesUnblockHistory` (`:50-54`) mantiene el largo 86, la canonicidad base64url (`raw.toString('base64url')===signature`) y la verificación real; `sharedKeyStore` (`test.ts:143`) se retiene, y `readUnblockHistoryTrust:45-46` ahora también rechaza la igualdad, doble verja. El test legacy (`test.ts:437-448`) muestra que el lector legacy rechaza el registro v2 con `conflict` sin mutar el snapshot, y que el replay legacy de B sigue aprobado.
+
+**No verificado (fuera del diff, sin defecto demostrado)**
+
+- El valor y la definición de `unblockAttemptProtocol` en `backend.ts:359` no aparecen; el haz de pruebas lo fija conductualmente a 2 (si no, la firma del permiso en `:373` fallaría en todos los tests), pero no puedo confirmarlo estáticamente.
+- Si `matchesUnblockAttempt` compara el campo `unblockProtocol` contra registro/autoridad o lo ignora (la coherencia entre documento y protocolo descansaría entonces solo en la firma del permiso, que es de confianza): implementación no suministrada.
+- El rechazo legacy de v2 se declara heredado de cortes anteriores; el código del lector legacy no está en este diff.
+- Sin pruebas negativas para `types.isProxy` sobre el trust/clave ni para realm solo-whitespace (`unblockHistoryProof.ts:41,45`) — guardas presentes pero sin control que las demuestre.
+- El log 127/127 y el SHA-256 de Codex se tratan como dato externo, no reproducible aquí. El observador real, custodia, cerco, HTTP, IAM y migración no existen; nada de esto los certifica. La puerta `NODE_ENV!=='test'` (`backend.ts:339`) solo está probada por dentro; el cierre fuera de test no tiene prueba.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: backend.ts:339-344 valida trust (readUnblockHistoryTrust, unblockHistoryProof.ts:36-48) antes de runTransaction; permiso y recibo v2 atados por unblockProtocol (unblockHistoryProof.ts:17-34); tests unblockAttemptReceipt.test.ts:257-297 demuestran rechazo de protocolo 3 en ambas rutas y de cinco configuraciones malformadas con transactions:0/writes:[]/snapshot intacto; legacy sigue aprobado y el lector legacy rechaza v2 (test.ts:437-448).
+NEGATIVOS: Sin control para Proxy en trust/clave ni realm en whitespace (unblockHistoryProof.ts:41,45 presentes sin prueba); sin prueba del cierre fuera de NODE_ENV=test (backend.ts:339).
+BLOQUEOS: Valor de `unblockAttemptProtocol` (backend.ts:359) no visible; cuerpo de `matchesUnblockAttempt` no suministrado (no sé si compara unblockProtocol con registro/autoridad); código del lector legacy fuera del diff; log 127/127 y SHA-256 3671cced… tratados como dato, no reproducidos.
+=== FIN RESUMEN ===

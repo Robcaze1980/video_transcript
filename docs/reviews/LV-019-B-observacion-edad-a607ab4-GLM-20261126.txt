@@ -1,0 +1,36 @@
+# Revisión estática independiente
+
+Solicitud: fcc3549f62009ed317cbe2cc9bb3dd68d75ac12be7abb93a54e4cd45e9033e34
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 14643/0/16669
+Costo observado USD: 0.00583835868
+SHA-256 del informe original: 37f3145a7fda1058aa9ad884ad1cd6445f43da2796a87ca5d2b9693c78ccb8f2
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# Revisión estática independiente — Vistavo, candidata de observación por edad
+
+**Atomicidad y orden.** El create de la observación y el update de la fila comparten transacción (`server/commercial/firestoreBackend.ts:2470-2475`); los returns por estado cambiado (:2459), lease activo (:2466), edad insuficiente (:2463) y deferral verificada (:2467) ocurren antes del create, así que ningún skip puede dejar observación. Probado: fallo de create sin transición parcial ni escrituras (`firestoreAgeObservation.test.ts:48-60`) y colisión con documento preexistente que aborta ambas escrituras, deja la fila idéntica y reporta código 6 (`overdueEntryContinuity.diagnostic.emulator.mjs:266-289`, :282-284).
+
+**Reintentos y ACK perdido.** El ID se genera una vez por candidato fuera del callback (:2447-2449), estable en reintentos internos del SDK (emulador :217-237, mismo ID en :233). El descarte post-commit deja commit aplicado con `failed:1` (emulador :239-264) — coincide con el texto corregido en `docs/specs/LV-019-B-observacion-edad-intenciones.md:7`. La rotación es segura en ambos casos: si aplicó, la fila `needs_review` sale del scan; si no aplicó, el reintento genera ID nuevo limpio. Límite declarado: la prueba solo cubre descarte tras commit, no todas las rutas del SDK, y "leer antes de repetir" es procedimiento del operador, no lo aplica el código (`billingDrainSection.ts:252-263` solo marca `partial`).
+
+**Carreras y colisiones.** Dos barridos sobre la misma fila producen una sola transición y una observación (emulador :186-215); el perdedor relee `needs_review` o aborta y reintenta. UUID v4 hace la colisión despreciable y un choque aborta sin efecto parcial.
+
+**Sin atribución ni permiso.** La observación no copia accountId ni identityKey (código :2471-2472; emulador :146, :178). Ningún código del paquete consume `billingIntentAgeObservations` ni el campo `ageObservationId` de la fila: hoy no hay semántica de permiso. Controles negativos vigentes: `billingGuards` sin escrituras (unit :30; emulador :150, :181, :212, :286), saldos intactos (unit :28-29; emulador :152-153), filas heredadas y de outbox/hold sin referencia (unit :25-27; emulador :148-149), y otra cuenta b sigue pudiendo encolar (:156, :183, :213, :236, :263, :288). Hueco de control menor: nunca se encola para la propia cuenta a de la fila escalada.
+
+**Reapertura.** Nueva transición → ID nuevo y referencia reemplazada; observaciones previas se conservan y no se reutilizan (unit :33-46; emulador :159-184). Ventana ya declarada (doc :11): entre reapertura y el siguiente escalamiento la fila arrastra una referencia vieja. No verificado en el paquete: si la ruta real de reapertura 1.4b limpia o conserva el campo, y si validadores estrictos que reciben la fila completa (p. ej. `intentWitness` en :2506) toleran el campo nuevo en filas reabiertas.
+
+**Contadores.** `catch{outcome='failed'}` (:2477) sigue mezclando rechazo confirmado con resultado incierto, pero el defecto documental previo está cerrado (doc :7) y el drain marca `partial` (:258-259).
+
+**Por comprobar / no evidenciado.** Import de `randomUUID` no visible en los fragmentos (builds reportados OK); la viñeta del doc :20 "gemelas iguales tras quitar solo la referencia nueva" no aparece entre las pruebas suministradas; la viñeta "edad insuficiente" (:21) tampoco tiene prueba mostrada (seguro por orden de código, no demostrado); índices futuros por `intentId` no definidos.
+
+**Entorno, no del cambio.** Seis avisos Transaction lock timeout sin causa adjudicada y JVM propia terminada a la fuerza tras el plazo; no son fallo de las 10 pruebas (10/10 con 10 limpiezas), ni de las 118/118 focales, tipos y builds, ni garantizan nube o IAM.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: firestoreBackend.ts:2447-2449,2459-2467,2470-2477 (create+update atómicos, ID estable, skips antes del create); firestoreAgeObservation.test.ts:12-31,33-46,48-60,62-71 (preimagen, reapertura con ID nuevo, fallo parcial sin huérfanos, lease/estado inválido); overdueEntryContinuity.diagnostic.emulator.mjs:128-157,159-184,186-215,217-237,239-264,266-289 (carreras, aborto, ACK perdido, colisión code 6, sin accountId, saldos y enqueue b intactos); docs/specs/LV-019-B-observacion-edad-intenciones.md:7-15 (límites y ciclo de vida declarados); billingDrainSection.ts:252-263 (failed→partial, sin reconciliación automática).
+NEGATIVOS: billingGuards sin escrituras ni documentos (unit :30; emulador :150,:181,:212,:286); observación sin accountId/identityKey (emulador :146,:178); fila heredada, outbox y hold sin referencia ni observación (unit :25-27; emulador :148-149); create fallido → fila y writes intactos (unit :59; emulador :283-284); barrido repetido sin observación nueva (emulador :154-155,:259-261); cuenta distinta puede encolar (emulador :156 etc.); falta enqueue de la propia cuenta escalada.
+BLOQUEOS: la guarda de bloqueo de nuevos videos por cuenta afectada sigue sin existir (doc :13); retención/TTL/huérfanos/IAM/migración/índices/costo sin definir ni medir (doc :15); prueba de pérdida solo cubre descarte post-commit; sin verificar: import de randomUUID, viñetas "gemelas" y "edad insuficiente" sin prueba mostrada, tolerancia de intentWitness (:2506) y de la ruta 1.4b al campo nuevo en filas reabiertas; avisos de lock timeout y terminación forzada de la JVM sin causa adjudicada; PASS no certifica saldo completo, IAM ni producción, ni sustituye la auditoría C2 interrumpida.
+=== FIN RESUMEN ===

@@ -1,0 +1,26 @@
+# Revisión estática independiente
+
+Solicitud: 6af3903f35756bcc16405d2c63b37daa0b9db5953ed6b4efa19d6b6378d87023
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 9724/0/26140
+Costo observado USD: 0.01516413096
+SHA-256 del informe original: f735386612c6855c8bad7658ef3ba9f6d7bc2710859de843b0832f64a3f671fd
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática del corte `c640dd0`, sin ejecutar pruebas. No sustituye la auditoría C2 ni certifica producción/componentes externos.
+
+Hallazgos concretos: no he encontrado un defecto concreto en los cambios suministrados. El protocolo queda versionado y atado en permiso y recibo (`server/account/unblockHistoryProof.ts:17-34`), la validación de trust exige realm no vacío, dos `KeyObject` públicas Ed25519 distintas y no proxy (`server/account/unblockHistoryProof.ts:36-48`), y esa validación ocurre antes de `runTransaction` (`server/account/backend.ts:339-341`). El backend ata `unblockProtocol` a `owner`/`tuple` y verifica permiso y recibo (`server/account/backend.ts:359-373`, `386-387`).
+
+Controles negativos pertinentes: permiso firmado con protocolo 3 se rechaza sin escrituras; recibo firmado con protocolo 3 se rechaza con snapshot estable; trust malformado rechaza con `transactions:0` y sin escrituras; el lector legacy rechaza el recibo v2 mientras el reader nuevo lo confirma (`server/account/unblockAttemptReceipt.test.ts:254-299`, `437-443`).
+
+No comprobado: no se ve en el diff `matchesUnblockAttempt` ni la declaración de `unblockAttemptProtocol`; faltan casos de `permitKey` privada/EC, `realm` vacío/espacios, trust Proxy y `permitKey===receiptKey` en este diff. No verifico el log 127/127 ni tipos por medios estáticos. No certifico observador real, custodia, corte, cerco, HTTP, IAM, migración ni ausencia de POST en vuelo. `awaiting_proof` sin `blocked` y base64url canónico son contratos declarados, no prueba de reenvío seguro.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `unblockHistoryProof.ts:17-34` versiona y ata `unblockProtocol` en permiso y recibo; `unblockHistoryProof.ts:36-54` valida claves públicas Ed25519 no proxy y firma base64url canónica; `backend.ts:339-341` valida trust antes de `runTransaction`; `backend.ts:359-373` ata protocolo a owner/tuple y verifica permiso; `backend.ts:386-387` verifica recibo; tests `unblockAttemptReceipt.test.ts:254-299` cubren protocolo permiso/recibo y trust malformado; `:437-443` cubre rechazo legacy de recibo v2 y confirmación del reader nuevo.
+NEGATIVOS: Permiso con protocolo 3 rechaza sin writes (`:254-266`); recibo con protocolo 3 rechaza sin writes y snapshot estable (`:268-277`); trust malformado rechaza con `transactions:0` y sin writes (`:279-299`); reader legacy rechaza recibo v2 (`:437-443`).
+BLOQUEOS: No verificado estáticamente `matchesUnblockAttempt` ni la declaración de `unblockAttemptProtocol`; faltan pruebas para `permitKey` privada/EC, `realm` vacío/espacios, trust Proxy y `permitKey===receiptKey` en este diff; no se ejecutó el log 127/127 ni tipos; no se certifican observador real, custodia, corte, cerco, HTTP, IAM, migración ni ausencia de POST en vuelo; `awaiting_proof` sin `blocked` y base64url canónico son contratos declarados, no prueba de reenvío seguro.
+=== FIN RESUMEN ===

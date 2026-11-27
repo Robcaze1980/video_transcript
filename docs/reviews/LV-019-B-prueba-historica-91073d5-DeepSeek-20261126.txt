@@ -1,0 +1,39 @@
+# Revisión estática independiente
+
+Solicitud: 249dc2c0dc63ff8c8a979ea0bad2fe0aeed7a140c8e4e3d70c14f8d3aab7e792
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: FALLA
+Tokens entrada/cache/salida: 18954/0/29563
+Costo observado USD: 0.0305626365
+SHA-256 del informe original: 273f5fb9983a5cfa1295c8f09e2c11ac87818be7d27fb438aaaaf3feb2bdeea3
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática del diff; no se ejecutan pruebas ni se sustituye C2.
+
+**Hallazgos concretos**
+1. **Serialización no ata `unblockProtocol`.** `server/account/unblockHistoryProof.ts:16-23` serializa una lista blanca que omite `permit.unblockProtocol`; `server/account/backend.ts:371-373` construye `permit` con `...tuple`, que sí lleva `unblockProtocol:2`, pero la firma no lo cubre. El tag dice `permit.v1` mientras el protocolo exigido es 2 (`backend.ts:30`). Es un defecto de separación de propósito/versionado: los checks locales (`backend.ts:363-367`) impiden un bypass directo de cliente, pero la firma no ata el protocolo.
+2. **Validación incompleta de llaves antes de escribir.** `backend.ts:340` solo compara `permitKey.equals(receiptKey)`. `verifiesUnblockHistory` (`unblockHistoryProof.ts:35-39`) exige `public` + `ed25519`, pero el camino sin recibo solo usa `permitKey` (`backend.ts:373`) y puede crear el recibo (`backend.ts:398`). Si se inyecta una `receiptKey` privada o no Ed25519, la primera aplicación escribe y devuelve `awaiting_proof` (`backend.ts:401`), y luego `backend.ts:386-387` siempre conflictúa. Defecto reproducible con la fixture, no cubierto por los tests actuales.
+3. **Regresión de contrato en el resultado de aplicación.** `backend.ts:401` devuelve `{state:'awaiting_proof',...request}` sin `blocked` ni `replayed:false`, que antes devolvía el seam v2. `pending` (`backend.ts:395`) tampoco informa el estado del guard. Los tests solo usan `toMatchObject` sobre `state` (p. ej. `unblockAttemptReceipt.test.ts:187-188,239,323,541`). No es bypass, pero si el consumidor necesita saber si quedó bloqueado, debe esperar a `confirmed`.
+4. **Pins históricos frágiles.** `identityVersion`/`reviewedIncidentVersion` se atan a `updateTime` (`backend.ts:362,378`). Cualquier mantenimiento posterior en identidad/incidente invalida el recibo; el test `unblockAttemptReceipt.test.ts:504-529` lo reproduce. Es fail-closed, pero no hay reparación/backfill y queda como prerrequisito declarado.
+5. **Formato de firma rígido.** `unblockHistoryProof.ts:37-39` exige base64url sin padding de longitud 86; firmas con padding válido se rechazan. Es interoperabilidad, no bypass.
+6. **Guard de trust puede lanzar TypeError.** `backend.ts:340` asume `trust.permitKey`/`receiptKey` si `trust` existe; un objeto mal formado daría TypeError en vez de `AccountFault`. Impacto bajo en el seam de prueba.
+
+**Negativos conservados**
+Los tests mantienen controles negativos para: recreación idéntica de authority/incident/guard/identity (`unblockAttemptReceipt.test.ts:252-287`), recibo idéntico recreado (`406-433`), recreación coordinada (`463-502`), cruce cuenta/root/realm/claves (`196-233`), firmante equivocado (`235-250`), recibo corrupto/ausente (`329-345`), attempt alterado (`347-363`), `reviewedCount` inconsistente (`365-373`), separación legacy/v2 (`375-388`), `NODE_ENV=production` (`390-403`) y mantenimiento de identidad (`504-529`). Todos operan sobre el doble sintético.
+
+**No verificado / bloqueos**
+- El doble serial en memoria (`unblockAttemptReceipt.test.ts:18-144`) no prueba IAM, HTTP, Firestore real, concurrencia ni proveedores.
+- El observador/emisor real no existe en el código; `observedCommits` es parte de la fixture (`unblockAttemptReceipt.test.ts:21,68-73`). La criptografía no acredita que exista observador autenticado, corte, custodia ni acceso a la prueba original de commit.
+- No se puede verificar Captura de `CommitResponse`, versiones reales de Firestore, ni firma fuera del callback/GET posterior.
+- No hay ruta ni integración; los métodos están cerrados fuera de `NODE_ENV=test` (`backend.ts:340`).
+- No se verificaron 120/120, `tsc` ni el log SHA-256 aportado; solo se revisa el paquete.
+- No se evalúa el sistema completo ni se da PASS a producción; C2 sigue fuera de alcance.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Revisión estática del diff; defectos concretos en server/account/unblockHistoryProof.ts:16-23,35-39 y server/account/backend.ts:340,371-401; los tests sintéticos no cubren llaves inválidas ni el atado del protocolo en la firma.
+NEGATIVOS: Se conservan controles de recreación idéntica, cruce cuenta/root/realm/claves, firmante erróneo, recibo corrupto/ausente, attempt alterado, reviewedCount inconsistente, legacy/v2, NODE_ENV producción y mantenimiento de identidad (unblockAttemptReceipt.test.ts:196-233,252-287,329-403,406-529).
+BLOQUEOS: No hay observador/emisor real, IAM/HTTP/Firestore/concurrencia, custodia, CommitResponse real ni ruta/integración; no se verificaron log SHA-256 ni tsc; auditoría C2 interrumpida y fuera de alcance.
+=== FIN RESUMEN ===
