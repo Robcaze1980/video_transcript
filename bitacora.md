@@ -2030,3 +2030,5 @@ GLM dio PASS limitado a ambas piezas; DeepSeek dio INCONCLUYENTE a edad y PASS l
 ## 27 nov 2026
 
 Se retomó el paso de saldo con T3. Un encargo de edición se interrumpió al superar el límite de acciones sin producir cambios; se preparó otro autocontenido sin herramientas. [Incidente del intento](docs/reviews/LV-019-B-t3-retorno-intento-interrumpido-20261127.md).
+
+La adaptación de dos pruebas de recuperación por recibo, propuesta por DeepSeek mediante T3, pasó junto a cinco controles anteriores: **7/7** en Firestore Emulator aislado. GLM y el seguimiento de DeepSeek dieron PASS acotados; se conserva el INCONCLUYENTE previo. La limpieza fue **7/7** y las 22 colecciones inventariadas quedaron vacías antes y después; la JVM propia se terminó por handle. No es la regresión financiera completa. [Evidencia en GitHub](https://github.com/Robcaze1980/video_transcript/blob/2a246762b17e9857985334d50aa092ab17037abb/docs/evidence/lv019-b-t3-unblock-focus-20261127/README.md).
