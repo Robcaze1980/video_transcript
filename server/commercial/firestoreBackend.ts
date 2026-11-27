@@ -466,7 +466,7 @@ export class FirestoreBackend {
   constructor(private readonly db: Firestore, private readonly root: DocumentReference,
     options:{allowUnverifiedInputsForTests?:true}={}) {
     this.unverifiedTestInputs=options.allowUnverifiedInputsForTests===true;
-    if(this.unverifiedTestInputs&&(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8185'||
+    if(this.unverifiedTestInputs&&(process.env.NODE_ENV!=='test'||process.env.LV_FINANCIAL_REGRESSION!=='1'||process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8198'||
       !/^vistavo_(backend_test|transport_test|grpc_control)\/[a-f0-9-]{36}$/.test(root.path)))throw new LedgerFault('invalid');
   }
   private usable(input:Input,inputId:string,job?:Job){

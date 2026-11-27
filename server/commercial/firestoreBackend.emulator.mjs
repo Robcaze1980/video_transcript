@@ -9,23 +9,23 @@ import {firestoreHttp} from './firestoreHttp.ts';
 import {cloudRunDispatch} from './cloudRunDispatch.ts';
 import {prepareFinancialFixture,cleanupFinancialFixture} from './financialFixtureSafety.mjs';
 function createLocalFirestoreLedger(){
- if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8185')throw Error('Dedicated emulator required');
- const db=new Firestore({projectId:'demo-vistavo-ledger',host:'127.0.0.1:8185',ssl:false,
+ if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8198')throw Error('Dedicated emulator required');
+ const db=new Firestore({projectId:'demo-vistavo-financial',host:'127.0.0.1:8198',ssl:false,
   preferRest:process.env.LV_FINANCIAL_REGRESSION==='1'?false:process.env.VISTAVO_TEST_TRANSPORT!=='grpc'});
  const root=db.collection('vistavo_backend_test').doc(randomUUID());
  const ledger=new FirestoreBackend(db,root,{allowUnverifiedInputsForTests:true});
  const credit=ledger.creditVerifiedPurchase.bind(ledger);ledger.creditVerifiedPurchase=(...args)=>credit(...args,'merchant-test','sandbox');
  const reserve=ledger.reserve.bind(ledger);ledger.reserve=(...args)=>args.length===4?reserve(...args,'transcript:v1'):reserve(...args);
- return {ledger,db,root,projectId:'demo-vistavo-ledger'};
+ return {ledger,db,root,projectId:'demo-vistavo-financial'};
 }
 const contexts=[];
 const sha='a'.repeat(64);
 before(async()=>{
- assert.equal(process.env.FIRESTORE_EMULATOR_HOST,'127.0.0.1:8185','Dedicated emulator required; no fallback');
- await fetch('http://127.0.0.1:8185/');
+ assert.equal(process.env.FIRESTORE_EMULATOR_HOST,'127.0.0.1:8198','Dedicated emulator required; no fallback');
+ await fetch('http://127.0.0.1:8198/');
 });
 afterEach(async()=>{for(const c of contexts.splice(0))try{await cleanupFinancialFixture(c,'vistavo_backend_test');}finally{await c.db.terminate();}});
-async function fixture(credits=3){const c=createLocalFirestoreLedger();assert.equal(c.projectId,'demo-vistavo-ledger');contexts.push(c);await prepareFinancialFixture(c,'vistavo_backend_test');const account=await c.ledger.createAccount();if(credits)await c.ledger.creditVerifiedPurchase(account,'fixture-'+randomUUID(),credits,100);const input=await c.ledger.addInput(account,Date.now()+120000,sha);return{...c,account,input};}
+async function fixture(credits=3){const c=createLocalFirestoreLedger();assert.equal(c.projectId,'demo-vistavo-financial');contexts.push(c);await prepareFinancialFixture(c,'vistavo_backend_test');const account=await c.ledger.createAccount();if(credits)await c.ledger.creditVerifiedPurchase(account,'fixture-'+randomUUID(),credits,100);const input=await c.ledger.addInput(account,Date.now()+120000,sha);return{...c,account,input};}
 const ref=(c,name,id)=>c.root.collection(name).doc(id);
 const reject=(promise,code)=>assert.rejects(promise,error=>error.code===code);
 async function claim(c,...args){const a=await c.ledger.claim(...args);if(a)assert.equal(await c.ledger.beginInvocation(args[0],args[1],a.attemptId),true);return a;}
@@ -181,7 +181,7 @@ test('UNKNOWN prevents a previously running sibling from capturing automatically
 });
 
 test('default-deny client rules reject reads and writes of actual Admin-created documents',async()=>{
- const c=await fixture();const target='http://127.0.0.1:8185/v1/projects/demo-vistavo-ledger/databases/(default)/documents/'+c.root.path+'/accounts/'+c.account;
+ const c=await fixture();const target='http://127.0.0.1:8198/v1/projects/demo-vistavo-financial/databases/(default)/documents/'+c.root.path+'/accounts/'+c.account;
  assert.equal((await fetch(target)).status,403);
  assert.equal((await fetch(target,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{available:{integerValue:'999999'}}})})).status,403);
  await money(c,{credited:3,available:3});

@@ -1,9 +1,10 @@
-// LV-019.B paso 1.4a (mitad C-3/E-3/D-4). Sintetico: emulador fijo 127.0.0.1:8185 y una Cuenta
+// LV-019.B paso 1.4a (mitad C-3/E-3/D-4). Sintetico: emulador fijo 127.0.0.1:8198 y una Cuenta
 // REAL (AccountStore) tras un transporte HTTP local. Sin nube, sin credenciales, sin desplegar.
 // Cada prueba afirma el comportamiento que este paso debe alcanzar; se escriben para fallar HOY
 // por el motivo correcto (C-3 no reintenta y bloquea, 3b silencia el ACK divergente, E-3 no acepta
 // el cierre identico, D-4 no lee el guard), nunca por un error de montaje.
 import assert from 'node:assert/strict';
+import {prepareFinancialOwnedRoot,assertFinancialOwnedRoot,deleteFinancialOwnedRoot} from './financialOwnedRootGuard.mjs';
 import {after,afterEach,before,test} from 'node:test';
 import {createHash,randomUUID} from 'node:crypto';
 import {Readable} from 'node:stream';
@@ -18,7 +19,7 @@ import {ALERT_COLLECTION,raisePendingAlerts} from './billingPendingAlerts.ts';
 import {readPendingReport} from './billingPendingReport.ts';
 import {blockedState} from './billingUnblock.ts';
 
-const project='demo-vistavo-ledger',host='127.0.0.1:8185';
+const project='demo-vistavo-financial',host='127.0.0.1:8198';
 const videoCollection='vistavo_blocks_a_video_synthetic',accountCollection='vistavo_blocks_a_ledger_synthetic';
 const sha=value=>createHash('sha256').update(String(value)).digest('hex');
 const ref=(root,collection,id)=>root.collection(collection).doc(id);
@@ -35,7 +36,7 @@ function assertSafeClient(c){
   assertSafeEnvironment();
   assert.match(c.root.path,new RegExp(`^${videoCollection}/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$`));
   assert.match(c.accountRoot.path,new RegExp(`^${accountCollection}/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$`));
-  const settings=c.db._settings;assert.equal(settings?.servicePath,'127.0.0.1');assert.equal(settings?.port,8185);assert.equal(settings?.ssl,false);
+  const settings=c.db._settings;assert.equal(settings?.servicePath,'127.0.0.1');assert.equal(settings?.port,8198);assert.equal(settings?.ssl,false);
 }
 async function descendants(document,found=[]){for(const group of await document.listCollections())for(const child of await group.listDocuments()){found.push(child);await descendants(child,found);}return found;}
 
@@ -43,7 +44,7 @@ before(async()=>{assertSafeEnvironment();assert.equal((await fetch(`http://${hos
 afterEach(async()=>{
   for(const c of contexts.splice(0)){
     try{
-      for(const entry of c.roots){const known=await descendants(entry.root);await c.db.recursiveDelete(entry.root);assert.equal((await entry.root.get()).exists,false);assert.deepEqual(await entry.root.listCollections(),[]);for(const document of known)assert.equal((await document.get()).exists,false);}
+      for(const entry of c.roots){await assertFinancialOwnedRoot(c.db,entry.root,entry.marker);const known=await descendants(entry.root);await deleteFinancialOwnedRoot(c.db,entry.root,entry.marker);assert.equal((await entry.root.get()).exists,false);assert.deepEqual(await entry.root.listCollections(),[]);for(const document of known)assert.equal((await document.get()).exists,false);}
       cleanups++;
     }finally{await c.db.terminate();}
   }
@@ -93,7 +94,7 @@ async function fixture(scope){
   const root=db.collection(videoCollection).doc(randomUUID()),accountRoot=db.collection(accountCollection).doc(randomUUID());
   const c={scope,db,root,accountRoot,roots:[root,accountRoot].map(document=>({root:document,marker:{project,purpose:'blocks-1.4a-synthetic-v1',nonce:randomUUID()}}))};
   contexts.push(c);created++;assertSafeClient(c);
-  for(const entry of c.roots)await entry.root.create(entry.marker);
+  for(const entry of c.roots)await prepareFinancialOwnedRoot(c.db,entry.root,entry.marker);
   c.backend=new FirestoreBackend(db,root);c.store=new AccountStore(db,accountRoot);
   c.uid='synthetic-blocks-owner-'+randomUUID();c.account=await c.backend.accountForUid(c.uid);
   await ref(root,'accounts',c.account).update({aiPilot:true,simulationOnly:true});

@@ -1,0 +1,110 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {createHash} from 'node:crypto';
+import {AccountStore} from '../../server/account/backend.ts';
+import {alertIdentity,alertKey,raisePendingAlerts,clearResolvedAlerts,ALERT_COLLECTION} from '../../server/commercial/billingPendingAlerts.ts';
+import {readPendingReport,buildPendingReport} from '../../server/commercial/billingPendingReport.ts';
+import {recordDisposition} from '../../server/commercial/billingPendingAudit.ts';
+import {unblockBillingAccount,videoHoldId,UNBLOCK_AUDIT_COLLECTION,UNBLOCK_CONTINUITY_COLLECTION,UNBLOCK_WRITER_CUT_ID} from '../../server/commercial/billingUnblock.ts';
+import {stub} from '../../server/commercial/billingFirestoreStub.ts';
+const accountId='10000000-0000-4000-8000-000000000001', incident='1'.repeat(64), actor='fixture-operator';
+const empty=buildPendingReport([],25);
+function persisted(s,kind,rowId,state,reason,owner=null) {
+  const key=alertKey(kind,rowId,state,reason),path=ALERT_COLLECTION+'/'+key;
+  s.store.set(path,{alertKey:key,kind,rowId,state,reason,accountId:owner,status:'open',seenCount:1,firstSeenAtMs:5,lastSeenAtMs:6});
+  return {key,path,identity:()=>alertIdentity({exists:true,id:key,data:()=>s.store.get(path)})};
+}
+
+async function unblockFixture(guard,{withCut=true}={}) {
+  const uid='synthetic-operator-target',idKey=createHash('sha256').update(JSON.stringify(['firebase',uid])).digest('hex');
+  const base={blocked:true,accountId,epoch:1,createdAtMs:5,updatedAtMs:6,lastIncidentId:incident};
+  const kind=guard.lastOutboxIncidentId===incident?'outbox':'intent';
+  const incidentCollection=kind==='outbox'?'billingOutboxReviewIncidents':'billingReviewIncidents';
+  const holdId=videoHoldId(kind,incident,1,5);
+  const cut=withCut?{[UNBLOCK_CONTINUITY_COLLECTION]:{[UNBLOCK_WRITER_CUT_ID]:{v:1,purpose:'unblock-writer-cut'}}}:{};
+  const s=stub({...cut,billingGuards:{[accountId]:{...base,...guard}},identities:{[idKey]:{uid,accountId}},
+    [incidentCollection]:{[incident]:{accountId,state:'needs_review'}},
+    billingHoldOutbox:{[holdId]:{accountId,epoch:1,createdAtMs:5,state:'applied'}}});
+  const report=await readPendingReport(s.root,25),row=report.rows.find(x=>x.kind==='guard');
+  await raisePendingAlerts(s.db,s.root,report,25);
+  const key=alertKey('guard',accountId,row.state,row.attention),calls=[];
+  // Model createTime independently of updateTime. A write before the first
+  // read must still advance the version, even if its contents are restored.
+  const times=new Map();
+  let next=0,commitTime;
+  const stamp=revision=>({seconds:1,nanoseconds:revision,isEqual:other=>other?.seconds===1&&other.nanoseconds===revision});
+  for(const path of s.store.keys()){
+    const time=stamp(++next);
+    times.set(path,{createTime:time,updateTime:time});
+  }
+  const set=s.store.set.bind(s.store),drop=s.store.delete.bind(s.store);
+  Object.defineProperties(s.store,{
+    set:{value:(path,data)=>{
+      const updateTime=commitTime??stamp(++next),createTime=times.get(path)?.createTime??updateTime;
+      times.set(path,{createTime,updateTime});
+      return set(path,data);
+    }},
+    delete:{value:path=>{times.delete(path);return drop(path);}},
+  });
+  const withVersion=(snap,ref)=>({...snap,ref,...times.get(ref.path)});
+  const db={async runTransaction(fn) {
+    const edits=[];
+    try{
+      const result=await s.db.runTransaction(async tx=>{
+        const value=await fn({...tx,
+          get:async ref=>ref.path?{...await tx.get(ref),ref}:ref.get(),
+          getAll:async(...refs)=>Promise.all(refs.map(async ref=>withVersion(await tx.get(ref),ref))),
+          set:(ref,data)=>edits.push(()=>s.store.set(ref.path,structuredClone(data))),
+          delete:ref=>edits.push(()=>s.store.delete(ref.path)),
+        });
+        // Model one timestamp for the commit. Confirm the Firestore metadata before integration.
+        commitTime=stamp(++next);
+        return value;
+      });
+      for(const edit of edits)edit();
+      return result;
+    }finally{commitTime=undefined;}
+  }};
+  const deps={db,root:s.root,accountBilling:{unblock:async(...args)=>{calls.push(args);throw Error('synthetic stop at Account port');},
+      unblockReceipt:async()=>({state:'pending'})}};
+  const request={incidentId:incident,alertKey:key,epoch:1,createdAtMs:5,updatedAtMs:6,accountEpoch:1,accountCreatedAtMs:5,evidenceRef:'fixture-proof'};
+  return {s,row,calls,request,deps,uid,idKey,holdId,unblock:()=>unblockBillingAccount(deps,accountId,request,actor,30)};
+}
+
+function accountForDirectAck(f) {
+  const accountOwner='20000000-0000-4000-8000-000000000001';
+  const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const billing={ownerAccountId:accountOwner,identityKey:f.idKey};
+  const generation={epoch:f.request.accountEpoch,createdAtMs:f.request.accountCreatedAtMs};
+  const accountIncident={...billing,incidentId:f.holdId,createdAtMs:6,state:'active'};
+  const incidentDoc=hash([accountOwner,f.holdId]),receiptDoc=hash([accountOwner,f.holdId,'unblock']);
+  const remote=stub({
+    accounts:{[accountOwner]:{identityKey:f.idKey,schemaVersion:1,unit:'video_seconds',credited:20,available:17,
+      reserved:3,consumed:0,active:1,activeProjectCount:0,createdAtMs:1}},
+    identities:{[f.idKey]:{uid:f.uid,accountId:accountOwner}},
+    videoBillingGuards:{[accountOwner]:{...billing,...generation,blocked:true,incidentCount:1,updatedAtMs:6}},
+    videoBillingIncidents:{[incidentDoc]:accountIncident},
+    videoReservations:{synthetic:{...billing,reservationId:'30000000-0000-4000-8000-000000000001',seconds:3,state:'reserved'}},
+    ledgerEntries:{synthetic:{ownerAccountId:accountOwner,createdAtMs:2,seconds:3,kind:'video_reserve'}},
+  });
+  const db={async runTransaction(run){
+    const deletes=[];
+    const value=await remote.db.runTransaction(tx=>run({...tx,delete:ref=>deletes.push(ref.path)}));
+    for(const path of deletes)remote.store.delete(path);
+    return value;
+  }};
+  const account=new AccountStore(db,remote.root,()=>40);
+  const before=structuredClone(remote.store),accepted=structuredClone(before);
+  accepted.delete('videoBillingGuards/'+accountOwner);
+  accepted.set('videoBillingIncidents/'+incidentDoc,{...accountIncident,state:'reviewed',reviewedAtMs:40});
+  accepted.set('videoBillingUnblocks/'+receiptDoc,{...billing,...generation,incidentId:f.holdId,
+    reviewRef:f.request.evidenceRef,unblockedAtMs:40});
+  return {account,remote,before,accepted};
+}
+
+
+const cutPath=UNBLOCK_CONTINUITY_COLLECTION+'/'+UNBLOCK_WRITER_CUT_ID;
+
+async function ports(f){const {account,remote,before,accepted}=accountForDirectAck(f);const calls=[];f.deps.accountBilling.unblockReceipt=async(...a)=>{calls.push('receipt');return account.videoBillingUnblockReceipt(...a);};f.deps.accountBilling.unblock=async(...a)=>{calls.push('POST');return account.unblockVideoBilling(...a);};return {remote,before,accepted,calls};}
+for (const kind of ['missing','late','recreated']) test('memory: '+kind+' cut cannot send to Account',async()=>{const f=await unblockFixture({},{withCut:kind==='recreated'}),p=await ports(f);if(kind==='recreated')f.s.store.delete(cutPath);if(kind!=='missing')f.s.store.set(cutPath,{v:1,purpose:'unblock-writer-cut'});const before=structuredClone(f.s.store);await assert.rejects(f.unblock,{code:'conflict'});assert.deepEqual(p.calls,['receipt']);assert.deepEqual(f.s.store,before);assert.deepEqual(p.remote.store,p.before);});
+test('memory: a prior cut admits exactly one Account send',async()=>{const f=await unblockFixture({}),p=await ports(f);const result=await f.unblock();assert.equal(result.videoBlocked,false);assert.deepEqual(p.calls,['receipt','POST']);assert.deepEqual(p.remote.store,p.accepted);});

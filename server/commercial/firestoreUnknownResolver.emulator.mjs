@@ -1,5 +1,5 @@
 // Synthetic-only LV-019.B step 1.2 fixture: client cancellation and UNKNOWN jobs. It runs a real `AccountStore` behind a
-// local adapter of `AccountBillingClient`, against the fixed demo emulator at 127.0.0.1:8185. No cloud service,
+// local adapter of `AccountBillingClient`, against the fixed demo emulator at 127.0.0.1:8198. No cloud service,
 // credential, HTTP route or real media is touched. Execute only through a reviewed launcher with the fixed demo
 // environment. Cleanup always runs `db.terminate()` on every fixture root.
 //
@@ -8,6 +8,7 @@
 // ("resolveExpiredUnknown is not a function"), never for a syntax or mount error. The scenarios whose behaviour already
 // exists today are named "(caracterizacion)" and must be green.
 import assert from 'node:assert/strict';
+import {prepareFinancialOwnedRoot,assertFinancialOwnedRoot,deleteFinancialOwnedRoot} from './financialOwnedRootGuard.mjs';
 import {after,afterEach,before,test} from 'node:test';
 import {createHash,randomUUID} from 'node:crypto';
 import {Firestore,FieldValue} from 'firebase-admin/firestore';
@@ -22,7 +23,7 @@ import {AUDIT_COLLECTION} from './billingPendingAudit.ts';
 import {runPendingSweep} from './billingPendingSweep.ts';
 import {UNKNOWN_RESOLUTION_MIN_AGE_MS} from '../account/settlementContract.ts';
 
-const project='demo-vistavo-ledger',host='127.0.0.1:8185';
+const project='demo-vistavo-financial',host='127.0.0.1:8198';
 const videoCollection='vistavo_video_unknown_resolver_video_synthetic',accountCollection='vistavo_video_unknown_resolver_ledger_synthetic';
 // The window the resolver compares against, mirrored from the design: six hours, with a ten-minute tolerated future skew.
 const WINDOW=6*60*60*1000,SKEW=10*60*1000;
@@ -52,7 +53,7 @@ function assertSafeClient(c){
   assert.match(c.root.path,new RegExp(`^${videoCollection}/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$`));
   assert.match(c.accountRoot.path,new RegExp(`^${accountCollection}/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$`));
   assert.notEqual(c.root.path,c.accountRoot.path);assert.equal(c.db.projectId,project);assert.equal(c.db.databaseId,'(default)');
-  const settings=c.db._settings;assert.equal(settings?.projectId,project);assert.equal(settings?.servicePath,'127.0.0.1');assert.equal(settings?.port,8185);
+  const settings=c.db._settings;assert.equal(settings?.projectId,project);assert.equal(settings?.servicePath,'127.0.0.1');assert.equal(settings?.port,8198);
   assert.equal(settings?.ssl,false);assert.equal(settings?.preferRest,false);
   for(const key of ['auth','credentials','keyFilename','authClient'])assert.equal(settings?.[key],undefined);
 }
@@ -69,16 +70,15 @@ before(async()=>{
 });
 afterEach(async()=>{
   for(const c of contexts.splice(0)){
-    let problem=null;try{assertSafeClient(c);}catch(error){problem=error;console.error('Synthetic unknown-resolver unsafe client before cleanup',error);}
     try{
-      for(const entry of c.roots){
-        try{assert.deepEqual((await entry.root.get()).data(),entry.marker);}catch(error){problem??=error;console.error('Synthetic unknown-resolver marker changed',entry.root.path,error);}
+      assertSafeClient(c);
+      for(const entry of c.roots){await assertFinancialOwnedRoot(c.db,entry.root,entry.marker);
+        assert.deepEqual((await entry.root.get()).data(),entry.marker);
         const known=await descendants(entry.root);for(const document of known)assert.ok(document.path.startsWith(entry.root.path+'/'));
-        await c.db.recursiveDelete(entry.root);
+        await deleteFinancialOwnedRoot(c.db,entry.root,entry.marker);
         assert.equal((await entry.root.get()).exists,false);assert.deepEqual(await entry.root.listCollections(),[]);
         for(const document of known){assert.equal((await document.get()).exists,false);assert.deepEqual(await document.listCollections(),[]);}
       }
-      if(problem)throw problem;
       cleanups++;console.log(`Synthetic unknown-resolver cleanup verified ${cleanups}/${fixturesCreated}`);
     }finally{await c.db.terminate();}
   }

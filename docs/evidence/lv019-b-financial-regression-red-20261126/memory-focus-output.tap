@@ -1,0 +1,12 @@
+✔ memory: missing cut cannot send to Account (15.0409ms)
+✔ memory: late cut cannot send to Account (2.818ms)
+✔ memory: recreated cut cannot send to Account (2.1066ms)
+✔ memory: a prior cut admits exactly one Account send (6.8569ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 44.4458

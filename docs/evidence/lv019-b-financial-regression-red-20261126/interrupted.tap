@@ -1,0 +1,927 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: an audited unblock of the only incident deletes the guard and restores reserve, admit and settle
+ok 1 - an audited unblock of the only incident deletes the guard and restores reserve, admit and settle
+  ---
+  duration_ms: 1541.4521
+  type: 'test'
+  ...
+# Subtest: an identical unblock is a replay without writes; a different payload is a conflict
+ok 2 - an identical unblock is a replay without writes; a different payload is a conflict
+  ---
+  duration_ms: 587.3298
+  type: 'test'
+  ...
+# Subtest: an unblock naming a stale epoch or createdAtMs is refused; after a re-block only the current guard applies
+ok 3 - an unblock naming a stale epoch or createdAtMs is refused; after a re-block only the current guard applies
+  ---
+  duration_ms: 610.6295
+  type: 'test'
+  ...
+# Subtest: a missing or reviewed incident, a stale guard and a missing or oversized reviewRef are refused without writes
+ok 4 - a missing or reviewed incident, a stale guard and a missing or oversized reviewRef are refused without writes
+  ---
+  duration_ms: 404.246
+  type: 'test'
+  ...
+# Subtest: two incidents keep the account blocked after the first unblock and open it only after the second
+ok 5 - two incidents keep the account blocked after the first unblock and open it only after the second
+  ---
+  duration_ms: 510.6217
+  type: 'test'
+  ...
+# Subtest: a concurrent incident never lets a stale unblock open an account that still owes a review
+ok 6 - a concurrent incident never lets a stale unblock open an account that still owes a review
+  ---
+  duration_ms: 21126.2857
+  type: 'test'
+  ...
+# Subtest: the reviewed reader reports blocked without recorded, and rejects corruption
+ok 7 - the reviewed reader reports blocked without recorded, and rejects corruption
+  ---
+  duration_ms: 784.4119
+  type: 'test'
+  ...
+# Subtest: a new incident keeps the reviewed counter, and only the last review deletes the guard
+ok 8 - a new incident keeps the reviewed counter, and only the last review deletes the guard
+  ---
+  duration_ms: 589.3821
+  type: 'test'
+  ...
+# Subtest: an unprovisioned identity is refused with account_not_provisioned and nothing is written
+ok 9 - an unprovisioned identity is refused with account_not_provisioned and nothing is written
+  ---
+  duration_ms: 173.09
+  type: 'test'
+  ...
+# Subtest: the status reader fails closed on an ACTIVE incident whose guard is absent and tolerates a reviewed one
+ok 10 - the status reader fails closed on an ACTIVE incident whose guard is absent and tolerates a reviewed one
+  ---
+  duration_ms: 261.9106
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Drain-section cleanup verified 1/1
+# Subtest: (a) two simultaneous passes and a paused pass that wakes late move the balance exactly once
+ok 11 - (a) two simultaneous passes and a paused pass that wakes late move the balance exactly once
+  ---
+  duration_ms: 5305.6528
+  type: 'test'
+  ...
+# Drain-section cleanup verified 2/2
+# Subtest: (b) a pass interrupted mid-way leaves the rest, and the next pass completes without a second charge
+ok 12 - (b) a pass interrupted mid-way leaves the rest, and the next pass completes without a second charge
+  ---
+  duration_ms: 4270.0016
+  type: 'test'
+  ...
+# Drain-section cleanup verified 3/3
+# Subtest: (c) fairness and rotation: 50 due rows of one account never starve another, and passes cover all rows once
+ok 13 - (c) fairness and rotation: 50 due rows of one account never starve another, and passes cover all rows once
+  ---
+  duration_ms: 22591.888
+  type: 'test'
+  ...
+# Drain-section cleanup verified 4/4
+# Subtest: (d) a stale holder after expiry neither renews nor releases and stops before the next row
+ok 14 - (d) a stale holder after expiry neither renews nor releases and stops before the next row
+  ---
+  duration_ms: 1952.6458
+  type: 'test'
+  ...
+# Drain-section cleanup verified 5/5
+# Subtest: (e) the expired-unknown resolver runs as its own section and releases an expired unknown
+ok 15 - (e) the expired-unknown resolver runs as its own section and releases an expired unknown
+  ---
+  duration_ms: 2854.3891
+  type: 'test'
+  ...
+# Drain-section cleanup verified 6/6
+# Subtest: (f) the switch off touches nothing and still emits a heartbeat
+ok 16 - (f) the switch off touches nothing and still emits a heartbeat
+  ---
+  duration_ms: 1631.8067
+  type: 'test'
+  ...
+# Drain-section cleanup verified 7/7
+# Subtest: (g) a heartbeat is emitted in every state with the exact key set and no sensitive value
+ok 17 - (g) a heartbeat is emitted in every state with the exact key set and no sensitive value
+  ---
+  duration_ms: 2780.5444
+  type: 'test'
+  ...
+# Drain-section cleanup verified 8/8
+# Subtest: (h) the unknown resolver stops row by row when its section budget runs out, leaving the rest intact
+ok 18 - (h) the unknown resolver stops row by row when its section budget runs out, leaving the rest intact
+  ---
+  duration_ms: 5643.4377
+  type: 'test'
+  ...
+# Drain-section cleanup verified 9/9
+# Drain-section cleanup total: 9/9
+# Subtest: (i) one account gets at most five rows across holds-before, billing and holds-after of the same pass
+ok 19 - (i) one account gets at most five rows across holds-before, billing and holds-after of the same pass
+  ---
+  duration_ms: 1939.5206
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# {"event":"synthetic-settlement-history-race","field":"account","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed account after capture send is retained for review
+ok 20 - changed account after capture send is retained for review
+  ---
+  duration_ms: 2736.7393
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"outbox","state":"retry_wait","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":false,"foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed outbox after capture send is retained for review
+ok 21 - changed outbox after capture send is retained for review
+  ---
+  duration_ms: 2811.8774
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"job","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"unverified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed job after capture send is retained for review
+ok 22 - changed job after capture send is retained for review
+  ---
+  duration_ms: 2154.2239
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"terminal","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed terminal after capture send is retained for review
+ok 23 - changed terminal after capture send is retained for review
+  ---
+  duration_ms: 2133.6262
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"artifact","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed artifact after capture send is retained for review
+ok 24 - changed artifact after capture send is retained for review
+  ---
+  duration_ms: 2157.7138
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"classification","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed classification after capture send is retained for review
+ok 25 - changed classification after capture send is retained for review
+  ---
+  duration_ms: 2228.6006
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"simulatedReserve","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed simulatedReserve after capture send is retained for review
+ok 26 - changed simulatedReserve after capture send is retained for review
+  ---
+  duration_ms: 2159.8327
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"request","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"unverified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed request after capture send is retained for review
+ok 27 - changed request after capture send is retained for review
+  ---
+  duration_ms: 2016.6713
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"origin","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed origin after capture send is retained for review
+ok 28 - changed origin after capture send is retained for review
+  ---
+  duration_ms: 2148.448
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"jobMarker","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed jobMarker after capture send is retained for review
+ok 29 - changed jobMarker after capture send is retained for review
+  ---
+  duration_ms: 2105.59
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"restoreIdentity","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed restoreIdentity after capture send is retained for review
+ok 30 - changed restoreIdentity after capture send is retained for review
+  ---
+  duration_ms: 2169.6225
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"replaceIdentity","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed replaceIdentity after capture send is retained for review
+ok 31 - changed replaceIdentity after capture send is retained for review
+  ---
+  duration_ms: 2216.4486
+  type: 'test'
+  ...
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: a timeout after send is not reported as a confirmed Account ACK
+ok 32 - a timeout after send is not reported as a confirmed Account ACK
+  ---
+  duration_ms: 2104.9894
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-two-acks","calls":2,"outcomes":[{"settled":1,"failed":0,"intentsRecovered":0,"intentsFailed":0},{"settled":0,"failed":0,"intentsRecovered":0,"intentsFailed":0}],"state":"settled","incidents":0}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: two concurrent synthetic ACKs settle once and the duplicate is recognized without an incident or a block
+ok 33 - two concurrent synthetic ACKs settle once and the duplicate is recognized without an incident or a block
+  ---
+  duration_ms: 5181.3962
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: a block during reserve keeps the Account confirmation without creating or capturing work
+ok 34 - a block during reserve keeps the Account confirmation without creating or capturing work
+  ---
+  duration_ms: 2442.2096
+  type: 'test'
+  ...
+# Subtest: a capture already authorized by Video reaches Account before a concurrent hold propagates
+ok 35 - a capture already authorized by Video reaches Account before a concurrent hold propagates
+  ---
+  duration_ms: 3692.7199
+  type: 'test'
+  ...
+# Subtest: a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock
+not ok 36 - a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock
+  ---
+  duration_ms: 7265.4951
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:362:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:393:16)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: an aged refund with missing billingIntentWitnesses goes to review despite the account guard
+ok 37 - an aged refund with missing billingIntentWitnesses goes to review despite the account guard
+  ---
+  duration_ms: 4401.2835
+  type: 'test'
+  ...
+# Subtest: an aged refund with missing billingIntentJobMarkers goes to review despite the account guard
+ok 38 - an aged refund with missing billingIntentJobMarkers goes to review despite the account guard
+  ---
+  duration_ms: 4585.4365
+  type: 'test'
+  ...
+# Subtest: an aged refund with missing billingIntentAdmissionGuards goes to review despite the account guard
+ok 39 - an aged refund with missing billingIntentAdmissionGuards goes to review despite the account guard
+  ---
+  duration_ms: 4524.7184
+  type: 'test'
+  ...
+# Subtest: guard accounting: the real outbox writer creates epoch 1 with createdAtMs and a re-block grows the epoch
+ok 40 - guard accounting: the real outbox writer creates epoch 1 with createdAtMs and a re-block grows the epoch
+  ---
+  duration_ms: 4588.8402
+  type: 'test'
+  ...
+# Subtest: guard accounting: a legacy guard without createdAtMs is refused, and a missing epoch is read as 1 only when the mark exists
+ok 41 - guard accounting: a legacy guard without createdAtMs is refused, and a missing epoch is read as 1 only when the mark exists
+  ---
+  duration_ms: 13862.5714
+  type: 'test'
+  ...
+# Subtest: guard accounting: the guard predicate still tolerates blocked:false and refuses to invent a value for a missing flag
+ok 42 - guard accounting: the guard predicate still tolerates blocked:false and refuses to invent a value for a missing flag
+  ---
+  duration_ms: 1665.1741
+  type: 'test'
+  ...
+# {"code":"conflict"}
+# Subtest: 11 full unblock leaves a Video audit, deletes Account guard, clears the Video guard and revives Account
+not ok 43 - 11 full unblock leaves a Video audit, deletes Account guard, clears the Video guard and revives Account
+  ---
+  duration_ms: 3057.7847
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:478:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:483:15)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 replay: an identical repeat is replayed without a single write; a different payload is a conflict
+not ok 44 - 11 replay: an identical repeat is replayed without a single write; a different payload is a conflict
+  ---
+  duration_ms: 2991.9823
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:537:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:539:15)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: a missing, empty or control-character evidenceRef is invalid and writes nothing
+ok 45 - 11 negative: a missing, empty or control-character evidenceRef is invalid and writes nothing
+  ---
+  duration_ms: 3335.0512
+  type: 'test'
+  ...
+# Subtest: 11 negative: an absent alert or one that is not open never unblocks
+ok 46 - 11 negative: an absent alert or one that is not open never unblocks
+  ---
+  duration_ms: 2806.7896
+  type: 'test'
+  ...
+# Subtest: 11 negative: an unresolved needs_review row that this incident did not name stops the unblock
+ok 47 - 11 negative: an unresolved needs_review row that this incident did not name stops the unblock
+  ---
+  duration_ms: 3469.2989
+  type: 'test'
+  ...
+# Subtest: 11 negative: a second incident arriving between the read and the write aborts and is never overwritten
+not ok 48 - 11 negative: a second incident arriving between the read and the write aborts and is never overwritten
+  ---
+  duration_ms: 4749.8254
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:593:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    1 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:609:122)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: a rival row that lands between phase 0 and phase 3 keeps the Video guard blocked
+not ok 49 - 11 negative: a rival row that lands between phase 0 and phase 3 keeps the Video guard blocked
+  ---
+  duration_ms: 3008.5061
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:612:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:622:16)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch
+not ok 50 - 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch
+  ---
+  duration_ms: 3166.8294
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:632:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 1795747200194
+    - 1795747200195
+                  ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1795747200195
+  actual: 1795747200194
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:644:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 partial: Account keeps its guard because other incidents remain, so Video keeps its own but advances this incident
+not ok 51 - 11 partial: Account keeps its guard because other incidents remain, so Video keeps its own but advances this incident
+  ---
+  duration_ms: 3076.656
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:647:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:651:16)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 partial then repeat: once Account has no other incident, the identical repeat releases the Video guard and the alert
+not ok 52 - 11 partial then repeat: once Account has no other incident, the identical repeat releases the Video guard and the alert
+  ---
+  duration_ms: 3227.4263
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:661:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:663:15)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: a row that is re-blocked during the partial repeat is refused and the newer guard survives
+not ok 53 - 11 negative: a row that is re-blocked during the partial repeat is refused and the newer guard survives
+  ---
+  duration_ms: 3885.5699
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:687:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:689:15)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: after a partial release, the old request cannot replay as success over a NEWER block
+not ok 54 - 11 negative: after a partial release, the old request cannot replay as success over a NEWER block
+  ---
+  duration_ms: 3171.0279
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:713:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:715:17)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock
+not ok 55 - 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock
+  ---
+  duration_ms: 3095.1033
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:732:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    the audited request stays visible
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:739:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock
+not ok 56 - 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock
+  ---
+  duration_ms: 3114.3368
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:732:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    the audited request stays visible
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:739:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: every kind of unresolved row of the account stops the unblock, and rows of OTHER accounts never do
+not ok 57 - 11 negative: every kind of unresolved row of the account stops the unblock, and rows of OTHER accounts never do
+  ---
+  duration_ms: 8222.9707
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:754:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:770:16)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 resume: an audited request only resumes on the SAME guard generation, operator and payload
+not ok 58 - 11 resume: an audited request only resumes on the SAME guard generation, operator and payload
+  ---
+  duration_ms: 3871.498
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:774:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    a refused repeat never reaches Account
+    
+    4 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 4
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:791:10)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted
+not ok 59 - 11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted
+  ---
+  duration_ms: 2972.383
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:795:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:799:15)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 partial: a repeat while Account still holds the owner, or while Video has a rival row, writes nothing and keeps the guard
+not ok 60 - 11 partial: a repeat while Account still holds the owner, or while Video has a rival row, writes nothing and keeps the guard
+  ---
+  duration_ms: 3079.0525
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:812:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:814:3)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: the audited rows and the alert are re-read in phase 3, and any drift aborts without advancing anything
+not ok 61 - 11 negative: the audited rows and the alert are re-read in phase 3, and any drift aborts without advancing anything
+  ---
+  duration_ms: 3852.5038
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:832:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:851:14)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: an audited row that no longer exists in phase 3 aborts the release and the guard survives
+ok 62 - 11 negative: an audited row that no longer exists in phase 3 aborts the release and the guard survives
+  ---
+  duration_ms: 3112.5505
+  type: 'test'
+  ...
+# Subtest: 11 negative: an audited row that now belongs to another account in phase 3 aborts the release and the guard survives
+ok 63 - 11 negative: an audited row that now belongs to another account in phase 3 aborts the release and the guard survives
+  ---
+  duration_ms: 3111.8395
+  type: 'test'
+  ...
+# Subtest: 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt
+not ok 64 - 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt
+  ---
+  duration_ms: 3000.3648
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:875:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the first attempt is recorded as the operator supplied it
+    
+    undefined !== 8
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 8
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:881:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock
+ok 65 - 11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock
+  ---
+  duration_ms: 3176.4206
+  type: 'test'
+  ...
+# Subtest: 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back
+not ok 66 - 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back
+  ---
+  duration_ms: 1306.4232
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:903:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:912:53)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 an INTENT unblock leaves alone an admission guard that names another incident
+not ok 67 - 11 an INTENT unblock leaves alone an admission guard that names another incident
+  ---
+  duration_ms: 1330.2524
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:926:3'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:931:18)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 an INTENT unblock leaves alone an admission guard that is already clear
+not ok 68 - 11 an INTENT unblock leaves alone an admission guard that is already clear
+  ---
+  duration_ms: 1339.3782
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:926:3'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:931:18)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: the rows of the account are read through the transaction in phase 0 and in phase 3, never outside it
+not ok 69 - the rows of the account are read through the transaction in phase 0 and in phase 3, never outside it
+  ---
+  duration_ms: 3286.2409
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:939:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:948:16)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 12b a SECOND incident on a live guard stores its hold with the guard generation, so the drainer authorizes it and Account records it
+ok 70 - 12b a SECOND incident on a live guard stores its hold with the guard generation, so the drainer authorizes it and Account records it
+  ---
+  duration_ms: 4997.7153
+  type: 'test'
+  ...
+# Subtest: 11 an INTENT that diverges AGAIN after its unblock can be unblocked again: audit records are per occurrence
+not ok 71 - 11 an INTENT that diverges AGAIN after its unblock can be unblocked again: audit records are per occurrence
+  ---
+  duration_ms: 1235.1676
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:971:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:973:50)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 a hold that needed review when audited is handed back as applied, and a clear row is never touched twice
+not ok 72 - 11 a hold that needed review when audited is handed back as applied, and a clear row is never touched twice
+  ---
+  duration_ms: 3165.8264
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:994:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:997:53)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 a corrupt pending hold whose stored epoch disagrees with its id is never adopted, and keeps the Video guard
+not ok 73 - 11 a corrupt pending hold whose stored epoch disagrees with its id is never adopted, and keeps the Video guard
+  ---
+  duration_ms: 3200.938
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1006:3'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1009:55)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 a corrupt pending hold whose stored createdAtMs disagrees with its id is never adopted, and keeps the Video guard
+not ok 74 - 11 a corrupt pending hold whose stored createdAtMs disagrees with its id is never adopted, and keeps the Video guard
+  ---
+  duration_ms: 3220.2747
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1006:3'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1009:55)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 an intent with no work of its own exits to release_pending when its release was prepared
+not ok 75 - 11 an intent with no work of its own exits to release_pending when its release was prepared
+  ---
+  duration_ms: 3341.2293
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1018:3'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1023:55)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 an intent with no work of its own exits to reserve_pending otherwise
+not ok 76 - 11 an intent with no work of its own exits to reserve_pending otherwise
+  ---
+  duration_ms: 3066.1796
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1018:3'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1023:55)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: a failed Account phase leaves Video blocked and its rows untouched
+not ok 77 - 11 negative: a failed Account phase leaves Video blocked and its rows untouched
+  ---
+  duration_ms: 3206.0715
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1029:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    0 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1035:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it
+not ok 78 - 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it
+  ---
+  duration_ms: 3224.6882
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1045:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /synthetic Video crash/. Input:
+    
+    'Error: conflict'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async waitForActual (node:assert:646:5)
+    async strict.rejects (node:assert:769:25)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1051:3)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  operator: 'rejects'
+  stack: |-
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1051:3)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 12 a stale epoch or createdAtMs is refused and the current generation applies
+not ok 79 - 12 a stale epoch or createdAtMs is refused and the current generation applies
+  ---
+  duration_ms: 3565.3709
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1067:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1076:17)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone
+not ok 80 - 12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone
+  ---
+  duration_ms: 3311.5871
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1079:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1081:15)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 12b a re-block after an unblock is a NEW guard epoch, a new alert, and the sweep never duplicates either
+not ok 81 - 12b a re-block after an unblock is a NEW guard epoch, a new alert, and the sweep never duplicates either
+  ---
+  duration_ms: 3642.9386
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1105:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1114:3)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 12b the alert state carries the REAL epoch, so a second incident on a live block is a new alert
+ok 82 - 12b the alert state carries the REAL epoch, so a second incident on a live block is a new alert
+  ---
+  duration_ms: 5469.2156
+  type: 'test'
+  ...
+# Subtest: 13 the unblock works while another holder owns billingDrainLease/current and never takes it
+not ok 83 - 13 the unblock works while another holder owns billingDrainLease/current and never takes it
+  ---
+  duration_ms: 3388.3986
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-isolated-20261126\\server\\commercial\\billingUnblock.emulator.mjs:1143:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-isolated-20261126\server\commercial\billingUnblock.emulator.mjs:1148:16)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...

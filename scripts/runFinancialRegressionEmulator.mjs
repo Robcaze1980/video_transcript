@@ -15,9 +15,10 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedRootGuard.mjs';
 
-const project = 'demo-vistavo-ledger';
-const host = '127.0.0.1:8185';
+const project = 'demo-vistavo-financial';
+const host = '127.0.0.1:8198';
 // The total is counted from the real TAP output, not fixed. Only these voice tests may be skipped (voice stays
 // closed until reconciliation and privacy are closed); any other skip, failure or cancellation fails the run.
 const expectedSkippedNames = [
@@ -54,6 +55,13 @@ const tracked = Object.freeze([
   'server/commercial/accountReadOnlyRoot.ts',
   ...fixtureFiles,
   'server/commercial/financialFixtureSafety.mjs',
+  'server/commercial/financialOwnedRootGuard.mjs',
+  'scripts/checkFinancialOwnedRootGuard.mjs',
+  'scripts/runFinancialHarnessSelfchecks.mjs',
+  'scripts/checkFinancialRegressionEquivalence.mjs',
+  'scripts/prepareFinancialIsolation.mjs',
+  'scripts/InspectFinancialRegressionFirestore.java',
+  'scripts/runFinancialRegressionIsolated.ps1',
   'server/commercial/firestoreHttp.ts',
   'server/commercial/firestoreAiHttp.ts',
   'server/commercial/firestoreWorker.ts',
@@ -246,11 +254,12 @@ if (args.length === 1 && args[0] === '--prepare') {
     if (!stderr.includes('VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS') || stderr.includes('VISTAVO_REVIEW_NETWORK_DENIED')) fail(`Synthetic roots ${label} guard failed`);
     const value = JSON.parse(raw);
     if (value.version !== 1 || value.project !== project || value.host !== host || !value.collections ||
-        Object.keys(value.collections).sort().join(',') !== 'vistavo_ai_backend_test,vistavo_ai_integration_test,vistavo_backend_test' ||
+        JSON.stringify(Object.keys(value.collections).sort()) !== JSON.stringify([...FINANCIAL_ROOT_COLLECTIONS].sort()) ||
         Object.values(value.collections).some(items => !Array.isArray(items) || items.some(item => typeof item !== 'string' || !/^[a-f0-9]{64}$/.test(item)))) fail(`Invalid synthetic roots ${label} inventory`);
     return value;
   };
   const rootsBefore = await inventory('before');
+  if (Object.values(rootsBefore.collections).some(items => items.length !== 0)) fail('Dedicated synthetic roots must start empty');
   const stdoutPath = path.join(run, 'fixture.stdout.tap'), stderrPath = path.join(run, 'fixture.stderr.log');
   let out, err, timedOut = false, interrupted = false;
   let result = { exitCode: null, signal: null, error: 'Child was not started' };
