@@ -1,0 +1,4 @@
+# Exact run receipts, logs and manifests; preserve their original bytes.
+*.tap -text -diff
+*.json -text -diff
+*.log -text -diff

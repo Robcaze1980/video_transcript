@@ -17,7 +17,7 @@ import {privateBucket} from './privateObjectPlan.ts';
 import {ALERT_COLLECTION,alertKey,raisePendingAlerts} from './billingPendingAlerts.ts';
 import {readPendingReport} from './billingPendingReport.ts';
 import {acquireDrainLease,DRAIN_LEASE_COLLECTION,DRAIN_LEASE_DOC_ID} from './billingDrainLease.ts';
-import {blockedState,unblockBillingAccount,UnblockFault,UNBLOCK_AUDIT_COLLECTION,unblockAuditId} from './billingUnblock.ts';
+import {blockedState,unblockBillingAccount,UnblockFault,UNBLOCK_AUDIT_COLLECTION,UNBLOCK_CONTINUITY_COLLECTION,UNBLOCK_WRITER_CUT_ID,unblockAuditId} from './billingUnblock.ts';
 import {accountHoldId} from './billingHoldIdentity.ts';
 
 const project='demo-vistavo-financial',host='127.0.0.1:8198';
@@ -99,6 +99,13 @@ async function fixture(scope){
   const c={scope,db,root,accountRoot,roots:[root,accountRoot].map(document=>({root:document,marker:{project,purpose:'unblock-1.4b-synthetic-v1',nonce:randomUUID()}}))};
   contexts.push(c);created++;assertSafeClient(c);
   for(const entry of c.roots)await prepareFinancialOwnedRoot(c.db,entry.root,entry.marker);
+  // Test-only: the isolated root has no older writers; install the immutable cut before creating guards.
+  await assertFinancialOwnedRoot(c.db,c.root,c.roots[0].marker);
+  c.writerCut=ref(c.root,UNBLOCK_CONTINUITY_COLLECTION,UNBLOCK_WRITER_CUT_ID);
+  await c.writerCut.create({v:1,purpose:'unblock-writer-cut'});
+  const cut=await c.writerCut.get();
+  assert.deepEqual(cut.data(),{v:1,purpose:'unblock-writer-cut'});
+  assert.ok(cut.createTime&&cut.updateTime&&cut.createTime.isEqual(cut.updateTime),'the writer cut is immutable');
   c.backend=new FirestoreBackend(db,root);c.store=new AccountStore(db,accountRoot);
   c.uid='synthetic-unblock-owner-'+randomUUID();c.account=await c.backend.accountForUid(c.uid);
   await ref(root,'accounts',c.account).update({aiPilot:true,simulationOnly:true});
@@ -156,6 +163,14 @@ const versionOf=async(c,id)=>{const s=await outbox(c,id).get();return s.updateTi
  * incident, the hold and the guard through the REAL writer, and then Account is blocked through the real drainer path
  * (the hold id IS Account's incident id). Returns the guard generation the operator must name.
  */
+async function fixtureGuardAfterWriterCut(c){
+  const [guard,cut]=await Promise.all([guardOf(c).get(),c.writerCut.get()]);
+  assert.deepEqual(cut.data(),{v:1,purpose:'unblock-writer-cut'});
+  assert.ok(cut.createTime&&cut.updateTime&&cut.createTime.isEqual(cut.updateTime));
+  const a=guard.createTime,b=cut.createTime;
+  assert.ok(a&&b&&(a.seconds>b.seconds||a.seconds===b.seconds&&a.nanoseconds>b.nanoseconds),'the guard must be created strictly after the synthetic cut');
+  return guard.data();
+}
 async function blockedAccount(scope,options={}){
   const c=await fixture(scope),job=await captureJob(c);
   // Extra captured jobs are prepared BEFORE the block: a blocked account refuses new work, which is the point of the guard.
@@ -164,7 +179,7 @@ async function blockedAccount(scope,options={}){
   const {expected,snapshot}=await expectedAndSnapshot(c,job.id),version=await versionOf(c,job.id);
   const outcome=await c.backend.quarantineExternalBillingOutbox(job.id,{phase:'after_ack',snapshotVersion:version,expected,ack:{reservationId:randomUUID(),seconds:expected.seconds,state:'released'},settlementSnapshot:snapshot});
   assert.equal(outcome.state,'needs_review');assert.equal(outcome.ownerBlocked,true);
-  const guard=(await guardOf(c).get()).data();
+  const guard=await fixtureGuardAfterWriterCut(c);
   const holds=await c.root.collection('billingHoldOutbox').where('state','==','pending').get();
   assert.equal(holds.size,1,'the real writer leaves exactly one pending hold');
   const hold=holds.docs[0].get('id');
@@ -186,7 +201,7 @@ async function blockedIntentAccount(scope){
   const c=await fixture(scope),requestKey=randomUUID(),reservationId=randomUUID(),data={provider:'account_seconds',identityKey:c.identity,reservationId,seconds:2};
   await c.backend.beginExternalBillingIntent(c.account,c.input,requestKey,'translation:en',1,data);
   await c.backend.recordExternalBillingReview(c.account,requestKey,data,{reservationId,state:'captured',seconds:2});
-  const guard=(await guardOf(c).get()).data();
+  const guard=await fixtureGuardAfterWriterCut(c);
   const holds=await c.root.collection('billingHoldOutbox').where('state','==','pending').get();
   assert.equal(holds.size,1,'the real writer leaves exactly one pending hold');
   const hold=holds.docs[0].get('id');
@@ -1309,3 +1324,101 @@ test('retry-generation B: a lost confirmation is recovered from its receipt whil
   assert.equal(requested.get('accountCreatedAtMs'),g0.createdAtMs);
   assert.equal(receiptBefore.epoch,g1.epoch,'Account IS the durable authority for the generation the accepted receipt used');
 });
+
+// Isolated regression candidates: the Account mutation is never resent after an uncertain reply.
+// These cases use only the fresh synthetic roots and the in-process AccountStore above.
+test('an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('uncertain_unblock_no_receipt',{extraReleases:2}),{c,releases}=blocked;
+  for(const job of releases)await outbox(c,job.id).update({state:'pending',nextAttemptAt:0});
+  const foreignUid='synthetic-foreign-'+randomUUID(),foreign=await c.store.bootstrap(foreignUid),foreignIdentity=accountIdentityKey(foreignUid);
+  await ref(c.accountRoot,'accounts',foreign.account.id).update({credited:10,available:10});
+  await c.store.reserveVideo(foreignIdentity,randomUUID(),3);
+  const ownerBefore=await c.store.videoBalance(c.identity),foreignBefore=await c.store.videoBalance(foreignIdentity);
+  assert.deepEqual(ownerBefore,{unit:'video_seconds',credited:40,available:34,reserved:6,consumed:0,active:3});
+  const releaseBefore=await Promise.all(releases.map(job=>outbox(c,job.id).get()));
+  let posts=0,receipts=0;
+  const billing={
+    unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+    // Simulate delivery that is unknown to Video: Account has not recorded a receipt.
+    unblock:async(...args)=>{posts++;if(posts===1)throw new Error('synthetic uncertain delivery before Account mutation');return c.accountBilling.unblock(...args);},
+  };
+  const body=await request(c,blocked),isolated={db:c.db,root:c.root,accountBilling:billing};
+  await assert.rejects(unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(posts,1);assert.equal(receipts,1);
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+  const videoAfterFirst=await signatures(c.root),accountAfterFirst=await signatures(c.accountRoot);
+  await assert.rejects(unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(posts,1,'pending receipt does not authorize another POST');assert.equal(receipts,2);
+  assert.deepEqual(await signatures(c.root),videoAfterFirst);assert.deepEqual(await signatures(c.accountRoot),accountAfterFirst);
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  const releaseAfter=await Promise.all(releases.map(job=>outbox(c,job.id).get()));
+  for(let i=0;i<releases.length;i++){assert.deepEqual(releaseAfter[i].data(),releaseBefore[i].data());assert.equal(releaseAfter[i].updateTime.isEqual(releaseBefore[i].updateTime),true);}
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBefore);
+  await c.store.reserveVideo(foreignIdentity,randomUUID(),2);
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),{unit:'video_seconds',credited:10,available:5,reserved:5,consumed:0,active:2});
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore,'a different account can reserve without changing the blocked owner');
+});
+
+test('a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('uncertain_unblock_confirmed_receipt',{extraReleases:2}),{c,releases}=blocked;
+  for(const job of releases)await outbox(c,job.id).update({state:'pending',nextAttemptAt:0});
+  const foreignUid='synthetic-foreign-'+randomUUID(),foreign=await c.store.bootstrap(foreignUid),foreignIdentity=accountIdentityKey(foreignUid);
+  await ref(c.accountRoot,'accounts',foreign.account.id).update({credited:10,available:10});
+  await c.store.reserveVideo(foreignIdentity,randomUUID(),3);
+  const ownerBefore=await c.store.videoBalance(c.identity),foreignBefore=await c.store.videoBalance(foreignIdentity);
+  assert.deepEqual(ownerBefore,{unit:'video_seconds',credited:40,available:34,reserved:6,consumed:0,active:3});
+  let posts=0,receipts=0;
+  const billing={
+    unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+    unblock:async(...args)=>{posts++;const result=await c.accountBilling.unblock(...args);if(posts===1)throw new Error('synthetic lost reply after Account commit');return result;},
+  };
+  const body=await request(c,blocked),isolated={db:c.db,root:c.root,accountBilling:billing};
+  await assert.rejects(unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(posts,1);assert.equal(receipts,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'Account has one confirmed receipt');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video remains blocked while the reply is unknown');
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+  const recovered=await unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_001_000);
+  assert.equal(recovered.videoBlocked,false);assert.equal(posts,1,'recovery uses the receipt and never resends the POST');assert.equal(receipts,2);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  const start=c.transport.bodies.length;
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  for(const job of releases){
+    assert.equal(c.transport.bodies.slice(start).filter(call=>call.pathname.endsWith('/release')&&call.pathname.includes(job.reservationId)).length,1);
+    assert.equal((await c.store.videoReservation(c.identity,job.reservationId)).state,'released');
+    assert.equal((await outbox(c,job.id).get()).get('state'),'settled');
+  }
+  assert.deepEqual(await c.store.videoBalance(c.identity),{unit:'video_seconds',credited:40,available:38,reserved:0,consumed:2,active:0});
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBefore,'the other account is unchanged');
+});
+
+for(const cutState of ['missing','modified','recreated']){
+  test(`a ${cutState} writer cut cannot authorize an Account unblock`,{timeout:60000},async()=>{
+    const blocked=await blockedAccount('negative_writer_cut_'+cutState),c=blocked.c;
+    const ownerBefore=await c.store.videoBalance(c.identity);
+    // Every deletion is preceded by the exact marker check for this fresh synthetic root.
+    if(cutState==='missing'||cutState==='recreated'){
+      await assertFinancialOwnedRoot(c.db,c.root,c.roots[0].marker);
+      await c.writerCut.delete();
+    }
+    if(cutState==='modified')await c.writerCut.update({purpose:'synthetic-invalid-cut'});
+    if(cutState==='recreated'){
+      await c.writerCut.create({v:1,purpose:'unblock-writer-cut'});
+      const [guard,cut]=await Promise.all([guardOf(c).get(),c.writerCut.get()]),a=guard.createTime,b=cut.createTime;
+      assert.ok(a&&b&&(b.seconds>a.seconds||b.seconds===a.seconds&&b.nanoseconds>a.nanoseconds),'the recreated cut must be newer than the guard');
+    }
+    const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot),body=await request(c,blocked);
+    let posts=0;const states=[];
+    const billing={
+      unblockReceipt:async(...args)=>{const receipt=await c.accountBilling.unblockReceipt(...args);states.push(receipt.state);return receipt;},
+      unblock:async(...args)=>{posts++;return c.accountBilling.unblock(...args);},
+    };
+    await assert.rejects(unblockBillingAccount({db:c.db,root:c.root,accountBilling:billing},c.account,body,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+    assert.deepEqual(states,['pending']);assert.equal(posts,0);
+    assert.deepEqual(await signatures(c.root),videoBefore);assert.deepEqual(await signatures(c.accountRoot),accountBefore);
+    assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+    assert.equal((await guardOf(c).get()).get('blocked'),true);
+  });
+}
