@@ -1,0 +1,33 @@
+Revisión estática, sin herramientas ni edición. Base `61e64070c2ac6245caaee8eaad620feb68d9e246`, copia exacta de `server/account/backend.ts` y `unblockFence.test.ts` de `61c54b1`. No afirmo integración Video/Cuenta, rutas HTTP ni preparación para producción.
+
+**Corrección de los dos órdenes**
+- Orden A (confirm del predecesor primero): escribe `receipt`+`incident`+`guard`; todo `reconcile`/`confirm` posterior entra por la rama `receipt.exists` y devuelve `confirmed/replayed:true` sin reescribir (test 1: `writes=[receipt,incident,guard]`, anchor intacto).
+- Orden B (fence primero): `reconcile` fija el anchor a `(reconcileId, successorAttemptId, successorEpoch)`; el confirm del predecesor cae en `active.attemptId!==request.attemptId` → `conflict`; el sucesor confirma (tests 2, 3, 6).
+- POST del predecesor ya en vuelo: mismo corte por `active`/`epoch` (test 2, `late` → `conflict`, sin escrituras).
+- ACK perdido: la transacción aplica y luego lanza; el reintento lee anchor/receipt y reproduce; no hay reenvío ciego ni efecto económico (tests 1, 2, 3, 9; `economic()` invariante).
+- Idempotencia estructural: receipt keyed por `hash([accountId,incidentId,'unblock'])`, anchor por `hash([accountId,incidentId])` → un intento por incidente; contenido pinneado por `evidence`+`active`+`guardVersion`+versiones.
+
+**Propietario, repetición, aislamiento**
+- `accountId`/`uid` derivados del doc `identities` (no del request); `owner` fijado a `{ownerAccountId,identityKey,incidentId,unblockProtocol}`; `incidentKey` incluye `accountId` → aislamiento estructural. Tests 2 y 13 verifican que la cuenta `b` no cambia y que grant/identidad de otra cuenta → `conflict`.
+- El intento inicial se autoriza por el propio anchor de enrollment; el `grant` solo autoriza sucesores — por eso el confirm del predecesor no consulta el grant (test 13 omite `confirm` en `grant missing`/`grant from another owner`). No es un hueco, es el modelo; conviene dejarlo explícito.
+- Gate `NODE_ENV!=='test'` cierra los tres seams (test 15: 0 transacciones, 0 escrituras). Es un gate de entorno, no de permisos; aun abierto, sin anchor/grant/versiones preexistentes las llamadas dan `conflict`.
+
+**Rutas legadas (dos marcadores incondicionales)**
+- `unblockVideoBilling` y `videoBillingUnblockReceipt` lanzan `conflict` si incidente o receipt llevan `unblockProtocol`, sin gate de `NODE_ENV`. En prod solo afecta a cuentas enroladas; si el enrollment es solo de test → inerte; si llega a prod → es lo que impide que la ruta legada lea/escriba estado fenced, pero deja a la cuenta enrolada sin ruta legada de recuperación (brick si falta el grant). Debe decidirse y probarse aparte.
+- En `videoBillingUnblockReceipt` el chequeo va antes de `if(!record.exists)` → un receipt marcado sin incidente también da `conflict` (orden a valorar).
+
+**Límites / lo que los dobles no prueban**
+- El doble serializa por una cola global: no hay contención ni retry reales; los casos "concurrent" son secuenciales.
+- Sintetiza `createTime`/`updateTime` con contador `'42:N'` → unicidad por construcción. La detección de editar/restaurar y de delete/recreate depende de que Firestore cambie `updateTime` en cada escritura y de que `(seconds,nanoseconds)` sea único/monótono por documento: asumido, no medido.
+- El anchor es la única fila del fence sin pin de versión propio; se valida por contenido contra versiones derivadas. Un escritor privilegiado que lo recree idéntico o con otro `initialAttemptId` no se detecta (fuera del modelo de escritor confiable de test 14, pero residual).
+- IAM/security-rules de `videoBillingUnblockAttempts` y `videoBillingUnblockReconciliationGrants` no se prueban: "autoridad" = confiar en que solo el enrollment autorizado escribe el grant; `createTime===updateTime` lo protege de edición, no de borrado/recreación (grant perdido bloquea reconcile, confirm sucesor y hasta el replay: test 8).
+- Migración/enrollment ausentes (`enroll()` es del harness); no se prueban precondiciones (incidente activo, sin receipt legado previo).
+- Sin integración Video/Cuenta: el camino fenced no toca balances/ledger (confirmado por `economic()`), pero eso es "no mover saldo", no "no duplicar saldo" bajo una reserva real posterior.
+- Helpers `bad/invariant/billingHold/accountRecord/uidKey/identityKey/now` no están en el fragmento; sus códigos se asumen por los tests.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática de los fragmentos indicados (base 61e64070…, `backend.ts` y `unblockFence.test.ts` de 61c54b1), sin ejecución. Lógica de fence verificada en los dos órdenes, ACK perdido, aislamiento de cuentas, pin de versiones (`identity.updateTime`, `incident.createTime`, `guard.createTime`, `grant.createTime===updateTime`), gate `NODE_ENV` (test 15) y conservación de la ruta legada (test 14). Resultados locales declarados: 7 archivos, 127/127, `tsc` sin errores. Costo/uso: no medido. Alcance del PASS: corrección del prototipo local (pruebas in-memory); no es aprobación de dinero real ni de producción.
+NEGATIVOS: No hay pruebas de carrera/retry con Firestore real; el doble garantiza unicidad de versiones por construcción; el anchor carece de pin de versión propio; sin pruebas de IAM/security-rules, migración/enrollment ni recuperación por pérdida de grant; sin integración Video/Cuenta; los helpers citados no están en el fragmento; las dos validaciones de marcador en rutas legadas son incondicionales y cambian el comportamiento de cuentas enroladas.
+BLOQUEOS: Para aprobar dinero real faltan prueba de carrera/contención Firestore con reintentos, verificación de autoridad (escritura del grant y del anchor), IAM/reglas, corte/rollback, migración/enrollment y recuperación (grant perdido, recreación de identity/incident/guard). Falta además decisión explícita sobre el efecto de los marcadores incondicionales en las rutas legadas de producción.
+=== FIN RESUMEN ===

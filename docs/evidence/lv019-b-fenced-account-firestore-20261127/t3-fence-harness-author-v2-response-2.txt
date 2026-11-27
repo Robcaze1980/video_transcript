@@ -1,0 +1,17 @@
+```python
+TITLE_RENAMES = [
+    ('A: a confirmed predecessor whose response was discarded is recovered by reconciliation with no successor',
+     'Fenced predecessor before reconciliation'),
+    ('B: a reconciliation whose response was discarded is idempotent; late predecessor rejected, successor confirmed once',
+     'Fenced reconciliation before late predecessor'),
+    ('C: concurrent predecessor confirm vs reconciliation yields exactly one serialized winner',
+     'Fenced simultaneous predecessor and reconciliation'),
+]
+```
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Los tres pares corregidos incluyen ahora el prefijo literal `A: `, `B: `, `C: ` dentro de la cadena de origen, de modo que el reemplazo consume el título completo y lo deja como `Fenced predecessor before reconciliation`, `Fenced reconciliation before late predecessor` y `Fenced simultaneous predecessor and reconciliation`, que son exactamente las tres entradas de `selectedNames`; así el patrón anclado `^(?:...)$` del launcher vuelve a seleccionar las tres pruebas. Cada par se aplica con la aserción existente `if found != 1: raise`, que exige coincidencia exacta (falla si el conteo es 0 o ≥2) y por tanto no deja el título antiguo ni aplica reemplazos parciales; además el reemplazo se ancla al literal entrecomillado del nombre de la prueba, de modo que solo cambia la etiqueta del `test(...)` y el cuerpo permanece intacto. No se ejecutó nada ni se tocó el repositorio.
+NEGATIVOS: Sin herramientas no puedo confirmar en disco que estos sean los títulos literales ni que cada cadena con prefijo aparezca una sola vez en `server/account/unblockFence.emulator.mjs`; si el prefijo o el texto aparecieran más de una vez (p. ej. repetidos en el cuerpo), la aserción `count != 1` abortaría en lugar de editar, que es el comportamiento fail-closed previsto. No verifiqué que el cuerpo exacto entre `test(` y la coma no contenga la cadena del título. Este emulador local cerrado no demuestra reglas de producción.
+BLOQUEOS: Ninguno que impida revisar; la propuesta queda lista para que Codex la integre y la ejecute en el worktree separado sobre base `61e64070c2ac6245caaee8eaad620feb68d9e246` y valide el diff.
+=== FIN RESUMEN ===

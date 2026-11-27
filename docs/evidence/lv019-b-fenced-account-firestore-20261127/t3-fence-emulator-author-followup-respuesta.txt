@@ -1,0 +1,88 @@
+Otras correcciones necesarias (sin tocar runtime):
+- Comentario de cabecera de `seedAccount`: la afirmación «authentic balance» era falsa; ahora refleja la reserva real vía `reserveVideo`.
+- `signature`: agrego la versión `updateTime` real por documento (comparada firma-vs-firma, nunca contra tiempos inventados).
+- `economicState`: captura los `ledgerEntries` del dueño por query y ordena por path; ya no usa refs de ledger ficticias.
+- Supuestos que deben confirmarse al ejecutar: nombre de campo de ledger `ownerAccountId`, campos de cuenta `reserved`/`consumed`/`active`, campo de reserva `seconds`, y ruta de identidad `identities/{identityKey}`.
+
+```js
+async function signature(f){
+ const rows=[];
+ for(const name of ['accounts','videoBillingGuards','videoBillingIncidents','videoBillingUnblocks','videoBillingUnblockAttempts','videoBillingUnblockReconciliationGrants']){
+  const snap=await f.root.collection(name).get();
+  for(const doc of snap.docs)rows.push([doc.ref.path,JSON.stringify(doc.data()),stampVersion(doc,'updateTime')]);
+ }
+ return rows.sort((a,b)=>a[0]<b[0]?-1:1);
+}
+```
+
+```js
+// Fictional balance booked through the real reserveVideo path; guard + active incident; seeded anchor/grant.
+async function seedAccount(f,label,{fence=true}={}){
+ const uid='synthetic-fence-'+label;
+ const boot=await f.store.bootstrap(uid);
+ const accountId=boot.account.id,identityKey=AccountStore.identityKey(uid),incidentId=hex64('incident:'+label);
+ const account=f.root.collection('accounts').doc(accountId);
+ await account.update({credited,available:credited});
+ // One real reservation of 3 seconds through the production method, before any block exists.
+ const reservationId=randomUUID();
+ await f.store.reserveVideo(identityKey,reservationId,reserved);
+ const reservation=f.root.collection('videoReservations').doc(hash([accountId,reservationId]));
+ const booked=await dataOf(account);
+ assert.equal(booked.credited,credited);
+ assert.equal(booked.available,available);
+ assert.equal(booked.reserved,reserved);
+ assert.equal(booked.consumed,0);
+ assert.equal(booked.active,1);
+ const held=await dataOf(reservation);
+ assert.ok(held,'real reservation document required');
+ assert.equal(held.ownerAccountId,accountId);
+ assert.equal(held.state,'reserved');
+ assert.equal(held.seconds,reserved);
+ const ledgerRows=(await f.root.collection('ledgerEntries').where('ownerAccountId','==',accountId).get()).docs;
+ assert.ok(ledgerRows.length>=1,'the real reservation books at least one ledger row');
+ const epoch=1,createdAtMs=5,incidentCount=1,reviewRef='synthetic-evidence-'+label;
+ const guard=guardRef(f,accountId),incident=incidentRef(f,accountId,incidentId),anchor=anchorRef(f,accountId,incidentId);
+ await guard.set({ownerAccountId:accountId,identityKey,incidentId,blocked:true,incidentCount,epoch,createdAtMs,updatedAtMs:createdAtMs});
+ await incident.set({ownerAccountId:accountId,identityKey,incidentId,unblockProtocol:'fenced_v1',state:'active',createdAtMs});
+ const identityVersion=stampVersion(await f.root.collection('identities').doc(identityKey).get(),'updateTime');
+ const incidentVersion=stampVersion(await incident.get(),'createTime');
+ const guardVersion=stampVersion(await guard.get(),'createTime');
+ assert.ok(identityVersion&&incidentVersion&&guardVersion,'real Firestore versions required');
+ const authorizationSha256=hash(['operator-decision',label]);
+ const original={ownerAccountId:accountId,identityKey,incidentId,unblockProtocol:'fenced_v1',createdAtMs,reviewRef,authorizationSha256,identityVersion,incidentVersion,guardVersion};
+ const attemptId=randomUUID(),successorAttemptId=randomUUID(),reconcileId=randomUUID();
+ // Seeded only in test: stand-in for a protected, previously authorized enrollment (contract shape).
+ await anchor.set({...original,initialAttemptId:attemptId,initialEpoch:epoch});
+ if(fence)await grantRef(f,accountId,incidentId,reconcileId).set({...original,previousAttemptId:attemptId,previousEpoch:epoch,reconcileId,attemptId:successorAttemptId,epoch});
+ const initial={incidentId,attemptId,epoch,createdAtMs,reviewRef,authorizationSha256};
+ const successor={...initial,attemptId:successorAttemptId};
+ const change={...successor,previousAttemptId:attemptId,previousEpoch:epoch,reconcileId};
+ return {uid,accountId,identityKey,incidentId,epoch,createdAtMs,reviewRef,authorizationSha256,original,attemptId,successorAttemptId,reconcileId,initial,successor,change,guard,incident,anchor,reservation};
+}
+```
+
+```js
+async function economicState(f,a,b){
+ const ledgerRows=async(accountId)=>(await f.root.collection('ledgerEntries').where('ownerAccountId','==',accountId).get()).docs
+  .map(doc=>[doc.ref.path,doc.data()]).sort((x,y)=>x[0]<y[0]?-1:1);
+ return {
+  account:await dataOf(f.root.collection('accounts').doc(a.accountId)),
+  reservation:await dataOf(a.reservation),
+  ledger:await ledgerRows(a.accountId),
+  rivalAccount:await dataOf(f.root.collection('accounts').doc(b.accountId)),
+  rivalReservation:await dataOf(b.reservation),
+  rivalLedger:await ledgerRows(b.accountId),
+  rivalGuard:await dataOf(b.guard),
+  rivalIncident:await dataOf(b.incident),
+  rivalAnchor:await dataOf(b.anchor),
+  rivalGrant:await dataOf(grantRef(f,b.accountId,b.incidentId,b.reconcileId)),
+ };
+}
+```
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `seedAccount` ahora fija crédito 20 / disponible 20 y crea una reserva real de 3 con `store.reserveVideo(identityKey,reservationId,reserved)` (reservationId=UUID) antes de sembrar el bloqueo; resuelve la ref como `hash([accountId,reservationId])` y verifica contra el Firestore REAL: cuenta `credited=20,available=17,reserved=3,consumed=0,active=1`, reserva `state:'reserved',seconds:3,ownerAccountId=accountId`, y al menos una fila de `ledgerEntries` del dueño por query. `economicState` captura la reserva real y los ledger rows del dueño por query, ordenados por path. `signature` incluye la versión `updateTime` real por documento y se compara firma-vs-firma (sin tiempos inventados), de modo que ahora prueba ausencia de escrituras idénticas en los replays. Tests A/B/C se mantienen y siguen cubriendo recuperación sin sucesor, reconciliación idempotente con rechazo tardío del predecesor, y concurrencia `Promise.allSettled` con XOR recibo/fence y `<=1` recibo; root limpio por `deleteFinancialOwnedRoot` en `afterEach`. `anchor`/`grant` se siembran solo en prueba con la forma exacta del contrato.
+NEGATIVOS: No ejecutado (solo autoría; sin evidencia de runtime). No demuestra IAM, corte real de autoridad, seguridad ante escritor privilegiado, caída de red real ni integración Video; `reserveVideo` y el directo seed emulan autorización previa y no prueban autoridad real. No confirmados sin ejecución: campo `ownerAccountId` en `ledgerEntries`, campos `reserved`/`consumed`/`active` en `accounts`, campo `seconds` en la reserva y ruta `identities/{identityKey}`. Costo/uso: no medido.
+BLOQUEOS: Requiere ejecutar con `NODE_ENV=test` contra `FIRESTORE_EMULATOR_HOST=127.0.0.1:8198` y revisión independiente GLM + DeepSeek antes de aceptar.
+=== FIN RESUMEN ===

@@ -1,0 +1,54 @@
+```json
+{
+  "portPaths": [
+    "server/account/backend.ts",
+    "server/account/unblockFence.test.ts"
+  ],
+  "sourceCommit": "61c54b1",
+  "preservePaths": [
+    "fixtures de emulador Firestore ya existentes (rutas concretas no confirmadas sin inspección) — no sustituir ni regenerar",
+    "server/account/backend.ts#blob:082c974 (pre-imagen base) — aplicar solo el parche, no reescribir el resto del archivo",
+    "pruebas legacy existentes de unblock/receipt/guard en server/account/*.test.ts — conservar intactas",
+    "colecciones legadas videoBillingIncidents, videoBillingUnblocks y videoBillingGuards — no renombrar ni migrar en este cambio"
+  ],
+  "limitations": {
+    "candidateVerdict": "Apta como candidata LOCAL CERRADA solo de forma condicional. Las tres entradas nuevas (reconcileVideoBillingUnblockAttempt, confirmFencedVideoBillingUnblockAttempt, fencedVideoBillingUnblockReceipt) quedan cerradas fuera de NODE_ENV=test, sin ruta ni emisor. Pero el parche NO es totalmente inerte fuera de test: añade dos controles incondicionales sobre unblockProtocol en los caminos legacy. Hoy son fail-closed y solo se disparan si el campo existe, y solo el camino cercado lo escribe; por tanto no alteran el comportamiento actual, pero contradicen la afirmación de cierre total y deben declararse como cambio de comportamiento condicionado al dato, no como código muerto.",
+    "testNamesAssessment": "15 pruebas con estilo it(...) en inglés, nombres descriptivos y alineados con el código: la última coincide con las tres entradas nuevas; hay una prueba de documentación de frontera de confianza (fixture privilegiado recrea un recibo idéntico) que no es una garantía sino un límite reconocido. Inconsistencias menores de vocabulario: 'conciliators' frente al método reconcile, y uso de ACK/POST. Varias pruebas dependen del acoplamiento guard.epoch vs successorEpoch en la rama de confirmación; ese acoplamiento debe quedar confirmado por la propia suite, no supuesto.",
+    "compatibility": [
+      "Entradas deben ser objetos planos del mismo realm: Object.getPrototypeOf(value)===Object.prototype falla con objetos de otro realm/vm.",
+      "tsconfig con lib/target >= ES2022 por Object.hasOwn; ES2017 por getOwnPropertyDescriptors; Reflect.ownKeys.",
+      "Import del tipo DocumentSnapshot desde firebase-admin/firestore presente en la base; si falta, la copia exacta no compila.",
+      "Símbolos de base requeridos: identityFromKey, uidKey, id, incidentId, integer, bad, invariant, accountRecord, billingHold, hash, uuid, reviewRefValid, digestValid, AccountFault, this.db, this.root, this.now.",
+      "Base backend byte-idéntico al ancestro 0244bfc (pre-imagen 082c974) para que el parche aplique limpio.",
+      "Emulador Firestore real y capacidad de alternar NODE_ENV dentro de la prueba de cierre; colecciones nuevas creadas al vuelo, sin índices compuestos ni reglas."
+    ],
+    "missingGuarantees": {
+      "autoridadReal": "authorizationSha256 se valida solo como 64 hex; no hay firma, emisor, vigencia ni vínculo criptográfico con el permiso. reviewRef es una cadena acotada sin enlace al repositorio de evidencia. No hay autoridad externa que respalde la decisión.",
+      "corte": "No existe bandera de despliegue, ruta ni emisor; el corte solo es implícito por los dos controles legacy incondicionales. No hay apagado ni activación controlada del camino cercado.",
+      "migracion": "Sin backfill de unblockProtocol ni tratamiento de incidentes/guards creados antes o entre el cerco y un futuro corte; sin retirada del camino legacy.",
+      "iam": "Sin reglas de Firestore ni denegación de cliente para videoBillingUnblockAttempts y videoBillingUnblockReconciliationGrants; sin verificación de índices. No se toca Cloud SQL por diseño, pero el hueco de IAM queda abierto.",
+      "restauracion": "Los testigos de versión derivan de createTime/updateTime; una restauración desde respaldo puede revalidar un grant copiado o alterar timestamps. La prueba del escritor privilegiado documenta, no resuelve, esta frontera.",
+      "firestoreRaces": "Dos órdenes dependen únicamente de la serialización de transacciones: (i) confirm/reconcile concurrentes sobre el documento ancla; (ii) camino cercado frente a unblock legacy sobre guard/incident/receipt compartidos. No hay lock explícito, token CAS expuesto, ni manejo de reintentos por aborto más allá del comportamiento por defecto. La coexistencia legacy-vs-cercado solo está probada de forma secuencial, no concurrente."
+    },
+    "extraRisk": "Copia exacta no verifica por sí sola el import de DocumentSnapshot, el lib ES2022 ni la ausencia de colisiones con fixtures; sin esas confirmaciones la copia puede no compilar o pisar datos de emulador.",
+    "testCommands": [
+      "git hash-object server/account/backend.ts  -> debe ser 164ce680a00b5d8c61bc29799a23e9fbc5490e41",
+      "git hash-object server/account/unblockFence.test.ts  -> debe ser c5b09c3f9209ef6fa5b25fd4791e363d47e322e4",
+      "git diff 61c54b1 -- server/account/backend.ts server/account/unblockFence.test.ts  (vacío = copia exacta)",
+      "npx tsc --noEmit (o script typecheck vigente) para confirmar lib ES2022 y el import de DocumentSnapshot",
+      "npm run lint (según package.json vigente)",
+      "firebase emulators:exec --only firestore --project demo-linguistvision \"<runner> run server/account/unblockFence.test.ts\" (emulador real, nunca un doble serial como Firestore real)",
+      "<runner> run server/account  (regresión completa: unblock/receipt/guard legacy + nuevas)",
+      "prueba de cierre con NODE_ENV!=test confirmando AccountFault('conflict') en las tres entradas"
+    ],
+    "reviewPolicy": "T3 obligatorio para código con dos revisores independientes (GLM y DeepSeek) por tocar bloqueos/contratos de Cuenta; revisión estática en una sola consulta con bloque final obligatorio. Solo emulador, sin nube ni saldos reales; no cambiar permisos/modelos/Cloud SQL. Este prototipo no es producción ni solución final."
+  }
+}
+```
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Examiné el diff provisto, los dos hashes de blob, el gating por NODE_ENV y los 15 nombres de pruebas. Propondría portar exactamente los dos blobs de 61c54b1 sobre base 61e64070c2ac6245caaee8eaad620feb68d9e246 (backend idéntico al ancestro 0244bfc), preservando fixtures de emulador y el resto de backend.ts. La copia sirve como candidata local cerrada de forma condicional: las tres entradas nuevas quedan cerradas fuera de test, pero los dos controles legacy sobre unblockProtocol son incondicionales (fail-closed) y deben declararse como cambio condicionado al dato, no como código inerte. Exige compatibilidad ES2022, import de DocumentSnapshot y símbolos de base presentes.
+NEGATIVOS: Cero herramientas y cero ejecución por indicación; no verifiqué hashes, compilación, imports, tsconfig ni estado de fixtures; no corrí emulador ni pruebas; no revisé package.json. Faltan garantías de autoridad real, corte, migración, IAM, restauración y las dos órdenes de carrera en Firestore. No reproduje los archivos.
+BLOQUEOS: Prerrequisitos sin confirmar (import DocumentSnapshot, lib ES2022, pre-imagen 082c974, fixtures intactas) impiden un PASS; deben verificarse con los comandos listados. Costo y tokens no medidos.
+=== FIN RESUMEN ===

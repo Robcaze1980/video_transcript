@@ -1,0 +1,14 @@
+Reevaluado solo de forma estática, para alcance estrictamente prototipo local.
+
+**Cobertura nueva frente a mis reservas previas.** Los tests 285–307 cierran el hueco de aislamiento entre cuentas: la línea 303 rechaza intento cruzado (identidad B, cambio A) y 304–305 exigen estado y escrituras sin cambio, incluyendo recreación de guard/incidente/identidad y grant ajeno. El 309–322 confirma que la ruta legada sigue operando para la cuenta no fenced (b) y rechaza la fenced (a), por lo que los chequeos incondicionales son fail-closed y ahora están probados. El 339–349 verifica el cierre de los tres métodos fuera de `NODE_ENV=test` con `transactions()===0` y sin escrituras. El 324–337 documenta honestamente el borde de confianza: un escritor privilegiado puede recrear un recibo idéntico; no se presenta como garantía de seguridad real.
+
+**Hallazgos residuales.** (1) Título del 285 promete «fails closed» en todos los escenarios, pero en `grant missing` y `grant from another owner` se omite el `confirm` (línea 302); el predecesor no consulta el grant, así que esa rama no queda cubierta por el test, solo por lectura del runtime. (2) La prueba concurrente corrió una vez y acepta cualquier resultado; no demuestra que se observaran ambos órdenes ni excluye empates reales. (3) La pérdida de ACK es simulada descartando el resultado, no caída de red. (4) `identity` fijado por `updateTime` y `nextGuardReview` pueden lanzar `invariant` en rutas no probadas.
+
+**Dictamen.** Para el runtime y la fixture del prototipo, sin contradicciones autor/runtime y con propiedad de mutación única, rechazo tardío y recibo único sostenidos, considero la evidencia local suficiente. No certifica producción ni arnés.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática de `runFencedUnblock`/`fenced_v1` y fixtures 285–349. Cross-account rechazado (303) y sin escrituras (305); recreación de guard/incidente/identidad y grant ajeno rechazadas; ruta legada preservada para b y rechazada para a (309–322); tres métodos cerrados fuera de test con 0 transacciones y 0 escrituras (339–349); fence único en anchor, recibo determinista, replays sin escritura, predecesor tardío en conflicto. Node 24: 127/127 y tsc OK.
+NEGATIVOS: El caso `grant missing`/`grant from another owner` no ejerce `confirm` pese al título; el predecesor no consulta grant. Concurrencia ejecutada una vez y con resultado abierto: no prueba ambos órdenes ni excluye empate real. Pérdida de ACK simulada, no red real. `identity` por `updateTime` frágil; `nextGuardReview` puede lanzar `invariant` en reconcile. Costo/uso no medidos.
+BLOQUEOS: Autoridad real/IAM, writer cut, migración, restauración, endpoint y Video sin demostrar. Veredicto válido solo como prototipo local; no certifica producción ni arnés.
+=== FIN RESUMEN ===

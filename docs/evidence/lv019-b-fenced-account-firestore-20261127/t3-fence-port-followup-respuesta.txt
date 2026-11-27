@@ -1,0 +1,18 @@
+Sí. Precondiciones estáticas satisfechas para probar la copia exacta únicamente como prototipo local y cerrado: base 61e64070… con `backend.ts` blob `082c974c…` idéntico a `0244bfc` (pre-imagen 082c974 del parche, aplica limpio), `DocumentSnapshot` importado desde `firebase-admin/firestore`, `target`/`lib` ES2022, `unblockFence.test.ts` ausente en la candidata (sin colisión), y alcance limitado a dos blobs sin tocar fixtures ni el resto del diff.
+
+Riesgos y límites abiertos (no bloquean la prueba local, sí el cierre):
+- Las dos guardas de `unblockProtocol` son incondicionales también fuera de test: fail-closed, no código inerte. No declarar el parche como totalmente cerrado.
+- Sin autoridad real: `authorizationSha256` es solo 64 hex, sin firma, emisor, vigencia ni vínculo criptográfico; `reviewRef` no enlaza evidencia.
+- Sin corte real: no hay bandera, ruta ni emisor; el corte es solo implícito.
+- Sin migración ni backfill de `unblockProtocol`; sin retirada del camino legacy.
+- Sin IAM: faltan reglas de Firestore e índices para `videoBillingUnblockAttempts` y `videoBillingUnblockReconciliationGrants`.
+- Sin garantía de restauración: los testigos `createTime`/`updateTime` pueden revalidar un grant copiado.
+- Sin prueba real de las dos carreras Firestore: confirm/reconcile sobre el ancla, y camino cercado vs. `unblock` legacy sobre guard/incident/receipt (coexistencia probada solo secuencial).
+- La copia exacta sigue sin ser producción ni solución final.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Verifiqué contra tus datos de worktree limpio 61e64070c2ac6245caaee8eaad620feb68d9e246: blob 082c974c… idéntico a 0244bfc (coincide con la pre-imagen del parche), import de DocumentSnapshot presente, ES2022 confirmado, unblockFence.test.ts ausente en la candidata, y copia restringida a dos blobs sin tocar fixtures. Las precondiciones estáticas se cumplen; procede compilar y probar solo como prototipo local cerrado, con dos revisores T3 y sin nube ni saldos reales.
+NEGATIVOS: No ejecuté herramientas ni pruebas (por indicación). Quedan abiertos: guardas de protocolo incondicionales fuera de test, autoridad real, corte de escritores, IAM/reglas/índices, migración, restauración y las dos órdenes de carrera en Firestore. No verifiqué compilación ni suite. No es producción ni solución final.
+BLOQUEOS: Ninguno para la prueba local del prototipo; el PASS no autoriza corte, despliegue ni migración. Costo y tokens no medidos.
+=== FIN RESUMEN ===

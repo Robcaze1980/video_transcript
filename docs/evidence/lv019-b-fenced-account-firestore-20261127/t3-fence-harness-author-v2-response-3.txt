@@ -1,0 +1,18 @@
+```python
+def build_ps1(text):
+    # Rename UnblockFocus/unblock-focus -> UnblockFence/unblock-fence in paths,
+    # names and checks, then pin base. The original dedicated-port guard is left
+    # byte-for-byte intact: it throws immediately if 8198/9198/9298 is already in
+    # use, never waits and never touches a foreign process. Port-free readiness is
+    # verified by the operator before execution.
+    text = rename_artifacts(text, 'ps1')
+    text = replace_count(text, BASE_OLD, BASE_NEW, 'ps1.base', 1)
+    return text
+```
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: La nueva `build_ps1` conserva la guardia original sin cambios: `rename_artifacts` sustituye `UnblockFocus`→`UnblockFence` y `unblock-focus`→`unblock-fence` en rutas, nombres y comprobaciones, y `replace_count` fija la base `e4ed64dc87122352d68ac68763b653308a377787`→`61e64070c2ac6245caaee8eaad620feb68d9e246` con aserción de coincidencia exacta (=1, falla si es distinta). No se añade bucle de espera ni se elimina la guardia previa: el bloque original `if (@($before | Where-Object LocalPort -in $fixedPorts).Count) { throw 'A dedicated port is already in use' }` queda intacto, por lo que un puerto ocupado (8198/9198/9298) provoca fallo inmediato y la limpieza sigue operando solo sobre handles propios, sin matar procesos ajenos. No se ejecutó nada ni se tocó el repositorio.
+NEGATIVOS: Sin herramientas no compruebo en disco el contenido exacto de `runUnblockFocusIsolated.ps1` ni que los tokens aparezcan en los puntos esperados; si `UnblockFocus`/`unblock-focus` o la base no aparecieran (o aparecieran de más en el punto de la base), `rename_artifacts`/`replace_count` abortarían en vez de editar. Asumo que la guardia de puerto original es la que describo; no verifiqué la ausencia de otras rutas de terminación de procesos. El emulador local cerrado no demuestra reglas de producción.
+BLOQUEOS: Ninguno que impida revisar; queda lista para que Codex la integre y la ejecute en el worktree separado sobre base `61e64070c2ac6245caaee8eaad620feb68d9e246`, verificando el puerto libre antes de correr.
+=== FIN RESUMEN ===
