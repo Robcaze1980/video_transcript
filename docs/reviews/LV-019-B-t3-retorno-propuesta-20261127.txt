@@ -1,0 +1,49 @@
+=== CODIGO ===
+for(const between of ['applied','needs_review']){
+  test('11 resume: a hold that moved to '+between+' between the audited read and the release does not strand the unblock',{timeout:60000},async()=>{
+    const blocked=await blockedAccount('unblock_hold_between_'+between),c=blocked.c;
+    await ref(c.root,'billingHoldOutbox',blocked.hold).update({state:'pending',nextAttemptAt:Date.now()});
+    const requestBody=await request(c,blocked);
+    // Account receives exactly one real unblock on the local double: it commits, then the reply is lost before Video learns the outcome.
+    let posts=0,receipts=0;
+    const billing={
+      unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+      unblock:async(...args)=>{posts++;const result=await c.accountBilling.unblock(...args);if(posts===1)throw new Error('synthetic lost reply after Account commit');return result;},
+    };
+    const isolated={db:c.db,root:c.root,accountBilling:billing};
+    await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+    assert.equal(posts,1,'the lost-reply path sends exactly one POST to Account');
+    assert.equal(receipts,1,'the first attempt reads the receipt once');
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'Account committed exactly one unblock receipt');
+    const requested=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
+    assert.equal(requested.exists,true,'the audited request stays visible');
+    assert.equal(requested.get('planned').find(row=>row.collection==='billingHoldOutbox')?.state,'pending','the hold was pending when audited');
+    // The drainer (or the authorizer) moves the hold after the audit; recovery must go through the receipt and never resend the POST.
+    await ref(c.root,'billingHoldOutbox',blocked.hold).update(between==='applied'?{state:'applied',appliedAtMs:Date.now()}:{state:'needs_review'});
+    const result=await unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_005_000);
+    assert.equal(result.unblocked,true);assert.equal(result.videoBlocked,false,'the repeat completes the release');
+    assert.equal(posts,1,'recovery uses the receipt and never resends the POST');
+    assert.equal(receipts,2,'recovery reads the receipt exactly twice in total');
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'recovery writes no second Account receipt');
+    assert.equal((await guardOf(c).get()).exists,false);
+    assert.equal((await ref(c.root,'billingHoldOutbox',blocked.hold).get()).get('state'),'applied','the hold ends applied');
+    const alert=await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get();assert.equal(alert.get('status'),'dispositioned');
+  });
+}
+=== FIN CODIGO ===
+
+Qué no pude comprobar (no usé herramientas, solo los extractos):
+
+- No leí el archivo completo: `request(c, blocked)` asumo que solo construye el cuerpo y que la solicitud auditada (`unblock_requested`) la crea la primera llamada a `unblockBillingAccount` (coherente con el hermano `1364`, donde el primer intento es `fresh` → `posts===1`). Si `request()` también mutara estado, la posición de las aserciones y los contadores cambiarían.
+- No pude confirmar cuántas veces se consulta `deps.accountBilling.unblockReceipt` por invocación. Los contadores asumen exactamente una lectura por llamada (de ahí `receipts===1` y `receipts===2`); el hermano `1364` lo respalda, pero no lo verifiqué en el código.
+- No pude confirmar el `stage` del fallo del primer intento: conservé el predicado original (solo `error.code==='conflict'`) y no añadí `stage==='account'`, aunque el test `1364` sí lo fija para un flujo equivalente.
+- La aserción sobre `c.accountRoot.collection('videoBillingUnblocks')` proviene del test `1364` en la misma revisión; no verifiqué el nombre de la colección ni que el doble local escriba exactamente un documento.
+- No verifiqué que ambas variantes terminen con el hold en `applied` y la alerta en `dispositioned`: son las aserciones heredadas del test original, que preservé.
+- No ejecuté nada; no hay prueba local ni evidencia de ejecución en esta respuesta.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Bloque `for(const between of ['applied','needs_review'])` reescrito: doble `billing` con `unblockReceipt` real, un único `unblock` real que confirma y luego pierde la respuesta (`posts===1`, `receipts===1`); se conserva la comprobación de la solicitud auditada con el hold `pending`, se cambia el hold según la variante y se reanuda vía `unblockReceipt` sin reenviar (`posts===1`, `receipts===2`); preservadas las aserciones de guardián, alerta y hold final. Derivado de los extractos entregados (`billingUnblock.emulator.mjs` 171-198/740-769/1364-1394, `billingUnblock.ts` 384-421/448-475).
+NEGATIVOS: No ejecuté pruebas ni leí el archivo; asumo una lectura del recibo por invocación, que `request()` no muta estado, el nombre `videoBillingUnblocks`, y no añadí la comprobación de `stage==='account'`.
+BLOQUEOS: Verificación pendiente en Codex (aplicar y correr la regresión local) y las suposiciones sobre el número de lecturas del recibo y los efectos de `request()`, que no pueden confirmarse desde los extractos.
+=== FIN RESUMEN ===

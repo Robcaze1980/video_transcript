@@ -748,15 +748,27 @@ for(const between of ['applied','needs_review']){
     const blocked=await blockedAccount('unblock_hold_between_'+between),c=blocked.c;
     await ref(c.root,'billingHoldOutbox',blocked.hold).update({state:'pending',nextAttemptAt:Date.now()});
     const requestBody=await request(c,blocked);
-    const failing={db:c.db,root:c.root,accountBilling:{unblock:async()=>{throw Object.assign(new Error('synthetic'),{code:'not_found'});}}};
-    await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+    // Account receives exactly one real unblock on the local double: it commits, then the reply is lost before Video learns the outcome.
+    let posts=0,receipts=0;
+    const billing={
+      unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+      unblock:async(...args)=>{posts++;const result=await c.accountBilling.unblock(...args);if(posts===1)throw new Error('synthetic lost reply after Account commit');return result;},
+    };
+    const isolated={db:c.db,root:c.root,accountBilling:billing};
+    await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+    assert.equal(posts,1,'the lost-reply path sends exactly one POST to Account');
+    assert.equal(receipts,1,'the first attempt reads the receipt once');
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'Account committed exactly one unblock receipt');
     const requested=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
     assert.equal(requested.exists,true,'the audited request stays visible');
     assert.equal(requested.get('planned').find(row=>row.collection==='billingHoldOutbox')?.state,'pending','the hold was pending when audited');
-    // The drainer (or the authorizer) moves the hold after the audit.
+    // The drainer (or the authorizer) moves the hold after the audit; recovery must go through the receipt and never resend the POST.
     await ref(c.root,'billingHoldOutbox',blocked.hold).update(between==='applied'?{state:'applied',appliedAtMs:Date.now()}:{state:'needs_review'});
-    const result=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_005_000);
+    const result=await unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_005_000);
     assert.equal(result.unblocked,true);assert.equal(result.videoBlocked,false,'the repeat completes the release');
+    assert.equal(posts,1,'recovery uses the receipt and never resends the POST');
+    assert.equal(receipts,2,'recovery reads the receipt exactly twice in total');
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'recovery writes no second Account receipt');
     assert.equal((await guardOf(c).get()).exists,false);
     assert.equal((await ref(c.root,'billingHoldOutbox',blocked.hold).get()).get('state'),'applied','the hold ends applied');
     const alert=await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get();assert.equal(alert.get('status'),'dispositioned');

@@ -1,0 +1,5 @@
+# LV-019.B · Propuesta T3 para recuperación de hold
+
+El 27 nov 2026 DeepSeek, mediante la instancia T3 `linguistvision-openrouter`, propuso en una sola respuesta sin herramientas la adaptación de las dos variantes del test de hold. Codex aplicó literalmente el bloque devuelto en la fixture aislada. [Respuesta completa](LV-019-B-t3-retorno-propuesta-20261127.txt).
+
+El estado del hilo `mcp:f0f0a490-15fc-44f4-aad6-9020fadd071a` fue `completed` y la respuesta contiene código y bloque final **INCONCLUYENTE**; el estado del hilo no certifica el resultado. Codex comprobó sintaxis con `node --check`. Aún faltan la ejecución en emulador, la revisión independiente y la regresión financiera integrada. La pieza es solo una prueba: no cambia runtime ni habilita video, saldo real o despliegue. Tokens y costo del hilo: no medidos.
