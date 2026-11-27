@@ -1,0 +1,26 @@
+# Revisión estática independiente
+
+Solicitud: 3cc1f01774980cb80e3e5d378a5bd3b05c063e9e05cdb2185308027be664ff0c
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 13972/0/11958
+Costo observado USD: 0.005369661
+SHA-256 del informe original: 21945e33e9278c8ea6c7f76aa118abfea6741a1a9d08ae82851c045877f26a31
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión acotada al traslado de la guarda de propiedad en `unblockBillingAccount`.
+
+1) La línea movida cumple su fin. Toda fila planificada salvo la guarda de admisión proviene de consultas con igualdad `accountId` (billingUnblock.ts:183-190, 216-241), de modo que el check en :465 solo dispara ante un traspaso entre fases. El caso legítimo no se bloquea: el test :192-209 muestra un applied de A continuando por `continue` (:466), con appliedAtMs 33 intacto (:207) y una sola llamada.
+
+2) La guarda sin accountId no cambia de comportamiento: predicado y exención de `billingIntentAdmissionGuards` son idénticos; solo varió el orden frente a `continue` y al chequeo de `reviewField`, ambos indiferentes para esa colección (su PlannedRow no lleva reviewField, :307). Verificado por inspección, no por test.
+
+3) El test rojo refleja sus afirmaciones: :211-235 provoca applied con accountId de B tras el ACK; en el base el `continue` previo cerraba Video; ahora :465 lanza conflict, la transacción aborta sin escritos (billingFirestoreStub.ts:25-31 aplica staged solo si fn resuelve), guard bloqueado (:231), incidente intacto (:232), una sola llamada (:229), Cuenta queda accepted y el saldo sintético de B sin cambios (:233-234). Sin reenvío incierto: :404-405 rechaza el reintento no-fresco con receipt pending; sin doble cobro: el `continue` no reescribe el hold.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Traslado verificado en billingUnblock.ts:462-467; control rojo :211-235 (conflict, 1 llamada, guard e incidente intactos, B intocado) y positivo contiguo :192-209 (applied de A continúa, appliedAtMs preservado); exención de admisión :302-307/:465 equivalente por inspección.
+NEGATIVOS: El test positivo :192-209 también pasa en base (control contiguo); el saldo de B son datos sintéticos privilegiados, marcados como tales en :223; verificado solo en memoria.
+BLOQUEOS: Test :116-184 y :242+ ausentes del paquete; logs 386b267f…/d0440bfb… no incluidos (hashes y 20/20, 75/75 no verificables); módulos billingPendingAlerts/Report/Audit y resto de account/backend.ts no suministrados (arteacto de filtro en :281-282/294); sin emulador —el stub declara no probar semántica real de Firestore (:2-3)—; ninguna fixture ejercita la exención de billingIntentAdmissionGuards; línea :206 resumida por filtro, tratada como dato; pendientes de certificación (respuesta perdida/cambio de generación, corte/migración) quedan fuera del dictamen.
+=== FIN RESUMEN ===

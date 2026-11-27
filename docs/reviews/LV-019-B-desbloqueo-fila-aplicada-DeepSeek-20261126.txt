@@ -1,0 +1,24 @@
+# Revisión estática independiente
+
+Solicitud: b605cd82be8f58b91243dd4862a17d0c4618312131b625e543ea4750d9dabe55
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 15326/0/13538
+Costo observado USD: 0.020634966
+SHA-256 del informe original: 367d764a405ba7538fdaee8dc0d5a2f641ff3cdc42312232c4e4f08cd2d03244
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática acotada. La línea movida en `server/commercial/billingUnblock.ts:465` cumple el fin: comprueba `accountId` antes del `continue` de hold ya aplicada. No bloquea el caso legítimo de A: si `data.accountId===accountId`, pasa y la línea 466 continúa. No cambia la guarda sin `accountId`: la línea 465 excluye `billingIntentAdmissionGuards` por colección, igual que antes.
+
+El test rojo `server/commercial/unblockContinuityIndependent.test.mjs:211-235` refleja sus afirmaciones: muta hold a `applied` con titular B tras ACK, exige `conflict`, una sola llamada, guarda bloqueada, incidente `needs_review`, `f.s.store` intacto, `remote.store` igual a `accepted` y saldo B sin tocar. El positivo contiguo `:192-209` cubre `applied` de A y conserva `appliedAtMs:33`. No veo defecto concreto en el cambio ni en esos controles.
+
+Faltan por comprobar: ejecución real/emulador; logs no verificables; fragmentos `116-184` y `242-fin`; semántica real de Firestore (`billingFirestoreStub.ts:1-3`, modelado manual `:34-68` que advierte en `:62`); certificación de la base `708c414`; recuperación de respuesta perdida/cambio de generación y corte/migración; C2 no evaluado. No se supone literal la línea resumida en `billingUnblock.ts:206`.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/billingUnblock.ts:465` mueve la comprobación de dueño antes del `continue` de hold `applied`; `unblockContinuityIndependent.test.mjs:211-235` verifica el rechazo y `:192-209` el caso legítimo de A.
+NEGATIVOS: Hold aplicado de B tras ACK => conflict, guarda Video bloqueada, incidente intacto, una llamada; admission guard sin `accountId` sigue excluida; applied de A continúa.
+BLOQUEOS: Sin emulador/Firestore real; logs declarados no verificables; faltan fragmentos de test; stub no prueba semántica real; base `708c414` no certificada; C2 excluido.
+=== FIN RESUMEN ===
