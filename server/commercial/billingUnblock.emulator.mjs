@@ -927,6 +927,73 @@ test('11 negative: an alert of another kind or account, and an ambiguous owner i
   assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,0,'Account was never asked');
   assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
 });
+// The existing positive case covers an admission guard that names the incident directly. Phase 3 re-reads state and
+// owner of every audited row, but the RELATION that made a row belong to this incident (an observation incident's
+// `intentId`, an admission guard's `incidentId`) can drift while Account is being asked. Each synthetic test below is
+// self-contained: it uses the real `blockedIntentAccount` writer, changes ONLY the relation in the window between the
+// audited read and phase 3, and checks the guard, the alert, the rows and the absence of a completion record. Nothing
+// here asserts full production integrity; the negatives prove the drift aborts an otherwise confirmed release, and the
+// third positive proves the legitimate 'guard names an observation of the same incident' relation is still accepted.
+for(const [name,row,field,drifted,tamper] of [
+  ['an observation incident that now names another intent',(c,blocked,obs)=>obs,'intentId',sha('another intent'),(c,blocked,obs)=>obs.update({intentId:sha('another intent')})],
+  ['an admission guard that now names another incident',(c,blocked)=>ref(c.root,'billingIntentAdmissionGuards',blocked.incident),'incidentId',sha('another incident'),(c,blocked)=>ref(c.root,'billingIntentAdmissionGuards',blocked.incident).update({incidentId:sha('another incident')})],
+]){
+  test('11 negative: '+name+' in phase 3 aborts the release and the guard survives',{timeout:90000},async()=>{
+    const blocked=await blockedIntentAccount('unblock_relation_drift_'+name.replace(/[^a-z]+/g,'_')),c=blocked.c;
+    const obs=ref(c.root,'billingIntentObservationIncidents',sha('observation|'+blocked.incident));
+    await obs.create({accountId:c.account,intentId:blocked.incident,state:'needs_review'});
+    const admissionRef=ref(c.root,'billingIntentAdmissionGuards',blocked.incident);
+    assert.equal((await obs.get()).get('intentId'),blocked.incident,'the observation names this incident before');
+    assert.equal((await admissionRef.get()).get('incidentId'),blocked.incident,'the admission guard names this incident before');
+    const requestBody=await request(c,blocked),real=c.accountBilling.unblock.bind(c.accountBilling);
+    let tamperCount=0,accountConfirmed=false;const order=[];
+    c.accountBilling.unblock=async(...args)=>{
+      order.push('account:request');
+      tamperCount+=1;await tamper(c,blocked,obs);order.push('relation:changed');
+      const confirmation=await real(...args);accountConfirmed=true;order.push('account:confirmed');
+      return confirmation;
+    };
+    let fault=null;
+    try{await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000);}catch(error){fault=error;}
+    c.accountBilling.unblock=real;order.push('video:rejected');
+    assert.ok(fault instanceof UnblockFault&&fault.code==='conflict',name);
+    assert.equal(tamperCount,1,'the relation was changed exactly once, inside the audited window');
+    assert.equal(order.filter(event=>event==='account:request').length,1,'the synthetic AccountStore was asked exactly once');
+    assert.equal(accountConfirmed,true,'the synthetic AccountStore confirmed the order before Video rejected it');
+    assert.ok(order.indexOf('account:confirmed')<order.indexOf('video:rejected'),'Account confirmed before Video rejects: the drift is only seen in phase 3');
+    assert.ok(order.indexOf('relation:changed')<order.indexOf('account:confirmed'),'the relation drifted before Account confirmed, so the conflict is not a pre-account one');
+    assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,1,'exactly one unblock order reached Account');
+    assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard survives');
+    assert.equal((await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).get('status'),'open','the alert stays open');
+    assert.equal((await obs.get()).get('state'),'needs_review','the observation incident is not marked reviewed');
+    assert.equal((await admissionRef.get()).get('state'),'needs_review','the admission guard is not reopened');
+    assert.equal((await row(c,blocked,obs).get()).get(field),drifted,'the drifted relation is left exactly as it was, unclosed');
+    assert.equal((await row(c,blocked,obs).get()).get('reviewedAtMs'),undefined,'the drifted row is not closed');
+    assert.equal((await ref(c.root,'billingReviewIncidents',blocked.incident).get()).get('reviewedAtMs'),undefined,'the review row is not closed');
+    assert.equal((await ref(c.root,'billingIntents',blocked.incident).get()).get('state'),'needs_review','the intent is not handed back');
+    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no completion record');
+  });
+}
+// Positive: an admission guard whose `incidentId` names an observation incident of THIS incident is still a legitimate
+// owner at release time. The unblock must complete and hand back BOTH the observation and the guard.
+test('11 an INTENT unblock completes when the admission guard names an observation incident of the same incident',{timeout:90000},async()=>{
+  const blocked=await blockedIntentAccount('unblock_intent_admission_names_observation'),c=blocked.c,intentRef=ref(c.root,'billingIntents',blocked.incident);
+  const obs=ref(c.root,'billingIntentObservationIncidents',sha('observation|'+blocked.incident));
+  await obs.create({accountId:c.account,intentId:blocked.incident,state:'needs_review'});
+  const admissionRef=ref(c.root,'billingIntentAdmissionGuards',blocked.incident);
+  await admissionRef.update({incidentId:obs.id});
+  assert.equal((await admissionRef.get()).get('state'),'needs_review','the admission guard is closed');
+  assert.equal((await admissionRef.get()).get('incidentId'),obs.id,'the admission guard names the observation of the same incident');
+  assert.equal((await obs.get()).get('intentId'),blocked.incident,'the observation belongs to this incident');
+  const result=await unblockBillingAccount(deps(c),c.account,await request(c,blocked),'operator-ana',9_000_000_000);
+  assert.equal(result.unblocked,true);assert.equal(result.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false,'the video guard is released');
+  const observation=await obs.get();assert.equal(observation.get('state'),'reviewed');assert.equal(observation.get('reviewedAtMs'),9_000_000_000);assert.equal(observation.get('unblockAuditId'),unblockAuditId(blocked.incident,'unblocked',blocked.guard.epoch,blocked.guard.createdAtMs));
+  assert.equal(validClearIntentAdmissionGuard(await admissionRef.get(),blocked.incident),true,'the guard that named the observation is back to the exact clear shape');
+  assert.ok(result.advanced.includes('billingIntentAdmissionGuards/'+blocked.incident),'the admission guard is advanced');
+  assert.ok(result.advanced.includes('billingIntentObservationIncidents/'+obs.id),'the observation incident is advanced');
+  assert.equal((await intentRef.get()).get('state'),'reserve_pending','the intent resumes its reservation');
+});
+// --> the existing positive INTENT test ('11 an INTENT incident is unblocked too...') follows at this insertion point.
 test('11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back',{timeout:60000},async()=>{
   const blocked=await blockedIntentAccount('unblock_intent_kind'),c=blocked.c,intentRef=ref(c.root,'billingIntents',blocked.incident);
   const obs=ref(c.root,'billingIntentObservationIncidents',sha('observation|'+blocked.incident));

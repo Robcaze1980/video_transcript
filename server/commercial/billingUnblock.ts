@@ -465,6 +465,14 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
       if(row.collection!=='billingIntentAdmissionGuards'&&data.accountId!==accountId)throw new UnblockFault('conflict');
       if(holdSettled&&data.state==='applied')continue;
       if(row.reviewField&&data[row.reviewField]!==clean.incidentKey)throw new UnblockFault('conflict');
+      // Phase 3 re-reads state and owner of every audited row, but the RELATION that made a row belong to this incident
+      // can drift too: an observation incident's `intentId` or an admission guard's `incidentId` can be re-pointed while
+      // Account is being asked. An observation incident must still name this incident as its intent; an admission guard
+      // must still name this incident or an observation incident this same unblock hands back. A relation that no longer
+      // holds aborts the whole transaction without writing.
+      if(row.collection==='billingIntentObservationIncidents'&&data.intentId!==clean.incidentKey)throw new UnblockFault('conflict');
+      if(row.collection==='billingIntentAdmissionGuards'&&data.incidentId!==clean.incidentKey
+        &&!planned.some(candidate=>candidate.collection==='billingIntentObservationIncidents'&&candidate.id===data.incidentId))throw new UnblockFault('conflict');
       if(row.collection==='billingIntents'){
         const [intent,witness]=await tx.getAll(snap.ref,root.collection('billingIntentWitnesses').doc(row.id));
         rows.push({planned:row,snap,exit:intentExit(intent,witness)});

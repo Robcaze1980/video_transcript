@@ -1,0 +1,29 @@
+Análisis estático, sin ejecutar nada ni escribir archivos. No pude ver el repositorio ni los pins; me baso en el diff, el contexto de planificación y los resultados que declaras. No supongo verde la corrida de 15 en curso.
+
+**Qué hace la guarda en fase 3**
+La transacción relee `planned` (líneas 450-455) y, antes de escribir, valida pertenencia de estado/owner/`reviewField` y ahora también la *relación* que hizo pertenecer la fila: `server/commercial/billingUnblock.ts:473` exige `billingIntentObservationIncidents.intentId===clean.incidentKey`; `server/commercial/billingUnblock.ts:474` exige que `billingIntentAdmissionGuards.incidentId` sea el incidente o una observación que este mismo unblock entrega. Como toda lectura precede a la primera escritura y cualquier fallo lanza `UnblockFault('conflict')`, el aborto es atómico: no se cierran filas ni se libera la guarda de Video. Fail-safe correcto.
+
+**Pertenencia cruzada y TOCTOU**
+El invariante de plan (`incidentOf`, líneas 217-225 y `intentAdmissionRow`, 254-258) usa exactamente las mismas relaciones que la fase 3 (`intentId` para observaciones, `incidentId` para la admisión). Cerrar la relación en fase 3 cubre la ventana real: entre la lectura auditada y la confirmación de Cuenta (o durante la transacción, con reintentos de Firestore) una fila puede repuntarse a otro incidente. Con reintentos, `planned` se recomputa por llamada, así que no hay conflicto falso por estado obsoleto.
+
+**¿`planned.some` es suficiente al comprobar la observación?**
+Sí, por composición, no por sí sola: `planned.some` (474) usa el plan estático, pero toda observación referenciada está en `planned` y por tanto se relee en el mismo bucle y se valida su propio `intentId` (473). Por eso un caso doble (repuntar la admisión a `obs.id` y a la vez `obs.intentId→otro`) se aborta: la admisión pasaría por `planned.some` pero la observación falla en 473. Revisé los pares posibles (guarda→incidente directo, guarda→observación planeada, observación repuntada, campos ausentes/`undefined`, fila borrada → `!snap.exists`, estado cambiado → check de `row.state`) y no encontré bypass que libere guarda de Video ni cierre filas con una relación rota. El único `continue` (460-466) es para holds `applied`, que no portan estas relaciones.
+
+**Límite real (falso rechazo, no bypass)**
+Si el incidente de observación legítimo aparece *después* de la lectura auditada, no está en `planned` y la guarda que lo nombre se rechaza (474) aunque sea del mismo incidente. Es sobre-estricto pero fail-safe y reintentable; conviene documentarlo como límite del contrato "solo lo que esta misma operación entrega".
+
+**Contrapruebas y positivos**
+Los dos negativos tocan solo la relación dentro del override de `unblock`, fuerzan `accountConfirmed===true`, `relation:changed<account:confirmed<video:rejected`, un solo POST, y verifican guarda/alerta/filas/intent sin cierre. Eso prueba que el drift es post-lectura y pre-fase-3, exactamente lo que la guarda ataca. Los positivos (relación directa existente y la nueva guarda→observación) verifican que el caso legítimo sigue cerrando y restaurando la forma `clear` de la admisión. La corrida pre-parche (2 FAIL en negativos, 2 PASS en positivos) demuestra que los negativos no son vacuos.
+
+**Arnés de 15 y pins**
+Se subió `expectedSelected` 11→15 y la base a `9eeb815…` de forma consistente en `scripts/runUnblockFocusEmulator.mjs:22`, `scripts/prepareUnblockFocusIsolation.mjs:8`, `scripts/prepareUnblockFocusIsolation.mjs:21` y `scripts/runUnblockFocusIsolated.ps1:43`. No verifiqué los SHA esperados (manifest, sistema, JDK) ni el conteo real de limpiezas/inventarios de la corrida en curso.
+
+**Lo que no puedo cerrar**
+La evidencia de aceptación (corrida de 15 en verde con 4/4 limpiezas y 22 inventarios vacíos) está en curso y no la asumo. Gate financiero global y conciliación siguen abiertos; IAM/producción fuera de alcance. Estáticamente el cambio es correcto y sin bypass; si la corrida confirma los dos negativos en PASS, los cuatro cierres de limpieza y los inventarios esperados, mi veredicto pasaría a PASS.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Diff de la guarda de relaciones en `server/commercial/billingUnblock.ts:468-475` (observación `intentId`, admisión `incidentId` con `planned.some`) y del arnés en `server/commercial/billingUnblock.emulator.mjs` (dos negativos de drift observación/admisión, positivos de relación directa y guarda→observación). Pins de base/`expectedSelected=15` en `scripts/runUnblockFocusEmulator.mjs:22`, `scripts/prepareUnblockFocusIsolation.mjs:8`, `scripts/prepareUnblockFocusIsolation.mjs:21`, `scripts/runUnblockFocusIsolated.ps1:43`. Corrida sintética pre-parche declarada: 2 FAIL negativos, 2 PASS positivos, `behavior:FAIL`. Análisis estático propio halla relación de plan y de fase 3 alineadas, aborto atómico antes de escribir (fail-safe) y ausencia de bypass. Autocontrol TAP de 12 negativos y tipos: reportado, no verificado aquí.
+NEGATIVOS: La corrida de 15 en curso no está confirmada (no se asume verde): faltan los 2 PASS negativos post-parche, 4/4 limpiezas e inventarios; no verifiqué SHA de manifest/sistema/JDK ni conteo real. Límite: una observación legítima creada tras la lectura auditada provoca falso rechazo (fail-safe, reintentable). Gate financiero global y conciliación abiertos; integridad total, IAM y producción no evaluados.
+BLOQUEOS: Resultado de la ejecución de 15 pendiente; pins/hashes y evidencia de gate global no disponibles en esta revisión. Tokens y costo no medidos (no visibles).
+=== FIN RESUMEN ===

@@ -19,7 +19,7 @@ import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedR
 
 const project = 'demo-vistavo-financial';
 const host = '127.0.0.1:8198';
-// The focus runs exactly these eleven synthetic cases. All other cases are excluded, not passed.
+// The focus runs exactly these fifteen synthetic cases. All other cases are excluded, not passed.
 const selectedNames = [
   'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',
   'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',
@@ -32,6 +32,10 @@ const selectedNames = [
   '11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch',
   '11 negative: a failed Account phase leaves Video blocked and its rows untouched',
   '11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it',
+  '11 negative: an observation incident that now names another intent in phase 3 aborts the release and the guard survives',
+  '11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives',
+  '11 an INTENT unblock completes when the admission guard names an observation incident of the same incident',
+  '11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back',
 ];
 if(selectedNames.some(name=>!/^[A-Za-z0-9:, _]+$/.test(name)))throw Error('Unsafe focus name');
 const expectedSelected = selectedNames.length;
