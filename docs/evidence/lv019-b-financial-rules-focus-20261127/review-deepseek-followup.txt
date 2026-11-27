@@ -1,0 +1,23 @@
+Reconsiderando el arnés enfocado local con la evidencia añadida. La brecha de escritura queda cerrada y la de selección también; el resto son límites menores, no defectos.
+
+**Verificado**
+- Read y write cliente: el test real (líneas 185-186) exige `GET → 403` **y** `PATCH → 403`, y luego `money(c,{credited:3,available:3})` confirma que la ruta Admin sigue operable. Se cierra mi brecha de "solo probe de lectura".
+- Control negativo reproducido: el mismo test daba `200 !== 403` sin reglas; ahora da 403 tras el `PUT`. Evidencia directa de que la denegación proviene de las reglas cargadas.
+- Selección: el spawn aplica `--test-name-pattern selectedPattern` (línea 311), patrón escapado, y `summary` exige `tests===expectedSelected` y `selectedNamesMatch` (líneas 202, 209), con `acceptableChecks` requiriéndolo. El TAP real trae exactamente los 3 nombres como `ok 1..3`. Se cierra la brecha de selección.
+- Resumen/TAP: `pass 3 / fail 0 / skipped 0 / todo 0 / cancelled 0`, `countsConsistent`, `guardInstances:2`, `guardDeniedDuringRun:false`, `syntheticTsxIpcRequests:2`. Coherente.
+- Preflight: PUT único a `127.0.0.1:8198`, hash exigido, `rulesLoad 200/issues 0`, cliente 403, Admin missing-doc `exists:false`, sin escrituras; aborto del import si falla.
+- Directorio y puertos: `manifests=lv019-b-rules-focus-manifests`, `runs=lv019-b-financial-runs`, `checkedDirectory` + guardia de reparse; `sharedListenersUnchanged:true`, sin listener dedicado tras cleanup, `nodeExit:0`, `javaStoppedByNonce:false`.
+
+**Brechas residuales (no bloquean el arnés local)**
+- Orden hash-vs-load por substring de fuente (`hashGuardIndex < loadIndex`): frágil, no conductual.
+- Contenido de reglas validado por substring; la garantía real es el SHA pinneado (mitiga).
+- Probe Admin limitado a documento inexistente; la escritura Admin es implícita vía helpers, no un 200/201 Admin explícito.
+- El runner enfocado no muestra campo `manifest.rules{}` explícito (sí `rulesFile` en `tracked` y su hash en `files`); la identidad de reglas depende del hash de archivo más el re-hash pre/post.
+- Alcance: no certifica reglas de producción, IAM ni despliegue; no aborda los otros fallos/skips del run completo.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS (estrictamente limitado al arnés enfocado local en emulador; no a producción/IAM)
+EVIDENCIA: Revisión estática solo lectura de `server/commercial/firestoreBackend.emulator.mjs:180-188` (GET y PATCH cliente → 403, Admin operativo), `server/commercial/financialRulesFocus.emulator.mjs:1-110`, `scripts/runRulesFocusEmulator.mjs:20-34,188-217,239-245,305-315` (patrón escapado, `--test-name-pattern`, `selectedNamesMatch`), `scripts/runRulesFocusIsolated.ps1:226-245`, scripts/preflight y `deploy/google-cloud/firestore.rules`; TAP real `3/3 ok`, `pass 3/fail 0/skipped 0/todo 0/cancelled 0`; resumen `complete:true, pass:true, guardInstances:2, guardDenied:false`; lanzador `sharedListenersUnchanged:true, nodeExit:0`. Control negativo reproducido (sin reglas 200 → con reglas 403). Modelo servido: deepseek/deepseek-v4.1-flash (host, observable); costo: no medido.
+NEGATIVOS: orden de guardas por substring de fuente; contenido de reglas por substring (mitigado por SHA); probe Admin solo documento inexistente, escritura Admin implícita; runner enfocado sin `manifest.rules{}` explícito; sin control "sin reglas ⇒ write != 403" separado del de lectura.
+BLOQUEOS: Nada demuestra reglas de producción, IAM ni despliegue. Los otros 5 fallos/skips del run completo quedan fuera de este arnés. Requiere medición de uso/costo por separado.
+=== FIN RESUMEN ===

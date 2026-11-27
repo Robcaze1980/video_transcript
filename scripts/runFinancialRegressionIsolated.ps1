@@ -40,7 +40,7 @@ $jdkInputs = [ordered]@{java=$javaPath;javac=$javacPath;javaDll=(Join-Path $jdkP
 function AssertFrozenSystem {
   if ((Sha256 $systemManifestPath) -cne $ExpectedSystemManifestSha256 -or
       (Sha256 $manifestPath) -cne $ExpectedManifestSha256 -or
-      $system.version -ne 1 -or $system.base -cne '0244bfc591368524a4b980312c20c9b53952a532' -or
+      $system.version -ne 1 -or $system.base -cne '61e64070c2ac6245caaee8eaad620feb68d9e246' -or
       $system.project -cne 'demo-vistavo-financial' -or $system.host -cne '127.0.0.1:8198' -or
       (($system.fixedPorts -join ',') -cne '8198,9198,9298') -or
       $system.candidate.path -ine $manifestPath -or $system.candidate.sha256 -cne $ExpectedManifestSha256 -or
@@ -55,6 +55,27 @@ function AssertFrozenSystem {
   }
 }
 AssertFrozenSystem
+# Integridad estatica del candidato congelado. Se coloca DESPUES de AssertFrozenSystem y ANTES de 'if ($VerifyOnly)'.
+# $manifestPath quedo autenticado por hash dentro de AssertFrozenSystem; aqui se valida el propio comparador y se ejecuta.
+$integrityRelative = 'scripts/checkFinancialCandidateIntegrity.mjs'
+$integrityScript = (Resolve-Path -LiteralPath (Join-Path $repo $integrityRelative)).Path
+if ($integrityScript -ine (Join-Path $repo $integrityRelative)) {
+  throw 'Integrity script is not the tracked file in this worktree'
+}
+$frozenCandidate = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$integrityProperty = $frozenCandidate.files.PSObject.Properties[$integrityRelative]
+if (-not $integrityProperty -or [string]::IsNullOrWhiteSpace($integrityProperty.Value)) {
+  throw 'Integrity script is absent from the authenticated manifest'
+}
+if ((Sha256 $integrityScript) -cne $integrityProperty.Value) {
+  throw 'Integrity script differs from the authenticated manifest hash'
+}
+& $nodePath $integrityScript $manifestPath
+if ($LASTEXITCODE -ne 0) {
+  throw "Candidate integrity check failed with exit code $LASTEXITCODE"
+}
+Write-Output 'Candidate integrity static check: PASS; no emulator was started'
+
 if ($VerifyOnly) {
   Write-Output 'Frozen executable and manifest identities: PASS; no emulator was started'
   return

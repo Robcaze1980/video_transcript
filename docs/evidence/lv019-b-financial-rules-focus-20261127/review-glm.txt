@@ -1,0 +1,18 @@
+**Hallazgos**
+- Orden negativo→carga verificado: el preflight compara el SHA-256 del stdin antes del PUT a `:securityRules`; el fixture además exige estáticamente ese orden y valida que el hash falso (64 ceros) falle con código ≠ 0, sin señal, mensaje `Rules input hash mismatch` y cero líneas JSON de `rulesLoad`/`clientProbe`/`adminProbe` antes de importar los tests.
+- Reglas activas probadas por comportamiento: GET sin auth sobre documento inexistente → 403 (sin reglas el emulador daría 404); Admin modular (`firebase-admin/app` + `firestore`, corrige el `admin.firestore` ausente) lee `exists:false` con `wrote:false`, sin escrituras y cierre limpio; la prueba 1 cubre lectura **y** escritura cliente sobre documento creado por Admin, no solo probe.
+- Identidades y aislamiento sólidos: el manifiesto liga `rules.file`/`rules.sha256` al mapa de archivos y lo reverifica al lanzar; Node/host/proyecto validados; inventario de 73 archivos único con requeridos; colección probe válida y fuera de raíces financieras (corrige el 400 previo); rutas dentro del repo validadas contra symlinks (corrige la ruta temporal sin relajar guardia).
+- Fail-closed correcto: fallo de preflight impide arrancar tests (`complete`/`checksPass` exigen `preflight.ok`); salidas con `wx` en directorio nuevo; límites 1 MB entrada/respuesta, 2 MB salida hijo, timeouts 20s/30s; `localAddress` loopback, guardia activa en todos los hijos, puertos compartidos intactos, inventario vacío antes/después, sin escrituras Admin.
+- Menores aceptables: el chequeo deny-all es substring (`includes`) y por sí solo no rechazaría `allow` adicionales — mitigado porque el hash de manifiesto fija el archivo exacto; ausencia de `issues` se trata como 0; solo se sondea `(default)`; no hay re-lectura GET de las reglas cargadas (los probes de comportamiento son el sustituto).
+
+**Qué falta**
+- Nada demuestra reglas de producción ni IAM; alcance es solo emulador demo `127.0.0.1:8198`.
+- Cobertura conductual limitada al documento sondeado y `(default)`; el resto del deny-all se infiere de texto+hash, no de probes por ruta.
+- Uso/costo no medido; mi revisión es estática: 3/3, hashes y guardias dependen de la corrida reportada.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática de `scripts/financialEmulatorRulesPreflight.mjs`, `server/commercial/financialRulesFocus.emulator.mjs`, `deploy/google-cloud/firestore.rules` y diffs del runner/manifiesto/PS1: hash antes del PUT, hash falso rechazado antes de importar tests sin emitir probes, positivo 200/0 issues + GET 403 + Admin `exists:false` sin escritura, 3/3 con selección escapada, manifiesto rules+73 hashes reverificados, guardia activa, inventario vacío, puertos compartidos intactos, rutas seguras, fail-closed. PASS aplicado únicamente al arnés enfocado local.
+NEGATIVOS: Reglas de producción e IAM no demostradas; chequeo deny-all por substring (mitigado por hash de manifiesto); `issues` ausente tratado como 0; solo `(default)` y un documento sondeado por comportamiento; sin re-lectura GET de reglas cargadas; costo no medido.
+BLOQUEOS: Ninguno para el arnés enfocado local; producción/IAM queda fuera de alcance y sin evidencia.
+=== FIN RESUMEN ===
