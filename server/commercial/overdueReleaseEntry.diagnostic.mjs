@@ -84,6 +84,34 @@ function fixture() {
   return {video, account, backend, store, a:person(), b:person(), begin, overdue, genericJob};
 }
 
+test('review characterization: an observation alone currently allows new synthetic work for A and B', async () => {
+  const f=fixture(),aged=await f.overdue(f.a);
+  const a=await f.begin(f.a),b=await f.begin(f.b);
+  assert.equal(f.video.store.get(a.intentPath).state,'reserve_pending');
+  assert.equal(f.video.store.get(b.intentPath).state,'reserve_pending');
+  const jobA=await f.genericJob(f.a),jobB=await f.genericJob(f.b);
+  assert.equal(f.video.store.get('jobs/'+jobA).accountId,f.a.videoId);
+  assert.equal(f.video.store.get('jobs/'+jobB).accountId,f.b.videoId);
+  assert.ok(f.video.store.get(aged.intentPath).ageObservationId);
+  assert.equal([...f.video.store.keys()].some(path=>path.startsWith('billingGuards/')),false);
+});
+
+test('review compatibility: age observation does not enter the origin witness or prevent release preparation after a synthetic reopen', async () => {
+  const f=fixture(),p=await f.begin(f.a);
+  const before=await f.backend.externalIntentWitness(f.a.videoId,p.key,p.billing);
+  assert.equal((await f.store.reserveVideo(f.a.identityKey,p.billing.reservationId,duration)).created,true);
+  assert.equal((await f.backend.claimExternalBillingRelease(f.a.videoId,p.key,p.billing)).transitioned,true);
+  const created=f.video.store.get(p.intentPath).createdAtMs;
+  assert.equal((await f.backend.escalateStaleBillingRows({now:created+EXTERNAL_BILLING_MAX_AGE_MS+1,limit:15})).escalated,1);
+  const during=await f.backend.externalIntentWitness(f.a.videoId,p.key,p.billing);
+  assert.deepEqual(during,before);assert.equal(Object.hasOwn(during,'ageObservationId'),false);
+  // This privileged synthetic perturbation exercises compatibility, not a legal or authorized reopening.
+  f.video.store.set(p.intentPath,{...f.video.store.get(p.intentPath),state:'release_pending'});
+  const reopened=await f.backend.externalIntentWitness(f.a.videoId,p.key,p.billing);
+  assert.deepEqual(reopened,before);
+  assert.deepEqual(await f.backend.prepareExternalIntentTerminal(reopened,p.key,'release'),{state:'ready'});
+});
+
 test('RED: overdue A denies a new external reserve intent while B can still open one', async () => {
   const f = fixture();
   await f.overdue(f.a);

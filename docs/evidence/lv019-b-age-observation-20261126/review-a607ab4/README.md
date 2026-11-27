@@ -1,0 +1,13 @@
+# Contraste previo a corregir `a607ab4`
+
+Esta evidencia caracteriza el corte revisado, no lo acepta para integración. Las respuestas independientes se conservan en `DeepSeek.txt` (**FALLA**) y `GLM.txt` (**PASS limitado**); `adjudicacion.md` conserva el contraste de coordinación. La copia de DeepSeek recibida tiene SHA-256 `23c9383e5d55340cf3a702dd1863cc9f0e4611564d20f2aa3adc607e935254f1`; declara que la respuesta original, conservada aparte en `outputs`, tiene SHA-256 `4481b65af0ba4192e446e74c75ab90265b68b30ae7cbc468c228ed07cedb78f8`. Git puede normalizar finales de línea al transportar las copias.
+
+En `ageObservationReview.diagnostic.test.ts`, con almacén y Cuenta ficticios en memoria, se ejecutaron los métodos reales de drenaje y reapertura. El recibo `characterization-final.stdout.txt` muestra 3/3:
+
+- Una edad menor o igual al límite no produce observación ni escritura, y los saldos ficticios de A y B se conservan.
+- Una respuesta descartada después de un commit simulado produce `partial/failed=1` en el drenaje sin una lectura posterior de conciliación. El diagnóstico inspecciona la memoria después de terminar la pasada y no repite la operación. No se demostró duplicación ni movimiento de saldo.
+- Una reapertura auditada ejecutada contra dobles vuelve a `release_pending` pero deja `ageObservationId` apuntando a la observación histórica. B no cambia. Esta referencia no es autoridad y no se identificó un consumidor autorizado que la use como tal.
+
+`review-controls.stdout.txt` contiene 2/2 controles: la observación sola deja que A y B creen intenciones y trabajo simulado; el witness leído antes y después del escalamiento es igual y la preparación de release acepta ese witness tras una reapertura sintética privilegiada. Esto no demuestra que la reapertura sintética esté autorizada ni verifica todos los lectores posibles. `twins.stdout.txt` conserva el caso gemelo 1/1: las preimágenes de reserva y release se distinguen, aunque las filas y alertas originales coincidan al quitar la referencia nueva.
+
+Las pruebas se corrieron en un worktree separado con dependencias copiadas, variables de proceso limitadas y guard de red de Node activado. Usan dobles y no prueban la semántica de transacciones de Firestore; no se inició un emulador nuevo ni se enviaron solicitudes a Cuenta o a la nube. Se retiró la línea vacía final de la copia de `characterization-final.stdout.txt`; el original permanece en `outputs`. El archivo de código previo y el corte `a607ab4` permanecen intactos; las dos contrapruebas rojas de admisión siguen pendientes. `randomUUID` está importado en `firestoreBackend.ts:9` y `copyExternalBilling` selecciona sus cuatro campos en `:127`; esto limita la hipótesis del witness, sin certificar otros validadores.
