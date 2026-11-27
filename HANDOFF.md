@@ -4,6 +4,8 @@ Repositorio `Robcaze1980/video_transcript`. Este corte se prepara en `vistavo-ch
 
 Empieza por [MASTERPLAN](MASTERPLAN.md), [backlog](backlog.md) y [gantt](gantt.md). El [recibo del corte](docs/evidence/lv019-b-checkpoint-20261126/README.md) identifica las instantáneas probadas, los informes disponibles en `docs/reviews/` y las rutas de evidencia local. Git ignora `outputs/`; esos registros no viajan al clonar. [HANDOFF anterior archivado íntegro · histórico](docs/history/HANDOFF-before-checkpoint-2026-11-26.md).
 
+El [plan operativo de cuatro puntos](docs/plans/LV-019-B-plan-cuatro-puntos-20261126.md) desarrolla el orden actual de saldo, video, voz y teléfono. No modifica los gates ni convierte el audio separado en un MP4 doblado.
+
 ## Estado para retomar
 
 | Frente | Estado al corte |

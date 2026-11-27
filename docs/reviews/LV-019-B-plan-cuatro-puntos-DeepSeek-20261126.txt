@@ -1,0 +1,26 @@
+# Revisión estática independiente
+
+Solicitud: 8fcc22f9be06d1711e34984f29cffe34bf6b9bfba0aa734b11488d9522d866d0
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: FALLA
+Tokens entrada/cache/salida: 2788/0/6979
+Costo observado USD: 0.005098302
+SHA-256 del informe original: a2392c944d96be9059bf65b4b74d138833ba2186a534f487b26403ab3758a661
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+**Hallazgos**
+- **PLAN COMPLETO, “Resultado buscado” y §3.1–3.2:** contradicción con el contrato “voz desde traducción revisada”. El plan contempla salida de voz en **inglés y español neutro latinoamericano a la vez**, pero la traducción revisada es al inglés. Corrección mínima: restringir la voz a la traducción revisada o marcar la voz en español como ampliación posterior con traducción/revisión propias.
+- **§3.4:** afirma “tope autorizado de US$5”, pero no hay evidencia en el paquete de que esa sea la autorización existente. Falta comprobar.
+- **§2.4 y §4.1:** G0, límite actual de 30 s y muestras de 1/5/10 min son dependencias futuras; el alcance inmediato es 2–3 min. No tratarlas como terminadas.
+- **§1.4, §3.4, Cierre:** conservan controles negativos: no voz sola, no Cloud SQL, no procesar sin saldo, UNKNOWN sin reenvío/liberación por tiempo, no pausar a todos, no dar por aprobada la auditoría interrumpida.
+
+**No verificado:** C2, código, credenciales, ejecución, autorización real del tope US$5 y definición operativa de G0. No se evalúa C2.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: PLAN COMPLETO, “Resultado buscado” y §3.1–3.2: voz en español no deriva de la traducción revisada al inglés; §3.4: tope US$5 no acreditado en el paquete.
+NEGATIVOS: No voz sola; no Cloud SQL; no procesar sin saldo; UNKNOWN no se reenvía ni libera por tiempo; no pausar a todos; no reemplazar revisión C2 interrumpida.
+BLOQUEOS: Corregir contradicción de voz en español; acreditar autorización de US$5; confirmar G0 antes de prueba online.
+=== FIN RESUMEN ===

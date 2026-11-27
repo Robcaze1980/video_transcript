@@ -1,0 +1,31 @@
+# Revisión estática independiente
+
+Solicitud: 6657f1a6c096e46b8bb91213a6a1af97e8c3ed2a8b1c12f155ef65768c36564d
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 2569/0/6403
+Costo observado USD: 0.0012731895
+SHA-256 del informe original: ae078966f34f51bc71a0cbc7edc89653bef642b2decce6ab63a35cef4af446fa
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+**Hallazgos** (sin contradicción directa con el contrato):
+
+1. §Resultado y §1.2: tarifas y ejemplo correctos (3 min: US$0,30 texto / US$0,60 con voz). Imprecisión: "calcula la duración y el saldo en segundos" — el saldo no es en segundos. Corrección mínima: "calcula la duración en segundos y la redondea hacia arriba".
+2. §2.4 vs "Termina cuando" de §2: la prueba restringida en nube se realiza "después de las puertas vigentes, incluida G0 para la voz", pero el cierre de §2 la exige; posible circularidad con §3 si G0 depende de §2. Corrección mínima: trasladar esa prueba a Cierre/Publicación o aclarar que G0 es previa e independiente.
+3. §1.3 añade "cuando sea verificable" a permitir terminar lo autorizado; el contrato no pone esa condición. Ajustar redacción.
+4. §Resultado: voz también en español "a la vez" amplía el punto 3 (voz sobre traducción al inglés); etiquetarla como ampliación sujeta a validación.
+
+Dependencias futuras bien distinguidas de lo terminado: emulador de metadatos con prueba inconclusa (§1.1); auditoría C2 interrumpida no tratada como aprobada (§3.4); ensayos locales ≠ prueba en nube; pantalla simulada ≠ dispositivo físico.
+
+**Negativos verificados:** sin voz sola; sin Cloud SQL; sin saldo → no procesar (§1.2); UNKNOWN sin reenvío ni liberación por tiempo (§1.2/§3.3); sin pausa global, solo dueño identificado (§1.3); devolución única sin duplicar; sin cambios de modelos/credenciales/presupuesto (Cierre); audio separado, no MP4 doblado.
+
+**No verificado (fuera del texto):** definición de G0 y demás puertas, Master Plan, backlog/HANDOFF, estado real de tareas, vigencia del tope US$5.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Coherencia estática con el contrato; cuatro imprecisiones menores citadas (§Resultado, §1.3, §2.4/cierre §2) sin contradicción contractual ni bloqueo.
+NEGATIVOS: Voz sola, Cloud SQL, reenvío/liberación por tiempo, pausa global, doble devolución, cambio de presupuesto: ausentes en el plan.
+BLOQUEOS: Ninguno textual; pendiente verificar G0/Master Plan/backlog y tope US$5 fuera de este documento.
+=== FIN RESUMEN ===

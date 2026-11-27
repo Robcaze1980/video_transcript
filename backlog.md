@@ -11,6 +11,8 @@
 
 ## LV-019.B · Ruta principal
 
+El [plan operativo de cuatro puntos](docs/plans/LV-019-B-plan-cuatro-puntos-20261126.md) detalla saldo, recorrido de video, voz y móvil; los criterios y estados siguen abajo.
+
 **1.4b.2 · Verificada en local el 25 nov.** El desbloqueo en Video recupera la confirmación desde el recibo de Cuenta y conserva bloqueos de otros incidentes. GLM y DeepSeek revisaron esa candidata. La regresión de esa pieza obtuvo 458 aprobadas y 5 omisiones previstas de voz. El operador pertenece al paso 3.5. [Evidencia de 1.4b.2](docs/evidence/lv019-b-unblock-receipt-20261125/README.md).
 
 1. **Saldo e integridad del trabajo — EN CURSO.** La liquidación comprueba el historial al recibir la respuesta de Cuenta. Un doble ACK con el historial intacto se reconoce como la misma liquidación. Un historial divergente queda en revisión y puede bloquear al dueño. Mantener reservas ambiguas en revisión. La reserva externa sigue cerrada desde HTTP. Para cerrar, probar con dos trabajos y dos cuentas, duplicados, carreras, fallos, revocación y un solo movimiento por operación. [Doble ACK](docs/specs/LV-019-B-doble-ack-liquidacion.md) · [Revisión de liquidación](docs/reviews/LV-019-B-liquidacion-historia-final-GLM-T3-2026-11-17.txt).

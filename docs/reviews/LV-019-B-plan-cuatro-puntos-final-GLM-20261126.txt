@@ -1,0 +1,25 @@
+# Revisión estática independiente
+
+Solicitud: d0340e782fbcd14af31be4ac55c77f3fc54fb3111ec2901373a976f0c675178c
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 2795/20/7101
+Costo observado USD: 0.0036528525
+SHA-256 del informe original: fd68c580b8b548845bf6ed611793f4963bf58baf8c74859c1e24818d8fcad57e
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+**Verificación estática, solo el plan incluido:**
+
+- Hallazgos previos resueltos: traducciones revisadas separadas (Resultado buscado y §3.1: «se usa la traducción revisada al español, separada del ejemplo español→inglés») y tope US$5 acreditado (§3.4 cita LV-019-B-plan-integral-20261120.md; el cierre exige cuenta con saldo legítimo y acreditación autorizada, sin inventar créditos).
+- Contratos coinciden: US$0,10/min texto y +US$0,10/min voz, ejemplo correcto (3 min → 0,30/0,60) y redondeo hacia arriba (§Resultado buscado vs video-text §saldo); §1.3 conforme a politica-incertidumbre; §2.4 sitúa la conexión real en nube tras las puertas, incluida G0; orden de los cuatro puntos respetado.
+- Observaciones no bloqueantes: §2.2 no ancla temporalmente la prueba de proveedores reales (§2.4 lo resuelve); retención de 90 días y cobro proporcional por cancelación (§3.3) invocan políticas no incluidas en el paquete verificado; `google/gemini-4-hydrogen:batch` sin fuente en el paquete; el lanzamiento simultáneo inglés/español neutro (plan-integral §C) queda preservado por referencia y en el cierre, pero ningún «Termina cuando» de los cuatro puntos lo exige por sí.
+- Negativos conservados: sin voz sola ni Cloud SQL; sin créditos inventados; reserva única; sin clonar voces; candidata previa no certifica otra; ensayos locales ≠ prueba en nube; pantalla simulada ≠ dispositivo físico; auditoría C2 interrumpida no tratada como aprobada. No certifica ejecución ni despliegue.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Resultado buscado y §3.1 (traducciones separadas); §3.4 y Cierre (tope US$5 acreditado en LV-019-B-plan-integral-20261120.md); §Resultado buscado (precios 0,10/0,10, redondeo arriba, ejemplo 0,30/0,60); §1.3 (política de incertidumbre); §2.4 (G0 antes de prueba en nube); §1–§4 (orden solicitado).
+NEGATIVOS: no voz sola ni Cloud SQL; no créditos inventados; reserva y liquidación únicas; no clonar voces; candidata previa no certifica otra; ensayos locales no sustituyen prueba en nube; pantalla simulada no es dispositivo físico; auditoría C2 interrumpida no se trata como aprobada.
+BLOQUEOS: ninguno. Pendiente de comprobación: fuente de retención de 90 días (§3.3), base del cobro proporcional por cancelación (§3.3), existencia y alcance de `google/gemini-4-hydrogen:batch` (Cierre), programación explícita del recorrido español neutro exigido por plan-integral §C.
+=== FIN RESUMEN ===
