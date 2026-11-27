@@ -1075,7 +1075,14 @@ test('11 negative: a Video failure after Account confirmed leaves Video blocked,
   const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling),originalRun=c.db.runTransaction.bind(c.db);let confirmed=false;
   c.accountBilling.unblock=async(...args)=>{const receipt=await originalUnblock(...args);confirmed=true;return receipt;};
   c.db.runTransaction=async function(fn){if(confirmed){confirmed=false;throw new Error('synthetic Video crash after the Account confirmation');}return originalRun(fn);};
+  // The transport records every request before processing it: /api/internal/video/billing-holds/unblock is the only mutating route,
+  // and /api/internal/video/billing-holds/unblock-receipt is a distinct read route that must never stand in for it.
+  const unblockPosts=()=>c.transport.bodies.filter(entry=>entry.pathname==='/api/internal/video/billing-holds/unblock').length;
+  const receiptReads=()=>c.transport.bodies.filter(entry=>entry.pathname==='/api/internal/video/billing-holds/unblock-receipt').length;
+  assert.equal(unblockPosts(),0,'no Video unblock request exists before the first attempt');
   await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),/synthetic Video crash/);
+  assert.equal(unblockPosts(),1,'the first attempt sent exactly one Video unblock request');
+  const receiptReadsBeforeResume=receiptReads();
   c.accountBilling.unblock=originalUnblock;c.db.runTransaction=originalRun;
   // Account already deleted its guard; Video is the conservative side and is still blocked.
   assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,false);
@@ -1087,6 +1094,9 @@ test('11 negative: a Video failure after Account confirmed leaves Video blocked,
   assert.equal(resumed.replayed,false);assert.equal(resumed.accountBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
   assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'retry_wait');
   assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,2);
+  // The recovery must read the receipt route instead of re-sending the mutating unblock route.
+  assert.equal(unblockPosts(),1,'the Video unblock request count is still exactly one after resuming');
+  assert.ok(receiptReads()>receiptReadsBeforeResume,'resuming the unblock reads the distinct /api/internal/video/billing-holds/unblock-receipt route');
 });
 // ---------------------------------------------------------------------------
 // 12. Stale generation refused; the current one applies. 12b. One alert per account and epoch.

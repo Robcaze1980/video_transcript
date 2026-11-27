@@ -1,0 +1,182 @@
+Revisión estática independiente LV-019.B de Vistavo (Robcaze1980/video_transcript; base ac6f0730bc4f7d116f591951c61057f76e1b29a0). Sigue instrucciones del proyecto: protege claves y clientes; no herramientas ni operaciones externas; no aceptes PASS sin evidencia; indica límites y costo si es visible. CERO herramientas, CERO pasos de agente, no ejecutar código ni escribir archivos; responde una sola vez. Este paquete contiene extractos de la candidata, no el repositorio completo.
+Objetivo: verificar si el test demuestra que, después de confirmar Cuenta y fallar Video, la recuperación NO envía por segunda vez la ruta mutante /unblock; que sí consulta el recibo por la ruta distinta /unblock-receipt, conservando las aserciones previas. Analiza si el contador registra todas las llamadas pertinentes, si el fallo ocurre tras la confirmación, si los contadores y restauración mantienen el caso válido, y si el transporte y las rutas son distintos. Examina también los dos pins que solo actualizan la revisión base del arnés. Codex ejecuta la batería local: análisis sintáctico y autocontrol TAP (positivo y doce negativos) pasaron, batería de 10 en curso; tú no la ejecutaste. No concluyas nada sobre IAM, HTTP real, producción, otras cuentas o la batería financiera completa.
+Da hallazgos concretos y qué no pudiste comprobar; luego termina con este bloque exacto:
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: rutas y pruebas examinadas.
+NEGATIVOS: controles negativos y límites, incluido lo no ejecutado.
+BLOQUEOS: ninguno o detalle; tokens y costo no medidos si no son visibles.
+=== FIN RESUMEN ===
+
+--- diff de la candidata ---
+diff --git a/scripts/prepareUnblockFocusIsolation.mjs b/scripts/prepareUnblockFocusIsolation.mjs
+index 2de6445..13c066d 100644
+--- a/scripts/prepareUnblockFocusIsolation.mjs
++++ b/scripts/prepareUnblockFocusIsolation.mjs
+@@ -5,7 +5,7 @@ import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,statSync,writeF
+ import path from 'node:path';
+ import {fileURLToPath} from 'node:url';
+ 
+-const base='2a246762b17e9857985334d50aa092ab17037abb';
++const base='ac6f0730bc4f7d116f591951c61057f76e1b29a0';
+ const repo=realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'));
+ const [candidateArg,jdkArg,jarArg]=process.argv.slice(2);
+ if(process.argv.length!==5||process.platform!=='win32'||!/^v24\./.test(process.version)||process.env.NODE_OPTIONS||!candidateArg||!jdkArg||!jarArg)
+diff --git a/scripts/runUnblockFocusIsolated.ps1 b/scripts/runUnblockFocusIsolated.ps1
+index d44bf62..40592e1 100644
+--- a/scripts/runUnblockFocusIsolated.ps1
++++ b/scripts/runUnblockFocusIsolated.ps1
+@@ -40,7 +40,7 @@ $jdkInputs = [ordered]@{java=$javaPath;javac=$javacPath;javaDll=(Join-Path $jdkP
+ function AssertFrozenSystem {
+   if ((Sha256 $systemManifestPath) -cne $ExpectedSystemManifestSha256 -or
+       (Sha256 $manifestPath) -cne $ExpectedManifestSha256 -or
+-      $system.version -ne 1 -or $system.base -cne '2a246762b17e9857985334d50aa092ab17037abb' -or
++      $system.version -ne 1 -or $system.base -cne 'ac6f0730bc4f7d116f591951c61057f76e1b29a0' -or
+       $system.project -cne 'demo-vistavo-financial' -or $system.host -cne '127.0.0.1:8198' -or
+       (($system.fixedPorts -join ',') -cne '8198,9198,9298') -or
+       $system.candidate.path -ine $manifestPath -or $system.candidate.sha256 -cne $ExpectedManifestSha256 -or
+diff --git a/server/commercial/billingUnblock.emulator.mjs b/server/commercial/billingUnblock.emulator.mjs
+index a0c61ad..addf187 100644
+--- a/server/commercial/billingUnblock.emulator.mjs
++++ b/server/commercial/billingUnblock.emulator.mjs
+@@ -1075,7 +1075,14 @@ test('11 negative: a Video failure after Account confirmed leaves Video blocked,
+   const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling),originalRun=c.db.runTransaction.bind(c.db);let confirmed=false;
+   c.accountBilling.unblock=async(...args)=>{const receipt=await originalUnblock(...args);confirmed=true;return receipt;};
+   c.db.runTransaction=async function(fn){if(confirmed){confirmed=false;throw new Error('synthetic Video crash after the Account confirmation');}return originalRun(fn);};
++  // The transport records every request before processing it: /api/internal/video/billing-holds/unblock is the only mutating route,
++  // and /api/internal/video/billing-holds/unblock-receipt is a distinct read route that must never stand in for it.
++  const unblockPosts=()=>c.transport.bodies.filter(entry=>entry.pathname==='/api/internal/video/billing-holds/unblock').length;
++  const receiptReads=()=>c.transport.bodies.filter(entry=>entry.pathname==='/api/internal/video/billing-holds/unblock-receipt').length;
++  assert.equal(unblockPosts(),0,'no Video unblock request exists before the first attempt');
+   await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),/synthetic Video crash/);
++  assert.equal(unblockPosts(),1,'the first attempt sent exactly one Video unblock request');
++  const receiptReadsBeforeResume=receiptReads();
+   c.accountBilling.unblock=originalUnblock;c.db.runTransaction=originalRun;
+   // Account already deleted its guard; Video is the conservative side and is still blocked.
+   assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,false);
+@@ -1087,6 +1094,9 @@ test('11 negative: a Video failure after Account confirmed leaves Video blocked,
+   assert.equal(resumed.replayed,false);assert.equal(resumed.accountBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
+   assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'retry_wait');
+   assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,2);
++  // The recovery must read the receipt route instead of re-sending the mutating unblock route.
++  assert.equal(unblockPosts(),1,'the Video unblock request count is still exactly one after resuming');
++  assert.ok(receiptReads()>receiptReadsBeforeResume,'resuming the unblock reads the distinct /api/internal/video/billing-holds/unblock-receipt route');
+ });
+ // ---------------------------------------------------------------------------
+ // 12. Stale generation refused; the current one applies. 12b. One alert per account and epoch.
+
+--- transporte sintético server/commercial/billingUnblock.emulator.mjs ---
+class LocalAccountTransport{
+  bodies=[];
+  constructor(store){this.store=store;}
+  async request(request){
+    const pathname=new URL(request.url).pathname,body=request.data??{};this.bodies.push({pathname,data:copy(body)});
+    const parts=pathname.split('/'),reservationId=parts.at(-2);
+    const httpFault=(status,code)=>Object.assign(Error('Synthetic Account refusal'),{response:{status,data:{error:code}}});
+    const guard=async action=>{try{return {data:await action()};}catch(error){if(error?.response)throw error;throw httpFault(accountStatus[error?.code]??503,error?.code??'invariant');}};
+    if(pathname==='/api/internal/video/billing-holds/unblock')return guard(()=>this.store.unblockVideoBilling(body.identityKey,{incidentId:body.incidentId,epoch:body.epoch,createdAtMs:body.createdAtMs,reviewRef:body.reviewRef}));
+    if(pathname==='/api/internal/video/billing-holds/unblock-receipt')return guard(()=>this.store.videoBillingUnblockReceipt(body.identityKey,body.incidentId,body.reviewRef));
+    if(pathname==='/api/internal/video/billing-holds/status')return guard(()=>this.store.videoBillingHold(body.identityKey,body.incidentId));
+    if(pathname==='/api/internal/video/billing-holds')return guard(()=>this.store.blockVideoBilling(body.identityKey,body.incidentId));
+    if(pathname==='/api/internal/video/reservations')return guard(async()=>({...await this.store.reserveVideo(body.identityKey,body.reservationId,body.seconds),reservationId:body.reservationId}));
+    if(pathname==='/api/internal/video/balance')return guard(()=>this.store.videoBalance(body.identityKey));
+    if(pathname.endsWith('/status'))return guard(()=>this.store.videoReservation(body.identityKey,reservationId));
+    if(pathname.endsWith('/resolution'))return guard(()=>this.store.videoReservationResolution(body.identityKey,reservationId,body.seconds));
+    if(pathname.endsWith('/admit'))return guard(()=>this.store.admitVideoCall(body.identityKey,reservationId,body.seconds,body.jobId,body.attemptId,body.callKey,body.model,body.requestSha256));
+    if(pathname.endsWith('/seal'))return guard(()=>this.store.sealVideoReservation(body.identityKey,reservationId,body.seconds));
+    if(pathname.endsWith('/release')||pathname.endsWith('/capture')){
+      const action=pathname.endsWith('/release')?'release':'capture';
+      const admission=body.jobId!==undefined?{jobId:body.jobId,attemptId:body.attemptId}:undefined;
+      const options=body.resolutionKind!==undefined?{resolution:{kind:body.resolutionKind,evidenceSha256:body.evidenceSha256}}:body.capturedSeconds!==undefined?{capturedSeconds:body.capturedSeconds}:undefined;
+      return guard(async()=>({...await this.store.settleVideo(body.identityKey,reservationId,action,body.seconds,admission,options),reservationId}));
+    }
+    throw httpFault(404,'not_found');
+  }
+}
+
+--- preparación de la cuenta ficticia, mismo archivo ---
+async function blockedAccount(scope,options={}){
+  const c=await fixture(scope),job=await captureJob(c);
+  // Extra captured jobs are prepared BEFORE the block: a blocked account refuses new work, which is the point of the guard.
+  const extras=[];for(let n=0;n<(options.extraJobs??0);n++)extras.push(await captureJob(c));
+  const releases=[];for(let n=0;n<(options.extraReleases??0);n++)releases.push(await releaseJob(c));
+  const {expected,snapshot}=await expectedAndSnapshot(c,job.id),version=await versionOf(c,job.id);
+  const outcome=await c.backend.quarantineExternalBillingOutbox(job.id,{phase:'after_ack',snapshotVersion:version,expected,ack:{reservationId:randomUUID(),seconds:expected.seconds,state:'released'},settlementSnapshot:snapshot});
+  assert.equal(outcome.state,'needs_review');assert.equal(outcome.ownerBlocked,true);
+  const guard=await fixtureGuardAfterWriterCut(c);
+  const holds=await c.root.collection('billingHoldOutbox').where('state','==','pending').get();
+  assert.equal(holds.size,1,'the real writer leaves exactly one pending hold');
+  const hold=holds.docs[0].get('id');
+  const receipt=await c.accountBilling.block(c.identity,hold);
+  assert.equal(receipt.created,true);
+  await ref(c.root,'billingHoldOutbox',hold).update({state:'applied',appliedAtMs:Date.now()});
+  const report=await readPendingReport(c.root,Date.now()),raised=await raisePendingAlerts(c.db,c.root,report,Date.now());
+  const alert=(await c.root.collection(ALERT_COLLECTION).get()).docs.find(doc=>doc.get('kind')==='guard');
+  assert.ok(alert,'the guard raises a D-4 alert');assert.equal(raised.created>=1,true);
+  // The occurrence named by the guard: the incident key of the outbox review, never the hold id (which also carries the generation).
+  const incident=guard.lastOutboxIncidentId??guard.lastIncidentId;
+  return {c,job,extras,releases,guard,hold,incident,alertKey:alert.id,accountRoot:c.accountRoot};
+}
+
+--- caso final, mismo archivo ---
+test('11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it',{timeout:40000},async()=>{
+  const blocked=await blockedAccount('unblock_video_fails'),c=blocked.c,requestBody=await request(c,blocked);
+  // Fail the FIRST Video transaction that follows the Account confirmation: Account already deleted its guard, Video cannot finish.
+  const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling),originalRun=c.db.runTransaction.bind(c.db);let confirmed=false;
+  c.accountBilling.unblock=async(...args)=>{const receipt=await originalUnblock(...args);confirmed=true;return receipt;};
+  c.db.runTransaction=async function(fn){if(confirmed){confirmed=false;throw new Error('synthetic Video crash after the Account confirmation');}return originalRun(fn);};
+  // The transport records every request before processing it: /api/internal/video/billing-holds/unblock is the only mutating route,
+  // and /api/internal/video/billing-holds/unblock-receipt is a distinct read route that must never stand in for it.
+  const unblockPosts=()=>c.transport.bodies.filter(entry=>entry.pathname==='/api/internal/video/billing-holds/unblock').length;
+  const receiptReads=()=>c.transport.bodies.filter(entry=>entry.pathname==='/api/internal/video/billing-holds/unblock-receipt').length;
+  assert.equal(unblockPosts(),0,'no Video unblock request exists before the first attempt');
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),/synthetic Video crash/);
+  assert.equal(unblockPosts(),1,'the first attempt sent exactly one Video unblock request');
+  const receiptReadsBeforeResume=receiptReads();
+  c.accountBilling.unblock=originalUnblock;c.db.runTransaction=originalRun;
+  // Account already deleted its guard; Video is the conservative side and is still blocked.
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,false);
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
+  const audits=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(audits.size,1,'only the unblock_requested record exists');assert.equal(audits.docs[0].get('action'),'unblock_requested');
+  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_002_000);
+  assert.equal(resumed.replayed,false);assert.equal(resumed.accountBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
+  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'retry_wait');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,2);
+  // The recovery must read the receipt route instead of re-sending the mutating unblock route.
+  assert.equal(unblockPosts(),1,'the Video unblock request count is still exactly one after resuming');
+  assert.ok(receiptReads()>receiptReadsBeforeResume,'resuming the unblock reads the distinct /api/internal/video/billing-holds/unblock-receipt route');
+});
+
+--- fragmento server/commercial/billingUnblock.ts ---
+  let observed=opened.observed;
+  let accepted={epoch:clean.accountEpoch,createdAtMs:clean.accountCreatedAtMs};
+  let account:{replayed:boolean;blocked:boolean};
+  const identityKey=await accountPhase(()=>identityKeyOf(root,accountId));
+  const receipt=await accountPhase(()=>deps.accountBilling.unblockReceipt(identityKey,holdId,clean.evidenceRef));
+  if(receipt?.state==='confirmed'){
+    if('fresh' in opened)throw new UnblockFault('conflict');
+    accepted={epoch:receipt.epoch,createdAtMs:receipt.createdAtMs};
+    account={replayed:true,blocked:receipt.blocked};
+  }else{
+    // Pending establishes that Account has no receipt yet. An existing claim
+    // may already have a POST in flight, so it never confers a second send.
+    if(!('fresh' in opened)||receipt?.state!=='pending'||
+      !guardBornAfterWriterCut(observed.guard,observed.cut))throw new UnblockFault('conflict');
+    await db.runTransaction(async tx=>{
+      const [guard,alert,requested,done,released,witness,dispatch,cut]=await tx.getAll(
+        guardRef,alertRef,requestedRef,doneRef,releasedRef,witnessRef,dispatchRef,cutRef);
+      if(requested.exists||done.exists||released.exists||witness.exists||dispatch.exists||
+        !sameVersion(observed.guard,guard)||!sameVersion(observed.cut,cut)||!guardBornAfterWriterCut(guard,cut)||
+        !isDeepStrictEqual(await freshRecord(tx,guard,alert),record))throw new UnblockFault('conflict');
+      // The trusted writer creates all three records in one commit. The claim
+      // is retained even after transport errors or if the sender dies.
+      tx.create(requestedRef,record);
+      tx.create(witnessRef,continuityRecord(requestedRef.id,record,'request'));
+      tx.create(dispatchRef,continuityRecord(requestedRef.id,record,'dispatch'));
+    });
+    observed=await db.runTransaction(tx=>recheck(tx,observed));
+    account=await accountPhase(()=>deps.accountBilling.unblock(identityKey,{incidentId:holdId,...accepted,reviewRef:clean.evidenceRef}));
+  }
+
