@@ -2,7 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {FieldPath,type Firestore,type DocumentReference,type Transaction,type DocumentSnapshot} from 'firebase-admin/firestore';
 import type {AccountView,AccountProject,ProjectKind,ProjectPage,ProjectSummary,LedgerPage} from './contracts';
 import {UNKNOWN_RESOLUTION_MIN_AGE_MS,sameResolution,validResolution,type VideoResolution,type VideoSettlementOptions} from './settlementContract';
-import {unblockPermitBytes,unblockReceiptBytes,verifiesUnblockHistory,type UnblockHistoryTrust} from './unblockHistoryProof';
+import {readUnblockHistoryTrust,unblockPermitBytes,unblockReceiptBytes,verifiesUnblockHistory,type UnblockHistoryTrust} from './unblockHistoryProof';
 
 export class AccountFault extends Error {constructor(readonly code:'invalid'|'not_found'|'account_not_provisioned'|'conflict'|'deleted'|'quota'|'insufficient'|'invariant'|'too_early'){super(code);}}
 const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
@@ -336,9 +336,9 @@ export class AccountStore {
   return this.videoBillingUnblockAttempt(identityKey,input,false);
  }
  private async videoBillingUnblockAttempt(identityKey:string,input:UnblockAttemptRequest,apply:boolean){
-  const trust=this.unblockHistoryTrust;
-  if(process.env.NODE_ENV!=='test'||!trust?.realm||!this.root.path||trust.permitKey.equals(trust.receiptKey))
-   throw new AccountFault('conflict');
+  if(process.env.NODE_ENV!=='test'||!this.root.path)throw new AccountFault('conflict');
+  const trust=readUnblockHistoryTrust(this.unblockHistoryTrust);
+  if(!trust)throw new AccountFault('conflict');
   const request=unblockAttemptRequest(input),identityRef=this.identityFromKey(identityKey);
   const conflict=():never=>{throw new AccountFault('conflict');};
   return this.db.runTransaction(async tx=>{
