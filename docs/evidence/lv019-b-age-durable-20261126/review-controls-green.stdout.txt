@@ -1,0 +1,14 @@
+VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+✔ review characterization: an observation alone currently allows new synthetic work for A and B (31.9158ms)
+✔ review compatibility: age observation does not enter the origin witness or prevent release preparation after a synthetic reopen (11.0099ms)
+VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3675.3258

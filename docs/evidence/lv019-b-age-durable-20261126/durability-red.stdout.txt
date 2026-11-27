@@ -1,0 +1,19 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.5 [39m[90mC:/Users/rob62/Documents/Codex/2026-11-11/vistavo-age-observation-review-20261126[39m
+
+ [31m×[39m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22ma lost preparation survives restart and prevents a second transition while B and an outbox proceed[32m 21[2mms[22m[39m
+[31m   → expected false to be true // Object.is equality[39m
+ [31m×[39m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22ma commit with a dropped ACK is reconciled and confirmed from the stored row, attempt and observation[32m 2[2mms[22m[39m
+[31m   → expected 0 to be greater than 0[39m
+ [31m×[39m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22mif reconciliation cannot be read, an applied attempt blocks a reopened row after restart[32m 3[2mms[22m[39m
+[31m   → Cannot read properties of undefined (reading 'status')[39m
+ [31m×[39m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22ma same-value recreation between preparation and action is skipped by the transaction version check[32m 2[2mms[22m[39m
+[31m   → expected false to be true // Object.is equality[39m
+ [31m×[39m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22mmalformed and legacy references fail closed for A without blocking B[32m 5[2mms[22m[39m
+[31m   → expected { scanned: 2, escalated: 2, …(3) } to match object { failed: 1, escalated: 1 }
+(3 matching properties omitted from actual)[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m5 failed[39m[22m[90m (5)[39m
+[2m   Start at [22m 18:46:55
+[2m   Duration [22m 2.04s[2m (import 85%, transform 12%, tests 2%, worker 1%)[22m

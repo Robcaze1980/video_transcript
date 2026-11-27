@@ -1,0 +1,83 @@
+TAP version 13
+# Subtest: age sweeps record each intent preimage once; a legacy review and outbox stay outside the observation
+ok 1 - age sweeps record each intent preimage once; a legacy review and outbox stay outside the observation
+  ---
+  duration_ms: 4307.8603
+  type: 'test'
+  ...
+# Subtest: reopening and recreating a row leave prior observations intact but never prove a historical owner
+ok 2 - reopening and recreating a row leave prior observations intact but never prove a historical owner
+  ---
+  duration_ms: 2173.6216
+  type: 'test'
+  ...
+# Subtest: two sweepers overlap after preparation and create one observation; a second account can still enqueue
+ok 3 - two sweepers overlap after preparation and create one observation; a second account can still enqueue
+  ---
+  duration_ms: 1434.9464
+  type: 'test'
+  ...
+# Subtest: an injected transaction abort reruns the callback with the same observation ID
+ok 4 - an injected transaction abort reruns the callback with the same observation ID
+  ---
+  duration_ms: 2608.3556
+  type: 'test'
+  ...
+# Subtest: a discarded commit response is reconciled by the backend before a repeat sweep
+ok 5 - a discarded commit response is reconciled by the backend before a repeat sweep
+  ---
+  duration_ms: 1399.0242
+  type: 'test'
+  ...
+# Subtest: a create collision at commit aborts both staged writes without changing the original row
+ok 6 - a create collision at commit aborts both staged writes without changing the original row
+  ---
+  duration_ms: 1445.5761
+  type: 'test'
+  ...
+# Subtest: lost preparation ACK remains durable across a new backend while B and an independent outbox progress
+ok 7 - lost preparation ACK remains durable across a new backend while B and an independent outbox progress
+  ---
+  duration_ms: 1507.8751
+  type: 'test'
+  ...
+# Subtest: unavailable reconciliation leaves applied state blocking a later synthetic reopen
+ok 8 - unavailable reconciliation leaves applied state blocking a later synthetic reopen
+  ---
+  duration_ms: 1201.5723
+  type: 'test'
+  ...
+# Subtest: existing Video financial guard stops the next step and external replay; a second account and an unrelated refund continue
+ok 9 - existing Video financial guard stops the next step and external replay; a second account and an unrelated refund continue
+  ---
+  duration_ms: 2447.1819
+  type: 'test'
+  ...
+# Subtest: already admitted external no-speech finishes in Video, but the financial guard stops its refund; B settles
+ok 10 - already admitted external no-speech finishes in Video, but the financial guard stops its refund; B settles
+  ---
+  duration_ms: 2410.6931
+  type: 'test'
+  ...
+# Subtest: a conflicting observation about the same reservation keeps the financial guard and prevents release; B settles
+ok 11 - a conflicting observation about the same reservation keeps the financial guard and prevents release; B settles
+  ---
+  duration_ms: 1875.5577
+  type: 'test'
+  ...
+# Subtest: Account hold prevents refund until its audited removal; retry and foreign account stay isolated
+ok 12 - Account hold prevents refund until its audited removal; retry and foreign account stay isolated
+  ---
+  duration_ms: 4062.5677
+  type: 'test'
+  ...
+Synthetic fixture cleanup verified: 12/12; roots 0->0
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 29586.9447

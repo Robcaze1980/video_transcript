@@ -16,15 +16,15 @@ const duration = 3;
 const operation = 'translation:en';
 
 function fixture() {
-  const video = stub(), account = stub();
+  const video = stub({}, {trackVersions:true}), account = stub();
   // The real financial-guard writer uses merge-set and the snapshot's reference.
   // Stage creation/merge through the existing stub transaction, including rollback.
   const videoDb={runTransaction:work=>video.db.runTransaction(tx=>{
     const read=async ref=>({...await tx.get(ref),ref});
     return work({...tx,get:read,getAll:(...refs)=>Promise.all(refs.map(read)),
       set(ref,data,options){
+        if (!options?.merge) return tx.set(ref,data);
         if (!video.store.has(ref.path)) return tx.create(ref,data);
-        assert.equal(options?.merge,true,'the fixture only supports merge on an existing document');
         return tx.update(ref,data);
       },
     });
@@ -239,10 +239,13 @@ test('entry authority: previously indistinguishable reserve and refund histories
   };
   assert.equal(observation(reserve).priorState,'reserve_pending');
   assert.equal(observation(refund).priorState,'release_pending');
-  // Other original evidence is still identical; the new observations alone
-  // establish which state each transaction actually reread.
+  // Other original evidence is still identical; both the observations and the
+  // new preparation records retain the state each transaction actually reread.
+  const attempt=f=>f.video.store.get('billingIntentAgeAttempts/'+pending.intentPath.split('/')[1]);
+  assert.equal(attempt(reserve).status,'confirmed');assert.equal(attempt(refund).status,'confirmed');
+  assert.equal(attempt(reserve).sourceState,'reserve_pending');assert.equal(attempt(refund).sourceState,'release_pending');
   const withoutAgeObservation=f=>{
-    const entries=[...f.video.store].filter(([path])=>!path.startsWith('billingIntentAgeObservations/'));
+    const entries=[...f.video.store].filter(([path])=>!path.startsWith('billingIntentAgeObservations/')&&!path.startsWith('billingIntentAgeAttempts/'));
     return new Map(entries.map(([path,value])=>{
       const copy=structuredClone(value);if(path===pending.intentPath)delete copy.ageObservationId;
       return [path,copy];

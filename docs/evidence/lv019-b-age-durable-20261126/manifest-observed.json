@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "project": "demo-vistavo-admission",
+  "address": "127.0.0.1",
+  "ports": [
+    8197,
+    9197,
+    9297
+  ],
+  "node": {
+    "path": "C:\\Program Files\\WindowsApps\\OpenAI.CodexPrimaryRuntime.v26-1123-915-0_26.1123.915.0_x64__3k8sg7r9htsxt\\dependencies\\node\\bin\\node.exe",
+    "version": "v24.22.3"
+  },
+  "jdk": "C:\\Program Files\\Java\\jdk-24",
+  "jar": "C:\\Users\\rob62\\.cache\\firebase\\emulators\\cloud-firestore-emulator-v1.21.0.jar",
+  "files": {
+    "package.json": "cb63b0ed26c479e645bb71a638720b48c2af6fad1111ea1b0133bbc588a64c77",
+    "package-lock.json": "5d7331ce71e0b1b96870011cd01835c8aa523c478e732304b61adc5079648b3e",
+    "tsconfig.json": "ede696fdb7f93b36045a270c72d4612f1ca162364412855ff3d609eceb165dfa",
+    "types.ts": "9235b7ae618e7b8212ba1ef74f361a1cc7fc3805721c3aa3d9fa9034cd741039",
+    "deploy/google-cloud/firestore.rules": "3e3d4058c4c9c89bf56ea4d6fc3dfd038d65d27f01cfb174dc3f582d6b33bbb3",
+    "docs/specs/LV-019-B-observacion-edad-intenciones.md": "a1c9ffcc7f72e87b3d558b8ba9571ed031c8b01500bbc45967cf4eed06278976",
+    "docs/evidence/lv019-b-entry-continuity-20261126/network-guard.cjs": "5086e5c4230b0dda2937d2acc16241391a1550275ced5283efa091a9b62b3fb1",
+    "docs/evidence/lv019-b-age-durable-20261126/InspectOwnedFirestore.java": "b28ccb86eb33d14528ef4e28ca2b4126e863ced00a6e054e8cea1c6288baaaf5",
+    "docs/evidence/lv019-b-age-durable-20261126/run-inspected.ps1": "5436420bf98cf6b23ea9f395474bb1a18d2f5e822de2f602f6ae437d2d4b9a08",
+    "docs/evidence/lv019-b-age-durable-20261126/manifest.mjs": "35815eff9aa15cdcdf45fc2348782b112f4ac78ef46fa7175b1684a2ada5390a",
+    "C:\\Program Files\\WindowsApps\\OpenAI.CodexPrimaryRuntime.v26-1123-915-0_26.1123.915.0_x64__3k8sg7r9htsxt\\dependencies\\node\\bin\\node.exe": "66e43517e90be6151a17e2e739f001501a582214938477886281dd31113ffe54",
+    "C:\\Users\\rob62\\.cache\\firebase\\emulators\\cloud-firestore-emulator-v1.21.0.jar": "c3d3680a89d946a90a027365ea14c26c6472a162bcf37f099bbb1ebd66d25e8e",
+    "C:\\Program Files\\Java\\jdk-24\\bin\\java.exe": "8d242982227e1b18eeb2b1f2e62dbb251525900ca0b5357b919d869429b3a3e5",
+    "C:\\Program Files\\Java\\jdk-24\\bin\\javac.exe": "ce05cd76c6c61639b69cb05ccb678dccf3b08ef84f598a6a73a9aea7cf1ad502",
+    "C:\\Program Files\\Java\\jdk-24\\bin\\java.dll": "344adeb6653116f8ffa2cd94edadf0541175a6d30e1921db1ac044d91bd7364f",
+    "C:\\Program Files\\Java\\jdk-24\\bin\\server\\jvm.dll": "93777805081a465788d01f6455077379b9937260ba3c9b1edbd11e3f73e94831",
+    "C:\\Program Files\\Java\\jdk-24\\lib\\modules": "eee053462d243e4db5a9be5b7dd8f6ee98370747fd600ff85213bfa7b515f22c"
+  },
+  "trees": {
+    "server": {
+      "count": 478,
+      "bytes": 11775683,
+      "sha256": "1a0f0f8b4fe812f5297ae3b69f4219b0ec4692b932f69008b3ed4f4f32c81f58"
+    },
+    "config": {
+      "count": 4,
+      "bytes": 6514,
+      "sha256": "23dad7762daa594e372e22b4eaf2864f325f1d8e40ce25140163eafbd5f820ea"
+    },
+    "utils": {
+      "count": 7,
+      "bytes": 48982,
+      "sha256": "3367f2b7911aa341f777bc2262d99d3c20325eb55435285ac0cf6707f29463a4"
+    },
+    "services": {
+      "count": 6,
+      "bytes": 33827,
+      "sha256": "21e3e9ce5b3c2bea2981c83686d2046a7fd1db2dcf4ed3410fd9af7017a25dc2"
+    },
+    "scripts": {
+      "count": 83,
+      "bytes": 1093592,
+      "sha256": "f6d22a34ae20acb1cbf20594e6c5c91e6df34aaf4c1c46fbccfd98ff997f9b7b"
+    },
+    "deploy": {
+      "count": 58,
+      "bytes": 735548,
+      "sha256": "80103e36e6943850d26e13383734cf623a92bc699a90b89792276e29ae67cbbc"
+    },
+    "node_modules": {
+      "count": 27683,
+      "bytes": 492949607,
+      "sha256": "d58d6184950ecf03c4764ba2b8ded503c7c80f219d9b56d7a33a95854752b79e"
+    }
+  },
+  "limitation": "Pre/post hashes do not create an immutable snapshot; native code and Java are not an OS network firewall."
+}

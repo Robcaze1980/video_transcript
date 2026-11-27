@@ -392,7 +392,7 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
       else if(row.collection==='billingHoldOutbox')tx.update(snap.ref,{state:'applied',appliedAtMs:nowMs,lastErrorCode:null});
       else if(row.collection==='billingOutbox')tx.update(snap.ref,{state:'retry_wait',reviewIncidentId:FieldValue.delete(),nextAttemptAt:nowMs,updatedAtMs:nowMs});
       else if(row.collection==='billingIntentAdmissionGuards')tx.update(snap.ref,{state:'clear',incidentId:FieldValue.delete(),updatedAtMs:FieldValue.delete()});
-      else tx.update(snap.ref,{state:exit,reviewReason:FieldValue.delete(),reviewIncidentId:FieldValue.delete(),reviewOutboxIncidentId:FieldValue.delete(),updatedAtMs:nowMs});
+      else tx.update(snap.ref,{state:exit,reviewReason:FieldValue.delete(),reviewIncidentId:FieldValue.delete(),reviewOutboxIncidentId:FieldValue.delete(),ageObservationId:FieldValue.delete(),updatedAtMs:nowMs});
       advanced.push(row.collection+'/'+row.id);
     }
     if(clear){

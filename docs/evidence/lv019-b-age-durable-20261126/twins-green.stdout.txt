@@ -1,0 +1,13 @@
+VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+✔ entry authority: previously indistinguishable reserve and refund histories now retain their prior states (43.182ms)
+VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3690.64

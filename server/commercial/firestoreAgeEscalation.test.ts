@@ -9,7 +9,7 @@ import {runBillingDrainSection,type BillingDrainSectionBackend} from './billingD
 import {stub} from './billingFirestoreStub';
 
 const NOW=1_700_000_000_000,DAY=24*60*60*1000,ACCOUNT='11111111-1111-4111-8111-111111111111';
-const backend=(initial:Record<string,Record<string,Record<string,unknown>>>)=>{const s=stub(initial);return {s,b:new FirestoreBackend(s.db as never,s.root as never)};};
+const backend=(initial:Record<string,Record<string,Record<string,unknown>>>)=>{const s=stub(initial,{trackVersions:true});return {s,b:new FirestoreBackend(s.db as never,s.root as never)};};
 const intentRow=(extra:Record<string,unknown>={})=>({accountId:ACCOUNT,state:'reserve_pending',attempts:1,nextAttemptAt:0,createdAtMs:NOW,...extra});
 const writesTo=(s:ReturnType<typeof stub>,collection:string)=>s.writes.filter(w=>w.split(':')[1].startsWith(collection+'/'));
 
@@ -128,7 +128,7 @@ describe('escalateStaleBillingRows malformed age, changed state and collections'
     const rows=Object.fromEntries(['a','b'].map(id=>[id,{...intentRow(),createdAtMs:NOW-DAY-1}]));
     const {s,b}=backend({billingIntents:rows,billingOutbox:Object.fromEntries(['a','b'].map(id=>[id,{accountId:ACCOUNT,state:'pending',attempts:0,nextAttemptAt:0,createdAtMs:NOW-DAY-1}]))});
     let asked=0;
-    const report=await b.escalateStaleBillingRows({now:NOW,maxAgeMs:DAY,limit:10,shouldContinue:async()=>++asked<=2});
+    const report=await b.escalateStaleBillingRows({now:NOW,maxAgeMs:DAY,limit:10,shouldContinue:async()=>++asked<=4});
     expect(report.stopped).toBe(true);expect(report.escalated).toBe(2);expect(report.next).toBe('a');
     expect(s.store.get('billingIntents/b')!.state).toBe('reserve_pending');
   });
@@ -159,7 +159,7 @@ describe('escalateStaleBillingRows malformed age, changed state and collections'
   });  it('stops row by row when the gate refuses and resumes right after the last attended row',async()=>{
     const {s,b}=backend({billingIntents:Object.fromEntries(['a','b','c'].map(id=>[id,{...intentRow(),createdAtMs:NOW-DAY-1}]))});
     let asked=0;
-    const report=await b.escalateStaleBillingRows({now:NOW,maxAgeMs:DAY,limit:10,shouldContinue:async()=>++asked<2});
+    const report=await b.escalateStaleBillingRows({now:NOW,maxAgeMs:DAY,limit:10,shouldContinue:async()=>++asked<4});
     expect(report.stopped).toBe(true);expect(report.escalated).toBe(1);expect(report.next).toBe('a');
     expect(s.store.get('billingIntents/b')!.state).toBe('reserve_pending');
   });

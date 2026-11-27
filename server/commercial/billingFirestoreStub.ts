@@ -1,8 +1,17 @@
 // Shared in-memory stand-in for the Firestore surface the pending-billing modules use (get/create/update in
 // transactions, equality and `in` queries, startAfter paging). It cannot prove real Firestore semantics: those are
 // checked against the emulator by the scripts/checkBilling*Emulator.mjs diagnostics.
-export function stub(initial:Record<string,Record<string,Record<string,unknown>>>={}){
+export function stub(initial:Record<string,Record<string,Record<string,unknown>>>={},options:{trackVersions?:boolean}={}){
   const store=new Map<string,Record<string,unknown>>(),writes:string[]=[],reads:string[]=[],selects:Array<string[]|null>=[];
+  const versions=new Map<string,number>();let sequence=0;
+  if(options.trackVersions){
+    const originalSet=store.set.bind(store),originalDelete=store.delete.bind(store),originalClear=store.clear.bind(store);
+    store.set=(key,value)=>{versions.set(key,++sequence);return originalSet(key,value);};
+    store.delete=key=>{versions.delete(key);return originalDelete(key);};
+    store.clear=()=>{versions.clear();originalClear();};
+  }
+  const version=(path:string)=>{const n=versions.get(path);return n===undefined?undefined:{seconds:1,nanoseconds:n,
+    isEqual:(other:{seconds:number;nanoseconds:number})=>other?.seconds===1&&other.nanoseconds===n,valueOf:()=>n};};
   for(const [c,docs] of Object.entries(initial))for(const [id,data] of Object.entries(docs))store.set(`${c}/${id}`,structuredClone(data));
   const docRef=(c:string,id:string)=>({id,path:`${c}/${id}`,async get(){reads.push(`${c}/${id}`);const d=store.get(`${c}/${id}`);return {id,exists:!!d,data:()=>d?structuredClone(d):undefined};}});
   const project=(data:Record<string,unknown>,fields:string[]|null)=>fields===null?structuredClone(data):Object.fromEntries(fields.filter(f=>f in data).map(f=>[f,structuredClone(data[f])]));
@@ -24,9 +33,10 @@ export function stub(initial:Record<string,Record<string,Record<string,unknown>>
   const root={path:'operator-local/stub-root',collection:(c:string)=>({doc:(id:string)=>docRef(c,id),...query(c,[],null,null)})};
   const db={async runTransaction<T>(fn:(tx:unknown)=>Promise<T>){
     const staged:Array<()=>void>=[];
-    const read=async(ref:{path:string;id:string})=>{const d=store.get(ref.path);return {id:ref.id,exists:!!d,data:()=>d?structuredClone(d):undefined,get:(f:string)=>d?.[f]};};
+    const read=async(ref:{path:string;id:string})=>{const d=store.get(ref.path);return {id:ref.id,exists:!!d,updateTime:version(ref.path),data:()=>d?structuredClone(d):undefined,get:(f:string)=>d?.[f]};};
     const tx={get:read,async getAll(...refs:Array<{path:string;id:string}>){return Promise.all(refs.map(read));},
       create(ref:{path:string},data:Record<string,unknown>){if(store.has(ref.path)||staged.length>50)throw Error('ALREADY_EXISTS');staged.push(()=>{writes.push('create:'+ref.path);store.set(ref.path,structuredClone(data));});},
+      set(ref:{path:string},data:Record<string,unknown>){staged.push(()=>{writes.push('set:'+ref.path);store.set(ref.path,structuredClone(data));});},
       update(ref:{path:string},data:Record<string,unknown>){if(!store.has(ref.path))throw Error('NOT_FOUND');staged.push(()=>{writes.push('update:'+ref.path);store.set(ref.path,{...store.get(ref.path)!,...data});});}};
     const result=await fn(tx);staged.forEach(f=>f());return result;}};
   return {db,root,store,writes,reads,selects};

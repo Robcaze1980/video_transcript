@@ -1,0 +1,90 @@
+VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 5 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22ma lost preparation survives restart and prevents a second transition while B and an outbox proceed
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m server/commercial/firestoreAgeDurability.test.ts:[2m33:33[22m[39m
+    [90m 31|[39m     const transport=dropCommitted(s,'billingIntentAgeAttempts/a');
+    [90m 32|[39m     const first=await new FirestoreBackend(transport.db as never,s.roo…
+    [90m 33|[39m     expect(transport.dropped()).toBe(true);expect(first).toMatchObject…
+    [90m   |[39m                                 [31m^[39m
+    [90m 34|[39m     expect(s.store.get('billingIntentAgeAttempts/a')).toMatchObject({i…
+    [90m 35|[39m     expect(s.store.get('billingIntents/a')!.state).toBe('reserve_pendi…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22ma commit with a dropped ACK is reconciled and confirmed from the stored row, attempt and observation
+[31m[1mAssertionError[22m: expected 0 to be greater than 0[39m
+[36m [2m❯[22m server/commercial/firestoreAgeDurability.test.ts:[2m47:79[22m[39m
+    [90m 45|[39m     const s=make({billingIntents:{a:row(A)}}),transport=dropCommitted(…
+    [90m 46|[39m     const result=await new FirestoreBackend(transport.db as never,s.ro…
+    [90m 47|[39m     expect(transport.dropped()).toBe(true);expect(transport.readsAfter…
+    [90m   |[39m                                                                               [31m^[39m
+    [90m 48|[39m     expect(result).toMatchObject({escalated:1,failed:0});
+    [90m 49|[39m     const attempt=s.store.get('billingIntentAgeAttempts/a')!,intent=s.…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22mif reconciliation cannot be read, an applied attempt blocks a reopened row after restart
+[31m[1mTypeError[22m: Cannot read properties of undefined (reading 'status')[39m
+[36m [2m❯[22m server/commercial/firestoreAgeDurability.test.ts:[2m67:104[22m[39m
+    [90m 65|[39m     }};
+    [90m 66|[39m     const first=await new FirestoreBackend(db as never,s.root as never…
+    [90m 67|[39m     expect(first).toMatchObject({escalated:0,failed:1});expect(s.store…
+    [90m   |[39m                                                                                                        [31m^[39m
+    [90m 68|[39m     const {ageObservationId,...rest}=s.store.get('billingIntents/a')!;
+    [90m 69|[39m     s.store.set('billingIntents/a',{...rest,state:'reserve_pending'});…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22ma same-value recreation between preparation and action is skipped by the transaction version check
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m server/commercial/firestoreAgeDurability.test.ts:[2m87:21[22m[39m
+    [90m 85|[39m     }};
+    [90m 86|[39m     const result=await new FirestoreBackend(db as never,s.root as neve…
+    [90m 87|[39m     expect(changed).toBe(true);expect(result.escalated).toBe(0);expect…
+    [90m   |[39m                     [31m^[39m
+    [90m 88|[39m     expect(s.store.get('billingIntentAgeAttempts/a')!.status).toBe('sk…
+    [90m 89|[39m     expect([...s.store.keys()].some(key=>key.startsWith('billingIntent…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m server/commercial/firestoreAgeDurability.test.ts[2m > [22mdurable age preparation; no owner attribution[2m > [22mmalformed and legacy references fail closed for A without blocking B
+[31m[1mAssertionError[22m: expected { scanned: 2, escalated: 2, …(3) } to match object { failed: 1, escalated: 1 }
+(3 matching properties omitted from actual)[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "escalated": 1,[39m
+[32m-   "failed": 1,[39m
+[31m+   "escalated": 2,[39m
+[31m+   "failed": 0,[39m
+[2m  }[22m
+
+[36m [2m❯[22m server/commercial/firestoreAgeDurability.test.ts:[2m96:20[22m[39m
+    [90m 94|[39m       accounts:{[A]:{available:17},[B]:{available:20}}});
+    [90m 95|[39m     const result=await new FirestoreBackend(s.db as never,s.root as ne…
+    [90m 96|[39m     expect(result).toMatchObject({failed:1,escalated:1});expect(s.stor…
+    [90m   |[39m                    [31m^[39m
+    [90m 97|[39m     expect(s.store.get('billingIntents/b')!.state).toBe('needs_review'…
+    [90m 98|[39m     expect(s.store.get('accounts/'+B)).toEqual({available:20});
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯[22m[39m

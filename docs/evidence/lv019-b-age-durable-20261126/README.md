@@ -1,0 +1,32 @@
+# LV-019.B · Candidata de constancia durable, corte WIP
+
+Esta candidata continúa la revisión de `a607ab4`; el [FALLA de DeepSeek, el PASS limitado de GLM y las contrapruebas previas](../lv019-b-age-observation-20261126/review-a607ab4/README.md) se conservan. No implementa la guarda de entrada y no acredita titular, legitimidad ni edad de una devolución. La versión de Firestore que guarda la constancia es una condición transaccional sobre la fila, no prueba de identidad ni de continuidad histórica.
+
+Se crea una constancia `pending` antes de intentar la transición. El commit de la transición escribe la observación, cambia la fila y marca `applied`; otra transacción comprueba las tres piezas y marca `confirmed`. Si se pierde el ACK de preparación, el proceso no envía la transición y una constancia pendiente impide otra. Si se pierde el ACK del commit, una lectura coincidente puede confirmarlo; una lectura fallida, ausencia o discordancia no prueban rechazo y no permiten repetir. Un intento `pending` o `applied` puede quedar pendiente indefinidamente; inventario y reparación operativa segura todavía no existen. Una reapertura auditada elimina la referencia antigua de la fila y conserva el documento histórico.
+
+La pasada de mantenimiento consulta el plazo y lease antes de la transición y antes de su confirmación. Estas consultas no están cercadas en el mismo commit: existe una ventana entre una consulta satisfactoria y una pérdida posterior del lease. Las pruebas de corte simulan la pérdida exactamente en los puntos de consulta y no prueban ausencia de escrituras en esa ventana. Detener esa pasada no crea guardas ni detiene el procesamiento general; los controles muestran a B progresando en otra pasada.
+
+## Evidencia local
+
+- `durability-red.*.txt`: cinco contrapruebas fallaron sobre el runtime anterior, antes de implementar este protocolo. `age-gate-green.*.txt`: 40/40 pruebas focales tras la primera corrección. `broad-focal.*.txt`: 171/171 en nueve suites con el guard de Node activado tras los últimos cambios de runtime. Se usaron dobles en memoria, no una transacción de Firestore real.
+- `twins-green.*.txt`: 1/1 historia gemela. `review-controls-green.*.txt`: 2/2 controles de A/B y del witness, con reapertura sintética; no autoriza esa reapertura ni prueba todos los lectores. El runtime importa `randomUUID` y el witness selecciona los campos de facturación explícitamente.
+- `tsc --noEmit` terminó con código 0 y salida vacía. Las dos compilaciones terminaron con código 0; se conservan sus salidas. La compilación web mantuvo la advertencia de tamaño del paquete.
+- La [ejecución anterior](../lv019-b-age-observation-20261126/README.md) fue 10/10 con seis avisos de lock de causa desconocida y la JVM propia terminada forzadamente. Es evidencia de `a607ab4`, no de esta candidata.
+
+La fixture adaptada se ejecutó una sola vez el 26 de noviembre de 2026: `fixture.stdout.txt` conserva **12/12 casos, 12/12 limpiezas y raíces sintéticas 0→0**. La prueba de concurrencia sincroniza después de persistir una preparación y antes de comenzar la transición; no afirma lecturas simultáneas dentro de dos transacciones. El aborto del SDK y las respuestas descartadas son inyecciones identificadas. Los cambios sintéticos de reapertura, borrado y recreación no autorizan esas operaciones en producción.
+
+El manifiesto observado `219744d59e4ae6f4b7bb3f5f97981bba1b09f58e8df64016f288d8e03fa20892` se verificó antes y después de la fixture. Node propio PID 21104 salió 0. La JVM propia PID 14500 no terminó con el nonce durante el plazo y fue terminada mediante su handle junto con su `conhost` propio; su salida fue `-1`, no un cierre normal. El recibo muestra que 8185–8187 conservaron sus procesos; los puertos propios 8197, 9197, 9297 y 49906 y los procesos propios no permanecieron al final.
+
+`emulator.stderr.txt` conserva un evento `entity already exists` y un evento `Transaction lock timeout`; cada texto vuelve a aparecer en la excepción asociada. La ruta del primer evento nombra el centinela `synthetic-existing` de la colisión inyectada. No se adjudica causa al timeout. Ambos hechos y la terminación forzada limitan la interpretación del resultado; no se repitió la ejecución para cambiarlos.
+
+En las copias `age-gate-green.stdout.txt`, `broad-focal.stdout.txt`, `durability-red.*.txt` y `emulator.stdout.txt` se retiraron solo líneas vacías finales; los originales permanecen en `outputs/admission-review` y `outputs/age-durable-runs`. Git puede normalizar finales de línea al transportar los archivos.
+
+## Aislamiento observado
+
+`run-inspected.ps1`, `manifest.mjs` e `InspectOwnedFirestore.java` derivan del lanzador de la corrida anterior; apuntan a `outputs/age-durable-runs` y `outputs/age-durable-manifests` y exigen 12 casos y 12 limpiezas. Usan el proyecto de demostración local `demo-vistavo-admission`, puertos 8197, 9197 y 9297, además del puerto interno descubierto y contrastado por el inspector; comparan 8185–8187 antes y después. El lanzador comprueba el guard, raíces sintéticas, procesos propios y hashes antes y después. Es Windows/PowerShell 7, sin credenciales ni proveedores. El guard de Node y los hashes no son un firewall del sistema ni una instantánea inmutable.
+
+El manifiesto se preparó y revisó antes de ejecutar. Los SHA-256 de los originales locales son: manifiesto `219744d59e4ae6f4b7bb3f5f97981bba1b09f58e8df64016f288d8e03fa20892`; recibo `812b4260373dc175cc5747c1783601726e5e969e0a1952f2517fc9651636683a`; TAP `3c055779a51038f1de61c64a3e9ed018f3c8c2e8c3080ad05415191259e0f08b`; stderr de fixture `967f980bbc11986f77c0632191eaeb78d3464a92075ebca02502cecbe77e2fe8`; stderr del emulador `c66f166746e377e68a273293cefbef15385de2042256c9835e0c333d727f1453`. Si una ejecución futura falla o queda incierta, se conserva su evidencia y no se reintenta automáticamente. Las rutas absolutas y finales de línea pueden variar entre checkouts: se requiere un manifiesto nuevo para cada máquina y corte.
+
+## Límites para producción
+
+Una intención que se cierre o desaparezca puede dejar una constancia huérfana. Faltan un inventario y una reparación seguros, política de estado ambiguo, retención, eliminación de huérfanos, IAM real e índices. En el camino satisfactorio se añaden tres escrituras de constancia respecto de la candidata anterior, más lecturas y almacenamiento; no se ha medido un costo. También faltan las revisiones independientes y la regresión financiera sobre el corte final. No hay despliegue ni integración autorizados por este informe.

@@ -304,6 +304,26 @@ function outboxVersion(doc:DocumentSnapshot){
   const time=doc.updateTime;if(!time||!Number.isSafeInteger(time.seconds)||time.seconds<0||!Number.isSafeInteger(time.nanoseconds)||time.nanoseconds<0||time.nanoseconds>=1_000_000_000)return null;
   return `${time.seconds}:${String(time.nanoseconds).padStart(9,'0')}`;
 }
+type AgeAttempt={protocol:1;intentId:string;observationId:string;sourceState:'reserve_pending'|'release_pending';sourceCreatedAtMs:number;
+  sourceVersion:string;observedAtMs:number;status:'pending'|'applied'|'confirmed'|'skipped'};
+function readAgeAttempt(doc:DocumentSnapshot,intentId:string):AgeAttempt|null{
+  const row=doc.data();
+  if(!doc.exists||!row||Object.keys(row).length!==8||row.protocol!==1||row.intentId!==intentId||
+    typeof row.observationId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/i.test(row.observationId)||!['reserve_pending','release_pending'].includes(row.sourceState)||
+    !Number.isSafeInteger(row.sourceCreatedAtMs)||row.sourceCreatedAtMs<0||!Number.isSafeInteger(row.observedAtMs)||row.observedAtMs<row.sourceCreatedAtMs||
+    typeof row.sourceVersion!=='string'||!/^(?:0|[1-9]\d{0,15}):\d{9}(?![\s\S])/.test(row.sourceVersion)||!Number.isSafeInteger(Number(row.sourceVersion.split(':')[0]))||
+    !['pending','applied','confirmed','skipped'].includes(row.status))return null;
+  return row as AgeAttempt;
+}
+function ageObservation(attempt:AgeAttempt){return {protocol:1,id:attempt.observationId,intentId:attempt.intentId,priorState:attempt.sourceState,
+  reason:'max_age',observedAtMs:attempt.observedAtMs,sourceCreatedAtMs:attempt.sourceCreatedAtMs};}
+function sameAgeAttempt(doc:DocumentSnapshot,expected:AgeAttempt,status:AgeAttempt['status']){
+  const actual=readAgeAttempt(doc,expected.intentId);return !!actual&&isDeepStrictEqual(actual,{...expected,status});
+}
+function matchesAppliedAgeRow(doc:DocumentSnapshot,expected:AgeAttempt){
+  return doc.exists&&doc.get('state')==='needs_review'&&doc.get('reviewReason')==='max_age'&&
+    doc.get('ageObservationId')===expected.observationId&&doc.get('createdAtMs')===expected.sourceCreatedAtMs&&doc.get('updatedAtMs')===expected.observedAtMs;
+}
 /** At most `limit` items taken alternately from `first` and `second` (starting with `first`); when one runs out the other fills the rest. */
 function interleave<T>(first:readonly T[],second:readonly T[],limit:number):T[]{
   const out:T[]=[];
@@ -2443,11 +2463,10 @@ export class FirestoreBackend {
         try{proceed=!!(await shouldContinue());}catch{proceed=false;}
         if(!proceed){report.stopped=true;report.next=completed??after;break;}
       }
-      let outcome:'escalated'|'skipped'|'failed';
-      // Stable across retries of this transaction. This is only an observation
-      // of the source state, not ownership or authorization to block/refund.
-      const ageObservationId=candidate.collection==='billingIntents'?randomUUID():null;
-      try{
+      let outcome:'escalated'|'skipped'|'failed'|'stopped';
+      if(candidate.collection==='billingIntents'){
+        outcome=await this.escalateObservedIntentAge(candidate,now as number,maxAgeMs as number,shouldContinue);
+      }else try{
         outcome=await this.db.runTransaction(async tx=>{
           const ref=this.ref(candidate.collection,candidate.id);
           const doc=await tx.get(ref);
@@ -2467,19 +2486,85 @@ export class FirestoreBackend {
           if(await this.deferVerifiedReleaseAge(tx,candidate.collection,doc,clock,limitAge))return 'skipped' as const;
           // A dangling or expired lease must not survive on a reviewed row; the audited release (1.4b) reopens it.
           const clearLease=hasIntentLease(doc.data()!)?{leaseToken:FieldValue.delete(),leaseOwner:FieldValue.delete(),leaseUntil:FieldValue.delete()}:{};
-          if(ageObservationId){
-            tx.create(this.ref('billingIntentAgeObservations',ageObservationId),{protocol:1,id:ageObservationId,intentId:candidate.id,
-              priorState:state,reason:'max_age',observedAtMs:clock,sourceCreatedAtMs:createdAtMs});
-          }
-          tx.update(ref,{state:'needs_review',reviewReason:'max_age',updatedAtMs:clock,
-            ...(ageObservationId?{ageObservationId}:{}),...clearLease});return 'escalated' as const;
+          tx.update(ref,{state:'needs_review',reviewReason:'max_age',updatedAtMs:clock,...clearLease});return 'escalated' as const;
         });
       }catch{outcome='failed';}
+      if(outcome==='stopped'){report.failed++;report.stopped=true;report.next=completed??after;break;}
       if(outcome==='escalated')report.escalated++;else if(outcome==='failed')report.failed++;
       // An id becomes a safe cursor only once no later selected candidate shares it.
       if(index===selected.length-1||selected[index+1].id!==candidate.id)completed=candidate.id;
     }
     return report;
+  }
+  /** A pending attempt survives a lost response or process exit; it never grants billing authority. */
+  private async escalateObservedIntentAge(candidate:{collection:string;id:string;state:string},clock:number,maxAgeMs:number,
+    shouldContinue?:()=>boolean|Promise<boolean>):Promise<'escalated'|'skipped'|'failed'|'stopped'>{
+    const ref=this.ref('billingIntents',candidate.id),attemptRef=this.ref('billingIntentAgeAttempts',candidate.id);
+    let observationId:string;try{observationId=randomUUID();}catch{return 'failed';}
+    const mayContinue=async()=>{if(shouldContinue===undefined)return true;try{return !!(await shouldContinue());}catch{return false;}};
+    let expected:AgeAttempt;
+    try{
+      const prepared=await this.db.runTransaction(async tx=>{
+        const [doc,prior]=await tx.getAll(ref,attemptRef);
+        if(prior.exists){
+          const previous=readAgeAttempt(prior,candidate.id);
+          if(!previous||!['confirmed','skipped'].includes(previous.status))return 'failed' as const;
+          const observation=await tx.get(this.ref('billingIntentAgeObservations',previous.observationId));
+          const matches=previous.status==='confirmed'?observation.exists&&isDeepStrictEqual(observation.data(),ageObservation(previous)):!observation.exists;
+          if(!matches)return 'failed' as const;
+        }
+        if(!doc.exists)return 'skipped' as const;
+        const state=doc.get('state'),createdAtMs=doc.get('createdAtMs'),version=outboxVersion(doc);
+        if(!['reserve_pending','release_pending'].includes(state)||state!==candidate.state)return 'skipped' as const;
+        if(typeof createdAtMs!=='number'||!Number.isSafeInteger(createdAtMs)||createdAtMs<0||createdAtMs>clock)return 'failed' as const;
+        if(clock-createdAtMs<=maxAgeMs)return 'skipped' as const;
+        const leaseUntil=doc.get('leaseUntil');if(Number.isSafeInteger(leaseUntil)&&Number(leaseUntil)>clock)return 'skipped' as const;
+        if(!version||doc.get('ageObservationId')!==undefined)return 'failed' as const;
+        if(await this.deferVerifiedReleaseAge(tx,'billingIntents',doc,clock,maxAgeMs))return 'skipped' as const;
+        const attempt:AgeAttempt={protocol:1,intentId:candidate.id,observationId,sourceState:state,sourceCreatedAtMs:createdAtMs,
+          sourceVersion:version,observedAtMs:clock,status:'pending'};
+        if(prior.exists)tx.set(attemptRef,attempt);else tx.create(attemptRef,attempt);
+        return attempt;
+      });
+      if(typeof prepared==='string')return prepared;
+      expected=prepared;
+    }catch{return 'failed';} // Preparation may have committed: never send the escalation on an uncertain ACK.
+    if(!await mayContinue())return 'stopped';
+    let action:'escalated'|'skipped'|'failed'|'unknown';
+    try{
+      action=await this.db.runTransaction(async tx=>{
+        const [doc,attempt]=await tx.getAll(ref,attemptRef);
+        if(!sameAgeAttempt(attempt,expected,'pending'))return 'failed' as const;
+        if(!doc.exists||outboxVersion(doc)!==expected.sourceVersion||doc.get('state')!==expected.sourceState||
+          doc.get('createdAtMs')!==expected.sourceCreatedAtMs||doc.get('ageObservationId')!==undefined){
+          tx.update(attemptRef,{status:'skipped'});return 'skipped' as const;
+        }
+        const leaseUntil=doc.get('leaseUntil');
+        if(Number.isSafeInteger(leaseUntil)&&Number(leaseUntil)>clock||await this.deferVerifiedReleaseAge(tx,'billingIntents',doc,clock,maxAgeMs)){
+          tx.update(attemptRef,{status:'skipped'});return 'skipped' as const;
+        }
+        const clearLease=hasIntentLease(doc.data()!)?{leaseToken:FieldValue.delete(),leaseOwner:FieldValue.delete(),leaseUntil:FieldValue.delete()}:{};
+        tx.create(this.ref('billingIntentAgeObservations',expected.observationId),ageObservation(expected));
+        tx.update(ref,{state:'needs_review',reviewReason:'max_age',updatedAtMs:clock,ageObservationId:expected.observationId,...clearLease});
+        tx.update(attemptRef,{status:'applied'});return 'escalated' as const;
+      });
+    }catch{action='unknown';}
+    if(action==='failed'||action==='skipped')return action;
+    if(!await mayContinue())return 'stopped';
+    // A matching read can confirm a committed action. No absence is treated as proof that an in-flight commit failed.
+    const inspect=async(tx:Transaction,confirm:boolean)=>{
+      const [attempt,observation,doc]=await tx.getAll(attemptRef,this.ref('billingIntentAgeObservations',expected.observationId),ref);
+      if(sameAgeAttempt(attempt,expected,'skipped')&&!observation.exists)return 'skipped' as const;
+      const applied=sameAgeAttempt(attempt,expected,'applied'),confirmed=sameAgeAttempt(attempt,expected,'confirmed');
+      if((!applied&&!confirmed)||!observation.exists||!isDeepStrictEqual(observation.data(),ageObservation(expected))||!matchesAppliedAgeRow(doc,expected))return 'failed' as const;
+      if(applied){if(!confirm)return 'failed' as const;tx.update(attemptRef,{status:'confirmed'});}
+      return 'escalated' as const;
+    };
+    try{return await this.db.runTransaction(tx=>inspect(tx,true));}
+    catch{
+      // A confirmation ACK can be lost too. Read only; never repeat that uncertain write automatically.
+      try{return await this.db.runTransaction(tx=>inspect(tx,false));}catch{return 'failed';}
+    }
   }
   /** The report still observes the original creation date. Only a verified refund can wait for its next drain. */
   private async deferVerifiedReleaseAge(tx:Transaction,collection:string,doc:DocumentSnapshot,clock:number,maxAgeMs:number){
