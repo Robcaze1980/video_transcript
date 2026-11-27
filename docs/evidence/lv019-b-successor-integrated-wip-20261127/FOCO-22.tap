@@ -1,0 +1,148 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# RULES_FOCUS_PREFLIGHT negative=false-sha-rejected clientGet=403 adminRead=PASS rulesLoad=200 issues=0
+# Subtest: 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt
+ok 1 - 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt
+  ---
+  duration_ms: 5596.7298
+  type: 'test'
+  ...
+# Subtest: 11 the completion records the Account generation the confirmed call actually used, not a different one presented on resume
+ok 2 - 11 the completion records the Account generation the confirmed call actually used, not a different one presented on resume
+  ---
+  duration_ms: 3664.4638
+  type: 'test'
+  ...
+# Subtest: the rows of the account are read through each required transaction and never through a direct read
+ok 3 - the rows of the account are read through each required transaction and never through a direct read
+  ---
+  duration_ms: 4014.8417
+  type: 'test'
+  ...
+# Subtest: 12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any send, and the current generation applies
+ok 4 - 12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any send, and the current generation applies
+  ---
+  duration_ms: 3558.5046
+  type: 'test'
+  ...
+# Subtest: 12 a wrong Account generation is refused per variation: one claim, one refused POST, guard retained, never re-sent
+ok 5 - 12 a wrong Account generation is refused per variation: one claim, one refused POST, guard retained, never re-sent
+  ---
+  duration_ms: 7014.9126
+  type: 'test'
+  ...
+# Subtest: retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once
+ok 6 - retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once
+  ---
+  duration_ms: 4136.7112
+  type: 'test'
+  ...
+# Subtest: retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives
+ok 7 - retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives
+  ---
+  duration_ms: 5873.5832
+  type: 'test'
+  ...
+# Subtest: retry-generation C: a lost confirmation is recovered from its receipt while a newer Account block survives
+ok 8 - retry-generation C: a lost confirmation is recovered from its receipt while a newer Account block survives
+  ---
+  duration_ms: 5164.0804
+  type: 'test'
+  ...
+# Subtest: successor real receipt: g0->g1 observes pending, closes by ONE successor claim, drains once and leaves the other account intact
+ok 9 - successor real receipt: g0->g1 observes pending, closes by ONE successor claim, drains once and leaves the other account intact
+  ---
+  duration_ms: 7868.0353
+  type: 'test'
+  ...
+# Subtest: successor parallel: two recoverers create ONE claim and dispatch once
+ok 10 - successor parallel: two recoverers create ONE claim and dispatch once
+  ---
+  duration_ms: 7173.1908
+  type: 'test'
+  ...
+# Subtest: successor lost reconcile ACK: same tuple, ONE claim and ONE send
+ok 11 - successor lost reconcile ACK: same tuple, ONE claim and ONE send
+  ---
+  duration_ms: 4186.3596
+  type: 'test'
+  ...
+# Subtest: successor lost confirm ACK: recover the active receipt, never resend
+ok 12 - successor lost confirm ACK: recover the active receipt, never resend
+  ---
+  duration_ms: 4350.074
+  type: 'test'
+  ...
+# Subtest: successor claim missing/tampered: the confirmed successor receipt cannot close
+ok 13 - successor claim missing/tampered: the confirmed successor receipt cannot close
+  ---
+  duration_ms: 9559.5131
+  type: 'test'
+  ...
+# Subtest: successor invalid authority: missing cut/grant, wrong tuple and wrong identity write nothing
+ok 14 - successor invalid authority: missing cut/grant, wrong tuple and wrong identity write nothing
+  ---
+  duration_ms: 15297.4104
+  type: 'test'
+  ...
+# Subtest: successor partial resume uses the DONE accepted epoch and the original durable request for the claim
+ok 15 - successor partial resume uses the DONE accepted epoch and the original durable request for the claim
+  ---
+  duration_ms: 4534.0701
+  type: 'test'
+  ...
+# Subtest: successor race order A: previous confirms between receipt and reconcile; close by receipt, no claim/send
+ok 16 - successor race order A: previous confirms between receipt and reconcile; close by receipt, no claim/send
+  ---
+  duration_ms: 3834.2487
+  type: 'test'
+  ...
+# Subtest: successor race order B: reconcile fences first; previous is refused and the successor dispatches once
+ok 17 - successor race order B: reconcile fences first; previous is refused and the successor dispatches once
+  ---
+  duration_ms: 4062.9467
+  type: 'test'
+  ...
+# Subtest: successor environment gate: non-emulator settings and a forged attestation write nothing
+ok 18 - successor environment gate: non-emulator settings and a forged attestation write nothing
+  ---
+  duration_ms: 3774.9173
+  type: 'test'
+  ...
+# Subtest: successor pending is not permission: no grant path never dispatches
+ok 19 - successor pending is not permission: no grant path never dispatches
+  ---
+  duration_ms: 3443.3144
+  type: 'test'
+  ...
+# DIAG fenced receipt rejected: {"name":"Error","constructor":"AccountFault","code":"invariant","isAccountFault":true}
+# Subtest: guard corruption: an invalid reviewedCount fails the fenced receipt before pending and writes nothing
+ok 20 - guard corruption: an invalid reviewedCount fails the fenced receipt before pending and writes nothing
+  ---
+  duration_ms: 3784.9711
+  type: 'test'
+  ...
+# Subtest: successor partial resume derives the claim from the durable request, not from the done close
+ok 21 - successor partial resume derives the claim from the durable request, not from the done close
+  ---
+  duration_ms: 4728.8873
+  type: 'test'
+  ...
+# Synthetic unblock-1.4b cleanup total: 27/27
+# Subtest: successor stale Account clear: a newer incident between receipt and release keeps the Video guard
+ok 22 - successor stale Account clear: a newer incident between receipt and release keeps the Video guard
+  ---
+  duration_ms: 3948.5403
+  type: 'test'
+  ...
+1..22
+# tests 22
+# suites 0
+# pass 22
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 124812.9349

@@ -30,8 +30,37 @@ const selectedNames = [
   'retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once',
   'retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives',
   'retry-generation C: a lost confirmation is recovered from its receipt while a newer Account block survives',
+  'successor real receipt: g0->g1 observes pending, closes by ONE successor claim, drains once and leaves the other account intact',
+  'successor parallel: two recoverers create ONE claim and dispatch once',
+  'successor lost reconcile ACK: same tuple, ONE claim and ONE send',
+  'successor lost confirm ACK: recover the active receipt, never resend',
+  'successor claim missing/tampered: the confirmed successor receipt cannot close',
+  'successor invalid authority: missing cut/grant, wrong tuple and wrong identity write nothing',
+  'successor partial resume uses the DONE accepted epoch and the original durable request for the claim',
+  'successor race order A: previous confirms between receipt and reconcile; close by receipt, no claim/send',
+  'successor race order B: reconcile fences first; previous is refused and the successor dispatches once',
+  'successor environment gate: non-emulator settings and a forged attestation write nothing',
+  'successor pending is not permission: no grant path never dispatches',
+  'guard corruption: an invalid reviewedCount fails the fenced receipt before pending and writes nothing',
+  'successor partial resume derives the claim from the durable request, not from the done close',
+  'successor stale Account clear: a newer incident between receipt and release keeps the Video guard',
 ];
-if(selectedNames.length!==8||new Set(selectedNames).size!==8||selectedNames.some(name=>!/^[A-Za-z0-9:, _\/-]+$/.test(name)))throw Error('Unsafe focus name');
+
+const exactExtendedFocusNames = new Set([
+  'successor real receipt: g0->g1 observes pending, closes by ONE successor claim, drains once and leaves the other account intact',
+  'successor race order A: previous confirms between receipt and reconcile; close by receipt, no claim/send',
+  'successor race order B: reconcile fences first; previous is refused and the successor dispatches once',
+]);
+
+if (
+  selectedNames.length !== 22 ||
+  new Set(selectedNames).size !== 22 ||
+  selectedNames.some(name =>
+    !/^[A-Za-z0-9:, _\/-]+$/.test(name) &&
+    !exactExtendedFocusNames.has(name)
+  )
+) throw Error('Unsafe focus name');
+
 const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const expectedSelected = selectedNames.length;
 const selectedPattern = '^(?:'+selectedNames.map(escapeRegex).join('|')+')$';

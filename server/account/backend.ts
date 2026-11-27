@@ -395,13 +395,22 @@ export class AccountStore {
        receiptVersion!==unblockDocumentVersion(receipt,'updateTime')||!integer(time)||
        incident.get('state')!=='reviewed'||incident.get('reviewedAtMs')!==time||
        incident.get('unblockAttemptId')!==active.attemptId)return conflict();
+    if(blocked){const liveEpoch=guard.get('epoch');if(!integer(liveEpoch,1)||liveEpoch<active.epoch)return conflict();}
     return {state:'confirmed' as const,...active,createdAtMs,blocked,replayed:true};
    }
    if(!blocked||incident.get('state')!=='active'||incident.get('reviewedAtMs')!==undefined||
       incident.get('unblockAttemptId')!==undefined||unblockDocumentVersion(guard,'createTime')!==guardVersion||
-      guard.get('createdAtMs')!==createdAtMs||guard.get('epoch')!==request.epoch)return conflict();
+      guard.get('createdAtMs')!==createdAtMs)return conflict();
+   const liveEpoch=guard.get('epoch');
+   if(!integer(liveEpoch,1)||liveEpoch<request.epoch)return conflict();
+   if(command.kind==='receipt'){
+     // The original checked the guard's own bookkeeping before answering `pending`. Keep that detection:
+     // an inconsistent reviewedCount is corruption and must not be masked by the relaxed epoch.
+     nextGuardReview(guard);
+     return {state:'pending' as const,...active,createdAtMs};
+   }
+   if(liveEpoch!==request.epoch)return conflict();
    const remaining=nextGuardReview(guard);
-   if(command.kind==='receipt')return {state:'pending' as const,...active,createdAtMs};
    if(reconciliation){
     if(!fenced)tx.update(anchorRef,{reconcileId:reconciliation.reconcileId,successorAttemptId:request.attemptId,successorEpoch:request.epoch});
     return {state:'permitted' as const,reconcileId:reconciliation.reconcileId,attemptId:request.attemptId,epoch:request.epoch,

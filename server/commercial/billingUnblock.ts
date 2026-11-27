@@ -36,6 +36,12 @@ import {stableStringify} from './pipelineContracts';
 export const UNBLOCK_AUDIT_COLLECTION='billingUnblockAudit';
 export const UNBLOCK_CONTINUITY_COLLECTION='billingUnblockContinuity';
 export const UNBLOCK_WRITER_CUT_ID='verified-writer-cut-v1';
+/** Immutable Video record of the ONE successor attempt a reconciliation grant authorises for an uncertain request. */
+export const UNBLOCK_SUCCESSOR_COLLECTION='billingUnblockSuccessors';
+/** The only endpoint the successor seam may ever run against. */
+export const UNBLOCK_EMULATOR_PROJECT='demo-vistavo-financial';
+export const UNBLOCK_EMULATOR_HOST='127.0.0.1';
+export const UNBLOCK_EMULATOR_PORT=8198;
 export type UnblockAction='unblock_requested'|'unblocked'|'video_released';
 export class UnblockFault extends Error{constructor(readonly code:'invalid'|'not_found'|'conflict'|'corrupt'|'unresolved'){super(code);}}
 
@@ -88,9 +94,34 @@ export interface UnblockReceipt{
   advanced:string[];
   auditId:string;
 }
+export interface SuccessorAttempt{
+  previousAttemptId:string;previousEpoch:number;
+  reconcileId:string;
+  attemptId:string;epoch:number;
+  authorizationSha256:string;
+}
+type PendingReceipt={state:'pending';attemptId:string;epoch:number;createdAtMs:number};
+type ConfirmedReceipt={state:'confirmed';attemptId:string;epoch:number;createdAtMs:number;blocked:boolean;replayed:boolean};
+export type SuccessorReceipt=PendingReceipt|ConfirmedReceipt;
+export type SuccessorDecision=
+  |ConfirmedReceipt
+  |{state:'permitted';reconcileId:string;attemptId:string;epoch:number;createdAtMs:number;replayed:boolean};
+type AccountReceipt=
+  |{state:'pending';attemptId:null;epoch:null;createdAtMs:null}
+  |{state:'confirmed';attemptId:null;epoch:number;createdAtMs:number;blocked:boolean;replayed:boolean}
+  |SuccessorReceipt;
+export interface SuccessorBilling{
+  attestation:unknown;
+  attempt:SuccessorAttempt;
+  accountCreatedAtMs:number;
+  receipt(input:{identityKey:string;incidentId:string;reviewRef:string}):Promise<unknown>;
+  reconcile(input:{identityKey:string;incidentId:string;reviewRef:string}):Promise<unknown>;
+  confirm(input:{identityKey:string;incidentId:string;reviewRef:string;attempt:'previous'|'successor'}):Promise<unknown>;
+}
 export interface UnblockDeps{
   db:Firestore;root:DocumentReference;
   accountBilling:Pick<AccountBillingClient,'unblock'|'unblockReceipt'>;
+  successor?:SuccessorBilling;
 }
 
 type Clean={incidentKey:string;alertKey:string;epoch:number;createdAtMs:number;updatedAtMs:number;accountEpoch:number;accountCreatedAtMs:number;evidenceRef:string;note:string|null};
@@ -152,6 +183,117 @@ function guardBornAfterWriterCut(guard:DocumentSnapshot,cut:DocumentSnapshot):bo
   return !!created&&!!start&&(created.seconds>start.seconds||
     created.seconds===start.seconds&&created.nanoseconds>start.nanoseconds);
 }
+function exactKeys(value:Record<string,unknown>,keys:readonly string[]):boolean{
+  const own=Object.keys(value);
+  return own.length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
+}
+interface EmulatorEvidence{project:string;servicePath:string;port:number;ssl:boolean;preferRest:boolean}
+const attestedEmulatorPairs=new WeakSet<object>();
+export function emulatorEvidence(db:Firestore):EmulatorEvidence{
+  const settings=(db as unknown as {_settings?:Record<string,unknown>})._settings;
+  if(!settings)throw new UnblockFault('invalid');
+  const {projectId,servicePath,port,ssl,preferRest}=settings;
+  if(projectId!==UNBLOCK_EMULATOR_PROJECT||servicePath!==UNBLOCK_EMULATOR_HOST||
+    port!==UNBLOCK_EMULATOR_PORT||ssl!==false||preferRest!==false)throw new UnblockFault('invalid');
+  return {project:UNBLOCK_EMULATOR_PROJECT,servicePath:UNBLOCK_EMULATOR_HOST,
+    port:UNBLOCK_EMULATOR_PORT,ssl:false,preferRest:false};
+}
+export function attestLocalEmulatorPair(videoDb:Firestore,accountDb:Firestore){
+  if(process.env.NODE_ENV!=='test'||
+    process.env.FIRESTORE_EMULATOR_HOST!==UNBLOCK_EMULATOR_HOST+':'+UNBLOCK_EMULATOR_PORT)
+    throw new UnblockFault('invalid');
+  const video=emulatorEvidence(videoDb),account=emulatorEvidence(accountDb);
+  if(JSON.stringify(video)!==JSON.stringify(account))throw new UnblockFault('invalid');
+  const token=Object.freeze({kind:'lv019b-local-emulator-pair' as const,video,account});
+  attestedEmulatorPairs.add(token);
+  return token;
+}
+function attestedLocalEmulatorPair(db:Firestore,value:unknown):boolean{
+  if(process.env.NODE_ENV!=='test'||!value||typeof value!=='object'||!attestedEmulatorPairs.has(value))return false;
+  try{return JSON.stringify(emulatorEvidence(db))===JSON.stringify((value as {video?:unknown}).video);}
+  catch{return false;}
+}
+function successorOf(deps:UnblockDeps):SuccessorBilling|null{
+  const seam=deps.successor;
+  if(!seam)return null;
+  if(!attestedLocalEmulatorPair(deps.db,seam.attestation))throw new UnblockFault('invalid');
+  const a=seam.attempt;
+  if(!a||typeof a!=='object'||!uuid.test(a.previousAttemptId)||!uuid.test(a.reconcileId)||
+    !uuid.test(a.attemptId)||a.attemptId===a.previousAttemptId||!whole(a.previousEpoch,1)||
+    !whole(a.epoch,a.previousEpoch)||!digest(a.authorizationSha256)||!whole(seam.accountCreatedAtMs)||
+    typeof seam.receipt!=='function'||typeof seam.reconcile!=='function'||typeof seam.confirm!=='function')
+    throw new UnblockFault('invalid');
+  return seam;
+}
+function successorClaimId(accountId:string,requestId:string,a:SuccessorAttempt):string{
+  return hash(['billing-unblock-successor-v1',accountId,requestId,a.previousAttemptId,a.previousEpoch,
+    a.reconcileId,a.attemptId,a.epoch]);
+}
+function sameSuccessorClaim(doc:DocumentSnapshot,expected:Record<string,unknown>):boolean{
+  return doc.exists&&immutable(doc)&&isDeepStrictEqual(doc.data(),expected);
+}
+function decisionReceipt(value:unknown):SuccessorReceipt{
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new UnblockFault('corrupt');
+  const row=value as Record<string,unknown>;
+  if(exactKeys(row,['state','attemptId','epoch','createdAtMs'])&&row.state==='pending'&&
+    typeof row.attemptId==='string'&&uuid.test(row.attemptId)&&whole(row.epoch,1)&&whole(row.createdAtMs))
+    return {state:'pending',attemptId:row.attemptId,epoch:row.epoch,createdAtMs:row.createdAtMs};
+  if(exactKeys(row,['state','attemptId','epoch','createdAtMs','blocked','replayed'])&&row.state==='confirmed'&&
+    typeof row.attemptId==='string'&&uuid.test(row.attemptId)&&whole(row.epoch,1)&&whole(row.createdAtMs)&&
+    typeof row.blocked==='boolean'&&typeof row.replayed==='boolean')
+    return {state:'confirmed',attemptId:row.attemptId,epoch:row.epoch,createdAtMs:row.createdAtMs,
+      blocked:row.blocked,replayed:row.replayed};
+  throw new UnblockFault('corrupt');
+}
+function successorDecision(value:unknown):SuccessorDecision{
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new UnblockFault('corrupt');
+  const row=value as Record<string,unknown>;
+  if(exactKeys(row,['state','attemptId','epoch','createdAtMs','blocked','replayed'])&&row.state==='confirmed'&&
+    typeof row.attemptId==='string'&&uuid.test(row.attemptId)&&whole(row.epoch,1)&&whole(row.createdAtMs)&&
+    typeof row.blocked==='boolean'&&typeof row.replayed==='boolean')
+    return {state:'confirmed',attemptId:row.attemptId,epoch:row.epoch,createdAtMs:row.createdAtMs,
+      blocked:row.blocked,replayed:row.replayed};
+  if(exactKeys(row,['state','reconcileId','attemptId','epoch','createdAtMs','replayed'])&&row.state==='permitted'&&
+    typeof row.reconcileId==='string'&&uuid.test(row.reconcileId)&&typeof row.attemptId==='string'&&
+    uuid.test(row.attemptId)&&whole(row.epoch,1)&&whole(row.createdAtMs)&&typeof row.replayed==='boolean')
+    return {state:'permitted',reconcileId:row.reconcileId,attemptId:row.attemptId,epoch:row.epoch,
+      createdAtMs:row.createdAtMs,replayed:row.replayed};
+  throw new UnblockFault('corrupt');
+}
+function confirmedResult(value:unknown){
+  const decision=successorDecision(value);
+  if(decision.state!=='confirmed')throw new UnblockFault('corrupt');
+  return decision;
+}
+/** Classifies Account answers: invariant -> corrupt; explicit conflict -> conflict; transport -> unresolved. */
+async function successorCall<T>(stage:string,operation:()=>Promise<T>):Promise<T>{
+  try{return await operation();}
+  catch(cause){
+    const code=(cause as {code?:unknown})?.code;
+    if(code==='invariant')throw Object.assign(new UnblockFault('corrupt'),{stage,cause});
+    if(code==='unavailable'||code==='not_found')throw Object.assign(new UnblockFault('unresolved'),{stage,cause});
+    throw Object.assign(new UnblockFault('conflict'),{stage,cause});
+  }
+}
+/** Claim payload derives ONLY from the durable `unblock_requested`, never from the `done` close. */
+function successorClaimFromRequest(requested:DocumentSnapshot,accountId:string,holdId:string,
+  attempt:SuccessorAttempt,accountCreatedAtMs:number):Record<string,unknown>{
+  const data=requested.data();
+  if(!requested.exists||!data||data.action!=='unblock_requested'||data.accountId!==accountId||
+    typeof data.incidentKey!=='string'||typeof data.alertKey!=='string'||
+    (data.kind!=='intent'&&data.kind!=='outbox')||!whole(data.epoch,1)||!whole(data.createdAtMs)||
+    typeof data.evidenceRef!=='string'||typeof data.authorizedBy!=='string'||!whole(data.recordedAtMs))
+    throw new UnblockFault('corrupt');
+  return {v:1,kind:'successor',requestId:requested.id,
+    accountId,incidentKey:data.incidentKey,alertKey:data.alertKey,
+    videoKind:data.kind,videoEpoch:data.epoch,videoCreatedAtMs:data.createdAtMs,
+    holdId,accountCreatedAtMs,
+    previousAttemptId:attempt.previousAttemptId,previousEpoch:attempt.previousEpoch,
+    reconcileId:attempt.reconcileId,attemptId:attempt.attemptId,epoch:attempt.epoch,
+    reviewRef:data.evidenceRef,authorizationSha256:attempt.authorizationSha256,
+    authorizedBy:data.authorizedBy,recordedAtMs:data.recordedAtMs};
+}
+
 function continuityRecord(requestId:string,record:Record<string,unknown>,kind:'request'|'dispatch'){
   const requestSha256=createHash('sha256').update('billing-unblock-continuity-v1\0').update(stableStringify(record)).digest('hex');
   return {v:1,kind,requestId,requestSha256};
@@ -368,15 +510,12 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
   const holdId=videoHoldId(kind,clean.incidentKey,clean.epoch,clean.createdAtMs);
   if(record.kind!==kind||record.holdId!==holdId)throw new UnblockFault('conflict');
 
-  // The receipt certifies the decision in Account. This transaction separately
-  // proves that the original Video authorization still exists.
-  async function recheck(tx:Transaction,observed:UnblockObservation){
+  async function recheck(tx:Transaction,observed:UnblockObservation,
+    pin?:{ref:DocumentReference;data:Record<string,unknown>}){
     const [guard,alert,requested,done,released,witness,dispatch,cut]=await tx.getAll(guardRef,alertRef,requestedRef,doneRef,releasedRef,witnessRef,dispatchRef,cutRef);
     const requestData=requested.data();
     if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
     const guardKind=guard.get('lastIncidentId')===clean.incidentKey?'intent':'outbox';
-    // A fresh create has no snapshot until its transaction commits. Verify the
-    // entire record written by that transaction and pin the committed snapshot.
     const sameRequest=observed.requested.exists?sameVersion(observed.requested,requested):isDeepStrictEqual(requestData,record);
     const sameContinuity=observed.requested.exists?
       sameVersion(observed.witness,witness)&&sameVersion(observed.dispatch,dispatch):
@@ -386,47 +525,169 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
       requestData.holdId!==holdId||holdId!==videoHoldId(guardKind,clean.incidentKey,clean.epoch,clean.createdAtMs)||
       !sameVersion(observed.guard,guard)||!sameRequest||!sameContinuity||!continuousRequest(requested,witness,dispatch)||released.exists||
       (observed.done.exists?!sameVersion(observed.done,done):done.exists))throw new UnblockFault('conflict');
+    // Read before any write of this transaction: a missing/changed claim aborts the whole advance.
+    if(pin&&!sameSuccessorClaim(await tx.get(pin.ref),pin.data))throw new UnblockFault('conflict');
     return {guard,requested,done,witness,dispatch,cut};
   }
 
   let observed=opened.observed;
   let accepted={epoch:clean.accountEpoch,createdAtMs:clean.accountCreatedAtMs};
+    let acceptedAttemptId:string|null=null;
   let account:{replayed:boolean;blocked:boolean};
   const identityKey=await accountPhase(()=>identityKeyOf(root,accountId));
-  const receipt=await accountPhase(()=>deps.accountBilling.unblockReceipt(identityKey,holdId,clean.evidenceRef));
-  if(receipt?.state==='confirmed'){
-    if('fresh' in opened)throw new UnblockFault('conflict');
-    accepted={epoch:receipt.epoch,createdAtMs:receipt.createdAtMs};
-    account={replayed:true,blocked:receipt.blocked};
+  const seam=successorOf(deps);
+  const granted=seam?.attempt??null;
+  const claimRef=seam&&granted?root.collection(UNBLOCK_SUCCESSOR_COLLECTION)
+    .doc(successorClaimId(accountId,requestedRef.id,granted)):null;
+  let cachedClaim:Record<string,unknown>|null=null;
+  const claimRecord=()=>{
+    if(!seam||!granted||!claimRef)throw new UnblockFault('conflict');
+    if(!observed.requested.exists)throw new UnblockFault('conflict');
+    cachedClaim??=successorClaimFromRequest(observed.requested,accountId,holdId,granted,seam.accountCreatedAtMs);
+    return cachedClaim;
+  };
+  let pin:{ref:DocumentReference;data:Record<string,unknown>}|null=null;
+  const requireClaim=async()=>{
+    if(!claimRef)throw new UnblockFault('conflict');
+    const data=claimRecord(),snap=await claimRef.get();
+    if(!sameSuccessorClaim(snap,data))throw new UnblockFault('conflict');
+    pin={ref:claimRef,data};
+  };
+  const activeTuple=(state:{attemptId:string;epoch:number})=>!!granted&&
+    ((state.attemptId===granted.previousAttemptId&&state.epoch===granted.previousEpoch)||
+     (state.attemptId===granted.attemptId&&state.epoch===granted.epoch));
+
+  let receipt:AccountReceipt;
+  if(seam){
+    const value=decisionReceipt(await successorCall('account',()=>seam.receipt({identityKey,incidentId:holdId,reviewRef:clean.evidenceRef})));
+    if(value.createdAtMs!==seam.accountCreatedAtMs||!activeTuple(value))throw new UnblockFault('conflict');
+    receipt=value;
   }else{
-    // Pending establishes that Account has no receipt yet. An existing claim
-    // may already have a POST in flight, so it never confers a second send.
-    if(!('fresh' in opened)||receipt?.state!=='pending'||
-      !guardBornAfterWriterCut(observed.guard,observed.cut))throw new UnblockFault('conflict');
+    const raw=await accountPhase(()=>deps.accountBilling.unblockReceipt(identityKey,holdId,clean.evidenceRef));
+    if(raw?.state==='pending')receipt={state:'pending',attemptId:null,epoch:null,createdAtMs:null};
+    else if(raw?.state==='confirmed'&&whole(raw.epoch,1)&&whole(raw.createdAtMs)&&typeof raw.blocked==='boolean')
+      receipt={state:'confirmed',attemptId:null,epoch:raw.epoch,createdAtMs:raw.createdAtMs,blocked:raw.blocked,replayed:true};
+    else throw new UnblockFault('conflict');
+  }
+
+  if(receipt.state==='confirmed'){
+    if('fresh' in opened)throw new UnblockFault('conflict');
+    if(seam){
+      if(!granted||!receipt.attemptId)throw new UnblockFault('corrupt');
+      if(receipt.createdAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('corrupt');
+      if(receipt.attemptId===granted.previousAttemptId){
+        if(receipt.epoch!==granted.previousEpoch)throw new UnblockFault('corrupt');
+      }else if(receipt.attemptId===granted.attemptId){
+        if(receipt.epoch!==granted.epoch)throw new UnblockFault('corrupt');
+        await requireClaim();
+      }else throw new UnblockFault('corrupt');
+    }
+    accepted={epoch:receipt.epoch,createdAtMs:receipt.createdAtMs};
+    acceptedAttemptId=receipt.attemptId;
+    account={replayed:receipt.replayed,blocked:receipt.blocked};
+  }else if('fresh' in opened){
+    if(!guardBornAfterWriterCut(observed.guard,observed.cut))throw new UnblockFault('conflict');
+    if(seam){
+      if(!granted||receipt.attemptId!==granted.previousAttemptId||receipt.epoch!==granted.previousEpoch||
+        clean.accountEpoch!==granted.previousEpoch||clean.accountCreatedAtMs!==seam.accountCreatedAtMs)
+        throw Object.assign(new UnblockFault('conflict'),{stage:'initial_tuple'});
+    }
     await db.runTransaction(async tx=>{
       const [guard,alert,requested,done,released,witness,dispatch,cut]=await tx.getAll(
         guardRef,alertRef,requestedRef,doneRef,releasedRef,witnessRef,dispatchRef,cutRef);
       if(requested.exists||done.exists||released.exists||witness.exists||dispatch.exists||
         !sameVersion(observed.guard,guard)||!sameVersion(observed.cut,cut)||!guardBornAfterWriterCut(guard,cut)||
         !isDeepStrictEqual(await freshRecord(tx,guard,alert),record))throw new UnblockFault('conflict');
-      // The trusted writer creates all three records in one commit. The claim
-      // is retained even after transport errors or if the sender dies.
       tx.create(requestedRef,record);
       tx.create(witnessRef,continuityRecord(requestedRef.id,record,'request'));
       tx.create(dispatchRef,continuityRecord(requestedRef.id,record,'dispatch'));
     });
     observed=await db.runTransaction(tx=>recheck(tx,observed));
-    account=await accountPhase(()=>deps.accountBilling.unblock(identityKey,{incidentId:holdId,...accepted,reviewRef:clean.evidenceRef}));
+    if(seam){
+      const result=confirmedResult(await successorCall('account',()=>seam.confirm({identityKey,incidentId:holdId,reviewRef:clean.evidenceRef,attempt:'previous'})));
+      if(!granted||result.attemptId!==granted.previousAttemptId||result.epoch!==granted.previousEpoch||
+        result.createdAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('conflict');
+      accepted={epoch:result.epoch,createdAtMs:result.createdAtMs};
+      acceptedAttemptId=granted.previousAttemptId;
+      account={replayed:result.replayed,blocked:result.blocked};
+    }else{
+      account=await accountPhase(()=>deps.accountBilling.unblock(identityKey,{incidentId:holdId,...accepted,reviewRef:clean.evidenceRef}));
+    }
+  }else if(seam&&!('partial' in opened)){
+    if(!granted||clean.accountCreatedAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('conflict');
+    // BEFORE Account: verify Video authorization and the trusted cut.
+    await db.runTransaction(tx=>recheck(tx,observed));
+    const decision=successorDecision(await successorCall('account',()=>seam.reconcile({identityKey,incidentId:holdId,reviewRef:clean.evidenceRef})));
+    if(decision.createdAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('corrupt');
+    if(decision.state==='confirmed'){
+      if(decision.attemptId===granted.previousAttemptId){
+        if(decision.epoch!==granted.previousEpoch)throw new UnblockFault('corrupt');
+        // Previous attempt won the race: close by receipt; no claim, no send.
+      }else if(decision.attemptId===granted.attemptId){
+        if(decision.epoch!==granted.epoch)throw new UnblockFault('corrupt');
+        await requireClaim();
+      }else throw new UnblockFault('corrupt');
+      accepted={epoch:decision.epoch,createdAtMs:decision.createdAtMs};
+      acceptedAttemptId=decision.attemptId;
+      account={replayed:true,blocked:decision.blocked};
+    }else{
+      if(decision.reconcileId!==granted.reconcileId||decision.attemptId!==granted.attemptId||
+        decision.epoch!==granted.epoch)throw Object.assign(new UnblockFault('conflict'),{stage:'successor_permitted_tuple'});
+      const data=claimRecord();
+      // AFTER the fence: prove Video again and create the ONE claim in that same transaction.
+      const claim=await db.runTransaction(async tx=>{
+        const current=await recheck(tx,observed);
+        if(!guardBornAfterWriterCut(current.guard,current.cut))throw new UnblockFault('conflict');
+        const existing=await tx.get(claimRef!);
+        if(existing.exists){
+          if(!sameSuccessorClaim(existing,data))throw new UnblockFault('conflict');
+          return {created:false as const};
+        }
+        tx.create(claimRef!,data);
+        return {created:true as const};
+      });
+      pin={ref:claimRef!,data};
+      if(claim.created){
+        const result=confirmedResult(await successorCall('account',()=>seam.confirm({identityKey,incidentId:holdId,reviewRef:clean.evidenceRef,attempt:'successor'})));
+        if(result.attemptId!==granted.attemptId||result.epoch!==granted.epoch||
+          result.createdAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('conflict');
+        accepted={epoch:result.epoch,createdAtMs:result.createdAtMs};
+        acceptedAttemptId=granted.attemptId;
+        account={replayed:result.replayed,blocked:result.blocked};
+      }else{
+        // Somebody already holds this claim: its POST may be in flight. Never send a second one.
+        const again=decisionReceipt(await successorCall('account',()=>seam.receipt({identityKey,incidentId:holdId,reviewRef:clean.evidenceRef})));
+        if(again.state!=='confirmed')throw Object.assign(new UnblockFault('unresolved'),{stage:'successor_in_flight'});
+        if(again.attemptId!==granted.attemptId||again.epoch!==granted.epoch||
+          again.createdAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('conflict');
+        accepted={epoch:again.epoch,createdAtMs:again.createdAtMs};
+        acceptedAttemptId=again.attemptId;
+        account={replayed:true,blocked:again.blocked};
+      }
+    }
+  }else{
+    throw new UnblockFault('conflict');
   }
 
-  // These rows have already advanced. A matching receipt and the absence of other incidents permit just the release.
+  if(seam&&acceptedAttemptId&&!account.blocked){
+    // Deliberate revalidation of the Account decision immediately before Video may clear its guard. The first
+    // receipt is a snapshot; a newer Account incident can land after it. This narrows the cross-database window.
+    // Without a real versioned Account endpoint it cannot eliminate a change after this second read.
+    const fresh=decisionReceipt(await successorCall('account',()=>seam.receipt({
+      identityKey,incidentId:holdId,reviewRef:clean.evidenceRef})));
+    if(fresh.state!=='confirmed'||fresh.attemptId!==acceptedAttemptId||fresh.epoch!==accepted.epoch||
+      fresh.createdAtMs!==accepted.createdAtMs)
+      throw Object.assign(new UnblockFault('unresolved'),{stage:'stale_account_decision'});
+    if(fresh.blocked)account={...account,blocked:true};
+  }
+
   if('partial' in opened){
     if(record.accountEpoch!==accepted.epoch||record.accountCreatedAtMs!==accepted.createdAtMs)throw new UnblockFault('conflict');
+    const releasePin=pin;
     return db.runTransaction(async tx=>{
-      await recheck(tx,observed);
+      await recheck(tx,observed,releasePin??undefined);
       if(account.blocked)return {unblocked:true as const,replayed:true as const,accountBlocked:true,videoBlocked:true,
         advanced:Array.isArray(record.advanced)?record.advanced.map(String):[],auditId:String(record.auditId)};
-      // The incident's rows were advanced by the first call; only a RIVAL row keeps the guard, and then nothing is written.
       const rivals=unresolvedRows(await accountRows(tx,root,accountId),new Set());
       if(rivals.length)return {unblocked:true as const,replayed:true as const,accountBlocked:false,videoBlocked:true as const,
         advanced:Array.isArray(record.advanced)?record.advanced.map(String):[],auditId:String(record.auditId)};
@@ -441,11 +702,8 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
     });
   }
 
-  // Phase 3: only after Account confirmed, re-read the SAME generation and advance exactly the audited rows.
   return db.runTransaction(async tx=>{
-    // Every read of this transaction happens before its first write: the guard generation, the alert, the audited rows
-    // and, for an intent, the state its exit depends on.
-    await recheck(tx,observed);
+    await recheck(tx,observed,pin??undefined);
     const rows:Array<{planned:PlannedRow;snap:DocumentSnapshot;exit?:string}>=[];
     for(const row of planned){
       const snap=await tx.get(root.collection(row.collection).doc(row.id));
