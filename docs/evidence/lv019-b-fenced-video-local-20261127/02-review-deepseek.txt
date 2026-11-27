@@ -1,0 +1,31 @@
+Revisión estática, solo lectura. Contrasté el test nuevo (`billingUnblock.emulator.mjs` ~1571+), el transporte ficticio, el cliente real y los métodos fenced del `AccountStore` contra el TAP de 5 casos.
+
+**Trazado confirmación-primero (test 4)**
+- Integración real: `AccountBillingClient` real (`accountBillingClient.ts:30-51,84-113`) sobre transporte ficticio que mapea `…/unblock`→`confirmFencedVideoBillingUnblockAttempt` y `…/unblock-receipt`→`fencedVideoBillingUnblockReceipt` (`backend.ts:334-416`), y `unblockBillingAccount` real (`billingUnblock.ts:340-505`). Sin `successor`: ejercita el camino de **producción**.
+- ACK perdido: el transporte confirma en Cuenta (`tx.create(receiptRef…)`) y **después** lanza 503 → `AccountBillingFault('unavailable')` → `accountPhase` → `conflict/stage:'account'`. `counters.unblock===1`, un recibo, guard Video sigue `blocked:true`, balance del dueño idéntico a `ownerBefore` (fase 3 no corrió).
+- Reclamo único durable: `requested`+`witness`+`dispatch` presentes, inmutables (`createTime===updateTime`), un solo `unblock_requested`.
+- Recuperación sin reenvío: 2ª llamada probe `confirmed`, `counters.unblock===1`, `counters.receipt===2`, `recovered.replayed===false`, un `unblocked`, guard borrado; versiones de claim preservadas.
+- Replay: 3ª llamada `replayed===true`, cero envíos/lecturas extra.
+- Dos reservas exactamente una vez: cada `/release` aparece 1 vez; `state:'released'`; outbox `settled`; balance final `38/0/2/0/0`.
+- Otra cuenta intacta: balance, reserva y ledger del `foreign` sin cambios.
+- Negativos: test 5 (recibo con `incidentId` ajeno → cliente lo rechaza `unavailable`, `signatures` sin cambios); `blocked.hold===accountHoldId('outbox',…)`; replay idempotente.
+
+**Deficiencias de los tests (no defectos de dinero)**
+- El transporte **inyecta** `attemptId`/`authorizationSha256` desde el ancla sembrada; no existe resolución server-side real ni emisor/IAM.
+- `counters` cuentan invocaciones del transporte local, **no HTTP**.
+- Ancla, `unblockProtocol:'fenced_v1'` e incidente se siembran con `update`/`set` directos (hipótesis de test), no por el writer real.
+- Test 5 valida el **cliente** directamente, no `unblockBillingAccount`; no cubre el rechazo de un recibo ajeno entrando por el camino Video completo.
+- Sin cobertura de **sucesor** ni de la rama "`confirmed` en intento `fresh` ⇒ conflict" (`:397-398`).
+- Sin negativo focal de `witness`/`dispatch` manipulados (se asume cubierto por tests de continuidad del archivo).
+- `videoHoldId`≡`accountHoldId` se infiere del pase, no se re-audita `billingHoldIdentity.ts` aquí.
+
+**Runner/5 casos**: `selectedNames`=5, `fixtureFiles`×2, `expectedSelected:5`, base `a0f1cc42…`; TAP 5/5 ok; resumen `complete:true,pass:true,passCount:5,failCount:0,selectedNamesMatch:true,guardDenied:false,guardInstances:3,cleanups:true,mismatchAfter:[]`. Coherente.
+
+Dentro del alcance exacto (local, emulador, sin sucesor/IAM/corte), la prueba **sí** demuestra lo que afirma; las limitaciones están declaradas y no constituyen defecto.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/billingUnblock.emulator.mjs:1571+` (test 4 confirmación-primero + test 5 recibo ajeno); `server/commercial/accountBillingClient.ts:30-51,84-113` (cliente real, validación de shapes); `server/account/backend.ts:334-416` (`runFencedUnblock`, gate `NODE_ENV==='test'`); `server/commercial/billingUnblock.ts:392-420,444-505` (probe→claim→closure, fase 3); `server/commercial/billingHoldIdentity.ts:1-25`. Runner `runUnblockFenceEmulator.mjs` (5 nombres, patrón escapado, ×2 fixtures) y `prepareUnblockFenceIsolation.mjs`/`runUnblockFenceIsolated.ps1` (`expectedSelected:5`, base `a0f1cc42…`). TAP 5/5 ok; resumen `complete:true,pass:true,passCount:5,failCount:0,guardDenied:false,cleanups:true,mismatchAfter:[]`. Recuperación sin segundo envío local (`counters.unblock`=1), sin devolución duplicada, cuenta ajena intacta. Modelo servido y costo: no medido.
+NEGATIVOS: transporte inyecta `attemptId`/`authorizationSha256` (sin endpoint fenced real ni lookup server-side); `counters`=transporte local, no HTTP; ancla/protocolo sembrados como hipótesis; test 5 valida cliente, no el camino Video; sin cobertura de sucesor ni de rama `confirmed` en `fresh`; sin negativo focal de `witness`/`dispatch` manipulados; identidad hold inferida, sin re-auditar `billingHoldIdentity.ts`.
+BLOQUEOS: no certifica IAM/emisor, corte real de escritores, endpoint fenced real, sucesor ni producción; emulador local aislado únicamente. Falta la ruta fenced/autenticada real y el punto de montaje que sustituya la inyección de identificadores para promover el cambio.
+=== FIN RESUMEN ===

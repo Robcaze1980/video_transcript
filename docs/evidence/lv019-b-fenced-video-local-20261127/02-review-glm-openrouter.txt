@@ -1,0 +1,35 @@
+# Revisión independiente LV-019.B — confirmación-primera (solo lectura, estática)
+
+## 1. Alcance declarado vs. demostrado
+Los comentarios del bloque añadido (billingUnblock.emulator.mjs:1574-1581) fijan el alcance exactamente como el encargo: confirmación-primera, ancla `fenced_v1` **sembrada como hipótesis de test** (seedFencedHypothesis, ~1585-1606), sin sucesor, sin corte de escritor real (el corte del fixture es sintético), sin endpoint/IAM de producción. La puerta `process.env.NODE_ENV!=='test'` (server/account/backend.ts:346) impide ejecutar la ruta cercada fuera de test. La evidencia **no sobregira**: no certifica sucesor ni producción.
+
+## 2. Recuperación del ACK perdido sin segundo envío
+- **1ª llamada**: `unblockReceipt` → pendiente (claves exactas validadas en el cliente real, accountBillingClient.ts:89-91); trío `unblock_requested`+witness+dispatch creado en una transacción (billingUnblock.ts:414-416); recheck (373-390); único POST de mutación local (counters.unblock=1, ~1620); `confirmFencedVideoBillingUnblockAttempt` hace **commit del recibo** en Account (backend.ts:411-414) y el transporte pierde la respuesta **después del commit** (~1630-1631) → 503 → el llamador ve conflicto. Quedan: 1 recibo en `videoBillingUnblocks`, guarda de Video aún bloqueada, saldos intactos, trío único e inmutable (createTime==updateTime).
+- **2ª llamada (recuperación)**: `opened` ve `requested` existente (billingUnblock.ts:352-357, sin 'fresh'); `unblockReceipt` devuelve confirmado (receipt=2); `accepted` sale del recibo (397-400) y **no se reenvía la mutación** (counters.unblock sigue 1, afirmado); fase 3 (445-505) cierra una vez: exactamente 1 audit `unblocked`, guarda eliminada, alerta dispositioned, versiones del trío preservadas.
+- **3ª llamada**: replay por guarda ausente (348/362) sin envíos ni lecturas nuevas (counters 1/2).
+
+## 3. Sin devolución duplicada / otra cuenta intacta
+Cada job de release recibe exactamente una llamada `/release` con su reservationId; saldo final {credited:40, available:38, reserved:0, consumed:2, active:0}; cuenta ajena: saldo, reservación y ledger idénticos por deepEqual. Aislación estructural: con transporte inyectado, accountBillingClient.ts:37 nunca construye `GoogleAuth` → los tests 4-5 no pueden emitir HTTP real por el cliente.
+
+## 4. Negativos revisados
+- **Identidad — PRESENTE**: test 5: recibo confirmado que nombra otro incidente → `unavailable` en el cliente (accountBillingClient.ts:90) **sin escrituras** (`signatures(c.accountRoot)` intacto). Ausente aquí: generación errónea (epoch/createdAtMs) en confirm/receipt (la cubren los casos 1-3 del fence, no incluidos en el paquete).
+- **Request/witness/dispatch — positivos sólidos** (unicidad, inmutabilidad, versiones conservadas tras la recuperación). **NEGATIVO AUSENTE**: witness/dispatch sin `requested` → conflicto (billingUnblock.ts:351) y continuidad rota (381-383) no ejercitados en los casos nuevos.
+- **Replay — positivo** (3ª llamada). **NEGATIVOS AUSENTES**: payload/authorizedBy/generación alterados (354-356) y ruta parcial con guarda viva (340-347).
+- **Runner**: 5 casos exactos y únicos, `escapeRegex` añadido, expectedSelected=5 coherente con prepareUnblockFenceIsolation.mjs:21 y con el .ps1 (base a0f1cc42…), repeats de guard = fixtureFiles.length+1; TAP 1..5, 5 pass, 0 fail/cancelled/skipped/todo.
+
+## 5. Defectos concretos
+1. billingUnblock.emulator.mjs:~1653 — el mensaje dice "derived by videoHoldId" pero se invoca `accountHoldId`; la equivalencia videoHoldId (billingUnblock.ts:368) ≡ accountHoldId (billingHoldIdentity.ts:23-24) queda demostrada solo empíricamente (la confirmación del recibo la exige), no asertada directamente.
+2. runUnblockFenceEmulator.mjs:~211 vs. TAP exhibido — el self-check exige **3** banners de guard (2 fixtures + runner) pero el TAP mostrado contiene **2**; el resumen declara guardInstances:3. Inconsistencia del paquete (posible TAP truncado).
+3. Cobertura: no se controla explícitamente la reanudación del job bloqueado (retry_wait por billingUnblock.ts:491 → consumed): el saldo final consumed:2 lo infiere, pero no hay aserción de exactamente-una-vez ni del estado final de esa fila.
+4. accountBillingClient.ts:110-112 — `unblock` no exige el conjunto exacto de claves (a diferencia de `unblockReceipt`:89-91); asimetría menor de validación.
+5. billingUnblock.ts:348+362 — replay con guarda ausente y `requested` ausente dejaría `record` indefinido (TypeError en vez de conflicto limpio); solo alcanzable por manipulación, no ejercitado.
+
+## 6. No observable
+Costo/modelo servido: nada en el paquete lo mide o afirma; no se declara. El contrato citado (docs/specs/LV-019-B… v2 y RECIBO-pieza-1.md) no está en el paquete: solo se verifica el encabezado contractual.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: billingUnblock.emulator.mjs:1574-1738 (tests 4-5) + billingUnblock.ts:340-505 + backend.ts:334-416 + accountBillingClient.ts:84-113 + diff del runner; TAP 1..5 con 5 pass/0 fail; 1ª llamada: un solo POST local cuyo ACK se pierde tras el commit de Account (recibo durable, 503→conflict); 2ª: recibo confirmado cierra sin reenvío (counters.unblock=1, receipt=2), 1 audit 'unblocked', guarda eliminada, trío inmutable; 3ª: replay sin envíos ni lecturas; releases exactamente una vez c/u; saldo/reserva/ledger de la otra cuenta intactos; alcance honesto (NODE_ENV test en backend.ts:346, sin sucesor/IAM/corte real ni HTTP real).
+NEGATIVOS: presentes: recibo de incidente ajeno rechazado sin escrituras (test 5, signatures intactas; accountBillingClient.ts:90) y claves exactas del cuerpo afirmadas en el transporte (~1621, ~1636); ausentes en el paquete: witness/dispatch sin requested (billingUnblock.ts:351), continuidad rota (381-383), tampering de replay (354-356), generación errónea en confirm/receipt, ruta parcial (340-347); defecto menor: unblock sin chequeo de claves exactas (accountBillingClient.ts:110-112).
+BLOQUEOS: mapeo AccountBillingFault('unavailable')→UnblockFault('conflict', stage 'account') no incluido en el paquete (solo acreditado por ok 4); definición de videoHoldId y su equivalencia con accountHoldId no suministrada; TAP crudo completo para conciliar 2 banners exhibidos vs. 3 exigidos por el self-check (runUnblockFenceEmulator.mjs:~211) y los 3 del resumen; constantes de sha del .ps1 no visibles en el diff; casos 1-3 (unblockFence.emulator.mjs) y el contrato docs/specs LV-019-B v2 no suministrados.
+=== FIN RESUMEN ===

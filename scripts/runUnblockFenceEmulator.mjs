@@ -19,18 +19,25 @@ import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedR
 
 const project = 'demo-vistavo-financial';
 const host = '127.0.0.1:8198';
-// The focus runs exactly these three synthetic cases. All other cases are excluded, not passed.
+// The focus runs exactly these five synthetic cases. All other cases are excluded, not passed.
+// No local test accredits IAM, writer cutover, or successor.
 const selectedNames = [
   'Fenced predecessor before reconciliation',
   'Fenced reconciliation before late predecessor',
   'Fenced simultaneous predecessor and reconciliation',
+  'a fenced confirmation-first unblock recovers by receipt and returns both reservations exactly once',
+  'a fenced receipt naming a different incident is refused without writes',
 ];
-if(selectedNames.some(name=>!/^[A-Za-z0-9:, _]+$/.test(name)))throw Error('Unsafe focus name');
+if(selectedNames.length!==5||new Set(selectedNames).size!==5||selectedNames.some(name=>!/^[A-Za-z0-9:, _-]+$/.test(name)))throw Error('Unsafe focus name');
+const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const expectedSelected = selectedNames.length;
-const selectedPattern = '^(?:'+selectedNames.join('|')+')$';
+const selectedPattern = '^(?:'+selectedNames.map(escapeRegex).join('|')+')$';
 const guardFile = 'scripts/financialEmulatorNetworkGuard.cjs';
 const inventoryFile = 'scripts/inspectFinancialSyntheticRoots.mjs';
-const fixtureFiles = ['server/account/unblockFence.emulator.mjs'];
+const fixtureFiles = [
+  'server/account/unblockFence.emulator.mjs',
+  'server/commercial/billingUnblock.emulator.mjs',
+];
 const tracked = Object.freeze([
   'server/commercial/firestoreBackend.ts',
   'server/commercial/firestoreAi.ts',
@@ -201,7 +208,7 @@ function acceptableChecks(checks) {
     checks.noCancelled && checks.noSkipped && checks.selectedNamesMatch && checks.noTodo;
 }
 if(process.argv.length===3&&process.argv[2]==='--self-check'){
-  const guards='VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS\n'.repeat(2);
+  const guards='VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS\n'.repeat(fixtureFiles.length + 1);
   const rows=selectedNames.map((name,index)=>'ok '+(index+1)+' - '+name).join('\n');
   const suffix='\n# tests '+expectedSelected+'\n# pass '+expectedSelected+'\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n';
   const good=rows+suffix,accept=(a,b=guards)=>{const c=summary(a,b);return acceptableChecks(c)&&c.failCount===0;};
@@ -223,7 +230,7 @@ const workspace = realpathSync(path.resolve(path.dirname(scriptPath), '..'));
 if (scriptPath !== repositoryFile(workspace, 'scripts/runUnblockFenceEmulator.mjs')) fail('Unexpected launcher location');
 const outputRoot = checkedDirectory(workspace, 'outputs');
 const manifests = checkedDirectory(outputRoot, 'lv019-b-unblock-fence-manifests', true);
-const runs = checkedDirectory(outputRoot, 'lv019-b-unblock-fence-runs', true);
+const runs = checkedDirectory(outputRoot, 'lv019-b-financial-runs', true);
 const node = nodeIdentity();
 const args = process.argv.slice(2);
 

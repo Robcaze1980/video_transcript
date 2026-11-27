@@ -1,4 +1,4 @@
-﻿// LV-019.B step 1.4b piece 2: the audited, Video-side unblock against a REAL AccountStore.
+// LV-019.B step 1.4b piece 2: the audited, Video-side unblock against a REAL AccountStore.
 // Contract: docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md v2 (decisions 4, 5, 8; 3.3; 3.4; 3.6; tests 11, 12, 12b, 13)
 // and docs/evidence/lv019-b-t3-codificacion-1-4b-20261123/RECIBO-pieza-1.md.
 // Synthetic only: the fixed loopback emulator and Account running in this process. No cloud, no credentials, no deploy.
@@ -1571,3 +1571,168 @@ for(const cutState of ['missing','modified','recreated']){
     assert.equal((await guardOf(c).get()).get('blocked'),true);
   });
 }
+
+// LV-019.B: isolated, test-only integration of the REAL Video unblock (`unblockBillingAccount`) with the REAL
+// fenced AccountStore methods (`confirmFencedVideoBillingUnblockAttempt` / `fencedVideoBillingUnblockReceipt`),
+// both on the fixed loopback emulator, THROUGH the real `AccountBillingClient` over a fictitious transport.
+// Scope: CONFIRMATION-FIRST ONLY. It does NOT exercise a successor, does NOT install a real writer cut, does NOT
+// prove authority, and does NOT disable the older `unblockVideoBilling` writer. The seeded `fenced_v1` anchor and
+// the incident protocol mark are a TEST HYPOTHESIS over the emulator, not a production guarantee. The real
+// fenced/IAM/writer-cut route does not exist here and this test does not accredit it. No real API is changed and
+// no production safety is claimed.
+const hashJson=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const docVersion=(doc,field)=>{const s=doc[field];return s&&Number.isSafeInteger(s.seconds)&&Number.isSafeInteger(s.nanoseconds)&&s.nanoseconds<1_000_000_000?s.seconds+':'+s.nanoseconds:null;};
+
+async function seedFencedHypothesis(c,blocked,reviewRef,authorizationSha256){
+  const accountId=c.accountOwner,incidentId=blocked.hold;
+  const accountGuard=await ref(c.accountRoot,'videoBillingGuards',accountId).get();
+  assert.equal(accountGuard.exists,true,'the real Account guard exists');
+  const epoch=accountGuard.get('epoch'),createdAtMs=accountGuard.get('createdAtMs');
+  assert.ok(Number.isSafeInteger(epoch)&&epoch>=1,'the Account guard epoch is an integer >= 1');
+  assert.ok(Number.isSafeInteger(createdAtMs),'the Account guard createdAtMs is an integer');
+  const identity=await ref(c.accountRoot,'identities',c.identity).get();
+  assert.equal(identity.exists,true,'the real Account identity exists');
+  const identityVersion=docVersion(identity,'updateTime'),guardVersion=docVersion(accountGuard,'createTime');
+  assert.ok(identityVersion&&guardVersion,'real Firestore versions are required');
+  const incidentRef=ref(c.accountRoot,'videoBillingIncidents',hashJson([accountId,incidentId]));
+  assert.equal((await incidentRef.get()).exists,true,'the real Account incident exists');
+  // TEST HYPOTHESIS ONLY: mark the real incident with the fenced protocol and seed the anchor.
+  await incidentRef.update({unblockProtocol:'fenced_v1'});
+  const incident=await incidentRef.get(),incidentVersion=docVersion(incident,'createTime');
+  assert.ok(incidentVersion,'the real incident createTime is required');
+  const attemptId=randomUUID();
+  const original={ownerAccountId:accountId,identityKey:c.identity,incidentId,unblockProtocol:'fenced_v1',
+    createdAtMs,reviewRef,authorizationSha256,identityVersion,incidentVersion,guardVersion};
+  await ref(c.accountRoot,'videoBillingUnblockAttempts',hashJson([accountId,incidentId]))
+    .set({...original,initialAttemptId:attemptId,initialEpoch:epoch});
+  return {attemptId,epoch,createdAtMs,authorizationSha256,reviewRef,incidentId};
+}
+
+/**
+ * A fictitious transport for the REAL `AccountBillingClient`. It maps the two client paths to the REAL fenced
+ * AccountStore methods and counts LOCAL transport invocations (not real HTTP). The client does not send
+ * `attemptId`/`authorizationSha256`; the transport injects them from the test anchor, standing in for the
+ * server-side anchor lookup the real endpoint would perform. The response echoes `incidentId`/`reviewRef`
+ * because the real client validates them.
+ */
+function fencedTransport(c,anchor,counters){
+  return {
+    async request(call){
+      const pathname=new URL(call.url).pathname,body=call.data??{};
+      if(pathname==='/api/internal/video/billing-holds/unblock'){
+        counters.unblock++;
+        assert.deepEqual(Object.keys(body).sort(),['createdAtMs','epoch','identityKey','incidentId','reviewRef'],'the client sends the exact unblock body');
+        assert.equal(body.incidentId,anchor.incidentId,'the client preserves the holdId');
+        assert.equal(body.reviewRef,anchor.reviewRef);
+        assert.equal(body.epoch,anchor.epoch);
+        assert.equal(body.createdAtMs,anchor.createdAtMs);
+        const result=await c.store.confirmFencedVideoBillingUnblockAttempt(body.identityKey,{
+          incidentId:body.incidentId,attemptId:anchor.attemptId,epoch:body.epoch,createdAtMs:body.createdAtMs,
+          reviewRef:body.reviewRef,authorizationSha256:anchor.authorizationSha256});
+        if(result.state!=='confirmed')throw Object.assign(new Error('unexpected fenced confirm state: '+result.state),{response:{status:409,data:{error:'conflict'}}});
+        // Lose the ACK AFTER the Account commit: the receipt is durable, the caller never sees it.
+        if(counters.unblock===1)throw Object.assign(new Error('synthetic lost reply after Account fence commit'),{response:{status:503,data:{error:'unavailable'}}});
+        return {data:{unblocked:true,replayed:result.replayed,blocked:result.blocked}};
+      }
+      if(pathname==='/api/internal/video/billing-holds/unblock-receipt'){
+        counters.receipt++;
+        assert.deepEqual(Object.keys(body).sort(),['identityKey','incidentId','reviewRef'],'the client sends the exact receipt body');
+        assert.equal(body.incidentId,anchor.incidentId,'the client preserves the holdId');
+        assert.equal(body.reviewRef,anchor.reviewRef);
+        const result=await c.store.fencedVideoBillingUnblockReceipt(body.identityKey,{
+          incidentId:body.incidentId,attemptId:anchor.attemptId,epoch:anchor.epoch,createdAtMs:anchor.createdAtMs,
+          reviewRef:body.reviewRef,authorizationSha256:anchor.authorizationSha256});
+        if(result.state==='confirmed')return {data:{state:'confirmed',incidentId:body.incidentId,reviewRef:body.reviewRef,epoch:result.epoch,createdAtMs:result.createdAtMs,blocked:result.blocked}};
+        if(result.state==='pending')return {data:{state:'pending',incidentId:body.incidentId,reviewRef:body.reviewRef}};
+        throw Object.assign(new Error('unexpected fenced receipt state: '+result.state),{response:{status:409,data:{error:'conflict'}}});
+      }
+      throw Object.assign(new Error('unexpected path '+pathname),{response:{status:404,data:{error:'not_found'}}});
+    },
+  };
+}
+
+test('a fenced confirmation-first unblock recovers by receipt and returns both reservations exactly once',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('fenced_confirmation_first',{extraReleases:2}),{c,guard,releases}=blocked;
+  assert.equal(blocked.hold,accountHoldId('outbox',blocked.incident,guard.epoch,guard.createdAtMs),'the hold id is derived by videoHoldId');
+  for(const job of releases)await outbox(c,job.id).update({state:'pending',nextAttemptAt:0});
+  const foreignUid='synthetic-foreign-'+randomUUID(),foreign=await c.store.bootstrap(foreignUid),foreignIdentity=accountIdentityKey(foreignUid);
+  await ref(c.accountRoot,'accounts',foreign.account.id).update({credited:10,available:10});
+  const foreignReservationId=randomUUID();
+  await c.store.reserveVideo(foreignIdentity,foreignReservationId,3);
+  const foreignReservationRef=ref(c.accountRoot,'videoReservations',hashJson([foreign.account.id,foreignReservationId]));
+  const foreignReservationBefore=(await foreignReservationRef.get()).data();
+  const foreignLedger=()=>c.accountRoot.collection('ledgerEntries').where('ownerAccountId','==',foreign.account.id).get().then(page=>page.docs.map(doc=>[doc.ref.path,doc.data()]).sort((x,y)=>x[0]<y[0]?-1:1));
+  const foreignLedgerBefore=await foreignLedger();
+  const ownerBefore=await c.store.videoBalance(c.identity),foreignBefore=await c.store.videoBalance(foreignIdentity);
+  assert.deepEqual(ownerBefore,{unit:'video_seconds',credited:40,available:34,reserved:6,consumed:0,active:3});
+  const body=await request(c,blocked);
+  const authorizationSha256=sha(['fenced-hypothesis',blocked.hold]);
+  const anchor=await seedFencedHypothesis(c,blocked,body.evidenceRef,authorizationSha256);
+  const counters={unblock:0,receipt:0};
+  const client=new AccountBillingClient(undefined,fencedTransport(c,anchor,counters));
+  const isolated={db:c.db,root:c.root,accountBilling:client};
+  await assert.rejects(unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(counters.unblock,1,'exactly one local transport mutation was sent');
+  assert.equal(counters.receipt,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'Account has one confirmed receipt');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video remains blocked while the reply is unknown');
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+  // The lost ACK still left exactly one durable claim: requested + witness + dispatch.
+  const requestedId=unblockAuditId(blocked.incident,'unblock_requested',body.epoch,body.createdAtMs);
+  const requestedRef=ref(c.root,UNBLOCK_AUDIT_COLLECTION,requestedId);
+  const witnessRef=ref(c.root,UNBLOCK_CONTINUITY_COLLECTION,requestedId);
+  const dispatchRef=ref(c.root,UNBLOCK_CONTINUITY_COLLECTION,'dispatch-'+requestedId);
+  const requestedBefore=await requestedRef.get(),witnessBefore=await witnessRef.get(),dispatchBefore=await dispatchRef.get();
+  assert.equal(requestedBefore.exists,true,'exactly one unblock_requested claim');
+  assert.equal(witnessBefore.exists,true,'its witness is durable');
+  assert.equal(dispatchBefore.exists,true,'its dispatch is durable');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblock_requested').get()).size,1);
+  assert.ok(requestedBefore.createTime.isEqual(requestedBefore.updateTime),'the claim is immutable');
+  const claimVersions=[docVersion(requestedBefore,'updateTime'),docVersion(witnessBefore,'updateTime'),docVersion(dispatchBefore,'updateTime')];
+  assert.ok(claimVersions.every(Boolean));
+  const recovered=await unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_001_000);
+  assert.equal(recovered.replayed,false,'the recovery is a first closure, not a replay');
+  assert.equal(recovered.videoBlocked,false,'Video is closed after the receipt');
+  assert.equal(recovered.accountBlocked,false);
+  assert.equal(counters.unblock,1,'recovery uses the receipt and never resends the mutation');
+  assert.equal(counters.receipt,2);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,1,'Video writes exactly one unblocked audit');
+  assert.equal((await guardOf(c).get()).exists,false,'the Video guard is released');
+  // The durable claim and its continuity records survive the recovery unchanged.
+  assert.deepEqual([docVersion(await requestedRef.get(),'updateTime'),docVersion(await witnessRef.get(),'updateTime'),docVersion(await dispatchRef.get(),'updateTime')],claimVersions,'the claim versions are preserved after recovery');
+  const repeated=await unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_002_000);
+  assert.equal(repeated.replayed,true,'a final repetition is a replay');
+  assert.equal(repeated.videoBlocked,false);
+  assert.equal(counters.unblock,1,'the replay sends no mutation');
+  assert.equal(counters.receipt,2,'the replay reads no second receipt');
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  const start=c.transport.bodies.length;
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  for(const job of releases){
+    assert.equal(c.transport.bodies.slice(start).filter(call=>call.pathname.endsWith('/release')&&call.pathname.includes(job.reservationId)).length,1);
+    assert.equal((await c.store.videoReservation(c.identity,job.reservationId)).state,'released');
+    assert.equal((await outbox(c,job.id).get()).get('state'),'settled');
+  }
+  assert.deepEqual(await c.store.videoBalance(c.identity),{unit:'video_seconds',credited:40,available:38,reserved:0,consumed:2,active:0});
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBefore,'the other account balance is unchanged');
+  assert.deepEqual((await foreignReservationRef.get()).data(),foreignReservationBefore,'the other account reservation is unchanged');
+  assert.deepEqual(await foreignLedger(),foreignLedgerBefore,'the other account ledger is unchanged');
+});
+
+test('a fenced receipt naming a different incident is refused without writes',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('fenced_receipt_negative'),{c}=blocked;
+  const body=await request(c,blocked);
+  const anchor=await seedFencedHypothesis(c,blocked,body.evidenceRef,sha(['fenced-negative',blocked.hold]));
+  const before=await signatures(c.accountRoot);
+  const foreignIncident=accountHoldId('outbox',randomUUID(),1,1);
+  const transport={async request(call){
+    const pathname=new URL(call.url).pathname;
+    if(pathname==='/api/internal/video/billing-holds/unblock-receipt')
+      return {data:{state:'confirmed',incidentId:foreignIncident,reviewRef:call.data.reviewRef,epoch:anchor.epoch,createdAtMs:anchor.createdAtMs,blocked:false}};
+    throw Object.assign(new Error('unexpected path '+pathname),{response:{status:404,data:{error:'not_found'}}});
+  }};
+  const client=new AccountBillingClient(undefined,transport);
+  await assert.rejects(client.unblockReceipt(c.identity,anchor.incidentId,body.evidenceRef),error=>error?.code==='unavailable');
+  assert.deepEqual(await signatures(c.accountRoot),before,'a mismatched receipt writes nothing');
+});
