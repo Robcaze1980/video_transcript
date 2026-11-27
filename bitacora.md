@@ -2046,3 +2046,10 @@ GLM también revisó el diff documental y dio PASS acotado; Codex precisó que l
 ## 2026-11-27 · LV-019.B · Fallo incierto de Cuenta
 
 El caso histórico 77 se adaptó al contrato actual. La candidata `9eeb815` pasó **11/11** controles locales, con limpieza **11/11** y 22 colecciones sintéticas vacías antes y después. El recibo pendiente mantiene el bloqueo y no autoriza un segundo envío; la recuperación del estado incierto sigue pendiente. DeepSeek dio INCONCLUYENTE inicial por alcance omitido; tras aportar controles y precisar el contrato, GLM y DeepSeek dieron PASS acotados. La especificación se alineó con el contrato de no reenviar. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/9eeb815e1209fb18231e4ce98d6c0d91ff4fbbe6/docs/evidence/lv019-b-t3-fallo-cuenta-20261127/README.md).
+
+
+## 2026-11-27 · LV-019.B · Relaciones de filas al desbloquear
+
+La candidata `e4ed64d` revalida las relaciones de observación y admisión antes del cierre de Video. Dos negativos fallaron antes del cambio y pasaron después; los dos positivos y los once controles anteriores pasaron: **15/15** en emulador, sin omisiones y con limpieza **15/15**. GLM y DeepSeek dieron PASS acotados tras conservar el INCONCLUYENTE inicial de DeepSeek. El reintento de una relación legítima aparecida después sigue sin demostrar. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/e4ed64dc87122352d68ac68763b653308a377787/docs/evidence/lv019-b-t3-relaciones-20261127/README.md).
+
+La revisión documental de GLM señaló que el siguiente paso omitía la relación válida tardía y pidió distinguir quién ejecutó las pruebas; Codex corrigió ambos puntos y GLM dio PASS acotado posterior. Se conservan el [FALLA inicial](docs/reviews/LV-019-B-t3-relaciones-doc-GLM-inicial-20261127.txt) y el [seguimiento](docs/reviews/LV-019-B-t3-relaciones-doc-GLM-seguimiento-20261127.txt).

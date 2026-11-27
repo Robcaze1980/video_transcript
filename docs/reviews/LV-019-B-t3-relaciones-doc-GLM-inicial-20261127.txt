@@ -1,0 +1,16 @@
+Hallazgos del contraste documental:
+
+- **Siguiente paso incompleto.** `HANDOFF (foco)` marca pendiente la conciliación de una relación válida aparecida después de la auditoría, pero `HANDOFF (siguiente)` solo menciona recuperación ante respuesta pendiente o cambio de generación. Ese ítem debe quedar explícito en el paso siguiente o puede perderse.
+- **Afirmaciones no respaldadas por los hechos aportados.** `limpieza 15/15`, `22 colecciones` y la terminación de la JVM por `handle` no están entre los hechos que citaste; deben quedar respaldados por la evidencia citada, no afirmados por sí solos.
+- **Riesgo de atribución.** Decir «foco T3 pasó 15/15» puede sugerir que T3 ejecutó las pruebas. La ejecución fue local en emulador; T3 corresponde al canal de revisión.
+- **Coherente.** Los 15 casos, los dos negativos antes fallidos y luego aprobados, los dos positivos, los PASS acotados y los límites de transporte sintético están alineados entre `MASTERPLAN`, `BACKLOG`, `HANDOFF (foco)` y `BITÁCORA`.
+- **Coherente.** El estado abierto de la regresión completa y el aviso de que el foco no es aceptación del paso 1 están bien delimitados.
+
+No leí GitHub ni ejecuté pruebas.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: extractos revisados de `MASTERPLAN`, `BACKLOG`, `HANDOFF` (corte, foco, siguiente) y `BITÁCORA`; hechos aportados por el usuario.
+NEGATIVOS: siguiente paso omite la recuperación de relación válida tardía; `limpieza 15/15`, `22 colecciones` y cierre de JVM por `handle` no verificados con los hechos aportados; no se leyó la evidencia en GitHub ni se ejecutaron pruebas.
+BLOQUEOS: ninguno adicional; costo y tokens no medidos.
+=== FIN RESUMEN ===

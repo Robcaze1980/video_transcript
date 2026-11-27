@@ -1,0 +1,8 @@
+Sí: las objeciones centrales quedan resueltas y el saldo integrado sigue abierto.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `HANDOFF (siguiente)` ahora nombra la recuperación de una relación válida aparecida después de la auditoría; `MASTERPLAN` separa ejecución local de Codex y revisiones de T3. Reportes locales citados: `green/result.json` PASS con 15 tests, 15 pass, 0 fail/skip; `green/fixture.stdout.tap` con limpieza total 15/15; `roots-before.json` y `roots-after.json` iguales con 22 colecciones vacías; `green/run.json` con `nodeExit 0`, `javaStoppedByNonce false`, proceso propio terminado y `sharedListenersUnchanged true`.
+NEGATIVOS: el revisor no ejecutó pruebas ni leyó GitHub; los resultados son reportes consultados por Codex. La regresión financiera total integrada y la conciliación de relación válida tardía siguen sin demostrar. Si el texto mantiene «JVM terminada por handle», conviene que el mecanismo exacto esté respaldado por el reporte y no solo la terminación.
+BLOQUEOS: ninguno adicional para esta revisión documental; el saldo integrado permanece abierto. Costo y tokens no medidos.
+=== FIN RESUMEN ===
