@@ -1,0 +1,15 @@
+**Revisión**
+- Resultado real confirmado: `retry-generation A` sigue fallando en `server/commercial/billingUnblock.ts:405`; el TAP registra `5 pass / 1 fail`. No puede considerarse recuperado ni saltarse.
+- Cobertura parcial en transacciones: el nuevo detector valida lecturas directas por `CollectionReference.get` y `Query.get`, pero no instrumenta `CollectionReference.doc().get()` / `DocumentReference.get`. El título “never through a direct read” es más amplio que lo demostrado.
+- `retry-generation B` perdió invariantes: eliminó la comparación completa de `signatures(c.accountRoot)` tras recuperación/repetición y ya no reafirma exactamente que la guardia más nueva sobrevive. Los chequeos de receipt/incidentes no sustituyen el snapshot completo.
+- Contador B: el baseline tras los dos POST negativos deliberados es correcto (`postsAfterRefusals = postsAfterMutation + 2`) y las fases posteriores lo respetan. Pero como el conteo comienza tras la mutación aceptada, ese bloque no prueba por sí solo que la mutación inicial fue exactamente un POST.
+- Identidad y negativos: los tests 11 y 12 sí prueban que el cierre usa la generación aceptada, que la generación incorrecta se audita como suministrada, que no hay receipt en rechazo y que no se reenvía tras repetición.
+- Aislamiento local correcto como evidencia de emulador: raíces sintéticas únicas, guardia activa, limpieza `7/7`, inventario intacto. No hay evidencia de IAM ni producción.
+- Modelo servido y costo: no medido.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `server/commercial/billingUnblock.emulator.mjs:940` y siguientes, `server/commercial/billingUnblock.ts:405`, TAP `1..6 / # pass 5 / # fail 1`, verificación `complete:true, behavior:FAIL, pass:false`, limpieza `7/7`.
+NEGATIVOS: `retry-generation A` sigue FALLA; detector transaccional no cubre lectura directa por `DocumentReference.get`; `retry-generation B` perdió snapshot completo de Account y verificación exacta de la guardia más nueva tras recuperación; baseline B no prueba por sí solo un único POST inicial; producción/IAM sin evidencia.
+BLOQUEOS: Ninguno para revisar; el paquete requiere corregir A y endurecer las coberturas señaladas antes de PASS.
+=== FIN RESUMEN ===

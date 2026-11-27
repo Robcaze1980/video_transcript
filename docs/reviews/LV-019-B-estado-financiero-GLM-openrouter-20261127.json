@@ -1,0 +1,16 @@
+{
+  "model": "~z-ai/glm-flash-latest",
+  "briefSha256": "b4a56084314fa637533af63f4675da71fe9b02ed835be248b4d93206c62c302a",
+  "requestSha256": "cdf761213cb418ecde005669810bc1e857199a3335889cb52a512b6221885f53",
+  "briefBytes": 18193,
+  "state": "COMPLETED",
+  "verdict": "PASS",
+  "httpStatus": 200,
+  "generationId": "gen-1795817716-oNsfjiJvZuBou0bou8jB",
+  "servedModel": "z-ai/glm-5.3-flash",
+  "finishReason": "stop",
+  "inputTokens": 5546,
+  "cachedInputTokens": 0,
+  "outputTokens": 14900,
+  "cost": 0.0038971251
+}

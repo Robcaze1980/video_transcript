@@ -1,0 +1,33 @@
+## Alcance
+
+Revisión estática y enfocada, sin herramientas ni cambios, usando únicamente el paquete: `MASTERPLAN.md`, `backlog.md`, `HANDOFF.md`, `gantt.md`, la evidencia 5/8 y la revisión T3 anterior citada como dato. No se reaudita el historial completo.
+
+## Verificado
+
+- **Frescura:** vigencia 27 nov 2026 (PST) uniforme en `MASTERPLAN.md:3`, `backlog.md:1`, `HANDOFF.md:1` y `gantt.md:3`. La corrección de fecha del Gantt recomendada por la T3 anterior quedó aplicada (antes conservaba el corte del 26 nov).
+- **Estado financiero coherente en los tres documentos de estado:** batería más reciente completa `519/6/5` atribuida a `61e6407` (`MASTERPLAN.md:23`, `backlog.md:19`, `HANDOFF.md:21`); internamente consistente con `backlog.md:37` (5 fallos de desbloqueo + 1 de reglas = 6 fallos; 5 omisiones de voz).
+- **Cargador de reglas 3/3 solo local**, con negativo explícito en cada mención: "no acredita reglas de producción" (`MASTERPLAN.md:23`), "candidata aislada" (`backlog.md:19`), "en el emulador" (`HANDOFF.md:21`), "por separado" (`backlog.md:37`).
+- **Ensayo 5/6 sigue rechazado** por ambos revisores por pérdida de cobertura y marcado no aceptado/no integrado (`MASTERPLAN.md:23`, `backlog.md:19`, `HANDOFF.md:21`).
+- **Seguimiento 5/8 con 3 fallos de recuperación de intento incierto** citado igual en los tres documentos y coincidente con la evidencia: 8 = 5 + 3 + 0, fallos por reintento con recibo pendiente, "no es la batería completa ni una corrección del código de recuperación", revisiones independientes del seguimiento pendientes.
+- **Cerco `a0f1cc4` como prototipo separado:** 127/127 en memoria + 3/3 en Firestore local con autoridad sembrada; negativos intactos: no conecta Video, no acredita IAM, y autorización/corte de escritores/conexión Cuenta↔Video siguen pendientes (`backlog.md:19,37`; `HANDOFF.md:21`; `MASTERPLAN.md:23`).
+- **Precio idéntico:** 0.10 texto, 0.10 voz adicional, 0.20 ambos, reserva de un segundo por segundo fuente, ejemplo 2:10 → 130 s, 0.22+0.22=0.44 solo presentación (`MASTERPLAN.md:9-11` ↔ `backlog.md:8`).
+- **Orden y puertas:** paso 1 en curso exige candidata integrada, batería completa y dos revisiones (`MASTERPLAN.md:54`, `backlog.md:19`); filas 4/4A/4B/5/6/7/8/P mantienen orden y dependencias (`gantt.md:13-20`); paso 8 dependiente de G0 y revisión T3 integrada.
+- **Sin declaraciones de producción/IAM/cierre:** funciones de video/pago apagadas (`gantt.md:11`), paso 3 "no GCS, proveedor, IAM ni despliegue real" (`gantt.md:12`), A0 parcial y cuota 403 (`gantt.md:14,16`), ramas separadas sin integración ni despliegue (`HANDOFF.md:3,21`), "No se tocaron producción, recursos cloud ni saldo real" (evidencia 5/8), "No habilitar procesamiento a clientes antes de cumplir las puertas" (`MASTERPLAN.md:54`).
+
+## Defectos concretos (menores)
+
+1. `gantt.md:13` dice "revisión independiente" en singular; la puerta de aceptación exige "dos revisiones independientes" (`MASTERPLAN.md:54`, `backlog.md:19`). Es resumen, no contradicción, pero conviene el número exacto.
+2. Evidencia 5/8: los registros versionados están normalizados (finales de línea/espacios) y una huella de `firebaseAccess.ts` fue ocultada tras verificarla contra la fuente; los originales solo viven en `outputs/` local, fuera del paquete. Reduce la verificabilidad independiente del artefacto preservado.
+
+## Falta por comprobar (no observable en el paquete)
+
+- La aclaración de la entrada histórica `errorlogs.md:921` (segunda corrección T3) no es verificable: el archivo no viene en el paquete (tampoco `bitacora.md:2060`, citado por la T3 anterior).
+- El "diff WIP", TAP y resultado que la evidencia 5/8 declara conservados no incluyen su contenido aquí: no puede comprobarse estáticamente que ese diff conserve alcances, precio y orden; se acepta por declaración.
+- Costo y modelo servido: no observables en el paquete.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión documental estática sobre MASTERPLAN.md:3,9-11,23,54; backlog.md:1,8,9,19,37; HANDOFF.md:1,3,21,36; gantt.md:3,11-20 y la evidencia 5/8. Vigencia 27 nov uniforme (Gantt corregido); 519/6/5, cargador 3/3 solo local, ensayo 5/6 rechazado no aceptado y seguimiento 5/8 con 3 fallos de recuperación coinciden en los tres documentos y con la evidencia; precio y reserva idénticos (MASTERPLAN.md:9-11 ↔ backlog.md:8); orden y puertas intactos; sin producción/IAM/cierre declarados. Costo/modelo servido: no observables.
+NEGATIVOS: gantt.md:13 usa "revisión independiente" en singular frente a la puerta de "dos revisiones" (MASTERPLAN.md:54, backlog.md:19); huella de `firebaseAccess.ts` oculta y registros normalizados en la evidencia 5/8 con originales solo en `outputs/` local; producción, IAM, GCS, saldo real y despliegue siguen sin evidencia por diseño; errorlogs.md:921, bitacora.md:2060 y el contenido del diff WIP/TAP ausentes del paquete.
+BLOQUEOS: Ninguno para la revisión estática documental; la aclaración de errorlogs.md:921, el contenido del diff preservado y la integración/despliegue quedan pendientes de comprobar con sus puertas.
+=== FIN RESUMEN ===

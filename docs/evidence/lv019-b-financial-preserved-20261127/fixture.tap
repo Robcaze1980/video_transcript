@@ -1,0 +1,95 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# RULES_FOCUS_PREFLIGHT negative=false-sha-rejected clientGet=403 adminRead=PASS rulesLoad=200 issues=0
+# Subtest: 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt
+not ok 1 - 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt
+  ---
+  duration_ms: 5175.7056
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-tests-20261127\\server\\commercial\\billingUnblock.emulator.mjs:943:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-tests-20261127\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-tests-20261127\server\commercial\billingUnblock.emulator.mjs:950:14)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3)
+  ...
+# Subtest: 11 the completion records the Account generation the confirmed call actually used, not a different one presented on resume
+ok 2 - 11 the completion records the Account generation the confirmed call actually used, not a different one presented on resume
+  ---
+  duration_ms: 4191.2564
+  type: 'test'
+  ...
+# Subtest: the rows of the account are read through each required transaction and never through a direct read
+ok 3 - the rows of the account are read through each required transaction and never through a direct read
+  ---
+  duration_ms: 4510.6602
+  type: 'test'
+  ...
+# Subtest: 12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any send, and the current generation applies
+ok 4 - 12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any send, and the current generation applies
+  ---
+  duration_ms: 3690.0383
+  type: 'test'
+  ...
+# Subtest: 12 a wrong Account generation is refused per variation: one claim, one refused POST, guard retained, never re-sent
+ok 5 - 12 a wrong Account generation is refused per variation: one claim, one refused POST, guard retained, never re-sent
+  ---
+  duration_ms: 7318.3227
+  type: 'test'
+  ...
+# Subtest: retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once
+not ok 6 - retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once
+  ---
+  duration_ms: 3692.7714
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-tests-20261127\\server\\commercial\\billingUnblock.emulator.mjs:1502:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-tests-20261127\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-tests-20261127\server\commercial\billingUnblock.emulator.mjs:1525:15)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives
+not ok 7 - retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives
+  ---
+  duration_ms: 3477.099
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-financial-tests-20261127\\server\\commercial\\billingUnblock.emulator.mjs:1544:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The validation function is expected to return "true". Received false
+
+    Caught error:
+
+    Error: conflict
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  stack: |-
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-financial-tests-20261127\server\commercial\billingUnblock.emulator.mjs:1556:3)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Synthetic unblock-1.4b cleanup total: 9/9
+# Subtest: retry-generation C: a lost confirmation is recovered from its receipt while a newer Account block survives
+ok 8 - retry-generation C: a lost confirmation is recovered from its receipt while a newer Account block survives
+  ---
+  duration_ms: 5215.4444
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 5
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 43738.3024

@@ -2060,3 +2060,15 @@ La revisión documental de GLM señaló que el siguiente paso omitía la relaci�
 La candidata `61e6407` añadió dos casos: una solicitud pendiente modificada y una guarda ausente no producen un segundo envío ni cambian el saldo comprobado. Pasaron **17/17** pruebas en emulador, sin omisiones, con limpieza **17/17** y 22 colecciones sintéticas vacías antes y después. GLM y DeepSeek dieron PASS acotados a la revisión estática; Codex ejecutó los controles. La recuperación de 409/pending y la batería integrada siguen pendientes. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/61e64070c2ac6245caaee8eaad620feb68d9e246/docs/evidence/lv019-b-t3-pending-20261127/README.md).
 
 GLM revisó el estado documental y dio PASS acotado; Codex aclaró que la comprobación de una guarda de intención no completa la guarda general por devolución vencida. [Revisión](docs/reviews/LV-019-B-t3-pending-doc-GLM-20261127.txt).
+
+## 2026-11-27 · LV-019.B · Diagnóstico financiero y cerco local
+
+La batería sobre `61e6407` terminó con **519 aprobadas, 6 fallos y 5 omisiones previstas de voz**. Una falla de privacidad ocurrió con reglas no cargadas en el emulador; no se comprobó el estado en producción. La pieza separada `a0f1cc4` pasó **127/127** en memoria y **3/3** con Firestore local y dos revisiones T3 acotadas; grants y ancla se sembraron. No se integró ni desplegó. [Diagnóstico](https://github.com/Robcaze1980/video_transcript/blob/dc212737c6f99786b649819e8778df151ecf6e18/docs/evidence/lv019-b-financial-diagnostic-20261127/README.md) · [Prototipo](https://github.com/Robcaze1980/video_transcript/blob/a0f1cc42dd50ae221d4b2ee17c08a7c56fa0b15b/docs/evidence/lv019-b-fenced-account-firestore-20261127/README.md).
+
+### 27 nov 2026 · Reglas locales y revisión de pruebas financieras
+
+El cargador de reglas aislado `c64a96e` pasó **3/3** con controles de hash, privacidad y concurrencia; las revisiones T3 son acotadas al emulador. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/c64a96ed333d145131f7c29bf91985f80f05eb13/docs/evidence/lv019-b-financial-rules-focus-20261127/README.md). Otro ensayo local obtuvo **5/6**; GLM y DeepSeek rechazaron las pruebas propuestas por pérdida de cobertura. El caso de reintento incierto sigue rojo. [Ensayo rechazado](docs/evidence/lv019-b-financial-tests-initial-20261127/README.md). No se cambió producción.
+
+El seguimiento restauró los casos originales: **5/8** aprobaron y **3** siguen fallando por recuperación del intento incierto. [Evidencia](docs/evidence/lv019-b-financial-preserved-20261127/README.md). No se acepta la fase.
+
+La revisión documental de GLM por T3 dio PASS acotado; tras fallar una ejecución posterior de T3, el respaldo directo autorizado volvió a revisar el corte 5/8 y dio PASS. Se precisó en Gantt que el saldo exige dos revisiones. [Revisión y límites](docs/reviews/LV-019-B-estado-financiero-GLM-openrouter-20261127.txt).

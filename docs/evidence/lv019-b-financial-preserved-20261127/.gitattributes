@@ -1,0 +1,4 @@
+*.tap text eol=lf
+*.json text eol=lf
+*.diff binary
+*.txt text eol=lf

@@ -1,0 +1,24 @@
+Revisión de solo lectura, sin ejecutar nada. Contrasté el diff con los fixtures y el TAP.
+
+**Lo que sí se fortaleció**
+- Test 11 nuevo (viejo ~940): la mutación real única va por `accountBilling.unblock` con ACK perdido tras commit; afirma `posts()==postsBefore+1`, una sola `videoBillingUnblocks`, `guard.blocked=true` y que la reanudación con generación Account distinta **no reenvía** y el cierre nombra la **aceptada**. Cobertura de intento duplicado/identidad de generación mejorada.
+- Test 12 nuevo (viejo ~1309): separa `accountEpoch`/`accountCreatedAtMs` en fixture propia por variación, exige UN claim, UN POST rechazado (`stage==='account'`), 0 recibos, guard retenido y repetición sin reenvío. Es exactamente la cobertura que el viejo test 12 mezclaba con las variaciones de Video.
+- Test "rows…" (viejo ~1087): añade negativos explícitos (lectura directa por `collection.get` y `query.get` deben registrarse y no escribir), calibración `tx.get`→`.get()` y **fail-closed**: si el detector no distingue, FALLA en vez de aprobar cobertura ausente. Correcto.
+- Aislamiento/identidad: el diff no toca `assertSafeClient` (servicePath `127.0.0.1`, puerto 8198, ssl false, preferRest false, roots UUID). Cleanup `7/7`, sin `guardDenied`, `mismatchAfter:[]`.
+- Caso B, contador POST: honesto. Los dos `c.accountBilling.unblock(...)` negativos van por `/…/unblock` y suman +2 (`postsAfterRefusals==postsAfterMutation+2`); desde ese nuevo baseline se comprueba que recibo no disponible y recuperación **no añaden** POST. Baseline tomado después de los dos negativos deliberados, como corresponde.
+
+**Brechas y cobertura perdida/falsa**
+- **retry-generation A sin cambios y en rojo**: TAP `not ok 5 - retry-generation A … error:'conflict'`, `billingUnblock.ts:405:67` / test `:1493`. El diff no lo toca (el hunk solo ajusta el título y el vecino B). La recuperación **no queda resuelta**; B pasando y A fallando es contradictorio. No aceptable como resuelto ni omisible.
+- **Fases de transacción**: el viejo test fijaba `queryReads==12` (seis en fase 0 y seis en fase 3). El nuevo solo exige ≥1 transacción por fase (`probe/claim/closure`) que lea las seis y cero lecturas directas. Se pierde el conteo exacto; sin `billingUnblock.ts` no puedo confirmar que las tres fases y sus lecturas mapeen al contrato real.
+- **Test B perdió afirmaciones**: se elimina que el request durable de Video conserve la PRIMERA generación Account (`requested.accountEpoch==g0`) y el chequeo del epoch del guard Account tras recuperar. No cubierto de forma equivalente en 11/12 (el escenario generación-inicial≠aceptada ya no se prueba).
+- **Test 11 antiguo**: la afirmación "el primer intento queda registrado tal como lo envió el operador" migró a test 12; cobertura conservada pero bajo otra semántica.
+- Límites: emulador aislado únicamente; nada demuestra IAM, reglas ni producción. No hay evidencia de secretos (correcto, el paquete no los trae).
+
+**Juicio**: las 5 verdes son en conjunto un refuerzo real (negativos explícitos, contadores anti-reenvío, detector fail-closed, fixtures por variación) y el contador de B es correcto; pero hay una prueba de dinero roja e inalterada que deja la recuperación sin resolver y dos reducciones de cobertura (conteo exacto de lecturas y generación inicial durable en B). No procede aceptar el candidato.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Diff de `server/commercial/billingUnblock.emulator.mjs` (tests 11 ~940, "rows…" ~1087, 12 ~1309, retry B ~1510, retry A sin cambios ~1392/1510), helpers de fixture (`LocalAccountTransport`, `MemoryObjects`, `blockedAccount`, `blockedIntentAccount`), y TAP real: `ok 1-4 y 6`, `not ok 5 - retry-generation A … error:'conflict'` con `billingUnblock.ts:405:67`; resumen `behavior:"FAIL"`, `passCount:5`, `failCount:1`, `guardDeniedDuringRun:false`, `cleanups:true`, `mismatchAfter:[]`. Caso B: `postsAfterRefusals==postsAfterMutation+2` y baselines posteriores correctos. Modelo servido y costo: no medido.
+NEGATIVOS: retry-generation A byte-idéntico en rojo (recuperación no resuelta, no omitir); pérdida del conteo exacto `queryReads==12` (ahora ≥1 por fase); test B deja de fijar que el request durable conserve la primera generación Account y el epoch del guard tras recuperar; fases `probe/claim/closure` no verificables contra `billingUnblock.ts` (ausente); "pruebas que pasan" no cubren el caso A fallido.
+BLOQUEOS: Nada demuestra IAM, reglas de producción ni despliegue; emulador aislado y procesos locales solo. Falta `server/commercial/billingUnblock.ts` (o extracto con el contrato de fases y el punto que lanza 'conflict' en A) para cerrar fidelidad de fases; resolver/confirmar retry-generation A antes de aceptar la recuperación de dinero.
+=== FIN RESUMEN ===

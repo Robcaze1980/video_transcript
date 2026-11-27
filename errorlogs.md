@@ -918,6 +918,16 @@ El seguimiento `e21889c` reprodujo en emulador que la guarda financiera de Video
 
 El prototipo cerrado `d01541c` acepta un recibo idéntico recreado y una autorización reconstruida con marcas coherentes en un doble de memoria. Las contrapruebas emplean escritura privilegiada simulada y no demuestran acceso de cliente ni cobro duplicado. El seguimiento conserva **113 aprobadas y dos fallos**; exige una autoridad histórica y corte antes de integrar. [Contraste](docs/reviews/LV-019-B-intento-cuenta-d01541c-adjudicacion-20261126.md).
 
-La primera batería adaptada de la rama `0244bfc` se interrumpió con **49 aprobadas y 34 fallidas**, sin resumen final ni inventario posterior completo. Veintiséis fallos señalan directamente la comprobación de corte de escritor en `billingUnblock.ts:405`; la fixture anterior no prepara ese testigo y se contrasta la relación. Las otras ocho aserciones se revisan individualmente. La ejecución usó un emulador propio ya terminado, sin afectar procesos ajenos ni saldo real. No se considera una regresión aprobada ni se repitió automáticamente.
+La primera batería adaptada de la rama `0244bfc` se interrumpió con **49 aprobadas y 34 fallidas**, sin resumen final ni inventario posterior completo. Veintiséis fallos señalan directamente la comprobación de corte de escritor en `billingUnblock.ts:405`; la fixture anterior no preparaba ese testigo y la relación quedó por contrastar en ese corte. Las otras ocho aserciones quedaron por revisar individualmente. La ejecución usó un emulador propio ya terminado, sin afectar procesos ajenos ni saldo real. No se considera una regresión aprobada ni se repitió automáticamente.
 
 Una revisión independiente de `b7f5ef0` se interrumpió por una alerta automática de posible riesgo de ciberseguridad. No produjo un informe final verificable; se conserva como revisión inconclusa y no se habilita la candidata.
+
+## 2026-11-27 · LV-019.B · Diagnóstico de saldo y reglas del emulador
+
+En `61e6407` cinco pruebas de desbloqueo fallaron y una lectura cliente obtuvo 200 en vez de 403: el lanzador local no había cargado las reglas. La batería terminó con **519 aprobadas, 6 fallos y 5 omisiones de voz**. La falla local no demuestra el estado de reglas publicado. Se conserva evidencia; el seguimiento siguiente informa la corrección local de reglas y lo que falta integrar y repetir. [Recibo](https://github.com/Robcaze1980/video_transcript/blob/dc212737c6f99786b649819e8778df151ecf6e18/docs/evidence/lv019-b-financial-diagnostic-20261127/README.md).
+
+### 27 nov 2026 · Seguimiento: reglas y pruebas de saldo
+
+La carga de reglas del emulador se corrigió y pasó **3/3** locales; esto no verifica producción. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/c64a96ed333d145131f7c29bf91985f80f05eb13/docs/evidence/lv019-b-financial-rules-focus-20261127/README.md). Un ensayo distinto mantuvo rojo el reintento incierto y las revisiones GLM y DeepSeek rechazaron su propuesta de pruebas por cobertura perdida. Se conservan los resultados y sigue pendiente una candidata integrada y su batería completa. [Ensayo](docs/evidence/lv019-b-financial-tests-initial-20261127/README.md).
+
+Al conservar los casos originales, el foco terminó **5/8**: tres casos de recuperación siguen fallando. [Evidencia](docs/evidence/lv019-b-financial-preserved-20261127/README.md).

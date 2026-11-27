@@ -1,0 +1,328 @@
+diff --git a/server/commercial/billingUnblock.emulator.mjs b/server/commercial/billingUnblock.emulator.mjs
+index 0669fc3..a8ef212 100644
+--- a/server/commercial/billingUnblock.emulator.mjs
++++ b/server/commercial/billingUnblock.emulator.mjs
+@@ -940,18 +940,34 @@ for(const [name,tamper] of [
+ // Same review, finding 1: the Account generation the operator tool supplied is NOT part of the compared payload (Account's own guard
+ // moves legitimately between retries), so the record of what was actually USED must carry it, or the audit trail could not tell which
+ // Account generation the confirmed call named.
+-test('11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt',{timeout:60000},async()=>{
++test('11 the completion records the Account generation the confirmed call actually used, not a different one presented on resume',{timeout:90000},async()=>{
+   const blocked=await blockedAccount('unblock_account_generation_trace'),c=blocked.c,requestBody=await request(c,blocked);
+-  const failing={db:c.db,root:c.root,accountBilling:{unblock:async()=>{throw Object.assign(new Error('synthetic'),{code:'unavailable'});}}};
+-  const first={...requestBody,accountEpoch:requestBody.accountEpoch+7,accountCreatedAtMs:requestBody.accountCreatedAtMs+7};
+-  await assert.rejects(unblockBillingAccount(failing,c.account,first,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+-  const requested=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
+-  assert.equal(requested.get('accountEpoch'),first.accountEpoch,'the first attempt is recorded as the operator supplied it');
+-  const done=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000);
++  assert.equal(typeof c.accountBilling.unblockReceipt,'function','the receipt route must exist');
++  const accepted={epoch:requestBody.accountEpoch,createdAtMs:requestBody.accountCreatedAtMs};
++  const posts=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
++  const postsBefore=posts();
++  // (1) La PRIMERA y ÚNICA mutación nombra la generación vigente. Cuenta confirma su recibo; la ACK se pierde en vuelo.
++  const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling);
++  c.accountBilling.unblock=async(...args)=>{await originalUnblock(...args);throw new Error('synthetic lost response after Account committed');};
++  await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),
++    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
++  c.accountBilling.unblock=originalUnblock;
++  assert.equal(posts(),postsBefore+1,'exactly one mutation left Video');
++  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video stays blocked after the lost ACK');
++  const receipts=await c.accountRoot.collection('videoBillingUnblocks').get();
++  assert.equal(receipts.size,1,'Account committed exactly one receipt');
++  assert.equal(receipts.docs[0].get('epoch'),accepted.epoch);
++  assert.equal(receipts.docs[0].get('createdAtMs'),accepted.createdAtMs);
++  const requestedRef2=ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs));
++  assert.equal((await requestedRef2.get()).get('accountEpoch'),accepted.epoch,'the durable request names the mutation generation');
++  // (2) La REANUDACIÓN presenta una generación Account DISTINTA; el recibo confirmado es la autoridad: no reenvía y el cierre nombra la ACEPTADA.
++  const wrong={...requestBody,accountEpoch:requestBody.accountEpoch+7,accountCreatedAtMs:requestBody.accountCreatedAtMs+7};
++  const done=await unblockBillingAccount(deps(c),c.account,wrong,'operator-ana',9_000_001_000);
+   assert.equal(done.videoBlocked,false);
++  assert.equal(posts(),postsBefore+1,'the resume never re-sends');
+   const record=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblocked',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
+-  assert.equal(record.get('accountEpoch'),requestBody.accountEpoch,'the completion record carries the Account epoch the confirmed call used');
+-  assert.equal(record.get('accountCreatedAtMs'),requestBody.accountCreatedAtMs);
++  assert.equal(record.get('accountEpoch'),accepted.epoch,'the completion carries the Account ACCEPTED epoch, not the one presented on resume');
++  assert.equal(record.get('accountCreatedAtMs'),accepted.createdAtMs);
+ });
+ test('11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock',{timeout:60000},async()=>{
+   const blocked=await blockedAccount('unblock_alert_owner'),c=blocked.c,requestBody=await request(c,blocked);
+@@ -1071,19 +1087,84 @@ for(const variant of ['names another incident','is already clear']){
+ // DeepSeek (final review 3 of piece 2): the emulator cannot inject a write between a read and its commit, so the contract that serializes
+ // the unblock against a rival row is pinned structurally: the six account collections are read THROUGH the transaction of phase 0 and of
+ // phase 3 (12 query reads), never with a plain `.get()` that a concurrent writer could slip past.
+-test('the rows of the account are read through the transaction in phase 0 and in phase 3, never outside it',{timeout:60000},async()=>{
++test('the rows of the account are read through each required transaction and never through a direct read',{timeout:120000},async()=>{
+   const blocked=await blockedAccount('unblock_tx_reads'),c=blocked.c,requestBody=await request(c,blocked);
+-  const originalRun=c.db.runTransaction.bind(c.db);let queryReads=0;
+-  c.db.runTransaction=(fn,...rest)=>originalRun(tx=>fn(new Proxy(tx,{get(target,prop){
+-    const value=Reflect.get(target,prop);
+-    if(typeof value!=='function')return value;
+-    if(prop==='get')return (arg,...more)=>{if(arg&&typeof arg.where==='function')queryReads++;return value.call(target,arg,...more);};
+-    return value.bind(target);
+-  }})),...rest);
+-  const result=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000);
+-  c.db.runTransaction=originalRun;
++  const SIX=['billingIntents','billingOutbox','billingHoldOutbox','billingReviewIncidents','billingOutboxReviewIncidents','billingIntentObservationIncidents'];
++  const TAG=Symbol('collection'),directRefReads=[],directQueryReads=[];
++  const originalRootCollection=c.root.collection.bind(c.root);
++  const instrumentQuery=(query,name)=>{
++    Object.defineProperty(query,TAG,{value:name,configurable:true});
++    const originalGet=query.get.bind(query);
++    query.get=(...a)=>{directQueryReads.push(name);return originalGet(...a);};
++    return query;
++  };
++  const instrumentRef=(ref,name)=>{
++    Object.defineProperty(ref,TAG,{value:name,configurable:true});
++    const originalRefGet=ref.get.bind(ref);
++    ref.get=(...a)=>{directRefReads.push(name);return originalRefGet(...a);};
++    const originalWhere=ref.where.bind(ref);
++    ref.where=(...args)=>instrumentQuery(originalWhere(...args),name);
++    return ref;
++  };
++  c.root.collection=(name,...rest)=>{
++    const ref=originalRootCollection(name,...rest);
++    return SIX.includes(name)?instrumentRef(ref,name):ref;
++  };
++  // Marcador de fase por transición observable: fin de unblockReceipt (sondeo->reclamo), fin de unblock (reclamo->cierre).
++  let phase='probe';
++  const originalUnblockReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
++  const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling);
++  c.accountBilling.unblockReceipt=async(...a)=>{try{return await originalUnblockReceipt(...a);}finally{phase='claim';}};
++  c.accountBilling.unblock=async(...a)=>{try{return await originalUnblock(...a);}finally{phase='closure';}};
++  const originalRun=c.db.runTransaction.bind(c.db),perRun=[];
++  c.db.runTransaction=(fn,...rest)=>originalRun(async tx=>{
++    const runPhase=phase,seen=new Set();
++    const proxy=new Proxy(tx,{get(target,prop){
++      const value=Reflect.get(target,prop);
++      if(typeof value!=='function')return value;
++      if(prop==='get')return (arg,...more)=>{const tag=arg?.[TAG];if(tag)seen.add(tag);return value.call(target,arg,...more);};
++      return value.bind(target);
++    }});
++    try{return await fn(proxy);}finally{perRun.push({phase:runPhase,seen:[...seen]});}
++  },...rest);
++  let result;
++  try{
++    // (A) Calibración real: si el SDK invoca los `.get()` públicos desde tx.get, el detector NO es fiable.
++    directRefReads.length=0;directQueryReads.length=0;
++    await originalRun(async tx=>{
++      await tx.get(instrumentQuery(originalRootCollection('billingIntents').where('accountId','==',c.account),'billingIntents'));
++      await tx.get(instrumentRef(originalRootCollection('billingOutbox'),'billingOutbox'));
++    });
++    const refDetectorReliable=directRefReads.length===0,queryDetectorReliable=directQueryReads.length===0;
++    directRefReads.length=0;directQueryReads.length=0;
++    // (B) Negativos explícitos: una lectura directa de cada forma debe registrarse y no escribe nada.
++    const cleanBefore=await signatures(c.root);
++    await instrumentRef(originalRootCollection('billingHoldOutbox'),'billingHoldOutbox').get();
++    await instrumentQuery(originalRootCollection('billingReviewIncidents').where('accountId','==',c.account),'billingReviewIncidents').get();
++    assert.ok(directRefReads.includes('billingHoldOutbox'),'the direct collection.get detector records an explicit direct read');
++    assert.ok(directQueryReads.includes('billingReviewIncidents'),'the direct query.get detector records an explicit direct read');
++    assert.deepEqual(await signatures(c.root),cleanBefore,'the direct-read controls write nothing');
++    directRefReads.length=0;directQueryReads.length=0;
++    // (C) Si el detector no puede distinguir lecturas directas, el test FALLA: no se aprueba cobertura ausente.
++    assert.ok(refDetectorReliable,'detector limit: Transaction.get(ref) invokes the public collection.get(), so direct collection reads cannot be distinguished');
++    assert.ok(queryDetectorReliable,'detector limit: Transaction.get(query) invokes the public query.get(), so direct query reads cannot be distinguished');
++    result=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000);
++  }finally{
++    c.db.runTransaction=originalRun;
++    c.root.collection=originalRootCollection;
++    c.accountBilling.unblockReceipt=originalUnblockReceipt;
++    c.accountBilling.unblock=originalUnblock;
++  }
+   assert.equal(result.videoBlocked,false);
+-  assert.equal(queryReads,12,'six collections in phase 0 and six in phase 3, all through the transaction');
++  assert.deepEqual(directRefReads,[],'no direct reads of the six account collections via collection.get');
++  assert.deepEqual(directQueryReads,[],'no direct reads of the six account collections via query.get');
++  // Tres fases distintas exigidas; los reintentos transaccionales de una misma fase no sustituyen a otra fase.
++  for(const name of ['probe','claim','closure']){
++    const runs=perRun.filter(run=>run.phase===name);
++    assert.ok(runs.length>=1,`phase ${name} must run at least one transaction`);
++    const full=runs.filter(run=>run.seen.length===SIX.length);
++    assert.ok(full.length>=1,`phase ${name} must read all six collections in at least one transaction, regardless of retries`);
++  }
+ });
+ // DeepSeek (final review 2 of piece 2): the hold row is written with `...hold` and then `createdAtMs:now`, which overwrote the guard
+ // creation mark that the hold id names. For the first incident `now` IS the mark; for a SECOND incident on a live guard it is not, so the
+@@ -1228,17 +1309,54 @@ test('11 negative: a Video failure after Account confirmed leaves Video blocked,
+ // ---------------------------------------------------------------------------
+ // 12. Stale generation refused; the current one applies. 12b. One alert per account and epoch.
+ // ---------------------------------------------------------------------------
+-test('12 a stale epoch or createdAtMs is refused and the current generation applies',{timeout:40000},async()=>{
++test('12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any send, and the current generation applies',{timeout:60000},async()=>{
+   const blocked=await blockedAccount('unblock_stale'),c=blocked.c,requestBody=await request(c,blocked);
+-  // Epoch 0 is not a generation at all: it is rejected by validation (`invalid`) before anything is read or written.
++  const posts=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
++  const postsBefore=posts();
+   await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,epoch:0},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&(error.code==='invalid'||error.code==='conflict'),'epoch 0 is not a generation');
+-  const changes=[{epoch:requestBody.epoch+1},...(requestBody.epoch>1?[{epoch:requestBody.epoch-1}]:[]),{createdAtMs:requestBody.createdAtMs+1},{createdAtMs:requestBody.createdAtMs-1},{updatedAtMs:requestBody.updatedAtMs+1},{updatedAtMs:requestBody.updatedAtMs-1},{accountEpoch:requestBody.accountEpoch+1},{accountCreatedAtMs:requestBody.accountCreatedAtMs+1}];
+-  for(const change of changes){
++  const videoChanges=[{epoch:requestBody.epoch+1},...(requestBody.epoch>1?[{epoch:requestBody.epoch-1}]:[]),{createdAtMs:requestBody.createdAtMs+1},{createdAtMs:requestBody.createdAtMs-1},{updatedAtMs:requestBody.updatedAtMs+1},{updatedAtMs:requestBody.updatedAtMs-1}];
++  for(const change of videoChanges){
+     await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,...change},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict',JSON.stringify(change));
+   }
++  assert.equal(posts(),postsBefore,'a stale Video generation never sends');
++  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0,'a stale Video generation writes no audit');
+   assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+   const applied=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_001);
+   assert.equal(applied.unblocked,true);assert.equal((await guardOf(c).get()).exists,false);
++  assert.equal(posts(),postsBefore+1,'exactly one mutation, from the valid application');
++});
++
++test('12 a wrong Account generation is refused per variation: one claim, one refused POST, guard retained, never re-sent',{timeout:120000},async()=>{
++  const variations=[
++    {name:'accountEpoch',mutate:body=>{body.accountEpoch=body.accountEpoch+1;}},
++    {name:'accountCreatedAtMs',mutate:body=>{body.accountCreatedAtMs=body.accountCreatedAtMs+1;}},
++  ];
++  for(const variation of variations){
++    // Fixture propia por variación: nunca se reutiliza un reclamo incierto de otro caso.
++    const blocked=await blockedAccount('unblock_stale_account_'+variation.name),c=blocked.c,requestBody=await request(c,blocked);
++    variation.mutate(requestBody);
++    const posts=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
++    const postsBefore=posts();
++    // La variación errónea pasa fase 0 fresh, crea el reclamo y efectúa UN POST que Cuenta rechaza.
++    await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),
++      error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account',variation.name);
++    assert.equal(posts(),postsBefore+1,`${variation.name}: the claim posts to Account exactly once`);
++    const requestedRows=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
++    assert.equal(requestedRows.size,1,`${variation.name}: exactly one durable request`);
++    assert.equal(requestedRows.docs[0].get('action'),'unblock_requested');
++    assert.equal(requestedRows.docs[0].get('accountEpoch'),requestBody.accountEpoch,`${variation.name}: the audit stores the supplied Account epoch`);
++    assert.equal(requestedRows.docs[0].get('accountCreatedAtMs'),requestBody.accountCreatedAtMs,`${variation.name}: the audit stores the supplied Account creation mark`);
++    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,0,`${variation.name}: a refused generation leaves NO Account receipt`);
++    assert.equal((await guardOf(c).get()).get('blocked'),true,`${variation.name}: Video stays blocked`);
++    assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true,`${variation.name}: the Account guard is retained`);
++    // Repetir la misma solicitud pinada no reenvía: el reclamo incierto no confiere un segundo envío.
++    await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000),
++      error=>error instanceof UnblockFault&&error.code==='conflict',`${variation.name}: repeat`);
++    assert.equal(posts(),postsBefore+1,`${variation.name}: the pinned request is never re-sent`);
++    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,1,`${variation.name}: one durable request, kept for a safe recovery`);
++    assert.equal((await guardOf(c).get()).get('blocked'),true,`${variation.name}: still blocked after the repeat`);
++    assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true,`${variation.name}: Account guard still retained after the repeat`);
++  }
+ });
+ test('12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone',{timeout:40000},async()=>{
+   const blocked=await blockedAccount('unblock_epoch_reset'),c=blocked.c,firstBody=await request(c,blocked);
+@@ -1392,86 +1510,67 @@ test('retry-generation A: an Account generation that moved refuses the old reque
+ });
+ 
+ test('retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives',{timeout:120000},async()=>{
+-  const blocked=await blockedAccount('retry_generation_lost_ack'),c=blocked.c,oldBody=await request(c,blocked);
+-  const g0={epoch:oldBody.accountEpoch,createdAtMs:oldBody.accountCreatedAtMs};
++  const blocked=await blockedAccount('retry_generation_lost_ack'),c=blocked.c;
++  // Incidente de sostenimiento ANTES de la mutación: el guard de Cuenta sobrevive la revisión y el bloqueo posterior es realmente MÁS NUEVO.
+   assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+-  const g1=await accountGuard(c);assert.equal(g1.epoch,g0.epoch+1);
+-  // A: the OLD generation is refused; this attempt's `unblock_requested` (accountEpoch = g0) stays durable in Video.
+-  await assert.rejects(unblockBillingAccount(deps(c),c.account,oldBody,'operator-ana',9_000_000_000),
+-    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+-  // B: Account commits the g1 receipt, but the response never reaches Video.
+-  const retryBody={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
++  const body=await request(c,blocked); // nombra la generación Account vigente (incluye el incidente de sostenimiento)
++  const accepted={epoch:body.accountEpoch,createdAtMs:body.accountCreatedAtMs};
++  // (1) La PRIMERA y ÚNICA mutación usa la generación vigente; Cuenta confirma y la ACK se pierde.
+   const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling);
+   c.accountBilling.unblock=async(...args)=>{await originalUnblock(...args);throw new Error('synthetic lost response after Account committed');};
+-  await assert.rejects(unblockBillingAccount(deps(c),c.account,retryBody,'operator-ana',9_000_010_000),
++  await assert.rejects(unblockBillingAccount(deps(c),c.account,body,'operator-ana',9_000_000_000),
+     error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+   c.accountBilling.unblock=originalUnblock;
+-  // Account committed: ONE accepted receipt (epoch g1), the incident is reviewed, and the guard survives the other incident.
+-  const receiptsAfterCommit=await c.accountRoot.collection('videoBillingUnblocks').get();
+-  assert.equal(receiptsAfterCommit.size,1);assert.equal(receiptsAfterCommit.docs[0].get('epoch'),g1.epoch);
+-  const guardAfterCommit=await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get();
+-  assert.equal(guardAfterCommit.exists,true);assert.equal(guardAfterCommit.get('epoch'),g1.epoch);assert.equal(guardAfterCommit.get('reviewedCount'),1);
+-  // Video lost the response: it is still blocked and has no completion record.
+-  assert.equal((await guardOf(c).get()).get('blocked'),true);
+-  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0);
+-  // A THIRD Account incident moves the Account guard AGAIN to g2, so the generation the receipt named (g1) is no longer live.
++  const postsAfterMutation=c.transport.bodies.filter(b=>b.pathname.endsWith('/unblock')).length;
++  const receiptBefore=(await c.accountRoot.collection('videoBillingUnblocks').get()).docs;
++  assert.equal(receiptBefore.length,1);assert.equal(receiptBefore[0].get('epoch'),accepted.epoch);assert.equal(receiptBefore[0].get('incidentId'),blocked.hold);
++  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video lost the response and stays blocked');
++  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no completion yet');
++  // (2) Un bloqueo MÁS NUEVO mueve el guard de Cuenta por encima de la generación aceptada.
+   assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+-  const g2=await accountGuard(c);assert.equal(g2.epoch,g1.epoch+1);
+-  const receiptBefore=(await c.accountRoot.collection('videoBillingUnblocks').get()).docs[0].data();
+-  const incidentsBefore=(await c.accountRoot.collection('videoBillingIncidents').get()).docs.map(doc=>[doc.id,doc.get('state'),doc.get('reviewedAtMs')]);
+-  // Signatures captured BEFORE any further attempt: both negatives below must leave every document exactly as it is.
+-  const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot),postsBefore=c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
+-  // Neither the old nor the live generation can replay the mutation that accepted g1.
+-  for(const generation of [g0,g2]){
+-    await assert.rejects(c.accountBilling.unblock(c.identity,{incidentId:blocked.hold,...generation,reviewRef:oldBody.evidenceRef}),
+-      error=>error?.code==='conflict');
++  const newer=await accountGuard(c);assert.ok(newer.epoch>accepted.epoch,'the Account guard moved to a newer generation');
++  const receiptSnapshot=(await c.accountRoot.collection('videoBillingUnblocks').get()).docs[0].data();
++  const incidentsBefore=(await c.accountRoot.collection('videoBillingIncidents').get()).docs.map(d=>[d.id,d.get('state'),d.get('reviewedAtMs')]);
++  const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot);
++  // Ni la aceptada ni la nueva pueden reproducir la mutación: conflicto, sin escritura y sin envío.
++  const older={epoch:accepted.epoch-1,createdAtMs:accepted.createdAtMs},newerGen={epoch:newer.epoch,createdAtMs:newer.createdAtMs};
++  for(const generation of [older,newerGen]){
++    await assert.rejects(c.accountBilling.unblock(c.identity,{incidentId:blocked.hold,...generation,reviewRef:body.evidenceRef}),error=>error?.code==='conflict');
+   }
+-  // Neither negative duplicated the receipt, lifted the block, or wrote anything at all.
+-  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video keeps its own guard after both refusals');
+-  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).get('epoch'),g2.epoch);
+-  assert.deepEqual((await c.accountRoot.collection('videoBillingUnblocks').get()).docs[0].data(),receiptBefore,'the accepted receipt is untouched');
+-  assert.deepEqual((await c.accountRoot.collection('videoBillingIncidents').get()).docs.map(doc=>[doc.id,doc.get('state'),doc.get('reviewedAtMs')]),incidentsBefore);
++  // Nuevo baseline DESPUÉS de los dos controles directos: desde aquí ninguna operación debe enviar otro POST.
++  const postsAfterRefusals=c.transport.bodies.filter(b=>b.pathname.endsWith('/unblock')).length;
++  assert.equal(postsAfterRefusals,postsAfterMutation+2,'both refusals asked Account and nothing else');
+   assert.deepEqual(await signatures(c.root),videoBefore,'a refused retry writes nothing in Video');
+   assert.deepEqual(await signatures(c.accountRoot),accountBefore,'a refused retry writes nothing in Account');
+-  assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,postsBefore+2,'both refusals asked Account and nothing else');
+-  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'still no completion record');
++  // Lectura de recibo no disponible: no escribe nada y nunca muta.
+   await assert.rejects(c.accountBilling.unblockReceipt(c.identity,blocked.hold,'another evidence reference'),error=>error?.code==='conflict');
+   const readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
+   c.accountBilling.unblockReceipt=async()=>{throw Object.assign(new Error('synthetic unavailable receipt route'),{code:'not_found'});};
+-  await assert.rejects(unblockBillingAccount(deps(c),c.account,oldBody,'operator-ana',9_000_035_000),
+-    error=>error instanceof UnblockFault&&error.stage==='account');
++  await assert.rejects(unblockBillingAccount(deps(c),c.account,body,'operator-ana',9_000_035_000),error=>error instanceof UnblockFault&&error.stage==='account');
+   c.accountBilling.unblockReceipt=readReceipt;
+   assert.deepEqual(await signatures(c.root),videoBefore,'an unavailable receipt writes nothing in Video');
+-  assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,postsBefore+2,'an unavailable receipt never triggers a mutation');
+-  // Video recovers g1 from the original g0 request and keeps its guard because the other Account incidents are open.
+-  const readsBefore=c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock-receipt')).length;
+-  const recovered=await unblockBillingAccount(deps(c),c.account,oldBody,'operator-ana',9_000_040_000);
++  assert.equal(c.transport.bodies.filter(b=>b.pathname.endsWith('/unblock')).length,postsAfterRefusals,'an unavailable receipt never triggers a mutation');
++  // (3) Recuperación por recibo pese a la nueva generación, sin segundo envío desde Video.
++  const readsBefore=c.transport.bodies.filter(b=>b.pathname.endsWith('/unblock-receipt')).length;
++  const recovered=await unblockBillingAccount(deps(c),c.account,body,'operator-ana',9_000_040_000);
+   assert.equal(recovered.unblocked,true);assert.equal(recovered.replayed,false);
+   assert.equal(recovered.accountBlocked,true);assert.equal(recovered.videoBlocked,true);
+-  assert.equal((await guardOf(c).get()).get('blocked'),true,'Account still holds the other incident, so Video stays blocked');
++  assert.equal((await guardOf(c).get()).get('blocked'),true,'Account still holds the newer incident, so Video stays blocked');
+   const doneAfterRecovery=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get();
+   assert.equal(doneAfterRecovery.size,1,'the pending phase 3 is completed ONCE');
+   assert.equal(doneAfterRecovery.docs[0].get('accountReplayed'),true);
+-  assert.equal(doneAfterRecovery.docs[0].get('accountEpoch'),g1.epoch);
+-  assert.equal(doneAfterRecovery.docs[0].get('accountCreatedAtMs'),g1.createdAtMs);
+-  assert.equal(doneAfterRecovery.docs[0].get('accountBlocked'),true);assert.equal(doneAfterRecovery.docs[0].get('videoBlocked'),true);
+-  assert.deepEqual((await c.accountRoot.collection('videoBillingUnblocks').get()).docs[0].data(),receiptBefore,'the receipt is recovered, never duplicated');
+-  assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,postsBefore+2,'recovery never sends a mutation');
+-  assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock-receipt')).length,readsBefore+1,'recovery makes one receipt read');
++  assert.equal(doneAfterRecovery.docs[0].get('accountEpoch'),accepted.epoch,'the closure carries the ACCEPTED generation, not the newer one');
++  assert.equal(doneAfterRecovery.docs[0].get('accountCreatedAtMs'),accepted.createdAtMs);
++  assert.deepEqual((await c.accountRoot.collection('videoBillingUnblocks').get()).docs[0].data(),receiptSnapshot,'the receipt is recovered, never duplicated');
++  assert.equal(c.transport.bodies.filter(b=>b.pathname.endsWith('/unblock')).length,postsAfterRefusals,'recovery never sends a mutation');
++  assert.equal(c.transport.bodies.filter(b=>b.pathname.endsWith('/unblock-receipt')).length,readsBefore+1,'recovery makes one receipt read');
+   // A further identical call adds no second completion or receipt and still keeps the block.
+   const doneCount=doneAfterRecovery.size,receiptCount=(await c.accountRoot.collection('videoBillingUnblocks').get()).size;
+-  const repeat=await unblockBillingAccount(deps(c),c.account,oldBody,'operator-ana',9_000_050_000);
++  const repeat=await unblockBillingAccount(deps(c),c.account,body,'operator-ana',9_000_050_000);
+   assert.equal(repeat.unblocked,true);assert.equal(repeat.replayed,true);assert.equal(repeat.videoBlocked,true);
+   assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,doneCount,'never a second completion record');
+-  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,receiptCount,'never a second Account receipt');
+-  assert.equal((await guardOf(c).get()).get('blocked'),true);
+-  assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,postsBefore+2);
+-  assert.deepEqual(await signatures(c.accountRoot),accountBefore,'receipt recovery does not change anything in Account');
+-  // The recovery records the accepted generation in a new completion, leaving the original intent immutable.
+-  const requested=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
+-  assert.equal(requested.get('accountEpoch'),g0.epoch,'the Video durable request records the FIRST Account generation, never the accepted one');
+-  assert.equal(requested.get('accountCreatedAtMs'),g0.createdAtMs);
+-  assert.equal(receiptBefore.epoch,g1.epoch,'Account IS the durable authority for the generation the accepted receipt used');
++  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,receiptCount,'never a second receipt');
++  assert.deepEqual((await c.accountRoot.collection('videoBillingIncidents').get()).docs.map(d=>[d.id,d.get('state'),d.get('reviewedAtMs')]),incidentsBefore,'the other incidents are untouched');
+ });
+ 
+ // Isolated regression candidates: the Account mutation is never resent after an uncertain reply.
