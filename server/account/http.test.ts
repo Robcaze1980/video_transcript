@@ -1,8 +1,36 @@
-import {describe,it,expect} from 'vitest';
+import {describe,it,expect,vi} from 'vitest';
 import {createServer} from 'node:http';
+import {generateKeyPairSync,sign} from 'node:crypto';
+import {OAuth2Client} from 'google-auth-library';
 import {accountHttp} from './http';
-import {validateAccountEnvironment,verifyDatabaseBoundary,validateAccountOidcAudience,trustedServiceClaims} from './runtime';
+import {accountServiceIdentityVerifier,validateAccountEnvironment,verifyDatabaseBoundary,validateAccountOidcAudience,trustedServiceClaims} from './runtime';
 import {AccountFault,type AccountStore} from './backend';
+const oidcAudience='https://vistavo-account-api-test-1234567890-uc.a.run.app';
+const oidcEmail='legacy-worker@demo-oidc.iam.gserviceaccount.com';
+const oidcIssuer='https://accounts.google.com';
+const oidcSubject='123456789012345678901';
+
+function signedServiceFixture(){
+ const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+ const oauth=new OAuth2Client();
+ type Certs=Awaited<ReturnType<OAuth2Client['getFederatedSignonCertsAsync']>>;
+ const keyId='synthetic-key';
+ // Replace certificate retrieval only. OAuth2Client still parses and verifies the signed JWT.
+ const certificates=vi.spyOn(oauth,'getFederatedSignonCertsAsync').mockResolvedValue({
+  certs:{[keyId]:publicKey.export({type:'spki',format:'pem'}).toString()},format:'PEM' as Certs['format'],
+ });
+ const encode=(value:Record<string,unknown>)=>Buffer.from(JSON.stringify(value)).toString('base64url');
+ const header=encode({alg:'RS256',typ:'JWT',kid:keyId});
+ const now=Math.floor(Date.now()/1000);
+ const claims={iss:oidcIssuer,sub:oidcSubject,aud:oidcAudience,email:oidcEmail,email_verified:true,iat:now-10,exp:now+300};
+ const token=(overrides:Record<string,unknown>={})=>{
+  const data=header+'.'+encode({...claims,...overrides});
+  return data+'.'+sign('RSA-SHA256',Buffer.from(data),privateKey).toString('base64url');
+ };
+ const verifier=accountServiceIdentityVerifier(oauth,oidcAudience,[oidcEmail]);
+ return {token,verify:verifier.verifyIdToken,certificates,encode,claims,now};
+}
+
 async function api(test:(origin:string,calls:string[],details:Array<{method:string;args:unknown[]}>)=>Promise<void>){const calls:string[]=[],details:Array<{method:string;args:unknown[]}>=[],reserveCalls={value:0},store=new Proxy({}, {get:(_t,key)=>async(...args:unknown[])=>{calls.push(String(key));details.push({method:String(key),args});if(key==='reserveVideo')return {created:++reserveCalls.value===1,state:'reserved',seconds:60,account:{}};if(key==='unblockVideoBilling')return {unblocked:true,replayed:false,blocked:false};return {created:true,account:{},project:{}};}}) as AccountStore;const apiEmail='vistavo-files-api@vistavo-prod.iam.gserviceaccount.com',workerEmail='vistavo-runtime@vistavo-prod.iam.gserviceaccount.com',server=createServer((req,res)=>{void accountHttp(store,{verifyIdToken:async token=>{if(token==='revoked'||token==='disabled'||token==='expired'||token==='foreign')throw Error('denied');return {uid:token,email_verified:token!=='unverified'};}},'https://vistavo.app',{audience:'https://vistavo-account-api-test-1234567890-uc.a.run.app',allowedEmails:[apiEmail,workerEmail],reservationCaller:apiEmail,settlementCaller:workerEmail,verifier:{verifyIdToken:async(token,audience)=>{if(!['service','worker'].includes(token)||audience!=='https://vistavo-account-api-test-1234567890-uc.a.run.app')throw Error('denied');return {email:token==='service'?apiEmail:workerEmail,email_verified:true};}}})(req,res);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();if(!address||typeof address==='string')throw Error();try{await test('http://127.0.0.1:'+address.port,calls,details);}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}}
 describe('account transport trust boundary',()=>{
  it('keeps attempt enrollment closed for both configured legacy services and the public user',async()=>api(async(origin,calls)=>{
@@ -180,6 +208,49 @@ describe('account transport trust boundary',()=>{
   finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}
  });
  it('fails closed for inherited emulator/credential or wrong production DB before SDK init',()=>{const good={VISTAVO_ACCOUNT_MODE:'production',VISTAVO_PROJECT_ID:'vistavo-prod',VISTAVO_ACCOUNT_DATABASE:'vistavo-live'};expect(()=>validateAccountEnvironment(good)).not.toThrow();for(const extra of [{VISTAVO_ACCOUNT_DATABASE:'(default)'},{VISTAVO_PROJECT_ID:'other'},{GOOGLE_APPLICATION_CREDENTIALS:'credential.json'},{FIRESTORE_EMULATOR_HOST:'127.0.0.1:8185'},{FIREBASE_AUTH_EMULATOR_HOST:'127.0.0.1:9099'}])expect(()=>validateAccountEnvironment({...good,...extra})).toThrow();});
- it('pins OIDC audience to this Cloud Run service and rejects non-service token claims',()=>{const aud='https://vistavo-account-api-test-1234567890-uc.a.run.app';expect(validateAccountOidcAudience(aud)).toBe(aud);for(const bad of ['https://example.run.app','http://vistavo-account-api-test-1234567890-uc.a.run.app','https://vistavo-account-api-test-1234567890-uc.a.run.app/','not-a-url'])expect(()=>validateAccountOidcAudience(bad)).toThrow();const email='vistavo-files-api@vistavo-prod.iam.gserviceaccount.com';expect(trustedServiceClaims({sub:'123456789012345678901',email,email_verified:true},[email])).toMatchObject({email,email_verified:true});for(const payload of [{email,email_verified:true},{sub:'123456789012345678901',email,email_verified:false},{sub:'123456789012345678901',email:'user@example.com',email_verified:true}])expect(()=>trustedServiceClaims(payload,[email])).toThrow();});
+ it('pins the legacy OIDC audience and rejects incomplete projected service claims',()=>{
+  expect(validateAccountOidcAudience(oidcAudience)).toBe(oidcAudience);
+  for(const invalid of ['https://example.run.app',oidcAudience.replace('https:','http:'),oidcAudience+'/','not-a-url']){
+   expect(()=>validateAccountOidcAudience(invalid)).toThrow();
+  }
+  const claims={iss:oidcIssuer,sub:oidcSubject,aud:oidcAudience,email:oidcEmail,email_verified:true};
+  expect(trustedServiceClaims(claims,[oidcEmail],oidcAudience)).toEqual(claims);
+  for(const altered of [{sub:undefined},{iss:undefined},{aud:undefined},{aud:'https://foreign.invalid'},
+   {email_verified:false},{email:'person@example.invalid'}]){
+   expect(()=>trustedServiceClaims({...claims,...altered},[oidcEmail],oidcAudience)).toThrow('OIDC service identity unavailable');
+  }
+ });
+ it('retains claims from a verified service token without adding operator or enrollment authority',async()=>{
+  const f=signedServiceFixture();
+  await expect(f.verify(f.token({operatorRef:'synthetic-operator',scopeId:'synthetic-scope',purpose:'unblock-enroll'}),oidcAudience))
+   .resolves.toEqual({iss:oidcIssuer,sub:oidcSubject,aud:oidcAudience,email:oidcEmail,email_verified:true});
+  // Google accepts this issuer alias today. Legacy service authorization still uses the existing allowed email.
+  const legacyIssuer='accounts.google.com',otherSubject='987654321012345678901';
+  await expect(f.verify(f.token({iss:legacyIssuer,sub:otherSubject}),oidcAudience)).resolves.toEqual({
+   iss:legacyIssuer,sub:otherSubject,aud:oidcAudience,email:oidcEmail,email_verified:true,
+  });
+ });
+ it('rejects bad signatures, altered claims and tokens from an invalid issuer or audience',async()=>{
+  const f=signedServiceFixture();
+  const [header,body,signature]=f.token().split('.');
+  const wrongSignature=(signature[0]==='A'?'B':'A')+signature.slice(1);
+  const alteredBody=f.encode({...f.claims,sub:'987654321012345678901'});
+  await expect(f.verify([header,body,wrongSignature].join('.'),oidcAudience)).rejects.toThrow(/invalid token signature/i);
+  await expect(f.verify([header,alteredBody,signature].join('.'),oidcAudience)).rejects.toThrow(/invalid token signature/i);
+  await expect(f.verify(f.token({iss:'https://foreign.invalid'}),oidcAudience)).rejects.toThrow(/invalid issuer/i);
+  await expect(f.verify(f.token({aud:'https://foreign.invalid'}),oidcAudience)).rejects.toThrow(/wrong recipient/i);
+  await expect(f.verify(f.token({iat:f.now-1800,exp:f.now-1200}),oidcAudience)).rejects.toThrow(/token used too late/i);
+ });
+ it('rejects signed tokens with missing claims or an email outside the legacy allowlist',async()=>{
+  const f=signedServiceFixture();
+  await expect(f.verify(f.token(), 'https://foreign.invalid')).rejects.toThrow('OIDC audience mismatch');
+  expect(f.certificates).not.toHaveBeenCalled();
+  await expect(f.verify(f.token({aud:undefined}),oidcAudience)).rejects.toThrow(/wrong recipient/i);
+  await expect(f.verify(f.token({iss:undefined}),oidcAudience)).rejects.toThrow(/invalid issuer/i);
+  for(const claims of [{sub:undefined},{sub:'bad'},{email:undefined},{email_verified:undefined},{email_verified:false},
+   {email:'enrollment-emitter@demo-oidc.iam.gserviceaccount.com'}]){
+   await expect(f.verify(f.token(claims),oidcAudience)).rejects.toThrow('OIDC service identity unavailable');
+  }
+ });
  it('requires actual permission denial, never accepts candidate read or transient failure as isolation',async()=>{const named={doc:()=>({get:async()=>({data:()=>({service:'vistavo-account',environment:'production',schemaVersion:1,unit:'video_seconds'})})})} as any;const other=(code?:number)=>({doc:()=>({get:async()=>{if(code)throw {code};return {};}})}) as any;await expect(verifyDatabaseBoundary(named,other(7))).resolves.toEqual({productionDatabaseRead:true,candidateDatabaseDenied:true});await expect(verifyDatabaseBoundary(named,other())).rejects.toThrow('must not access');for(const code of [3,4,14])await expect(verifyDatabaseBoundary(named,other(code))).rejects.toThrow('inconclusive');});
 });

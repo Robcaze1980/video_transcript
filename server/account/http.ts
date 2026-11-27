@@ -1,7 +1,9 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {AccountFault,type AccountStore,uuid} from './backend';
 export type IdentityVerifier={verifyIdToken:(token:string,checkRevoked:true)=>Promise<{uid:string;email_verified?:boolean}>};
-export type ServiceIdentityVerifier={verifyIdToken:(token:string,audience:string)=>Promise<{email?:string;email_verified?:boolean}>};
+export type ServiceIdentityVerifier={verifyIdToken:(token:string,audience:string)=>Promise<{
+ email?:string;email_verified?:boolean;iss?:string;sub?:string;aud?:string;
+}>};
 export type InternalServicePolicy={audience:string;allowedEmails:readonly string[];reservationCaller:string;settlementCaller:string;verifier:ServiceIdentityVerifier};
 class HttpFault extends Error {constructor(readonly status:number,readonly code:string){super(code);}}
 async function json(req:IncomingMessage,allowed:string[]){

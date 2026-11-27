@@ -20,7 +20,14 @@
 - **Implementación y entorno.** El cliente actual usa credenciales del proceso, un destino fijo y un 409 genérico. La implementación del cliente versionado y su validación de respuestas estaban pendientes y se detallaron. Tampoco se verificaron IAM efectivo, protecciones de la raíz, migración, retención ni restauración. La necesidad de evidencia independiente ante escritores privilegiados es una decisión abierta. Los controles del paquete no prueban una configuración habilitada ni el alta transaccional propuesta.
 - **Límite del paquete.** El cuerpo completo de `accountHttp` sí termina la rama interna sin coincidencia con `404 not_found`. La ruta de inscripción carece de registro. El paquete omitió ese final, además de helpers y suites. El `404` para ambos servicios legados y el `401` para ausente o token de usuario se comprobaron con el control existente y cero llamadas al store. El cuerpo del control corresponde al borrador original y el verificador es sintético. [Caída del router](../../../server/account/http.ts#L84) · [Control existente](../../../server/account/http.test.ts#L8)
 
-El [diseño actualizado](../../specs/LV-019-B-desbloqueo-inscripcion-video-20261126.md) cambia solo documentación. Se repitió su comando focal original y pasaron **130/130 en seis suites** sin omisiones, con tipos aprobados. Log `outputs/unblock-enrollment-review-20261126/focal.log`, SHA-256 `0fbcf2b0f202533eb13d677e25f6470b4182a2a8a7006e681f8bcfd58bcd29f8`. Costo y tokens de este contraste no medidos. Sin cambios de runtime, permisos o recursos cloud.
+El contraste `2b1b141` modificó solo documentación. Pasaron **130/130 en seis suites** sin omisiones y los tipos. Los dos focos son ejecuciones distintas.
+
+| Corte | Archivo en su copia de trabajo | SHA-256 |
+|---|---|---|
+| `fca7bd3` · foco original | `vistavo-unblock-enrollment-20261126/outputs/unblock-enrollment-20261126/focal.log` | `9be4e104c024f6863b5408774ad0d9580ae12c748f9ddc47c453bc13ffa78537` |
+| `2b1b141` · repetición | `vistavo-unblock-enrollment-review-20261126/outputs/unblock-enrollment-review-20261126/focal.log` | `0fbcf2b0f202533eb13d677e25f6470b4182a2a8a7006e681f8bcfd58bcd29f8` |
+
+Costo y tokens de ese contraste no medidos. Aquel corte no modificó runtime, permisos ni recursos cloud. El [incremento posterior de claims](CLAIMS-CUENTA.md) tiene evidencia separada.
 
 === RESUMEN FINAL ===
 RESULTADO: INCONCLUYENTE

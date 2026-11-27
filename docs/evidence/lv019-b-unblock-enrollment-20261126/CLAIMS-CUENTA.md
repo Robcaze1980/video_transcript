@@ -1,0 +1,19 @@
+# LV-019.B · Claims OIDC del verificador interno de Cuenta
+
+26 nov 2026 · Incremento aislado desde `2b1b141a38026a729279d88dfbfd75be66cf0f47`. Costo y tokens no medidos.
+
+- [`accountRuntime`](../../../server/account/runtime.ts#L62) usa el mismo `OAuth2Client` y la misma lista legada de dos servicios. Su [verificador](../../../server/account/runtime.ts#L24) llama al SDK con la audiencia fijada y proyecta únicamente `iss`, `sub`, `aud`, correo y `email_verified` del payload verificado. Conserva la validación de cuenta de servicio y añade una comprobación de presencia del emisor y de audiencia exacta en la proyección. Conserva literalmente el emisor que validó el SDK. No usa claims de operador, ámbito o propósito para autorizar ninguna acción.
+- El [router](../../../server/account/http.ts#L4) amplía solo el tipo de retorno del verificador. Conserva los roles, la autorización legada por correo y el [rechazo de ruta interna desconocida](../../../server/account/http.ts#L86). Los tres claims se quedan en la llamada interna, sin copiarse al cuerpo, la respuesta o el log. Los adaptadores legados pueden omitirlos en el tipo. La futura política de inscripción deberá exigirlos completos y cotejar el emisor y sujeto autorizados antes de acceder al almacén.
+- En la [prueba criptográfica local](../../../server/account/http.test.ts), se generan claves RSA efímeras en memoria y se sustituye únicamente la obtención de certificados públicos. El `OAuth2Client` real analiza y verifica los JWT, firma, emisor, vigencia y audiencia. Se comprueba que retiene los claims de un token válido sin conservar campos de operador, propósito ni ámbito. El alias de emisor que el SDK ya acepta y otro `sub` válido con correo legado pasan la verificación actual. Eso comprueba que esta pieza no introdujo el futuro control de `sub` por acción. La lista existente sigue rechazando un emisor simulado de inscripción aunque su JWT esté bien firmado en el arnés.
+- Los negativos incluyen firma alterada, payload alterado sin volver a firmar, emisor y audiencia ajenos, token expirado, audiencia esperada incorrecta, `iss`, `aud`, `sub` o correo ausentes, sujeto malformado y correo sin verificación. El control del router mantiene 404 a los dos servicios legados ante la ruta propuesta, 401 a token público o ausente y cero llamadas al almacén.
+
+**133/133 en seis suites**, sin omisiones y `tsc --noEmit` con salida 0. Se usó el comando del [contrato](../../specs/LV-019-B-desbloqueo-inscripcion-video-20261126.md) con Node `24.22.3`. Log de esta tercera ejecución `outputs/unblock-enrollment-review-20261126/claims-focal.log`, SHA-256 `248aa344d895f22a219c10140e219f64b31043ab14d0cb88c927a990348f3e36`. Los dos logs de 130/130 previos corresponden a [cortes y archivos distintos](CONTRASTE-REVISION.md). No se usaron claves reales ni se escribieron las efímeras a disco. Sin emulador, llamada a Google, cambio de IAM, ruta nueva ni despliegue.
+
+Las revisiones de `2b1b141` siguen INCONCLUYENTES. La proyección no resuelve el registro de `scopeId`, `anchorKey`/`originKey`, la coherencia del `accountRealmId` compartido, `reviewRef`, idempotencia del acto local, reclamo de despacho, rechazo del protocolo o ruta del intento. Siguen faltando el emisor autorizado de inscripción, la autenticación del acto humano conectado, el origen de hold acreditado y las pruebas de IAM, corte y restauración.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Proyección aislada de los claims del SDK verificado, con 133/133 pruebas locales y tipos aprobados.
+NEGATIVOS: Firma o payload alterados, emisor y audiencia incorrectos, token expirado, claims ausentes o inválidos, correo no admitido y ruta de inscripción cerrada.
+BLOQUEOS: Los claims conservados no acreditan autoridad de inscripción. Faltan emisor, política por acción, origen y operación del flujo real y sus gates. Los INCONCLUYENTE del diseño base se conservan.
+=== FIN RESUMEN ===
