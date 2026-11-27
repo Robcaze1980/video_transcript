@@ -1,0 +1,17 @@
+# LV-019.B · Diez controles de recuperación
+
+**27 nov 2026: 10/10 en Firestore Emulator**, sin fallos ni omisiones. Además de los siete controles del [foco anterior](../lv019-b-t3-unblock-focus-20261127/README.md), pasaron tres casos históricos: una segunda incidencia durante el desbloqueo, una guarda cuya marca cambia y una interrupción de Video después de la confirmación en Cuenta. Los casos usan cuentas y archivos sintéticos. El último no cuenta explícitamente los envíos de desbloqueo; no demuestra por sí solo que no hubo un segundo envío.
+
+La fixture es la de `2a246762b17e9857985334d50aa092ab17037abb`; T3 propuso ampliar el arnés local de siete a diez nombres y reforzar su autochequeo. El manifiesto fija los bytes utilizados. No es la batería financiera completa y no acredita IAM, corte de escritores real, procesamiento online ni saldo real.
+
+- `fixture.stdout.tap`: SHA-256 `e67b37c20074d0d413cbe553c34ed2a97207dfdeac6d82d7dd6833e43e3855e4`; la fixture verificó limpieza **10/10**.
+- `result.json`: SHA-256 `6dffbe67184a7eb2ed08f756a9762784b8d2f7f772966cda30fb294573cf6d2a`; confirma diez nombres, cero omisiones, guarda activa y archivos congelados sin cambios antes/después.
+- Inventarios `roots-before.json` y `roots-after.json`: SHA-256 `5203bfba25237cfe76b139103b63c6975c9786d35b1a368b6354d4d0719f8864`; las 22 colecciones comprobadas estaban vacías antes y después.
+- `run.json`: SHA-256 `645acd42a1992e2d3adfacc66f3dc395fb706a2821822ab13a793219b3a52692`. Node salió con código 0; la JVM propia no cerró en el plazo y se terminó por su handle. El puerto compartido 8185 conservó su PID y los puertos propios quedaron libres.
+- Manifiesto de la candidata `3724084dd6dbe61fa777cdeb6691597b2e78514a7e154ec2a055fccdd5311791`; manifiesto del sistema `90b6af7f63161c599305d6ef060f5fce9b33b8ed70ae9b0a65b34afbe454fdb8`. La guarda Node no es un firewall del sistema y los hashes no constituyen una instantánea inmutable de todas las dependencias.
+
+[GLM](../../reviews/LV-019-B-t3-diez-GLM-20261127.txt) y [DeepSeek](../../reviews/LV-019-B-t3-diez-DeepSeek-20261127.txt) dieron **PASS acotado** a la selección y a los tres casos agregados, a partir de los extractos y resultados aportados; no ejecutaron las pruebas. Ambos señalaron que el caso de fallo de Video no cuenta explícitamente los envíos de desbloqueo. También faltan controles adicionales sobre la fila del primer incidente y la numeración TAP. Codex contrastó los informes con la fixture: la prueba que cambia `createdAtMs` demuestra que el cambio ocurrió, pero usa una asignación al mismo valor y no demuestra por sí sola cuántas veces se ejecutó el hook; la afirmación de DeepSeek de que una segunda ejecución sumaría otra unidad no se acepta.
+
+Faltan los otros casos históricos, una comprobación explícita de envíos en la reanudación de Video, la guarda de admisión por cuenta, la reparación de estados ambiguos y la regresión integrada. Los hilos T3 no expusieron costo ni tokens por tarea; el alias GLM no informó el modelo servido.
+
+El primer escaneo de evidencia señaló tres coincidencias `generic-api-key`, verificadas como el SHA-256 de `server/commercial/firebaseAccess.ts` en el manifiesto y en las lecturas anterior y posterior. Se conserva el informe redactado y una excepción limitada a esas tres líneas y esa regla; no se excluyen archivos ni reglas completos. La evidencia se escanea por separado del staging.

@@ -1,0 +1,48 @@
+=== EDITS ===
+{
+  "edits": [
+    {
+      "file": "scripts/runUnblockFocusEmulator.mjs",
+      "old": "// The focus runs exactly these seven synthetic cases. All other cases are excluded, not passed.\nconst selectedNames = [\n  'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',\n  'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',\n  'a missing writer cut cannot authorize an Account unblock',\n  'a modified writer cut cannot authorize an Account unblock',\n  'a recreated writer cut cannot authorize an Account unblock',\n  '11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock',\n  '11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock',\n];",
+      "new": "// The focus runs exactly these ten synthetic cases. All other cases are excluded, not passed.\nconst selectedNames = [\n  'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',\n  'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',\n  'a missing writer cut cannot authorize an Account unblock',\n  'a modified writer cut cannot authorize an Account unblock',\n  'a recreated writer cut cannot authorize an Account unblock',\n  '11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock',\n  '11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock',\n  '11 negative: a second incident arriving between the read and the write aborts and is never overwritten',\n  '11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch',\n  '11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it',\n];"
+    },
+    {
+      "file": "scripts/runUnblockFocusEmulator.mjs",
+      "old": "if(selectedNames.some(name=>!/^[A-Za-z0-9: _]+$/.test(name)))throw Error('Unsafe focus name');",
+      "new": "if(selectedNames.some(name=>!/^[A-Za-z0-9:, _]+$/.test(name)))throw Error('Unsafe focus name');"
+    },
+    {
+      "file": "scripts/runUnblockFocusEmulator.mjs",
+      "old": "  const suffix='\\n# tests 7\\n# pass 7\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n';",
+      "new": "  const suffix='\\n# tests 10\\n# pass 10\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n';"
+    },
+    {
+      "file": "scripts/runUnblockFocusEmulator.mjs",
+      "old": "  if(!accept(good)||accept(good.replace(selectedNames[0],'unselected case'))||\n     accept(good.replace('ok 1 -','not ok 1 -'))||accept(good.replace('# skipped 0','# skipped 1'))||\n     accept(good.replace('# tests 7','# tests 6'))||accept(good,'')||\n     accept(good,guards+'VISTAVO_REVIEW_NETWORK_DENIED\\n'))fail('Focused TAP self-check failed');\n  process.stdout.write('Focused TAP self-check: PASS; positive and six negative cases. No emulator started.\\n');",
+      "new": "  if(!accept(good)||accept(good.replace(selectedNames[0],'unselected case'))||\n     accept(good.replace('ok 1 -','not ok 1 -'))||accept(good.replace('# skipped 0','# skipped 1'))||\n     accept(good.replace('# tests 10','# tests 9'))||accept(good.replace('# tests 10','# tests 11'))||\n     accept(good.replace('ok 2 - '+selectedNames[1],'ok 2 - '+selectedNames[0]))||\n     accept(good.replace('# cancelled 0','# cancelled 1'))||accept(good.replace('# todo 0','# todo 1'))||\n     accept(good.replace('ok 3 - '+selectedNames[2]+'\\n',''))||accept(good,'')||\n     accept(good,guards+'VISTAVO_REVIEW_NETWORK_DENIED\\n')||\n     accept(good,'VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS\\n'))fail('Focused TAP self-check failed');\n  process.stdout.write('Focused TAP self-check: PASS; positive and twelve negative cases. No emulator started.\\n');"
+    },
+    {
+      "file": "scripts/prepareUnblockFocusIsolation.mjs",
+      "old": "const base='1a099b52b145001abf5b51340c54158f08ae239d';",
+      "new": "const base='2a246762b17e9857985334d50aa092ab17037abb';"
+    },
+    {
+      "file": "scripts/prepareUnblockFocusIsolation.mjs",
+      "old": "if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==7||!snapshot.files)",
+      "new": "if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==10||!snapshot.files)"
+    },
+    {
+      "file": "scripts/runUnblockFocusIsolated.ps1",
+      "old": "      $system.version -ne 1 -or $system.base -cne '1a099b52b145001abf5b51340c54158f08ae239d' -or",
+      "new": "      $system.version -ne 1 -or $system.base -cne '2a246762b17e9857985334d50aa092ab17037abb' -or"
+    }
+  ]
+}
+=== FIN EDITS ===
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Siete ediciones sobre los tres archivos permitidos. `scripts/runUnblockFocusEmulator.mjs`: comentario «seven»→«ten» y tres literales añadidos al final de `selectedNames` (los siete previos intactos y en el mismo orden → diez nombres exactos, patrón anclado `^(?:...)$` y `expectedSelected = selectedNames.length` sin cambios); validador del selector ampliado a `/^[A-Za-z0-9:, _]+$/` añadiendo solo la coma a los caracteres ya admitidos (letras, dígitos, espacio, dos puntos, guion bajo), sin metacaracteres regex; `suffix` con `# tests 10`/`# pass 10` conservando `fail/cancelled/skipped/todo` en 0. Autochequeo reforzado: se conservan los seis negativos existentes (nombre no seleccionado, `not ok`, `skipped 1`, total menor `# tests 10`→`# tests 9`, sin línea de guard, `VISTAVO_REVIEW_NETWORK_DENIED`) y se agregan seis: total mayor `# tests 10`→`# tests 11`, nombre duplicado (fila 2 reetiquetada con `selectedNames[0]`), `# cancelled 1`, `# todo 1`, fila numerada incompleta (se elimina la fila 3) y una sola línea de guard (`VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS\n`) frente a las dos exigidas; mensaje final a «twelve negative cases». `scripts/prepareUnblockFocusIsolation.mjs`: `base` a `2a246762b17e9857985334d50aa092ab17037abb` y manifiesto `expectedSelected!==7`→`!==10`. `scripts/runUnblockFocusIsolated.ps1`: `$system.base` a `2a246762b17e9857985334d50aa092ab17037abb`. Puertos `8198,9198,9298`, proyecto `demo-vistavo-financial`, host, versión, rutas y demás controles sin tocar. Cada `old` es un fragmento único de su archivo.
+NEGATIVOS: No ejecuté herramientas, pruebas ni comandos, así que no afirmo verificación local; queda a cargo de Codex. No comprobé desde los extractos que el cuerpo del emulador defina realmente los tres casos «11 negative» ni que el reetiquetado de fila 2 produzca `selectedNamesMatch=false` con la implementación real de `summary`; si `summary` no cuenta guardas por línea, el negativo de una sola línea de guard podría no fallar (depende de que el mínimo exigido sea dos, `fixtureFiles.length + 1 = 2`). Los hashes `$ExpectedManifestSha256`/`$ExpectedSystemManifestSha256` no se modificaron pese a cambiar `expectedSelected` y `base`: el manifiesto congelado debe regenerarse y sus hashes actualizarse, o el lanzador fallará por diseño. Cambio con impacto en contrato de saldo: exige el contraste de dos revisores independientes, no ejecutado aquí.
+BLOQUEOS: Ninguno.
+=== FIN RESUMEN ===

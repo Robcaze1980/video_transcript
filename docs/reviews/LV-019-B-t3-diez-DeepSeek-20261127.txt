@@ -1,0 +1,31 @@
+Reviso únicamente el diff de arnés sobre `2a24676` y los tres tests añadidos, sin ejecutar nada. Mis conclusiones se apoyan en los extractos aportados y en las observaciones que registra Codex; no certifiqué producto, IAM, saldo integrado ni producción.
+
+**Hallazgos por prueba**
+
+- Test 1 — «a second incident… between the read and the write» (`server/commercial/billingUnblock.emulator.mjs:608`): el hook intercepta `c.accountBilling.unblock` y, antes de delegar, comete un ACK divergente del segundo incidente (`quarantineExternalBillingOutbox`, `phase:'after_ack'`). Señala ocurrencia del evento con `outcome.state==='needs_review'` y `secondId` (`assert.ok(secondId)`), no vacuo porque si el hook no dispara el `rejects` de `conflict` falla. Mantiene bloqueo: `blocked===true` y `epoch===2`. No oculta la escritura que vigila (guard), pero no comprueba la fila/reservas del primer incidente. El punto de inyección es el borde de `accountBilling.unblock`; que sea exactamente «entre la lectura y la escritura» depende de dónde viva la lectura auditada en el orquestador, código no incluido.
+- Test 2 — «createdAtMs moves between phase 0 and phase 3» (`...:647`): mueve el guard vivo a `requestBody.createdAtMs+1` al mismo epoch y exige `conflict`. Señala el evento de forma implícita (si el hook no corre, `createdAtMs` queda sin +1 y la aserción falla); no usa bandera `fired` como el Test 1, pero una doble invocación daría +2 y fallaría, así que cierra en fallo. Mantiene bloqueo (`guard.exists===true`) y no avanza fila (`outbox…==='needs_review'`). Igual que el Test 1, la semántica «fase 0 / fase 3» depende del orquestador no mostrado.
+- Test 3 — «a Video failure after Account confirmed…» (`...:1072`): encadena `confirmed` en `accountBilling.unblock` y hace fallar la primera `db.runTransaction` posterior; el `rejects(...,/synthetic Video crash/)` confirma que el evento ocurrió. Verifica Account sin guard, Video aún bloqueado, `outbox==='needs_review'`, 1 auditoría `unblock_requested`; en la repetición: `replayed===false`, `accountBlocked===false`, Video sin guard, `outbox==='retry_wait'`, 2 auditorías. **No demuestra ausencia de un segundo envío**: no hay contador de POST/envíos; `syntheticTsxIpcRequests` se registra pero no se usa en `acceptableChecks` y no es un conteo de POST. La ausencia de segundo envío en la ruta de reanudación queda sin cubrir por este test; solo hay proxies estructurales (auditorías, estados de guard/outbox, `replayed`).
+
+**Arnés, nombres y selector**
+
+- Los tres nombres coinciden literalmente entre el selector (`scripts/runUnblockFocusEmulator.mjs:31-33`) y las declaraciones (`608`, `647`, `1072`). La coma que exige el Test 3 es la razón de ampliar la allowlist a `[A-Za-z0-9:, _]` (`...:35`).
+- La allowlist no contiene metacaracteres de regex (coma, dos puntos, espacio, guion bajo son literales), por lo que `selectedPattern` (`...:37`) sigue siendo una alternación literal segura. Correcto.
+- `acceptableChecks` (`...:206`) exige `totalTests===expectedSelected(10)`, `rows.length===totalTests`, `countsConsistent`, `selectedNamesMatch` (igualdad de conjuntos ordenados), `noCancelled`, `noSkipped`, `noTodo`, `guardInstances>=fixtureFiles+1` y `!guardDeniedDuringRun`; además `behavior` es FAIL con `failCount>0` y `pass` exige coincidencia de `exitCode`. Es decir, rechaza menos pruebas, otras pruebas y fallos.
+- Autochequeo (`...:210-225`): positivo aceptado y 12 negativos rechazados (nombre no seleccionado, `not ok`, `skipped 1`, `tests 9`, `tests 11`, nombre duplicado, `cancelled 1`, `todo 1`, fila eliminada, guards vacíos, red denegada, guard único). Coincide con «twelve negative cases».
+
+**Cobertura comprobada vs. no probada**
+
+- Comprobado por lógica del diff: selección exacta de 10 casos, rechazo de conteos/nombres/fallos/skip/cancel/todo/anomalías de guard, paridad de nombres y seguridad del selector.
+- No probado por este diff: ventana real de inyección (lectura→escritura y fase 0→3) sin el orquestador; ausencia de segundo envío en el Test 3; integridad de la fila del primer incidente en el Test 1; unicidad/secuencia de la numeración TAP (`numberedCases` solo compara cardinalidad con `# tests`).
+
+**Evidencia adicional (mínima, si se requiere el criterio de segundo envío)**
+
+- El cuerpo de `unblockBillingAccount` para confirmar que la inyección cae entre la lectura auditada y la escritura/fase 3.
+- Si el criterio de aceptación exige «sin segundo envío» en la reanudación tras fallo de Video, un contador de envíos/POST asertado y sujeto a gate (no solo registrado).
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión estática del diff sobre 2a24676 (prepare/runUnblockFocus* y tres tests). Verificado: nombres idénticos selector↔tests (líneas 31-33 vs 608/647/1072); allowlist sin metacaracteres (coma literal justificada por el Test 3); gate rechaza menos/otras/fallidas y 12 negativos del autochequeo. Los tres tests ejercitan su escenario, señalan el evento, mantienen bloqueo y no ocultan las escrituras que vigilan. Límite declarado: el Test 3 no demuestra ausencia de un segundo envío.
+NEGATIVOS: El Test 3 no prueba ausencia de segundo envío (sin contador de POST; `syntheticTsxIpcRequests` no se gatea). El Test 1 no verifica la fila/reservas del primer incidente. La semántica «entre lectura y escritura» / «fase 0-fase 3» depende del orquestador no mostrado. No se comprueba unicidad/secuencia de numeración TAP.
+BLOQUEOS: Ninguno para el alcance revisado; para certificar el criterio de «sin segundo envío» en la reanudación se requiere el orquestador y, si aplica, un contador de envíos asertado. No certifico producto, IAM, saldo integrado ni producción; todo es sintético y no ejecuté nada.
+=== FIN RESUMEN ===

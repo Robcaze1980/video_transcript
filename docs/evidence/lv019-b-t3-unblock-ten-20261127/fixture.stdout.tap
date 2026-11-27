@@ -1,0 +1,74 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: 11 negative: a second incident arriving between the read and the write aborts and is never overwritten
+ok 1 - 11 negative: a second incident arriving between the read and the write aborts and is never overwritten
+  ---
+  duration_ms: 5792.7538
+  type: 'test'
+  ...
+# Subtest: 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch
+ok 2 - 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch
+  ---
+  duration_ms: 3127.607
+  type: 'test'
+  ...
+# Subtest: 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock
+ok 3 - 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock
+  ---
+  duration_ms: 3568.2729
+  type: 'test'
+  ...
+# Subtest: 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock
+ok 4 - 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock
+  ---
+  duration_ms: 3544.2521
+  type: 'test'
+  ...
+# Subtest: 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it
+ok 5 - 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it
+  ---
+  duration_ms: 3576.403
+  type: 'test'
+  ...
+# Subtest: an uncertain Account unblock with no receipt preserves reservations and never sends a second POST
+ok 6 - an uncertain Account unblock with no receipt preserves reservations and never sends a second POST
+  ---
+  duration_ms: 7264.4384
+  type: 'test'
+  ...
+# Subtest: a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once
+ok 7 - a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once
+  ---
+  duration_ms: 6995.3937
+  type: 'test'
+  ...
+# Subtest: a missing writer cut cannot authorize an Account unblock
+ok 8 - a missing writer cut cannot authorize an Account unblock
+  ---
+  duration_ms: 3730.0474
+  type: 'test'
+  ...
+# Subtest: a modified writer cut cannot authorize an Account unblock
+ok 9 - a modified writer cut cannot authorize an Account unblock
+  ---
+  duration_ms: 3797.36
+  type: 'test'
+  ...
+# Synthetic unblock-1.4b cleanup total: 10/10
+# Subtest: a recreated writer cut cannot authorize an Account unblock
+ok 10 - a recreated writer cut cannot authorize an Account unblock
+  ---
+  duration_ms: 3879.9534
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 49595.4176
