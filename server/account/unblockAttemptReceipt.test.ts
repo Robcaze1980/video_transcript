@@ -112,19 +112,21 @@ function fixture(){
    put(incidentPath,{...at(incidentPath),unblockProtocol:2,unblockAuthorityVersion:version(authorityPath,'created')});
   }
   let permitted:Parameters<typeof unblockPermitBytes>[0];
-  function grant(overrides:Partial<Command>={}){
+  function grant(overrides:Partial<Command>={},unblockProtocol=2){
    grantRows(overrides);
    const activeIncidentVersion=version(incidentPath,'updated');
-   permitted={...tuple,...command,realm:trust.realm,rootPath:root.path,activeIncidentVersion,
+   const proposedPermit={...tuple,...command,unblockProtocol,realm:trust.realm,rootPath:root.path,activeIncidentVersion,
     identityVersion:version(identityPath,'updated'),incidentVersion:version(incidentPath,'created'),
     authorityVersion:version(authorityPath,'created'),guardVersion:version(guardPath,'created')};
+   permitted=proposedPermit;
    put(historyPath,{activeIncidentVersion,permitSignature:sign(null,unblockPermitBytes(permitted),
     permitKeys.privateKey).toString('base64url')});
   }
-  function publishReceipt({lost=false,wrongSigner=false}={}){
+  function publishReceipt({lost=false,wrongSigner=false,unblockProtocol=2}={}){
    const observed=observedCommits.get(receiptPath);
    if(!observed)throw Error('synthetic observer has no original Account commit');
-   const receiptBytes=unblockReceiptBytes(permitted,{receiptVersion:'42:'+observed.receipt.created,
+   const proposedPermit={...permitted,unblockProtocol};
+   const receiptBytes=unblockReceiptBytes(proposedPermit,{receiptVersion:'42:'+observed.receipt.created,
     reviewedIncidentVersion:'42:'+observed.incident.updated,unblockedAtMs:observed.receipt.data.unblockedAtMs as number});
    const receiptSignature=sign(null,receiptBytes,wrongSigner?permitKeys.privateKey:receiptKeys.privateKey).toString('base64url');
    put(historyPath,{...at(historyPath),receiptSignature});
@@ -139,7 +141,10 @@ function fixture(){
  const economicSnapshot=()=>[...a.economic,...b.economic].map(path=>structuredClone(rows.get(path)));
  const unconfiguredStore=()=>new AccountStore(db as never,root as never,()=>100);
  const sharedKeyStore=()=>new AccountStore(db as never,root as never,()=>100,{...trust,receiptKey:trust.permitKey});
- return {a,b,store,rows,writes,at,put,recreate,freshStore,unconfiguredStore,sharedKeyStore,economicSnapshot,snapshot:()=>structuredClone(rows),
+ const storeWithMalformedTrust=(overrides:Record<string,unknown>)=>
+  new AccountStore(db as never,root as never,()=>100,{...trust,...overrides} as never);
+ return {a,b,store,rows,writes,at,put,recreate,freshStore,unconfiguredStore,sharedKeyStore,storeWithMalformedTrust,
+  economicSnapshot,snapshot:()=>structuredClone(rows),
   transactions:()=>transactions,dropNextAck:()=>{dropAck=true;},rejectNextCommit:()=>{failCommit=true;}};
 }
 
@@ -247,6 +252,53 @@ it('requires the receipt authority even when the permit signer signs the exact r
  expect(f.writes).toEqual([a.receiptPath,a.incidentPath,a.guardPath]);
  expect(f.rows.get(b.guardPath)).toEqual(bGuard);
  expect(f.economicSnapshot()).toEqual(balance);
+});
+
+it('rejects a permit signed for a different unblock protocol before applying anything',async()=>{
+ const f=fixture(),{a}=f;
+ a.grant({},3);
+ const before=f.snapshot();
+ const answers=await Promise.allSettled([
+  f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command),
+  f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command),
+ ]);
+ expect({answers,writes:f.writes}).toMatchObject({answers:[
+  {status:'rejected',reason:{code:'conflict'}},{status:'rejected',reason:{code:'conflict'}},
+ ],writes:[]});
+ expect(f.snapshot()).toEqual(before);
+});
+
+it('rejects a receipt signed for a different unblock protocol even when every other field matches',async()=>{
+ const f=fixture(),{a}=f;
+ a.grant();
+ await f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
+ a.publishReceipt({unblockProtocol:3});
+ const before=f.snapshot();
+ await expect(f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).rejects.toMatchObject({code:'conflict'});
+ expect(f.snapshot()).toEqual(before);
+ expect(f.writes).toEqual([a.receiptPath,a.incidentPath,a.guardPath]);
+});
+
+it.each([
+ ['receipt private key',()=>({receiptKey:generateKeyPairSync('ed25519').privateKey})],
+ ['receipt public key from another algorithm',()=>({receiptKey:generateKeyPairSync('ec',{namedCurve:'prime256v1'}).publicKey})],
+ ['missing permit key',()=>({permitKey:undefined})],
+ ['missing receipt key',()=>({receiptKey:undefined})],
+ ['non-key permit value',()=>({permitKey:{}})],
+] as const)('rejects malformed trusted configuration (%s) before a transaction',async(_label,overrides)=>{
+ const f=fixture(),{a}=f;
+ a.grant();
+ const store=f.storeWithMalformedTrust(overrides());
+ const before=f.snapshot();
+ const answers=await Promise.allSettled([
+  store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command),
+  store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command),
+ ]);
+ const outcomes=answers.map(answer=>answer.status==='fulfilled'?answer.value.state:answer.reason.code??answer.reason.name);
+ expect({outcomes,transactions:f.transactions(),writes:f.writes}).toEqual({
+  outcomes:['conflict','conflict'],transactions:0,writes:[],
+ });
+ expect(f.snapshot()).toEqual(before);
 });
 
 it.each([
@@ -385,6 +437,13 @@ it('new entry points reject legacy and existing methods reject versioned records
  expect(await f.store.unblockVideoBilling(b.identityKey,b.legacy)).toMatchObject({unblocked:true,replayed:false});
  expect(await f.store.videoBillingUnblockReceipt(b.identityKey,incident,b.legacy.reviewRef)).toMatchObject({state:'confirmed'});
  expect(await f.store.unblockVideoBilling(b.identityKey,b.legacy)).toMatchObject({unblocked:true,replayed:true});
+ await f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
+ a.publishReceipt();
+ expect(f.at(a.receiptPath)).toMatchObject({unblockProtocol:2});
+ const confirmed=f.snapshot();
+ await expect(f.store.videoBillingUnblockReceipt(a.identityKey,incident,a.legacy.reviewRef)).rejects.toMatchObject({code:'conflict'});
+ expect(await f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).toMatchObject({state:'confirmed'});
+ expect(f.snapshot()).toEqual(confirmed);
 });
 
 it('rejects non-test execution and rejects malformed body before opening a transaction',async()=>{
