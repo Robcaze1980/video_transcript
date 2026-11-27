@@ -1,0 +1,3443 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: an audited unblock of the only incident deletes the guard and restores reserve, admit and settle
+ok 1 - an audited unblock of the only incident deletes the guard and restores reserve, admit and settle
+  ---
+  duration_ms: 1482.8103
+  type: 'test'
+  ...
+# Subtest: an identical unblock is a replay without writes; a different payload is a conflict
+ok 2 - an identical unblock is a replay without writes; a different payload is a conflict
+  ---
+  duration_ms: 570.0851
+  type: 'test'
+  ...
+# Subtest: an unblock naming a stale epoch or createdAtMs is refused; after a re-block only the current guard applies
+ok 3 - an unblock naming a stale epoch or createdAtMs is refused; after a re-block only the current guard applies
+  ---
+  duration_ms: 577.411
+  type: 'test'
+  ...
+# Subtest: a missing or reviewed incident, a stale guard and a missing or oversized reviewRef are refused without writes
+ok 4 - a missing or reviewed incident, a stale guard and a missing or oversized reviewRef are refused without writes
+  ---
+  duration_ms: 402.8173
+  type: 'test'
+  ...
+# Subtest: two incidents keep the account blocked after the first unblock and open it only after the second
+ok 5 - two incidents keep the account blocked after the first unblock and open it only after the second
+  ---
+  duration_ms: 493.0935
+  type: 'test'
+  ...
+# Subtest: a concurrent incident never lets a stale unblock open an account that still owes a review
+ok 6 - a concurrent incident never lets a stale unblock open an account that still owes a review
+  ---
+  duration_ms: 25062.5802
+  type: 'test'
+  ...
+# Subtest: the reviewed reader reports blocked without recorded, and rejects corruption
+ok 7 - the reviewed reader reports blocked without recorded, and rejects corruption
+  ---
+  duration_ms: 733.031
+  type: 'test'
+  ...
+# Subtest: a new incident keeps the reviewed counter, and only the last review deletes the guard
+ok 8 - a new incident keeps the reviewed counter, and only the last review deletes the guard
+  ---
+  duration_ms: 633.2661
+  type: 'test'
+  ...
+# Subtest: an unprovisioned identity is refused with account_not_provisioned and nothing is written
+ok 9 - an unprovisioned identity is refused with account_not_provisioned and nothing is written
+  ---
+  duration_ms: 189.9654
+  type: 'test'
+  ...
+# Subtest: the status reader fails closed on an ACTIVE incident whose guard is absent and tolerates a reviewed one
+ok 10 - the status reader fails closed on an ACTIVE incident whose guard is absent and tolerates a reviewed one
+  ---
+  duration_ms: 279.4012
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Drain-section cleanup verified 1/1
+# Subtest: (a) two simultaneous passes and a paused pass that wakes late move the balance exactly once
+ok 11 - (a) two simultaneous passes and a paused pass that wakes late move the balance exactly once
+  ---
+  duration_ms: 5317.4396
+  type: 'test'
+  ...
+# Drain-section cleanup verified 2/2
+# Subtest: (b) a pass interrupted mid-way leaves the rest, and the next pass completes without a second charge
+ok 12 - (b) a pass interrupted mid-way leaves the rest, and the next pass completes without a second charge
+  ---
+  duration_ms: 4101.8486
+  type: 'test'
+  ...
+# Drain-section cleanup verified 3/3
+# Subtest: (c) fairness and rotation: 50 due rows of one account never starve another, and passes cover all rows once
+ok 13 - (c) fairness and rotation: 50 due rows of one account never starve another, and passes cover all rows once
+  ---
+  duration_ms: 22982.9616
+  type: 'test'
+  ...
+# Drain-section cleanup verified 4/4
+# Subtest: (d) a stale holder after expiry neither renews nor releases and stops before the next row
+ok 14 - (d) a stale holder after expiry neither renews nor releases and stops before the next row
+  ---
+  duration_ms: 1914.5973
+  type: 'test'
+  ...
+# Drain-section cleanup verified 5/5
+# Subtest: (e) the expired-unknown resolver runs as its own section and releases an expired unknown
+ok 15 - (e) the expired-unknown resolver runs as its own section and releases an expired unknown
+  ---
+  duration_ms: 2814.3722
+  type: 'test'
+  ...
+# Drain-section cleanup verified 6/6
+# Subtest: (f) the switch off touches nothing and still emits a heartbeat
+ok 16 - (f) the switch off touches nothing and still emits a heartbeat
+  ---
+  duration_ms: 1771.6873
+  type: 'test'
+  ...
+# Drain-section cleanup verified 7/7
+# Subtest: (g) a heartbeat is emitted in every state with the exact key set and no sensitive value
+ok 17 - (g) a heartbeat is emitted in every state with the exact key set and no sensitive value
+  ---
+  duration_ms: 2663.9244
+  type: 'test'
+  ...
+# Drain-section cleanup verified 8/8
+# Subtest: (h) the unknown resolver stops row by row when its section budget runs out, leaving the rest intact
+ok 18 - (h) the unknown resolver stops row by row when its section budget runs out, leaving the rest intact
+  ---
+  duration_ms: 5716.462
+  type: 'test'
+  ...
+# Drain-section cleanup verified 9/9
+# Drain-section cleanup total: 9/9
+# Subtest: (i) one account gets at most five rows across holds-before, billing and holds-after of the same pass
+ok 19 - (i) one account gets at most five rows across holds-before, billing and holds-after of the same pass
+  ---
+  duration_ms: 1888.4779
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# {"event":"synthetic-settlement-history-race","field":"account","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed account after capture send is retained for review
+ok 20 - changed account after capture send is retained for review
+  ---
+  duration_ms: 2480.824
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"outbox","state":"retry_wait","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":false,"foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed outbox after capture send is retained for review
+ok 21 - changed outbox after capture send is retained for review
+  ---
+  duration_ms: 2022.6452
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"job","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"unverified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed job after capture send is retained for review
+ok 22 - changed job after capture send is retained for review
+  ---
+  duration_ms: 2135.9469
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"terminal","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed terminal after capture send is retained for review
+ok 23 - changed terminal after capture send is retained for review
+  ---
+  duration_ms: 2185.9769
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"artifact","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed artifact after capture send is retained for review
+ok 24 - changed artifact after capture send is retained for review
+  ---
+  duration_ms: 2065.6809
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"classification","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed classification after capture send is retained for review
+ok 25 - changed classification after capture send is retained for review
+  ---
+  duration_ms: 2274.3735
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"simulatedReserve","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed simulatedReserve after capture send is retained for review
+ok 26 - changed simulatedReserve after capture send is retained for review
+  ---
+  duration_ms: 2097.1025
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"request","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"unverified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed request after capture send is retained for review
+ok 27 - changed request after capture send is retained for review
+  ---
+  duration_ms: 2165.4803
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"origin","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed origin after capture send is retained for review
+ok 28 - changed origin after capture send is retained for review
+  ---
+  duration_ms: 2131.9252
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"jobMarker","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed jobMarker after capture send is retained for review
+ok 29 - changed jobMarker after capture send is retained for review
+  ---
+  duration_ms: 2185.2418
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"restoreIdentity","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed restoreIdentity after capture send is retained for review
+ok 30 - changed restoreIdentity after capture send is retained for review
+  ---
+  duration_ms: 2168.5422
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-history-race","field":"replaceIdentity","state":"needs_review","result":{"settled":0,"failed":1,"intentsRecovered":0,"intentsFailed":0},"captured":true,"attribution":"verified","foreignBlocked":false}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: changed replaceIdentity after capture send is retained for review
+ok 31 - changed replaceIdentity after capture send is retained for review
+  ---
+  duration_ms: 2149.6899
+  type: 'test'
+  ...
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: a timeout after send is not reported as a confirmed Account ACK
+ok 32 - a timeout after send is not reported as a confirmed Account ACK
+  ---
+  duration_ms: 2053.6637
+  type: 'test'
+  ...
+# {"event":"synthetic-settlement-two-acks","calls":2,"outcomes":[{"settled":1,"failed":0,"intentsRecovered":0,"intentsFailed":0},{"settled":0,"failed":0,"intentsRecovered":0,"intentsFailed":0}],"state":"settled","incidents":0}
+# {"event":"synthetic-result-cleanup","project":"demo-vistavo-financial","allAbsent":true}
+# Subtest: two concurrent synthetic ACKs settle once and the duplicate is recognized without an incident or a block
+ok 33 - two concurrent synthetic ACKs settle once and the duplicate is recognized without an incident or a block
+  ---
+  duration_ms: 5729.2108
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: a block during reserve keeps the Account confirmation without creating or capturing work
+ok 34 - a block during reserve keeps the Account confirmation without creating or capturing work
+  ---
+  duration_ms: 2500.4701
+  type: 'test'
+  ...
+# Subtest: a capture already authorized by Video reaches Account before a concurrent hold propagates
+ok 35 - a capture already authorized by Video reaches Account before a concurrent hold propagates
+  ---
+  duration_ms: 3828.4933
+  type: 'test'
+  ...
+# Subtest: a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock
+ok 36 - a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock
+  ---
+  duration_ms: 9388.3967
+  type: 'test'
+  ...
+# Subtest: an aged refund with missing billingIntentWitnesses goes to review despite the account guard
+ok 37 - an aged refund with missing billingIntentWitnesses goes to review despite the account guard
+  ---
+  duration_ms: 4684.7038
+  type: 'test'
+  ...
+# Subtest: an aged refund with missing billingIntentJobMarkers goes to review despite the account guard
+ok 38 - an aged refund with missing billingIntentJobMarkers goes to review despite the account guard
+  ---
+  duration_ms: 4683.2906
+  type: 'test'
+  ...
+# Subtest: an aged refund with missing billingIntentAdmissionGuards goes to review despite the account guard
+ok 39 - an aged refund with missing billingIntentAdmissionGuards goes to review despite the account guard
+  ---
+  duration_ms: 4692.5534
+  type: 'test'
+  ...
+# Subtest: guard accounting: the real outbox writer creates epoch 1 with createdAtMs and a re-block grows the epoch
+ok 40 - guard accounting: the real outbox writer creates epoch 1 with createdAtMs and a re-block grows the epoch
+  ---
+  duration_ms: 5029.5062
+  type: 'test'
+  ...
+# Subtest: guard accounting: a legacy guard without createdAtMs is refused, and a missing epoch is read as 1 only when the mark exists
+ok 41 - guard accounting: a legacy guard without createdAtMs is refused, and a missing epoch is read as 1 only when the mark exists
+  ---
+  duration_ms: 14043.616
+  type: 'test'
+  ...
+# Subtest: guard accounting: the guard predicate still tolerates blocked:false and refuses to invent a value for a missing flag
+ok 42 - guard accounting: the guard predicate still tolerates blocked:false and refuses to invent a value for a missing flag
+  ---
+  duration_ms: 1794.3772
+  type: 'test'
+  ...
+# Subtest: 11 full unblock leaves a Video audit, deletes Account guard, clears the Video guard and revives Account
+ok 43 - 11 full unblock leaves a Video audit, deletes Account guard, clears the Video guard and revives Account
+  ---
+  duration_ms: 3833.0464
+  type: 'test'
+  ...
+# Subtest: 11 replay: an identical repeat is replayed without a single write; a different payload is a conflict
+ok 44 - 11 replay: an identical repeat is replayed without a single write; a different payload is a conflict
+  ---
+  duration_ms: 4527.4465
+  type: 'test'
+  ...
+# Subtest: 11 negative: a missing, empty or control-character evidenceRef is invalid and writes nothing
+ok 45 - 11 negative: a missing, empty or control-character evidenceRef is invalid and writes nothing
+  ---
+  duration_ms: 3546.8266
+  type: 'test'
+  ...
+# Subtest: 11 negative: an absent alert or one that is not open never unblocks
+ok 46 - 11 negative: an absent alert or one that is not open never unblocks
+  ---
+  duration_ms: 3038.0919
+  type: 'test'
+  ...
+# Subtest: 11 negative: an unresolved needs_review row that this incident did not name stops the unblock
+ok 47 - 11 negative: an unresolved needs_review row that this incident did not name stops the unblock
+  ---
+  duration_ms: 3742.4302
+  type: 'test'
+  ...
+# Subtest: 11 negative: a second incident arriving between the read and the write aborts and is never overwritten
+ok 48 - 11 negative: a second incident arriving between the read and the write aborts and is never overwritten
+  ---
+  duration_ms: 5335.7805
+  type: 'test'
+  ...
+# Subtest: 11 negative: a rival row that lands between phase 0 and phase 3 keeps the Video guard blocked
+ok 49 - 11 negative: a rival row that lands between phase 0 and phase 3 keeps the Video guard blocked
+  ---
+  duration_ms: 3737.6832
+  type: 'test'
+  ...
+# Subtest: 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch
+ok 50 - 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch
+  ---
+  duration_ms: 3657.4085
+  type: 'test'
+  ...
+# Subtest: 11 partial: Account keeps its guard because other incidents remain, so Video keeps its own but advances this incident
+ok 51 - 11 partial: Account keeps its guard because other incidents remain, so Video keeps its own but advances this incident
+  ---
+  duration_ms: 3611.8289
+  type: 'test'
+  ...
+# Subtest: 11 partial then repeat: once Account has no other incident, the identical repeat releases the Video guard and the alert
+ok 52 - 11 partial then repeat: once Account has no other incident, the identical repeat releases the Video guard and the alert
+  ---
+  duration_ms: 4918.9116
+  type: 'test'
+  ...
+# Subtest: 11 negative: a row that is re-blocked during the partial repeat is refused and the newer guard survives
+ok 53 - 11 negative: a row that is re-blocked during the partial repeat is refused and the newer guard survives
+  ---
+  duration_ms: 4364.1485
+  type: 'test'
+  ...
+# Subtest: 11 negative: after a partial release, the old request cannot replay as success over a NEWER block
+ok 54 - 11 negative: after a partial release, the old request cannot replay as success over a NEWER block
+  ---
+  duration_ms: 4972.4172
+  type: 'test'
+  ...
+# Subtest: 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock
+ok 55 - 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock
+  ---
+  duration_ms: 3861.343
+  type: 'test'
+  ...
+# Subtest: 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock
+ok 56 - 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock
+  ---
+  duration_ms: 3721.7246
+  type: 'test'
+  ...
+# Subtest: 11 negative: every kind of unresolved row of the account stops the unblock, and rows of OTHER accounts never do
+ok 57 - 11 negative: every kind of unresolved row of the account stops the unblock, and rows of OTHER accounts never do
+  ---
+  duration_ms: 8929.0056
+  type: 'test'
+  ...
+# Subtest: 11 resume: a pending claim on the SAME guard generation, operator and payload keeps the Video block and never sends twice
+ok 58 - 11 resume: a pending claim on the SAME guard generation, operator and payload keeps the Video block and never sends twice
+  ---
+  duration_ms: 4443.3583
+  type: 'test'
+  ...
+# Subtest: retry generation missing: a claim left by an uncertain POST still refuses a later call after the guard document is gone
+ok 59 - retry generation missing: a claim left by an uncertain POST still refuses a later call after the guard document is gone
+  ---
+  duration_ms: 4079.1115
+  type: 'test'
+  ...
+# Subtest: 11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted
+ok 60 - 11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted
+  ---
+  duration_ms: 4319.8217
+  type: 'test'
+  ...
+# Subtest: 11 partial: a repeat while Account still holds the owner, or while Video has a rival row, writes nothing and keeps the guard
+ok 61 - 11 partial: a repeat while Account still holds the owner, or while Video has a rival row, writes nothing and keeps the guard
+  ---
+  duration_ms: 5589.1452
+  type: 'test'
+  ...
+# Subtest: 11 negative: the audited rows and the alert are re-read in phase 3, and any drift aborts without advancing anything
+ok 62 - 11 negative: the audited rows and the alert are re-read in phase 3, and any drift aborts without advancing anything
+  ---
+  duration_ms: 4495.0286
+  type: 'test'
+  ...
+# Subtest: 11 negative: an audited row that no longer exists in phase 3 aborts the release and the guard survives
+ok 63 - 11 negative: an audited row that no longer exists in phase 3 aborts the release and the guard survives
+  ---
+  duration_ms: 3534.8878
+  type: 'test'
+  ...
+# Subtest: 11 negative: an audited row that now belongs to another account in phase 3 aborts the release and the guard survives
+ok 64 - 11 negative: an audited row that now belongs to another account in phase 3 aborts the release and the guard survives
+  ---
+  duration_ms: 3423.1209
+  type: 'test'
+  ...
+# Subtest: 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt
+not ok 65 - 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt
+  ---
+  duration_ms: 3046.8186
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-finance-full-20261127\\server\\commercial\\billingUnblock.emulator.mjs:943:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the first attempt is recorded as the operator supplied it
+    
+    undefined !== 8
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 8
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-finance-full-20261127\server\commercial\billingUnblock.emulator.mjs:949:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock
+ok 66 - 11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock
+  ---
+  duration_ms: 3440.8159
+  type: 'test'
+  ...
+# Subtest: 11 negative: an observation incident that now names another intent in phase 3 aborts the release and the guard survives
+ok 67 - 11 negative: an observation incident that now names another intent in phase 3 aborts the release and the guard survives
+  ---
+  duration_ms: 1870.5767
+  type: 'test'
+  ...
+# Subtest: 11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives
+ok 68 - 11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives
+  ---
+  duration_ms: 1946.2311
+  type: 'test'
+  ...
+# Subtest: 11 an INTENT unblock completes when the admission guard names an observation incident of the same incident
+ok 69 - 11 an INTENT unblock completes when the admission guard names an observation incident of the same incident
+  ---
+  duration_ms: 2037.5488
+  type: 'test'
+  ...
+# Subtest: 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back
+ok 70 - 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back
+  ---
+  duration_ms: 1987.5652
+  type: 'test'
+  ...
+# Subtest: 11 an INTENT unblock leaves alone an admission guard that names another incident
+ok 71 - 11 an INTENT unblock leaves alone an admission guard that names another incident
+  ---
+  duration_ms: 1797.6521
+  type: 'test'
+  ...
+# Subtest: 11 an INTENT unblock leaves alone an admission guard that is already clear
+ok 72 - 11 an INTENT unblock leaves alone an admission guard that is already clear
+  ---
+  duration_ms: 1766.2068
+  type: 'test'
+  ...
+# Subtest: the rows of the account are read through the transaction in phase 0 and in phase 3, never outside it
+not ok 73 - the rows of the account are read through the transaction in phase 0 and in phase 3, never outside it
+  ---
+  duration_ms: 3707.6539
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-finance-full-20261127\\server\\commercial\\billingUnblock.emulator.mjs:1074:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    six collections in phase 0 and six in phase 3, all through the transaction
+    
+    18 !== 12
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 12
+  actual: 18
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-finance-full-20261127\server\commercial\billingUnblock.emulator.mjs:1086:10)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 12b a SECOND incident on a live guard stores its hold with the guard generation, so the drainer authorizes it and Account records it
+ok 74 - 12b a SECOND incident on a live guard stores its hold with the guard generation, so the drainer authorizes it and Account records it
+  ---
+  duration_ms: 5522.8943
+  type: 'test'
+  ...
+# Subtest: 11 an INTENT that diverges AGAIN after its unblock can be unblocked again: audit records are per occurrence
+ok 75 - 11 an INTENT that diverges AGAIN after its unblock can be unblocked again: audit records are per occurrence
+  ---
+  duration_ms: 3518.75
+  type: 'test'
+  ...
+# Subtest: 11 a hold that needed review when audited is handed back as applied, and a clear row is never touched twice
+ok 76 - 11 a hold that needed review when audited is handed back as applied, and a clear row is never touched twice
+  ---
+  duration_ms: 3828.6421
+  type: 'test'
+  ...
+# Subtest: 11 a corrupt pending hold whose stored epoch disagrees with its id is never adopted, and keeps the Video guard
+ok 77 - 11 a corrupt pending hold whose stored epoch disagrees with its id is never adopted, and keeps the Video guard
+  ---
+  duration_ms: 3612.6331
+  type: 'test'
+  ...
+# Subtest: 11 a corrupt pending hold whose stored createdAtMs disagrees with its id is never adopted, and keeps the Video guard
+ok 78 - 11 a corrupt pending hold whose stored createdAtMs disagrees with its id is never adopted, and keeps the Video guard
+  ---
+  duration_ms: 3714.9884
+  type: 'test'
+  ...
+# Subtest: 11 an intent with no work of its own exits to release_pending when its release was prepared
+ok 79 - 11 an intent with no work of its own exits to release_pending when its release was prepared
+  ---
+  duration_ms: 3627.6467
+  type: 'test'
+  ...
+# Subtest: 11 an intent with no work of its own exits to reserve_pending otherwise
+ok 80 - 11 an intent with no work of its own exits to reserve_pending otherwise
+  ---
+  duration_ms: 3605.3821
+  type: 'test'
+  ...
+# Subtest: 11 negative: a failed Account phase leaves Video blocked and its rows untouched
+ok 81 - 11 negative: a failed Account phase leaves Video blocked and its rows untouched
+  ---
+  duration_ms: 4558.4983
+  type: 'test'
+  ...
+# Subtest: 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it
+ok 82 - 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it
+  ---
+  duration_ms: 3962.9159
+  type: 'test'
+  ...
+# Subtest: 12 a stale epoch or createdAtMs is refused and the current generation applies
+not ok 83 - 12 a stale epoch or createdAtMs is refused and the current generation applies
+  ---
+  duration_ms: 4326.0493
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-finance-full-20261127\\server\\commercial\\billingUnblock.emulator.mjs:1231:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-finance-full-20261127\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-finance-full-20261127\server\commercial\billingUnblock.emulator.mjs:1240:17)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone
+ok 84 - 12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone
+  ---
+  duration_ms: 4850.2322
+  type: 'test'
+  ...
+# Subtest: 12b a re-block after an unblock is a NEW guard epoch, a new alert, and the sweep never duplicates either
+ok 85 - 12b a re-block after an unblock is a NEW guard epoch, a new alert, and the sweep never duplicates either
+  ---
+  duration_ms: 4782.7835
+  type: 'test'
+  ...
+# Subtest: 12b the alert state carries the REAL epoch, so a second incident on a live block is a new alert
+ok 86 - 12b the alert state carries the REAL epoch, so a second incident on a live block is a new alert
+  ---
+  duration_ms: 5582.9388
+  type: 'test'
+  ...
+# Subtest: 13 the unblock works while another holder owns billingDrainLease/current and never takes it
+ok 87 - 13 the unblock works while another holder owns billingDrainLease/current and never takes it
+  ---
+  duration_ms: 4016.6888
+  type: 'test'
+  ...
+# Subtest: re-block after unblock: the same row diverges again with a NEW Account incident id, the old id is never resent, and it unblocks again
+ok 88 - re-block after unblock: the same row diverges again with a NEW Account incident id, the old id is never resent, and it unblocks again
+  ---
+  duration_ms: 5121.8617
+  type: 'test'
+  ...
+# Subtest: retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once
+not ok 89 - retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once
+  ---
+  duration_ms: 4045.0081
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-finance-full-20261127\\server\\commercial\\billingUnblock.emulator.mjs:1352:1'
+  failureType: 'testCodeFailure'
+  error: 'conflict'
+  code: 'conflict'
+  stack: |-
+    unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-finance-full-20261127\server\commercial\billingUnblock.ts:405:67)
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-finance-full-20261127\server\commercial\billingUnblock.emulator.mjs:1375:15)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives
+not ok 90 - retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives
+  ---
+  duration_ms: 3725.4853
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-finance-full-20261127\\server\\commercial\\billingUnblock.emulator.mjs:1394:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The validation function is expected to return "true". Received false
+    
+    Caught error:
+    
+    Error: conflict
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  stack: |-
+    async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-finance-full-20261127\server\commercial\billingUnblock.emulator.mjs:1406:3)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: an uncertain Account unblock with no receipt preserves reservations and never sends a second POST
+ok 91 - an uncertain Account unblock with no receipt preserves reservations and never sends a second POST
+  ---
+  duration_ms: 7739.9539
+  type: 'test'
+  ...
+# Subtest: a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once
+ok 92 - a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once
+  ---
+  duration_ms: 7731.2891
+  type: 'test'
+  ...
+# Subtest: a missing writer cut cannot authorize an Account unblock
+ok 93 - a missing writer cut cannot authorize an Account unblock
+  ---
+  duration_ms: 4110.6504
+  type: 'test'
+  ...
+# Subtest: a modified writer cut cannot authorize an Account unblock
+ok 94 - a modified writer cut cannot authorize an Account unblock
+  ---
+  duration_ms: 4174.7889
+  type: 'test'
+  ...
+# Synthetic unblock-1.4b cleanup total: 65/65
+# Subtest: a recreated writer cut cannot authorize an Account unblock
+ok 95 - a recreated writer cut cannot authorize an Account unblock
+  ---
+  duration_ms: 4302.9223
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: A3 timeout boundary: one ms before the limit waits; the exact limit releases; never captures
+ok 96 - A3 timeout boundary: one ms before the limit waits; the exact limit releases; never captures
+  ---
+  duration_ms: 2262.026
+  type: 'test'
+  ...
+# Subtest: A3 after the limit without work releases in Account and restores both bases without a job or capture
+ok 97 - A3 after the limit without work releases in Account and restores both bases without a job or capture
+  ---
+  duration_ms: 1307.2568
+  type: 'test'
+  ...
+# Subtest: A3 real rescheduled intent resolves after the limit
+ok 98 - A3 real rescheduled intent resolves after the limit
+  ---
+  duration_ms: 1431.0598
+  type: 'test'
+  ...
+# Subtest: A3 work appearing between read and fence returns job_created and does not release
+ok 99 - A3 work appearing between read and fence returns job_created and does not release
+  ---
+  duration_ms: 1245.8253
+  type: 'test'
+  ...
+# Subtest: A3 Account inherited reservation or stored admission becomes needs_review with balance intact
+ok 100 - A3 Account inherited reservation or stored admission becomes needs_review with balance intact
+  ---
+  duration_ms: 2862.8402
+  type: 'test'
+  ...
+# Subtest: A3 blocked account does not fence or release and leaves balance untouched
+ok 101 - A3 blocked account does not fence or release and leaves balance untouched
+  ---
+  duration_ms: 1008.568
+  type: 'test'
+  ...
+# Subtest: A3 two concurrent drains produce one close and one terminal movement
+ok 102 - A3 two concurrent drains produce one close and one terminal movement
+  ---
+  duration_ms: 4576.7553
+  type: 'test'
+  ...
+# Subtest: A3 later released status closes without a second release; captured status goes to review
+ok 103 - A3 later released status closes without a second release; captured status goes to review
+  ---
+  duration_ms: 2591.8276
+  type: 'test'
+  ...
+# Subtest: A3 invalid createdAtMs never fences and leaves the pass intact
+ok 104 - A3 invalid createdAtMs never fences and leaves the pass intact
+  ---
+  duration_ms: 4627.6161
+  type: 'test'
+  ...
+# Subtest: A3 local identity revocation before the limit does not release
+ok 105 - A3 local identity revocation before the limit does not release
+  ---
+  duration_ms: 947.6464
+  type: 'test'
+  ...
+# Subtest: A3 overdue with a benign intent write between read and evidence capture is not closed to review
+ok 106 - A3 overdue with a benign intent write between read and evidence capture is not closed to review
+  ---
+  duration_ms: 1049.732
+  type: 'test'
+  ...
+# Subtest: A3 overdue with an existing work request is not closed to review
+ok 107 - A3 overdue with an existing work request is not closed to review
+  ---
+  duration_ms: 1110.211
+  type: 'test'
+  ...
+# Subtest: A3 overdue blocked account closes to review with an incident and no hold or extra guard
+ok 108 - A3 overdue blocked account closes to review with an incident and no hold or extra guard
+  ---
+  duration_ms: 1310.2584
+  type: 'test'
+  ...
+# Subtest: A3 overdue release_pending with a blocked account is not closed to review
+ok 109 - A3 overdue release_pending with a blocked account is not closed to review
+  ---
+  duration_ms: 1475.4402
+  type: 'test'
+  ...
+# Subtest: E-4 a due release pauses across drain passes at the retry limit and remains visible
+ok 110 - E-4 a due release pauses across drain passes at the retry limit and remains visible
+  ---
+  duration_ms: 2822.3943
+  type: 'test'
+  ...
+# Subtest: E-4 the same due release at seven attempts finishes on the first unblocked pass
+ok 111 - E-4 the same due release at seven attempts finishes on the first unblocked pass
+  ---
+  duration_ms: 1607.6361
+  type: 'test'
+  ...
+# Subtest: E-4 the 1.6c age sweep preserves a blocked release and the executor releases it after reopening
+ok 112 - E-4 the 1.6c age sweep preserves a blocked release and the executor releases it after reopening
+  ---
+  duration_ms: 4096.619
+  type: 'test'
+  ...
+# Subtest: E-4 an uncertain release gets one finite recovery window after the guard clears and a default review alert
+ok 113 - E-4 an uncertain release gets one finite recovery window after the guard clears and a default review alert
+  ---
+  duration_ms: 3137.9493
+  type: 'test'
+  ...
+# Subtest: E-4 the 1.6c age sweep alerts on a stale unblocked release whose retry is still in the future
+ok 114 - E-4 the 1.6c age sweep alerts on a stale unblocked release whose retry is still in the future
+  ---
+  duration_ms: 1617.405
+  type: 'test'
+  ...
+# Subtest: E-4 two drains reading the same release_pending reservation preserve one confirmation without a false incident
+ok 115 - E-4 two drains reading the same release_pending reservation preserve one confirmation without a false incident
+  ---
+  duration_ms: 1756.1057
+  type: 'test'
+  ...
+# Subtest: E-4 a lost release ACK is recovered without a duplicate mutation
+ok 116 - E-4 a lost release ACK is recovered without a duplicate mutation
+  ---
+  duration_ms: 1684.4761
+  type: 'test'
+  ...
+# Subtest: E-4 a lost seal ACK is recovered without a duplicate mutation
+ok 117 - E-4 a lost seal ACK is recovered without a duplicate mutation
+  ---
+  duration_ms: 1686.291
+  type: 'test'
+  ...
+# Subtest: E-4 a prepared release can resume before dispatch, and unresolved delivery never sends it again
+ok 118 - E-4 a prepared release can resume before dispatch, and unresolved delivery never sends it again
+  ---
+  duration_ms: 2057.249
+  type: 'test'
+  ...
+# Subtest: E-4 two readers of an already prepared release finish after original closure
+ok 119 - E-4 two readers of an already prepared release finish after original closure
+  ---
+  duration_ms: 1934.5061
+  type: 'test'
+  ...
+# Subtest: E-4 two readers of an already prepared release finish after rewritten closure
+ok 120 - E-4 two readers of an already prepared release finish after rewritten closure
+  ---
+  duration_ms: 2156.0608
+  type: 'test'
+  ...
+# Subtest: E-4 two readers of an already prepared release finish after tampered claim closure
+ok 121 - E-4 two readers of an already prepared release finish after tampered claim closure
+  ---
+  duration_ms: 2054.8991
+  type: 'test'
+  ...
+# Subtest: E-4 delayed reserved observation after original confirmed close
+ok 122 - E-4 delayed reserved observation after original confirmed close
+  ---
+  duration_ms: 1621.9192
+  type: 'test'
+  ...
+# Subtest: E-4 delayed reserved observation after rewritten confirmed close
+ok 123 - E-4 delayed reserved observation after rewritten confirmed close
+  ---
+  duration_ms: 1846.2607
+  type: 'test'
+  ...
+# Subtest: E-4 a prepared witness cannot excuse a concurrent change to the earlier observation
+ok 124 - E-4 a prepared witness cannot excuse a concurrent change to the earlier observation
+  ---
+  duration_ms: 1483.9477
+  type: 'test'
+  ...
+# Subtest: E-4 a block observed before reopening never consumes a release attempt
+ok 125 - E-4 a block observed before reopening never consumes a release attempt
+  ---
+  duration_ms: 1690.9644
+  type: 'test'
+  ...
+# Subtest: E-4 a block during the status snapshot never consumes a release attempt after reopening
+ok 126 - E-4 a block during the status snapshot never consumes a release attempt after reopening
+  ---
+  duration_ms: 1529.7998
+  type: 'test'
+  ...
+# Subtest: E-4 a block after Account status only pauses an unchanged release
+ok 127 - E-4 a block after Account status only pauses an unchanged release
+  ---
+  duration_ms: 1348.3318
+  type: 'test'
+  ...
+# Subtest: E-4 a block after Account status preserves review when history also changes
+ok 128 - E-4 a block after Account status preserves review when history also changes
+  ---
+  duration_ms: 1544.6055
+  type: 'test'
+  ...
+# Subtest: E-4 a block after Account status not_found defers the seal without adding an incident
+ok 129 - E-4 a block after Account status not_found defers the seal without adding an incident
+  ---
+  duration_ms: 1830.1519
+  type: 'test'
+  ...
+# Subtest: D1 direct observation preserves an incompatible prior review and reports the exact problem
+ok 130 - D1 direct observation preserves an incompatible prior review and reports the exact problem
+  ---
+  duration_ms: 1795.0899
+  type: 'test'
+  ...
+# Subtest: D1 direct observation preserves an incompatible prior hold and reports the exact problem
+ok 131 - D1 direct observation preserves an incompatible prior hold and reports the exact problem
+  ---
+  duration_ms: 1925.2259
+  type: 'test'
+  ...
+# Subtest: D1 direct observation preserves an incompatible prior hold with a divergent epoch and reports the exact problem
+ok 132 - D1 direct observation preserves an incompatible prior hold with a divergent epoch and reports the exact problem
+  ---
+  duration_ms: 1838.2504
+  type: 'test'
+  ...
+# Subtest: D3 default sweep alerts on a due invalid provider with a future integer creation time without inferring an owner
+ok 133 - D3 default sweep alerts on a due invalid provider with a future integer creation time without inferring an owner
+  ---
+  duration_ms: 3047.3942
+  type: 'test'
+  ...
+# Subtest: D-4 mismatched guard account raises an unattributed alert and preserves earlier audited alerts
+ok 134 - D-4 mismatched guard account raises an unattributed alert and preserves earlier audited alerts
+  ---
+  duration_ms: 2132.1977
+  type: 'test'
+  ...
+# Subtest: D-4 owner fence rejects an alert naming a different account until a malformed source supports withdrawal
+ok 135 - D-4 owner fence rejects an alert naming a different account until a malformed source supports withdrawal
+  ---
+  duration_ms: 1460.9702
+  type: 'test'
+  ...
+# Subtest: D-4 owner fence surfaces a serializable array status without counting or clearing the alert
+ok 136 - D-4 owner fence surfaces a serializable array status without counting or clearing the alert
+  ---
+  duration_ms: 976.7364
+  type: 'test'
+  ...
+# Subtest: D-4 owner fence surfaces a serializable map accountId without counting or clearing the alert
+ok 137 - D-4 owner fence surfaces a serializable map accountId without counting or clearing the alert
+  ---
+  duration_ms: 1010.4792
+  type: 'test'
+  ...
+# Subtest: D-4 owner fence reports an array status written after the clear query as corruption, not a race
+ok 138 - D-4 owner fence reports an array status written after the clear query as corruption, not a race
+  ---
+  duration_ms: 801.3976
+  type: 'test'
+  ...
+# Subtest: D3 repeat sweeps remove an obsolete account hint without changing a disposition or its audit receipt
+ok 139 - D3 repeat sweeps remove an obsolete account hint without changing a disposition or its audit receipt
+  ---
+  duration_ms: 1541.8003
+  type: 'test'
+  ...
+# Subtest: E-4 a block after seal_reserved pauses the release and resumes once
+ok 140 - E-4 a block after seal_reserved pauses the release and resumes once
+  ---
+  duration_ms: 2354.5499
+  type: 'test'
+  ...
+# Subtest: E-4 a block after seal_reserved preserves review when history also changes
+ok 141 - E-4 a block after seal_reserved preserves review when history also changes
+  ---
+  duration_ms: 1929.8438
+  type: 'test'
+  ...
+# Subtest: A-5 a stored admission prevents capture under a block and prevents simple release after reopening
+ok 142 - A-5 a stored admission prevents capture under a block and prevents simple release after reopening
+  ---
+  duration_ms: 1526.2291
+  type: 'test'
+  ...
+# Subtest: A-5 releasing one of three held reservations restores a slot and keeps Account and Video reconciled
+ok 143 - A-5 releasing one of three held reservations restores a slot and keeps Account and Video reconciled
+  ---
+  duration_ms: 6499.4604
+  type: 'test'
+  ...
+# Subtest: A3 before the limit keeps the stall behavior even for a blocked account
+ok 144 - A3 before the limit keeps the stall behavior even for a blocked account
+  ---
+  duration_ms: 1138.7668
+  type: 'test'
+  ...
+# Subtest: A3 fence conflict from a guard appearing after the status read closes to review without releasing
+ok 145 - A3 fence conflict from a guard appearing after the status read closes to review without releasing
+  ---
+  duration_ms: 1280.6618
+  type: 'test'
+  ...
+# Subtest: A3 claimExternalBillingRelease refuses a blocked account and an invalid admission guard
+ok 146 - A3 claimExternalBillingRelease refuses a blocked account and an invalid admission guard
+  ---
+  duration_ms: 1065.791
+  type: 'test'
+  ...
+# Subtest: A3 claimExternalBillingRelease reports job_created once work exists and transitioned only for the winner
+ok 147 - A3 claimExternalBillingRelease reports job_created once work exists and transitioned only for the winner
+  ---
+  duration_ms: 1804.9077
+  type: 'test'
+  ...
+# Subtest: A3 blocked-account incident records the expected tuple provenance, not a real status read
+ok 148 - A3 blocked-account incident records the expected tuple provenance, not a real status read
+  ---
+  duration_ms: 1625.289
+  type: 'test'
+  ...
+# Subtest: A3 Account-refusal incident records the real status read provenance
+ok 149 - A3 Account-refusal incident records the real status read provenance
+  ---
+  duration_ms: 1462.2453
+  type: 'test'
+  ...
+# Subtest: A3 drop between fence and release leaves release_pending and the next pass finishes with one release
+ok 150 - A3 drop between fence and release leaves release_pending and the next pass finishes with one release
+  ---
+  duration_ms: 1883.3528
+  type: 'test'
+  ...
+# Subtest: A3 two concurrent drains on a blocked overdue account leave one incident and one review transition
+ok 151 - A3 two concurrent drains on a blocked overdue account leave one incident and one review transition
+  ---
+  duration_ms: 4561.2014
+  type: 'test'
+  ...
+# Subtest: A3 a row closed by another drain before the evidence capture is not rewritten
+ok 152 - A3 a row closed by another drain before the evidence capture is not rewritten
+  ---
+  duration_ms: 1198.2938
+  type: 'test'
+  ...
+# Subtest: A3 a throw inside the A-3 catch fails only that row and the pass continues
+ok 153 - A3 a throw inside the A-3 catch fails only that row and the pass continues
+  ---
+  duration_ms: 2155.9233
+  type: 'test'
+  ...
+# Subtest: A3 overdue reserve_pending moved to release_pending by another drain before the closure is not closed to review even with a blocked account
+ok 154 - A3 overdue reserve_pending moved to release_pending by another drain before the closure is not closed to review even with a blocked account
+  ---
+  duration_ms: 1144.7726
+  type: 'test'
+  ...
+# Subtest: A3 a fence conflict because another drain closed the row does not reopen it as needs_review
+ok 155 - A3 a fence conflict because another drain closed the row does not reopen it as needs_review
+  ---
+  duration_ms: 1197.4606
+  type: 'test'
+  ...
+# Subtest: A3 closeA3ReservationForReview refuses an intent that already has work and leaves it untouched
+ok 156 - A3 closeA3ReservationForReview refuses an intent that already has work and leaves it untouched
+  ---
+  duration_ms: 1226.3871
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Age-escalation cleanup verified 1/1
+# Subtest: (1) an intent whose evidence cannot be captured advances attempts, waits longer and reaches needs_review at the eighth pass
+ok 157 - (1) an intent whose evidence cannot be captured advances attempts, waits longer and reaches needs_review at the eighth pass
+  ---
+  duration_ms: 2403.7527
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 2/2
+# Subtest: (2) the missing_snapshot route records the attempt instead of retrying forever
+ok 158 - (2) the missing_snapshot route records the attempt instead of retrying forever
+  ---
+  duration_ms: 1246.836
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 3/3
+# Subtest: (2) the no_evidence route records the attempt instead of retrying forever
+ok 159 - (2) the no_evidence route records the attempt instead of retrying forever
+  ---
+  duration_ms: 1348.7618
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 4/4
+# Subtest: (2) the no_status_snapshot route records the attempt instead of retrying forever
+ok 160 - (2) the no_status_snapshot route records the attempt instead of retrying forever
+  ---
+  duration_ms: 1281.4605
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 5/5
+# Subtest: (3) the exact age limit and one millisecond younger are untouched; one millisecond older is escalated
+ok 161 - (3) the exact age limit and one millisecond younger are untouched; one millisecond older is escalated
+  ---
+  duration_ms: 1166.2861
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 6/6
+# Subtest: (4) the three non-terminal collections are covered and terminal rows are not
+ok 162 - (4) the three non-terminal collections are covered and terminal rows are not
+  ---
+  duration_ms: 1504.5105
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 7/7
+# Subtest: (5) a row whose state changed between the page read and its own transaction is never overwritten
+ok 163 - (5) a row whose state changed between the page read and its own transaction is never overwritten
+  ---
+  duration_ms: 1108.7162
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 8/8
+# Subtest: (6) a missing, textual, negative or future createdAtMs counts a failure, leaves the row intact and the pass goes on
+ok 164 - (6) a missing, textual, negative or future createdAtMs counts a failure, leaves the row intact and the pass goes on
+  ---
+  duration_ms: 1474.6544
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 9/9
+# Subtest: (7) the escalation moves no balance, no ledger entry, no hold and no guard
+ok 165 - (7) the escalation moves no balance, no ledger entry, no hold and no guard
+  ---
+  duration_ms: 1483.0451
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 10/10
+# Subtest: (8) the escalation is idempotent and two concurrent executions never double-escalate
+ok 166 - (8) the escalation is idempotent and two concurrent executions never double-escalate
+  ---
+  duration_ms: 1429.144
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 11/11
+# Subtest: (9) the executor section runs the age escalation with its own budget and gate, and counts it in the heartbeat
+ok 167 - (9) the executor section runs the age escalation with its own budget and gate, and counts it in the heartbeat
+  ---
+  duration_ms: 2202.726
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 12/12
+# Subtest: (10) one needs_review by age produces exactly one alert in the real pending sweep
+ok 168 - (10) one needs_review by age produces exactly one alert in the real pending sweep
+  ---
+  duration_ms: 1540.2255
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 13/13
+# Subtest: (11) a full page of young rows in one collection never starves stale rows with smaller ids in another
+ok 169 - (11) a full page of young rows in one collection never starves stale rows with smaller ids in another
+  ---
+  duration_ms: 2174.854
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 14/14
+# Subtest: (12) two stale rows with the same id in two collections are both reached even when the page limit is one
+ok 170 - (12) two stale rows with the same id in two collections are both reached even when the page limit is one
+  ---
+  duration_ms: 1650.5143
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 15/15
+# Subtest: (13) one rotation attends every row exactly once and a short page ends the rotation
+ok 171 - (13) one rotation attends every row exactly once and a short page ends the rotation
+  ---
+  duration_ms: 1469.6659
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 16/16
+# Subtest: (14) a young row and a stale sibling with the same id are both selected in one page, so the stale one is never starved
+ok 172 - (14) a young row and a stale sibling with the same id are both selected in one page, so the stale one is never starved
+  ---
+  duration_ms: 1758.1915
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 17/17
+# Subtest: (15) stopping inside a tie group leaves the cursor on the last COMPLETED id, so the rest of the group is reached
+ok 173 - (15) stopping inside a tie group leaves the cursor on the last COMPLETED id, so the rest of the group is reached
+  ---
+  duration_ms: 1705.0301
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 18/18
+# Subtest: (16) a row that moved to another non-terminal state after the scan is skipped, not escalated
+ok 174 - (16) a row that moved to another non-terminal state after the scan is skipped, not escalated
+  ---
+  duration_ms: 1313.1854
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 19/19
+# Subtest: (17) the stall record counts one attempt per due window, so two drainers cannot double count the same row
+ok 175 - (17) the stall record counts one attempt per due window, so two drainers cannot double count the same row
+  ---
+  duration_ms: 1167.8927
+  type: 'test'
+  ...
+# Age-escalation cleanup verified 20/20
+# Age-escalation cleanup total: 20/20
+# Subtest: (18) an intent with an active lease is not escalated; an expired or dangling lease is cleared when it is
+ok 176 - (18) an intent with an active lease is not escalated; an expired or dangling lease is cleared when it is
+  ---
+  duration_ms: 1252.6451
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: billing extras cannot change a validated intent, job, marker or outbox identity
+ok 177 - billing extras cannot change a validated intent, job, marker or outbox identity
+  ---
+  duration_ms: 2216.6448
+  type: 'test'
+  ...
+# Subtest: an extra field already stored in synthetic job billing cannot overwrite the outbox identity
+ok 178 - an extra field already stored in synthetic job billing cannot overwrite the outbox identity
+  ---
+  duration_ms: 924.0831
+  type: 'test'
+  ...
+# Subtest: billing and terminal witness are snapshotted before asynchronous transaction reads
+ok 179 - billing and terminal witness are snapshotted before asynchronous transaction reads
+  ---
+  duration_ms: 1001.6584
+  type: 'test'
+  ...
+# Subtest: a new pre-account origin has only allowed witness fields and both action markers false
+ok 180 - a new pre-account origin has only allowed witness fields and both action markers false
+  ---
+  duration_ms: 792.0124
+  type: 'test'
+  ...
+# Subtest: terminal seal creates and replays the same witness and recovery task atomically
+ok 181 - terminal seal creates and replays the same witness and recovery task atomically
+  ---
+  duration_ms: 948.4536
+  type: 'test'
+  ...
+# Subtest: terminal release creates and replays the same witness and recovery task atomically
+ok 182 - terminal release creates and replays the same witness and recovery task atomically
+  ---
+  duration_ms: 1006.9887
+  type: 'test'
+  ...
+# Subtest: seal preparation rejects missing terminal without recreating it
+ok 183 - seal preparation rejects missing terminal without recreating it
+  ---
+  duration_ms: 954.0559
+  type: 'test'
+  ...
+# Subtest: seal preparation rejects missing recovery without recreating it
+ok 184 - seal preparation rejects missing recovery without recreating it
+  ---
+  duration_ms: 971.6767
+  type: 'test'
+  ...
+# Subtest: seal preparation rejects missing both without recreating it
+ok 185 - seal preparation rejects missing both without recreating it
+  ---
+  duration_ms: 938.4225
+  type: 'test'
+  ...
+# Subtest: release preparation rejects missing terminal without recreating it
+ok 186 - release preparation rejects missing terminal without recreating it
+  ---
+  duration_ms: 956.0928
+  type: 'test'
+  ...
+# Subtest: release preparation rejects missing recovery without recreating it
+ok 187 - release preparation rejects missing recovery without recreating it
+  ---
+  duration_ms: 1100.1416
+  type: 'test'
+  ...
+# Subtest: release preparation rejects missing both without recreating it
+ok 188 - release preparation rejects missing both without recreating it
+  ---
+  duration_ms: 972.7404
+  type: 'test'
+  ...
+# Subtest: seal with a false marker rejects preexisting terminal without overwriting
+ok 189 - seal with a false marker rejects preexisting terminal without overwriting
+  ---
+  duration_ms: 920.5722
+  type: 'test'
+  ...
+# Subtest: seal with a false marker rejects preexisting recovery without overwriting
+ok 190 - seal with a false marker rejects preexisting recovery without overwriting
+  ---
+  duration_ms: 929.0499
+  type: 'test'
+  ...
+# Subtest: seal with a false marker rejects preexisting both without overwriting
+ok 191 - seal with a false marker rejects preexisting both without overwriting
+  ---
+  duration_ms: 857.5047
+  type: 'test'
+  ...
+# Subtest: release with a false marker rejects preexisting terminal without overwriting
+ok 192 - release with a false marker rejects preexisting terminal without overwriting
+  ---
+  duration_ms: 910.8217
+  type: 'test'
+  ...
+# Subtest: release with a false marker rejects preexisting recovery without overwriting
+ok 193 - release with a false marker rejects preexisting recovery without overwriting
+  ---
+  duration_ms: 942.3348
+  type: 'test'
+  ...
+# Subtest: release with a false marker rejects preexisting both without overwriting
+ok 194 - release with a false marker rejects preexisting both without overwriting
+  ---
+  duration_ms: 957.0153
+  type: 'test'
+  ...
+# Subtest: seal rejects legacy or malformed origin markers without creating or repairing anything
+ok 195 - seal rejects legacy or malformed origin markers without creating or repairing anything
+  ---
+  duration_ms: 1349.0577
+  type: 'test'
+  ...
+# Subtest: release rejects legacy or malformed origin markers without creating or repairing anything
+ok 196 - release rejects legacy or malformed origin markers without creating or repairing anything
+  ---
+  duration_ms: 1164.7123
+  type: 'test'
+  ...
+# Subtest: seal rejects a missing or altered origin and an altered intent without creating a pair
+ok 197 - seal rejects a missing or altered origin and an altered intent without creating a pair
+  ---
+  duration_ms: 1111.1343
+  type: 'test'
+  ...
+# Subtest: release rejects a missing or altered origin and an altered intent without creating a pair
+ok 198 - release rejects a missing or altered origin and an altered intent without creating a pair
+  ---
+  duration_ms: 1230.5847
+  type: 'test'
+  ...
+# Subtest: terminal preparation rejects every inconsistent or future recovery shape without resetting it
+ok 199 - terminal preparation rejects every inconsistent or future recovery shape without resetting it
+  ---
+  duration_ms: 1832.7475
+  type: 'test'
+  ...
+# Subtest: terminal preparation rejects a corrupted witness while preserving its paired task
+ok 200 - terminal preparation rejects a corrupted witness while preserving its paired task
+  ---
+  duration_ms: 1430.423
+  type: 'test'
+  ...
+# Subtest: new terminal witness excludes fields supplied outside the validated witness contract
+ok 201 - new terminal witness excludes fields supplied outside the validated witness contract
+  ---
+  duration_ms: 832.2759
+  type: 'test'
+  ...
+# Subtest: terminal preparation never commits a partial pair when the transaction fails after staging the witness
+ok 202 - terminal preparation never commits a partial pair when the transaction fails after staging the witness
+  ---
+  duration_ms: 917.467
+  type: 'test'
+  ...
+# Subtest: terminal preparation rolls back both documents and marker if interrupted after staging all writes
+ok 203 - terminal preparation rolls back both documents and marker if interrupted after staging all writes
+  ---
+  duration_ms: 876.1244
+  type: 'test'
+  ...
+# Subtest: seal replays an already committed pair after a lost local transaction response
+ok 204 - seal replays an already committed pair after a lost local transaction response
+  ---
+  duration_ms: 875.9262
+  type: 'test'
+  ...
+# Subtest: release replays an already committed pair after a lost local transaction response
+ok 205 - release replays an already committed pair after a lost local transaction response
+  ---
+  duration_ms: 845.7783
+  type: 'test'
+  ...
+# Subtest: seal does not send a terminal action to simulated Account after joint loss
+ok 206 - seal does not send a terminal action to simulated Account after joint loss
+  ---
+  duration_ms: 1085.2082
+  type: 'test'
+  ...
+# Subtest: seal does not send a terminal action to simulated Account after legacy origin
+ok 207 - seal does not send a terminal action to simulated Account after legacy origin
+  ---
+  duration_ms: 1055.7223
+  type: 'test'
+  ...
+# Subtest: release does not send a terminal action to simulated Account after joint loss
+ok 208 - release does not send a terminal action to simulated Account after joint loss
+  ---
+  duration_ms: 1082.347
+  type: 'test'
+  ...
+# Subtest: release does not send a terminal action to simulated Account after legacy origin
+ok 209 - release does not send a terminal action to simulated Account after legacy origin
+  ---
+  duration_ms: 1031.0458
+  type: 'test'
+  ...
+# {"event":"synthetic-terminal-race","bothRecoveryReadsBeforeRelease":true,"timedOut":false,"reads":4}
+# Subtest: concurrent terminal preparations converge on one correlated pair
+ok 210 - concurrent terminal preparations converge on one correlated pair
+  ---
+  duration_ms: 4323.3533
+  type: 'test'
+  ...
+# Subtest: sequential terminal actions preserve both markers when seal is prepared first
+ok 211 - sequential terminal actions preserve both markers when seal is prepared first
+  ---
+  duration_ms: 824.9948
+  type: 'test'
+  ...
+# Subtest: sequential terminal actions preserve both markers when release is prepared first
+ok 212 - sequential terminal actions preserve both markers when release is prepared first
+  ---
+  duration_ms: 883.6589
+  type: 'test'
+  ...
+# {"event":"synthetic-two-action-race","firstAction":"seal","overlap":true,"timedOut":false,"order":["seal","release"]}
+# Subtest: concurrent seal and release preserve both markers when seal starts first
+ok 213 - concurrent seal and release preserve both markers when seal starts first
+  ---
+  duration_ms: 4181.7949
+  type: 'test'
+  ...
+# {"event":"synthetic-two-action-race","firstAction":"release","overlap":true,"timedOut":false,"order":["release","seal"]}
+# Subtest: concurrent seal and release preserve both markers when release starts first
+ok 214 - concurrent seal and release preserve both markers when release starts first
+  ---
+  duration_ms: 4197.8071
+  type: 'test'
+  ...
+# Subtest: job-created branch preserves its result without requiring a terminal pair
+ok 215 - job-created branch preserves its result without requiring a terminal pair
+  ---
+  duration_ms: 920.5138
+  type: 'test'
+  ...
+# Subtest: insufficient real account seconds rejects before a video job, outbox or provider call exists
+ok 216 - insufficient real account seconds rejects before a video job, outbox or provider call exists
+  ---
+  duration_ms: 1142.907
+  type: 'test'
+  ...
+# Subtest: synthetic account replay remains unknown and cancellation creates durable release without changing simulated credits
+ok 217 - synthetic account replay remains unknown and cancellation creates durable release without changing simulated credits
+  ---
+  duration_ms: 1648.6255
+  type: 'test'
+  ...
+# Subtest: a captured reservation without a job remains visible for reconciliation and blocks a new paid intent
+ok 218 - a captured reservation without a job remains visible for reconciliation and blocks a new paid intent
+  ---
+  duration_ms: 1009.9487
+  type: 'test'
+  ...
+# Subtest: a concurrent quota response cannot hide another committed reservation for the same request
+ok 219 - a concurrent quota response cannot hide another committed reservation for the same request
+  ---
+  duration_ms: 1340.5099
+  type: 'test'
+  ...
+# Subtest: a guard activated after intent creation blocks reservation before its admission recheck
+ok 220 - a guard activated after intent creation blocks reservation before its admission recheck
+  ---
+  duration_ms: 973.5844
+  type: 'test'
+  ...
+# Subtest: recovery cannot release a reservation after a concurrent request has created its job
+ok 221 - recovery cannot release a reservation after a concurrent request has created its job
+  ---
+  duration_ms: 843.8571
+  type: 'test'
+  ...
+# Subtest: recovery defers reserved status without an admission receipt, a job or a release
+ok 222 - recovery defers reserved status without an admission receipt, a job or a release
+  ---
+  duration_ms: 1007.2958
+  type: 'test'
+  ...
+# Subtest: a job created before the 404 recovery fence prevents seal and release
+ok 223 - a job created before the 404 recovery fence prevents seal and release
+  ---
+  duration_ms: 1073.3351
+  type: 'test'
+  ...
+# Subtest: job creation and the release fence exclude each other in either commit order
+ok 224 - job creation and the release fence exclude each other in either commit order
+  ---
+  duration_ms: 1731.5207
+  type: 'test'
+  ...
+# Subtest: a lost release acknowledgement is recovered by status without releasing twice
+ok 225 - a lost release acknowledgement is recovered by status without releasing twice
+  ---
+  duration_ms: 1716.696
+  type: 'test'
+  ...
+# Subtest: a transport failure before Account applies a release leaves one possibly sent POST and no refund
+ok 226 - a transport failure before Account applies a release leaves one possibly sent POST and no refund
+  ---
+  duration_ms: 2201.587
+  type: 'test'
+  ...
+# Subtest: a verified interruption before the dispatch claim allows one release POST and one refund
+ok 227 - a verified interruption before the dispatch claim allows one release POST and one refund
+  ---
+  duration_ms: 1673.286
+  type: 'test'
+  ...
+# Subtest: an unresolved reserved resolution defers further Account reads across a drainer restart
+ok 228 - an unresolved reserved resolution defers further Account reads across a drainer restart
+  ---
+  duration_ms: 2883.0363
+  type: 'test'
+  ...
+# Subtest: a terminal poll leaves the in-flight release ACK valid and never dispatches a second release
+ok 229 - a terminal poll leaves the in-flight release ACK valid and never dispatches a second release
+  ---
+  duration_ms: 2000.6825
+  type: 'test'
+  ...
+# Subtest: a delayed reserved poll cannot extend a newer turn or mutate the release claim
+ok 230 - a delayed reserved poll cannot extend a newer turn or mutate the release claim
+  ---
+  duration_ms: 2132.5362
+  type: 'test'
+  ...
+# Subtest: a page of release polls in backoff does not hide another account in the same queue
+ok 231 - a page of release polls in backoff does not hide another account in the same queue
+  ---
+  duration_ms: 1164.3475
+  type: 'test'
+  ...
+# Subtest: a due terminal poll preserves a changed status history for review before another resolution read
+ok 232 - a due terminal poll preserves a changed status history for review before another resolution read
+  ---
+  duration_ms: 2271.8285
+  type: 'test'
+  ...
+# Subtest: two real terminal polls with first deadline and seal first
+ok 233 - two real terminal polls with first deadline and seal first
+  ---
+  duration_ms: 10070.4532
+  type: 'test'
+  ...
+# Subtest: two real terminal polls with first deadline and release first
+ok 234 - two real terminal polls with first deadline and release first
+  ---
+  duration_ms: 5885.5505
+  type: 'test'
+  ...
+# Subtest: two real terminal polls with mismatched sibling binding and release first
+ok 235 - two real terminal polls with mismatched sibling binding and release first
+  ---
+  duration_ms: 3295.7595
+  type: 'test'
+  ...
+# Subtest: two real terminal polls with late released response and seal first
+ok 236 - two real terminal polls with late released response and seal first
+  ---
+  duration_ms: 3882.5567
+  type: 'test'
+  ...
+# Subtest: an invalid terminal poll suppresses remote calls and the overdue intent raises one default alert
+ok 237 - an invalid terminal poll suppresses remote calls and the overdue intent raises one default alert
+  ---
+  duration_ms: 2806.842
+  type: 'test'
+  ...
+# Subtest: a corrupt terminal poll under a verified active guard raises a separate durable alert and another account can release
+ok 238 - a corrupt terminal poll under a verified active guard raises a separate durable alert and another account can release
+  ---
+  duration_ms: 6427.084
+  type: 'test'
+  ...
+# Subtest: terminal poll alerts verify the actual binding, survive concurrent sweeps and clear only after a live repair
+ok 239 - terminal poll alerts verify the actual binding, survive concurrent sweeps and clear only after a live repair
+  ---
+  duration_ms: 6414.8104
+  type: 'test'
+  ...
+# Subtest: a failed poll audit batch leaves a sweep failure and checks subsequent paged intents without following malformed IDs
+ok 240 - a failed poll audit batch leaves a sweep failure and checks subsequent paged intents without following malformed IDs
+  ---
+  duration_ms: 2234.1093
+  type: 'test'
+  ...
+# Subtest: a coherent poll years ahead of its commit raises and retains a neutral alert despite an active guard
+ok 241 - a coherent poll years ahead of its commit raises and retains a neutral alert despite an active guard
+  ---
+  duration_ms: 3170.7376
+  type: 'test'
+  ...
+# Subtest: a failed terminal evidence read leaves its alert open while cleanup checks the next alert
+ok 242 - a failed terminal evidence read leaves its alert open while cleanup checks the next alert
+  ---
+  duration_ms: 1929.088
+  type: 'test'
+  ...
+# Subtest: a due terminal poll with an exhausted generation fails closed and raises a neutral alert
+ok 243 - a due terminal poll with an exhausted generation fails closed and raises a neutral alert
+  ---
+  duration_ms: 2865.708
+  type: 'test'
+  ...
+# Subtest: a selected terminal poll yields to the age sweep before calling Account
+ok 244 - a selected terminal poll yields to the age sweep before calling Account
+  ---
+  duration_ms: 2282.2348
+  type: 'test'
+  ...
+# Subtest: concurrent direct releases close exactly once and the identical replay is already_closed
+ok 245 - concurrent direct releases close exactly once and the identical replay is already_closed
+  ---
+  duration_ms: 4174.0573
+  type: 'test'
+  ...
+# Subtest: a later source mutation cannot turn an unwitnessed release ACK into status
+ok 246 - a later source mutation cannot turn an unwitnessed release ACK into status
+  ---
+  duration_ms: 814.6599
+  type: 'test'
+  ...
+# Subtest: confirmed observation snapshots witness and permitted fields before the transaction
+ok 247 - confirmed observation snapshots witness and permitted fields before the transaction
+  ---
+  duration_ms: 925.6029
+  type: 'test'
+  ...
+# Subtest: confirmed release wrapper snapshots a mutable witness and observation
+ok 248 - confirmed release wrapper snapshots a mutable witness and observation
+  ---
+  duration_ms: 982.3102
+  type: 'test'
+  ...
+# Subtest: confirmed seal wrapper snapshots a mutable witness and observation
+ok 249 - confirmed seal wrapper snapshots a mutable witness and observation
+  ---
+  duration_ms: 1004.824
+  type: 'test'
+  ...
+# Subtest: confirmed observation preserves valid source status release 
+ok 250 - confirmed observation preserves valid source status release 
+  ---
+  duration_ms: 924.7837
+  type: 'test'
+  ...
+# Subtest: confirmed observation preserves valid source release_ack release 
+ok 251 - confirmed observation preserves valid source release_ack release 
+  ---
+  duration_ms: 915.952
+  type: 'test'
+  ...
+# Subtest: confirmed observation preserves valid source seal_status release 
+ok 252 - confirmed observation preserves valid source seal_status release 
+  ---
+  duration_ms: 981.4519
+  type: 'test'
+  ...
+# Subtest: confirmed observation preserves valid source seal_ack seal 
+ok 253 - confirmed observation preserves valid source seal_ack seal 
+  ---
+  duration_ms: 992.6639
+  type: 'test'
+  ...
+# Subtest: confirmed observation preserves valid source resolution_status release release
+ok 254 - confirmed observation preserves valid source resolution_status release release
+  ---
+  duration_ms: 1024.4152
+  type: 'test'
+  ...
+# Subtest: confirmed observation preserves valid source resolution_status release seal
+ok 255 - confirmed observation preserves valid source resolution_status release seal
+  ---
+  duration_ms: 1034.1028
+  type: 'test'
+  ...
+# Subtest: confirmed observation preserves valid source resolution_status seal seal
+ok 256 - confirmed observation preserves valid source resolution_status seal seal
+  ---
+  duration_ms: 1009.5093
+  type: 'test'
+  ...
+# Subtest: resolution-status review retains terminalAction while discarding extra fields
+ok 257 - resolution-status review retains terminalAction while discarding extra fields
+  ---
+  duration_ms: 940.5144
+  type: 'test'
+  ...
+# Subtest: concurrent direct seals close exactly once and the identical replay is already_closed
+ok 258 - concurrent direct seals close exactly once and the identical replay is already_closed
+  ---
+  duration_ms: 3771.217
+  type: 'test'
+  ...
+# Subtest: resolution status closes a witnessed seal once without creating a new Account action
+ok 259 - resolution status closes a witnessed seal once without creating a new Account action
+  ---
+  duration_ms: 4021.1592
+  type: 'test'
+  ...
+# Subtest: resolution status closes a witnessed release after release
+ok 260 - resolution status closes a witnessed release after release
+  ---
+  duration_ms: 969.5199
+  type: 'test'
+  ...
+# Subtest: resolution status closes a witnessed release after seal
+ok 261 - resolution status closes a witnessed release after seal
+  ---
+  duration_ms: 991.8455
+  type: 'test'
+  ...
+# Subtest: a sealed resolution with only a release witness requires review instead of closing
+ok 262 - a sealed resolution with only a release witness requires review instead of closing
+  ---
+  duration_ms: 950.0454
+  type: 'test'
+  ...
+# Subtest: resolution status without the named witness or with malformed fields cannot close normally
+ok 263 - resolution status without the named witness or with malformed fields cannot close normally
+  ---
+  duration_ms: 1032.227
+  type: 'test'
+  ...
+# Subtest: resolution status with a changed owner never blocks either unrelated account
+ok 264 - resolution status with a changed owner never blocks either unrelated account
+  ---
+  duration_ms: 1054.1397
+  type: 'test'
+  ...
+# Subtest: resolution status does not overwrite a malformed guard or claim verified attribution
+ok 265 - resolution status does not overwrite a malformed guard or claim verified attribution
+  ---
+  duration_ms: 1044.5456
+  type: 'test'
+  ...
+# Subtest: resolution status with a blocked guard that names ANOTHER account still records an unverified incident and leaves the guard alone
+ok 266 - resolution status with a blocked guard that names ANOTHER account still records an unverified incident and leaves the guard alone
+  ---
+  duration_ms: 975.7729
+  type: 'test'
+  ...
+# Subtest: a hold row with a partial generation is sent to review by authorizeExternalHold and does not stop the listing of the rest
+ok 267 - a hold row with a partial generation is sent to review by authorizeExternalHold and does not stop the listing of the rest
+  ---
+  duration_ms: 892.0935
+  type: 'test'
+  ...
+# Subtest: the hold of a SECOND intent incident on a live guard carries the guard creation mark, so the drainer authorizes it
+ok 268 - the hold of a SECOND intent incident on a live guard carries the guard creation mark, so the drainer authorizes it
+  ---
+  duration_ms: 946.9908
+  type: 'test'
+  ...
+# Subtest: terminal recovery accepts a clean witness and rejects injected fields or a changed owner
+ok 269 - terminal recovery accepts a clean witness and rejects injected fields or a changed owner
+  ---
+  duration_ms: 1181.9376
+  type: 'test'
+  ...
+# Subtest: terminal recovery obtains Account resolution and records only a correlated terminal observation
+ok 270 - terminal recovery obtains Account resolution and records only a correlated terminal observation
+  ---
+  duration_ms: 1087.6663
+  type: 'test'
+  ...
+# Subtest: terminal recovery observes an Account release after a prepared seal
+ok 271 - terminal recovery observes an Account release after a prepared seal
+  ---
+  duration_ms: 1026.0562
+  type: 'test'
+  ...
+# Subtest: terminal recovery observes an Account release after a prepared release
+ok 272 - terminal recovery observes an Account release after a prepared release
+  ---
+  duration_ms: 990.9809
+  type: 'test'
+  ...
+# Subtest: terminal recovery reviews a seal observed for a release-only witness
+ok 273 - terminal recovery reviews a seal observed for a release-only witness
+  ---
+  duration_ms: 976.0999
+  type: 'test'
+  ...
+# Subtest: terminal recovery rejects an Account response with different seconds
+ok 274 - terminal recovery rejects an Account response with different seconds
+  ---
+  duration_ms: 1079.992
+  type: 'test'
+  ...
+# Subtest: terminal recovery leaves not_found unresolved without issuing a financial action
+ok 275 - terminal recovery leaves not_found unresolved without issuing a financial action
+  ---
+  duration_ms: 954.72
+  type: 'test'
+  ...
+# Subtest: terminal recovery leaves reserved unresolved without issuing a financial action
+ok 276 - terminal recovery leaves reserved unresolved without issuing a financial action
+  ---
+  duration_ms: 1012.9764
+  type: 'test'
+  ...
+# Subtest: terminal recovery leaves captured unresolved without issuing a financial action
+ok 277 - terminal recovery leaves captured unresolved without issuing a financial action
+  ---
+  duration_ms: 919.7122
+  type: 'test'
+  ...
+# Subtest: terminal recovery rechecks witness and owner after reading Account
+ok 278 - terminal recovery rechecks witness and owner after reading Account
+  ---
+  duration_ms: 1052.7988
+  type: 'test'
+  ...
+# Subtest: terminal recovery does not block another account when owner changes during the read
+ok 279 - terminal recovery does not block another account when owner changes during the read
+  ---
+  duration_ms: 1113.3404
+  type: 'test'
+  ...
+# Subtest: terminal recovery never queries Account for an unverified witness
+ok 280 - terminal recovery never queries Account for an unverified witness
+  ---
+  duration_ms: 911.5331
+  type: 'test'
+  ...
+# Subtest: terminal recovery refuses a copied witness at a different document ID
+ok 281 - terminal recovery refuses a copied witness at a different document ID
+  ---
+  duration_ms: 899.4419
+  type: 'test'
+  ...
+# Subtest: terminal recovery keeps a missing result pending and can read a later seal
+ok 282 - terminal recovery keeps a missing result pending and can read a later seal
+  ---
+  duration_ms: 965.3175
+  type: 'test'
+  ...
+# Subtest: terminal recovery detects a job marker added during the Account read
+ok 283 - terminal recovery detects a job marker added during the Account read
+  ---
+  duration_ms: 991.968
+  type: 'test'
+  ...
+# Subtest: terminal recovery reads an actual AccountStore emulator seal without another Account write
+ok 284 - terminal recovery reads an actual AccountStore emulator seal without another Account write
+  ---
+  duration_ms: 1026.3729
+  type: 'test'
+  ...
+# Subtest: terminal recovery retries the read after a local Firestore failure without claiming an ACK
+ok 285 - terminal recovery retries the read after a local Firestore failure without claiming an ACK
+  ---
+  duration_ms: 1114.2417
+  type: 'test'
+  ...
+# Subtest: terminal recovery re-reads an already committed close after its response is lost
+ok 286 - terminal recovery re-reads an already committed close after its response is lost
+  ---
+  duration_ms: 1081.6713
+  type: 'test'
+  ...
+# Subtest: terminal recovery with the witness already absent reports unverified without inventing an incident
+ok 287 - terminal recovery with the witness already absent reports unverified without inventing an incident
+  ---
+  duration_ms: 893.8506
+  type: 'test'
+  ...
+# Subtest: a locally committed release with a lost response is recognized as the same close on the retry: already_closed, no block
+ok 288 - a locally committed release with a lost response is recognized as the same close on the retry: already_closed, no block
+  ---
+  duration_ms: 1229.9838
+  type: 'test'
+  ...
+# Subtest: a locally committed seal with a lost response is recognized as the same close on the retry: already_closed, no block
+ok 289 - a locally committed seal with a lost response is recognized as the same close on the retry: already_closed, no block
+  ---
+  duration_ms: 1167.057
+  type: 'test'
+  ...
+# Subtest: a confirmed release whose local tuple changed is recorded and blocks only the proven owner
+ok 290 - a confirmed release whose local tuple changed is recorded and blocks only the proven owner
+  ---
+  duration_ms: 1415.3294
+  type: 'test'
+  ...
+# Subtest: a released status observed during enqueue survives a changed intent without inventing a release POST
+ok 291 - a released status observed during enqueue survives a changed intent without inventing a release POST
+  ---
+  duration_ms: 1298.2
+  type: 'test'
+  ...
+# Subtest: a confirmed seal with an unverifiable owner creates a global incident without blocking another account
+ok 292 - a confirmed seal with an unverifiable owner creates a global incident without blocking another account
+  ---
+  duration_ms: 1213.4224
+  type: 'test'
+  ...
+# Subtest: a confirmed seal with a missing intent preserves the observation and blocks the verified owner
+ok 293 - a confirmed seal with a missing intent preserves the observation and blocks the verified owner
+  ---
+  duration_ms: 1154.2413
+  type: 'test'
+  ...
+# Subtest: a missing terminal witness cannot turn a confirmed response into an ordinary close
+ok 294 - a missing terminal witness cannot turn a confirmed response into an ordinary close
+  ---
+  duration_ms: 1095.9923
+  type: 'test'
+  ...
+# Subtest: a historic job marker prevents closing even if the job and request are missing
+ok 295 - a historic job marker prevents closing even if the job and request are missing
+  ---
+  duration_ms: 1089.9568
+  type: 'test'
+  ...
+# Subtest: an invalid observation and a legacy intent without its original witness do not create receipts
+ok 296 - an invalid observation and a legacy intent without its original witness do not create receipts
+  ---
+  duration_ms: 1061.5925
+  type: 'test'
+  ...
+# Subtest: an outage after a remote ACK leaves the prior witness for recovery by status
+ok 297 - an outage after a remote ACK leaves the prior witness for recovery by status
+  ---
+  duration_ms: 1329.8138
+  type: 'test'
+  ...
+# Subtest: a mismatched external reservation is retained for review and blocks a second request
+ok 298 - a mismatched external reservation is retained for review and blocks a second request
+  ---
+  duration_ms: 922.5467
+  type: 'test'
+  ...
+# Subtest: an unexpected captured reservation with a queued job blocks new account intents
+ok 299 - an unexpected captured reservation with a queued job blocks new account intents
+  ---
+  duration_ms: 1177.771
+  type: 'test'
+  ...
+# Subtest: an unexpected released reservation with a queued job blocks new account intents
+ok 300 - an unexpected released reservation with a queued job blocks new account intents
+  ---
+  duration_ms: 1163.3686
+  type: 'test'
+  ...
+# Subtest: an orphaned billing outbox never captures or releases an account reservation
+ok 301 - an orphaned billing outbox never captures or releases an account reservation
+  ---
+  duration_ms: 781.3541
+  type: 'test'
+  ...
+# Subtest: a conflicting terminal outbox raises an account review barrier before any account movement
+ok 302 - a conflicting terminal outbox raises an account review barrier before any account movement
+  ---
+  duration_ms: 1434.5712
+  type: 'test'
+  ...
+# Subtest: a corrupted outbox cannot block a different account named in its payload
+ok 303 - a corrupted outbox cannot block a different account named in its payload
+  ---
+  duration_ms: 1370.7527
+  type: 'test'
+  ...
+# Subtest: video without any audio track is rejected before reservation while narration from reviewed text remains quotable
+ok 304 - video without any audio track is rejected before reservation while narration from reviewed text remains quotable
+  ---
+  duration_ms: 941.2132
+  type: 'test'
+  ...
+# Subtest: a successful job with mismatched outbox seconds is quarantined before capture
+ok 305 - a successful job with mismatched outbox seconds is quarantined before capture
+  ---
+  duration_ms: 2090.7598
+  type: 'test'
+  ...
+# Subtest: a stale second drainer does not report a settled outbox as a failure
+ok 306 - a stale second drainer does not report a settled outbox as a failure
+  ---
+  duration_ms: 2210.8553
+  type: 'test'
+  ...
+# Subtest: a settlement acknowledgement cannot mark a changed outbox as settled
+ok 307 - a settlement acknowledgement cannot mark a changed outbox as settled
+  ---
+  duration_ms: 2089.8491
+  type: 'test'
+  ...
+# Subtest: a coherent capture observation for an existing terminal job does not block the account
+ok 308 - a coherent capture observation for an existing terminal job does not block the account
+  ---
+  duration_ms: 1980.1721
+  type: 'test'
+  ...
+# Subtest: a coherent release observation for an existing terminal job does not block the account
+ok 309 - a coherent release observation for an existing terminal job does not block the account
+  ---
+  duration_ms: 1209.6544
+  type: 'test'
+  ...
+# Subtest: a coherent successful external billing outbox captures once and unlocks results
+ok 310 - a coherent successful external billing outbox captures once and unlocks results
+  ---
+  duration_ms: 2354.7176
+  type: 'test'
+  ...
+# Subtest: account admission precedes provider and binds a single successful capture to its job and attempt
+ok 311 - account admission precedes provider and binds a single successful capture to its job and attempt
+  ---
+  duration_ms: 2689.9122
+  type: 'test'
+  ...
+# Subtest: provider is never called when account admission is receipt_only
+ok 312 - provider is never called when account admission is receipt_only
+  ---
+  duration_ms: 1493.5731
+  type: 'test'
+  ...
+# Subtest: provider is never called when account admission is ack_lost
+ok 313 - provider is never called when account admission is ack_lost
+  ---
+  duration_ms: 1511.5649
+  type: 'test'
+  ...
+# Subtest: a held account separately admits each provider window
+ok 314 - a held account separately admits each provider window
+  ---
+  duration_ms: 1778.0966
+  type: 'test'
+  ...
+# Subtest: a open account separately admits each provider window
+ok 315 - a open account separately admits each provider window
+  ---
+  duration_ms: 1879.4016
+  type: 'test'
+  ...
+# Subtest: a changed capture attempt is quarantined and never sent to Account
+ok 316 - a changed capture attempt is quarantined and never sent to Account
+  ---
+  duration_ms: 2112.8866
+  type: 'test'
+  ...
+# Subtest: a settled capture cannot unlock downloads if a correlated billing or terminal field changes
+ok 317 - a settled capture cannot unlock downloads if a correlated billing or terminal field changes
+  ---
+  duration_ms: 3652.9419
+  type: 'test'
+  ...
+# Subtest: a captured observation cannot conceal an outbox with a different provider attempt
+ok 318 - a captured observation cannot conceal an outbox with a different provider attempt
+  ---
+  duration_ms: 1997.7468
+  type: 'test'
+  ...
+# Subtest: a durable incident propagates the account hold and recovers a lost acknowledgement
+ok 319 - a durable incident propagates the account hold and recovers a lost acknowledgement
+  ---
+  duration_ms: 1184.1509
+  type: 'test'
+  ...
+# Subtest: a hold event with an unverified owner is quarantined without contacting Account
+ok 320 - a hold event with an unverified owner is quarantined without contacting Account
+  ---
+  duration_ms: 849.4995
+  type: 'test'
+  ...
+# Subtest: a confirmed Account hold with a changed local event leaves a durable acknowledgement incident
+ok 321 - a confirmed Account hold with a changed local event leaves a durable acknowledgement incident
+  ---
+  duration_ms: 1050.6951
+  type: 'test'
+  ...
+# Subtest: a missing reservation is reconciled through Account seal: sealed
+ok 322 - a missing reservation is reconciled through Account seal: sealed
+  ---
+  duration_ms: 1276.7554
+  type: 'test'
+  ...
+# Subtest: a missing reservation is reconciled through Account seal: ack_lost
+ok 323 - a missing reservation is reconciled through Account seal: ack_lost
+  ---
+  duration_ms: 1750.3985
+  type: 'test'
+  ...
+# Subtest: a missing reservation is reconciled through Account seal: reserve_won
+ok 324 - a missing reservation is reconciled through Account seal: reserve_won
+  ---
+  duration_ms: 1459.9192
+  type: 'test'
+  ...
+# Subtest: a release settlement never unlocks successful private results that require capture
+ok 325 - a release settlement never unlocks successful private results that require capture
+  ---
+  duration_ms: 2251.1431
+  type: 'test'
+  ...
+# Subtest: unexpected reservation failure logs only bounded type and numeric SDK code while client sees internal
+ok 326 - unexpected reservation failure logs only bounded type and numeric SDK code while client sees internal
+  ---
+  duration_ms: 905.1633
+  type: 'test'
+  ...
+# {"event":"cloud-http-internal","traceId":"542dfb34-e6ba-40a6-8a45-7c97bb8b765d","status":503,"durationMs":29.073,"stages":{"auth":{"calls":1,"durationMs":0.045,"errors":0},"identity":{"calls":1,"durationMs":28.334,"errors":0},"identity.callback":{"calls":1,"durationMs":17.982,"errors":0},"identity.read":{"calls":1,"durationMs":17.941,"errors":0},"routing":{"calls":1,"durationMs":0.045,"errors":0}},"attempts":{"identity":1},"postCallbackOuterPendingMs":{"identity":1.582}}
+# {"event":"cloud-http-internal","traceId":"2c02559b-db65-4a90-b52f-2a12ffcb0836","status":503,"durationMs":54.266,"stages":{"auth":{"calls":1,"durationMs":0.066,"errors":0},"identity":{"calls":1,"durationMs":24.174,"errors":0},"identity.callback":{"calls":1,"durationMs":18.065,"errors":0},"identity.read":{"calls":1,"durationMs":18.029,"errors":0},"routing":{"calls":1,"durationMs":29.629,"errors":1}},"attempts":{"identity":1},"postCallbackOuterPendingMs":{"identity":1.328}}
+# Subtest: private AI HTTP keeps simulation flags, quotes and replay stable after edits while old processing routes stay disabled
+ok 327 - private AI HTTP keeps simulation flags, quotes and replay stable after edits while old processing routes stay disabled
+  ---
+  duration_ms: 1375.744
+  type: 'test'
+  ...
+# Subtest: cancelled job cannot be dispatch-claimed even when a stale outbox is forced pending
+ok 328 - cancelled job cannot be dispatch-claimed even when a stale outbox is forced pending
+  ---
+  duration_ms: 1058.0197
+  type: 'test'
+  ...
+# Subtest: real emulator commit publishes immutable output manifest and capture together, with stale revision and private HTTP Range/HEAD
+ok 329 - real emulator commit publishes immutable output manifest and capture together, with stale revision and private HTTP Range/HEAD
+  ---
+  duration_ms: 2666.0563
+  type: 'test'
+  ...
+# Subtest: partial output write becomes UNKNOWN without another processor call, holding quota until real marker cleanup while money stays held
+ok 330 - partial output write becomes UNKNOWN without another processor call, holding quota until real marker cleanup while money stays held
+  ---
+  duration_ms: 1821.1288
+  type: 'test'
+  ...
+# Subtest: a generic processor cannot bypass the durable AI local check or release its reservation
+ok 331 - a generic processor cannot bypass the durable AI local check or release its reservation
+  ---
+  duration_ms: 1211.8921
+  type: 'test'
+  ...
+# Subtest: source deletion fences every planned result including absent keys while a write is paused; late publication cannot revive outputs
+ok 332 - source deletion fences every planned result including absent keys while a write is paused; late publication cannot revive outputs
+  ---
+  duration_ms: 1726.7104
+  type: 'test'
+  ...
+# Subtest: TTL of ready AI results immediately denies downloads and maintenance purges every key without reversing captured money
+ok 333 - TTL of ready AI results immediately denies downloads and maintenance purges every key without reversing captured money
+  ---
+  duration_ms: 2221.0382
+  type: 'test'
+  ...
+# Subtest: durable provider-call intent rejects a repeated paid call before any provider network request
+ok 334 - durable provider-call intent rejects a repeated paid call before any provider network request
+  ---
+  duration_ms: 1269.305
+  type: 'test'
+  ...
+# Subtest: revoking either pilot flag after invocation begins blocks intent and every paid HTTP request
+ok 335 - revoking either pilot flag after invocation begins blocks intent and every paid HTTP request
+  ---
+  duration_ms: 1244.3448
+  type: 'test'
+  ...
+# Subtest: intent rejects wrong model, call family and ordinal before provider receipt or HTTP
+ok 336 - intent rejects wrong model, call family and ordinal before provider receipt or HTTP
+  ---
+  duration_ms: 1229.9871
+  type: 'test'
+  ...
+# Subtest: actual cloud worker voice path fences one mocked paid request, stores private WAV and captures once
+ok 337 - actual cloud worker voice path fences one mocked paid request, stores private WAV and captures once # SKIP Paused: voice stays closed until reconciliation and privacy are closed (LV-019-B). Success/ACK code is kept for the future reviewed-text integration; closed-voice rejection is covered by the "closed voice:" tests.
+  ---
+  duration_ms: 0.2662
+  type: 'test'
+  ...
+# Subtest: actual cloud worker recovers lost stage ACK without repeating provider, object write or capture
+ok 338 - actual cloud worker recovers lost stage ACK without repeating provider, object write or capture # SKIP Paused: voice stays closed until reconciliation and privacy are closed (LV-019-B). Success/ACK code is kept for the future reviewed-text integration; closed-voice rejection is covered by the "closed voice:" tests.
+  ---
+  duration_ms: 0.212
+  type: 'test'
+  ...
+# Subtest: actual cloud worker recovers lost finish ACK without repeating provider, object write or capture
+ok 339 - actual cloud worker recovers lost finish ACK without repeating provider, object write or capture # SKIP Paused: voice stays closed until reconciliation and privacy are closed (LV-019-B). Success/ACK code is kept for the future reviewed-text integration; closed-voice rejection is covered by the "closed voice:" tests.
+  ---
+  duration_ms: 0.164
+  type: 'test'
+  ...
+# Subtest: actual cloud worker records ambiguous mocked provider rejection as UNKNOWN and never repeats that request
+ok 340 - actual cloud worker records ambiguous mocked provider rejection as UNKNOWN and never repeats that request # SKIP Paused: voice stays closed until reconciliation and privacy are closed (LV-019-B). Success/ACK code is kept for the future reviewed-text integration; closed-voice rejection is covered by the "closed voice:" tests.
+  ---
+  duration_ms: 0.1134
+  type: 'test'
+  ...
+# Subtest: expired lease recovery isolates a persistent first-row fault and continues healthy neighbors on repeated passes
+ok 341 - expired lease recovery isolates a persistent first-row fault and continues healthy neighbors on repeated passes
+  ---
+  duration_ms: 2483.27
+  type: 'test'
+  ...
+# Subtest: AI query filters profile before its limit and dispatches behind ten unchanged older foreign outboxes
+ok 342 - AI query filters profile before its limit and dispatches behind ten unchanged older foreign outboxes
+  ---
+  duration_ms: 1831.2891
+  type: 'test'
+  ...
+# Subtest: UNKNOWN sibling is deferred before infrastructure and atomic claim while an independent queued job dispatches
+ok 343 - UNKNOWN sibling is deferred before infrastructure and atomic claim while an independent queued job dispatches
+  ---
+  duration_ms: 1758.6634
+  type: 'test'
+  ...
+# Subtest: a full poison recovery page rotates durably to a valid fourth job without rewriting poison leases or money
+ok 344 - a full poison recovery page rotates durably to a valid fourth job without rewriting poison leases or money
+  ---
+  duration_ms: 2357.8292
+  type: 'test'
+  ...
+# Subtest: thirty stale owned AI outboxes are deferred and a valid thirty-first dispatches on the next bounded pass
+ok 345 - thirty stale owned AI outboxes are deferred and a valid thirty-first dispatches on the next bounded pass
+  ---
+  duration_ms: 3004.1955
+  type: 'test'
+  ...
+# Subtest: a delayed recovery checkpoint cannot overwrite a cursor already advanced by another maintenance call
+ok 346 - a delayed recovery checkpoint cannot overwrite a cursor already advanced by another maintenance call
+  ---
+  duration_ms: 896.3271
+  type: 'test'
+  ...
+# Subtest: migration reports ambiguous missing or inconsistent legacy AI rows without adopting or changing them
+ok 347 - migration reports ambiguous missing or inconsistent legacy AI rows without adopting or changing them
+  ---
+  duration_ms: 1036.4963
+  type: 'test'
+  ...
+# Subtest: a full page of non-UUID poison IDs rotates internally without leaking arbitrary IDs or starving a valid job
+ok 348 - a full page of non-UUID poison IDs rotates internally without leaking arbitrary IDs or starving a valid job
+  ---
+  duration_ms: 1323.9122
+  type: 'test'
+  ...
+# Subtest: an existing corrupt recovery cursor fails visibly before recovering and preserves cursor Jobs leases and money
+ok 349 - an existing corrupt recovery cursor fails visibly before recovering and preserves cursor Jobs leases and money
+  ---
+  duration_ms: 1571.9319
+  type: 'test'
+  ...
+# Subtest: an old outbox error cannot change a newer synthetic turn
+ok 350 - an old outbox error cannot change a newer synthetic turn
+  ---
+  duration_ms: 1311.7882
+  type: 'test'
+  ...
+# Subtest: an unchanged outbox failure schedules once and rejects a repeated old observation
+ok 351 - an unchanged outbox failure schedules once and rejects a repeated old observation
+  ---
+  duration_ms: 1395.8456
+  type: 'test'
+  ...
+# Subtest: an old hold error cannot change a newer synthetic turn
+ok 352 - an old hold error cannot change a newer synthetic turn
+  ---
+  duration_ms: 999.5876
+  type: 'test'
+  ...
+# Subtest: an unchanged hold failure schedules once and rejects a repeated old observation
+ok 353 - an unchanged hold failure schedules once and rejects a repeated old observation
+  ---
+  duration_ms: 905.6752
+  type: 'test'
+  ...
+# Subtest: a corrupt outbox generation is recorded for review without calling Account
+ok 354 - a corrupt outbox generation is recorded for review without calling Account
+  ---
+  duration_ms: 1359.9377
+  type: 'test'
+  ...
+# Subtest: a corrupt hold generation is recorded for review without calling Account
+ok 355 - a corrupt hold generation is recorded for review without calling Account
+  ---
+  duration_ms: 825.471
+  type: 'test'
+  ...
+# Subtest: a matching synthetic settlement acknowledgement is retained for review after a newer turn
+ok 356 - a matching synthetic settlement acknowledgement is retained for review after a newer turn
+  ---
+  duration_ms: 1392.4392
+  type: 'test'
+  ...
+# Subtest: a matching synthetic hold acknowledgement survives a newer turn
+ok 357 - a matching synthetic hold acknowledgement survives a newer turn
+  ---
+  duration_ms: 892.1067
+  type: 'test'
+  ...
+# Subtest: invalid outbox generation 9007199254740991 prevents the synthetic account call
+ok 358 - invalid outbox generation 9007199254740991 prevents the synthetic account call
+  ---
+  duration_ms: 1370.5875
+  type: 'test'
+  ...
+# Subtest: invalid hold generation 9007199254740991 prevents the synthetic account call
+ok 359 - invalid hold generation 9007199254740991 prevents the synthetic account call
+  ---
+  duration_ms: 834.8936
+  type: 'test'
+  ...
+# Subtest: invalid outbox attempts corrupt prevents the synthetic account call
+ok 360 - invalid outbox attempts corrupt prevents the synthetic account call
+  ---
+  duration_ms: 1359.0973
+  type: 'test'
+  ...
+# Subtest: invalid hold attempts corrupt prevents the synthetic account call
+ok 361 - invalid hold attempts corrupt prevents the synthetic account call
+  ---
+  duration_ms: 836.0569
+  type: 'test'
+  ...
+# Subtest: invalid outbox attempts 9007199254740991 prevents the synthetic account call
+ok 362 - invalid outbox attempts 9007199254740991 prevents the synthetic account call
+  ---
+  duration_ms: 1353.4688
+  type: 'test'
+  ...
+# Subtest: invalid hold attempts 9007199254740991 prevents the synthetic account call
+ok 363 - invalid hold attempts 9007199254740991 prevents the synthetic account call
+  ---
+  duration_ms: 869.7678
+  type: 'test'
+  ...
+# Subtest: a corrupt orphaned outbox does not block the account named only in that event
+ok 364 - a corrupt orphaned outbox does not block the account named only in that event
+  ---
+  duration_ms: 740.716
+  type: 'test'
+  ...
+# Subtest: a corrupt unverified hold does not block the account named only in that event
+ok 365 - a corrupt unverified hold does not block the account named only in that event
+  ---
+  duration_ms: 925.4016
+  type: 'test'
+  ...
+# Subtest: closed voice: a voice job is never claimed by the worker, never reaches the provider and never moves balance
+ok 366 - closed voice: a voice job is never claimed by the worker, never reaches the provider and never moves balance
+  ---
+  duration_ms: 1560.4879
+  type: 'test'
+  ...
+# {"event":"cloud-http-internal","traceId":"6703133b-04c9-4b62-b3f4-075aff819806","status":503,"durationMs":55.743,"stages":{"auth":{"calls":1,"durationMs":0.118,"errors":0},"identity":{"calls":1,"durationMs":24.516,"errors":0},"identity.callback":{"calls":1,"durationMs":18.793,"errors":0},"identity.read":{"calls":1,"durationMs":18.638,"errors":0},"routing":{"calls":1,"durationMs":30.295,"errors":1},"quote":{"calls":1,"durationMs":30.041,"errors":1}},"attempts":{"identity":1},"postCallbackOuterPendingMs":{"identity":2.903}}
+# {"event":"cloud-http-internal","traceId":"509c4047-68bb-467a-ba26-7f7db091cb41","status":503,"durationMs":66.072,"stages":{"auth":{"calls":1,"durationMs":0.057,"errors":0},"identity":{"calls":1,"durationMs":35.359,"errors":0},"identity.callback":{"calls":1,"durationMs":19.057,"errors":0},"identity.read":{"calls":1,"durationMs":18.994,"errors":0},"routing":{"calls":1,"durationMs":30.045,"errors":1},"quote":{"calls":1,"durationMs":29.541,"errors":1}},"attempts":{"identity":1},"postCallbackOuterPendingMs":{"identity":2.2}}
+# {"event":"cloud-http-internal","traceId":"55c9ea8d-f3e4-4729-9166-46afbf50f788","status":503,"durationMs":55.81,"stages":{"auth":{"calls":1,"durationMs":0.085,"errors":0},"identity":{"calls":1,"durationMs":27.903,"errors":0},"identity.callback":{"calls":1,"durationMs":19.552,"errors":0},"identity.read":{"calls":1,"durationMs":19.345,"errors":0},"routing":{"calls":1,"durationMs":27.365,"errors":1},"quote":{"calls":1,"durationMs":27.223,"errors":1}},"attempts":{"identity":1},"postCallbackOuterPendingMs":{"identity":2.435}}
+# {"event":"cloud-http-internal","traceId":"bf880bb8-e6cf-473c-85f2-7e39e7367020","status":503,"durationMs":57.246,"stages":{"auth":{"calls":1,"durationMs":0.073,"errors":0},"identity":{"calls":1,"durationMs":26.169,"errors":0},"identity.callback":{"calls":1,"durationMs":18.189,"errors":0},"identity.read":{"calls":1,"durationMs":18.14,"errors":0},"routing":{"calls":1,"durationMs":30.389,"errors":1},"quote":{"calls":1,"durationMs":30.086,"errors":1}},"attempts":{"identity":1},"postCallbackOuterPendingMs":{"identity":1.853}}
+# Subtest: closed voice: client quote and job creation for both voices are rejected and create no job, reservation or outbox entry
+ok 367 - closed voice: client quote and job creation for both voices are rejected and create no job, reservation or outbox entry
+  ---
+  duration_ms: 1086.2152
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: AI profile is operator-gated, price/revision validated, and rejected requests create no side effects
+ok 368 - AI profile is operator-gated, price/revision validated, and rejected requests create no side effects
+  ---
+  duration_ms: 1025.1096
+  type: 'test'
+  ...
+# Subtest: AI reserve atomically creates one plan/outbox/reservation under concurrent replay and preserves nonfinancial account fields
+ok 369 - AI reserve atomically creates one plan/outbox/reservation under concurrent replay and preserves nonfinancial account fields
+  ---
+  duration_ms: 4047.8043
+  type: 'test'
+  ...
+# Subtest: AI quota failure leaves money, jobs and output reservations unchanged
+ok 370 - AI quota failure leaves money, jobs and output reservations unchanged
+  ---
+  duration_ms: 346.7444
+  type: 'test'
+  ...
+# Subtest: AI verified publication, financial capture and quota commit are atomic and single-shot across completion races
+ok 371 - AI verified publication, financial capture and quota commit are atomic and single-shot across completion races
+  ---
+  duration_ms: 3829.9071
+  type: 'test'
+  ...
+# Subtest: AI provider success without a staged verified manifest stays UNKNOWN with both reservations held
+ok 372 - AI provider success without a staged verified manifest stays UNKNOWN with both reservations held
+  ---
+  duration_ms: 783.2718
+  type: 'test'
+  ...
+# Subtest: AI unknown cleanup may erase snapshot and release storage without refunding money; trusted failure reconciles once
+ok 373 - AI unknown cleanup may erase snapshot and release storage without refunding money; trusted failure reconciles once
+  ---
+  duration_ms: 925.0592
+  type: 'test'
+  ...
+# Subtest: AI failure after confirmed nonzero local inspection but before invocation releases money and preserves physical quota accounting
+ok 374 - AI failure after confirmed nonzero local inspection but before invocation releases money and preserves physical quota accounting
+  ---
+  duration_ms: 721.463
+  type: 'test'
+  ...
+# Subtest: AI staged output loses publication permission after cancellation and cannot be captured by stale attempts
+ok 375 - AI staged output loses publication permission after cancellation and cannot be captured by stale attempts
+  ---
+  duration_ms: 998.9347
+  type: 'test'
+  ...
+# Subtest: AI disable after nonzero inspection but before provider admission prevents invocation and refunds with pending-plan guard
+ok 376 - AI disable after nonzero inspection but before provider admission prevents invocation and refunds with pending-plan guard
+  ---
+  duration_ms: 578.58
+  type: 'test'
+  ...
+# Subtest: AI ambiguous provider receipt blocks staging; mutation after stage blocks capture and retains UNKNOWN funds
+ok 377 - AI ambiguous provider receipt blocks staging; mutation after stage blocks capture and retains UNKNOWN funds
+  ---
+  duration_ms: 799.7035
+  type: 'test'
+  ...
+# Subtest: AI receipt model, attempt and complete deterministic window set must match the frozen operation
+ok 378 - AI receipt model, attempt and complete deterministic window set must match the frozen operation
+  ---
+  duration_ms: 802.2738
+  type: 'test'
+  ...
+# Subtest: AI multiwindow output requires every received call; voice uses its own deterministic receipt model
+ok 379 - AI multiwindow output requires every received call; voice uses its own deterministic receipt model # SKIP Paused: voice stays closed until reconciliation and privacy are closed (LV-019-B). Success/ACK code is kept for the future reviewed-text integration; closed-voice rejection is covered by the "closed voice:" tests.
+  ---
+  duration_ms: 0.2055
+  type: 'test'
+  ...
+# Subtest: AI paid FINISH cannot refund after source deletion, expiry or generation replacement
+ok 380 - AI paid FINISH cannot refund after source deletion, expiry or generation replacement
+  ---
+  duration_ms: 2484.0993
+  type: 'test'
+  ...
+# Subtest: AI false FINISH after provider admission is UNKNOWN, never an automatic release
+ok 381 - AI false FINISH after provider admission is UNKNOWN, never an automatic release
+  ---
+  duration_ms: 670.2779
+  type: 'test'
+  ...
+# Subtest: AI operator revocation fences both STAGE and FINISH while retaining paid reservations
+ok 382 - AI operator revocation fences both STAGE and FINISH while retaining paid reservations
+  ---
+  duration_ms: 3109.848
+  type: 'test'
+  ...
+# Subtest: AI expired preparation lease after confirmed nonzero inspection requeues with zero UNKNOWN and no provider intents
+ok 383 - AI expired preparation lease after confirmed nonzero inspection requeues with zero UNKNOWN and no provider intents
+  ---
+  duration_ms: 989.8148
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: fails closed without the dedicated loopback emulator host
+ok 384 - fails closed without the dedicated loopback emulator host
+  ---
+  duration_ms: 104.7077
+  type: 'test'
+  ...
+# Subtest: concurrent duplicate verified captures credit exactly once
+ok 385 - concurrent duplicate verified captures credit exactly once
+  ---
+  duration_ms: 3989.7164
+  type: 'test'
+  ...
+# Subtest: same capture with changed owner or payload rejects without crediting either twice
+ok 386 - same capture with changed owner or payload rejects without crediting either twice
+  ---
+  duration_ms: 428.4102
+  type: 'test'
+  ...
+# Subtest: concurrent reservations cannot spend more than available
+ok 387 - concurrent reservations cannot spend more than available
+  ---
+  duration_ms: 3074.9357
+  type: 'test'
+  ...
+# Subtest: stable logical request preserves its reserved price and rejects changed operation
+ok 388 - stable logical request preserves its reserved price and rejects changed operation
+  ---
+  duration_ms: 3802.3308
+  type: 'test'
+  ...
+# Subtest: concurrent completion captures once and never also releases
+ok 389 - concurrent completion captures once and never also releases
+  ---
+  duration_ms: 3802.9707
+  type: 'test'
+  ...
+# Subtest: queued cancel releases once and cannot later be claimed
+ok 390 - queued cancel releases once and cannot later be claimed
+  ---
+  duration_ms: 608.6587
+  type: 'test'
+  ...
+# Subtest: running cancel holds UNKNOWN reservation and prevents new work on that input
+ok 391 - running cancel holds UNKNOWN reservation and prevents new work on that input
+  ---
+  duration_ms: 697.0779
+  type: 'test'
+  ...
+# Subtest: unknown reconciliation requires evidence and releases exactly once
+ok 392 - unknown reconciliation requires evidence and releases exactly once
+  ---
+  duration_ms: 3215.7718
+  type: 'test'
+  ...
+# Subtest: expired output is refunded instead of charged
+ok 393 - expired output is refunded instead of charged
+  ---
+  duration_ms: 577.2551
+  type: 'test'
+  ...
+# Subtest: expired unknown resolution retains evidence and refunds an unavailable result
+ok 394 - expired unknown resolution retains evidence and refunds an unavailable result
+  ---
+  duration_ms: 657.3509
+  type: 'test'
+  ...
+# Subtest: a stale attempt and a foreign account cannot change the job
+ok 395 - a stale attempt and a foreign account cannot change the job
+  ---
+  duration_ms: 594.5319
+  type: 'test'
+  ...
+# Subtest: completion and running cancellation choose capture or quarantine without double resolution
+ok 396 - completion and running cancellation choose capture or quarantine without double resolution
+  ---
+  duration_ms: 3405.86
+  type: 'test'
+  ...
+# Subtest: multiple unknown jobs keep the input blocked until every reservation is reconciled
+ok 397 - multiple unknown jobs keep the input blocked until every reservation is reconciled
+  ---
+  duration_ms: 915.4933
+  type: 'test'
+  ...
+# Subtest: an SDK-retried transaction callback credits once
+ok 398 - an SDK-retried transaction callback credits once
+  ---
+  duration_ms: 1651.5023
+  type: 'test'
+  ...
+# Subtest: an expired lease is fenced and quarantined without releasing or capturing
+ok 399 - an expired lease is fenced and quarantined without releasing or capturing
+  ---
+  duration_ms: 514.5229
+  type: 'test'
+  ...
+# Subtest: invalid numeric inputs and overflow leave the ledger unchanged
+ok 400 - invalid numeric inputs and overflow leave the ledger unchanged
+  ---
+  duration_ms: 267.6304
+  type: 'test'
+  ...
+# Subtest: an expired queued input is failed and released before claim
+ok 401 - an expired queued input is failed and released before claim
+  ---
+  duration_ms: 409.4214
+  type: 'test'
+  ...
+# Subtest: UNKNOWN blocks an already queued sibling until reconciliation
+ok 402 - UNKNOWN blocks an already queued sibling until reconciliation
+  ---
+  duration_ms: 848.1979
+  type: 'test'
+  ...
+# Subtest: Firebase UID resolves to one stable zero-balance account under concurrency
+ok 403 - Firebase UID resolves to one stable zero-balance account under concurrency
+  ---
+  duration_ms: 3673.9922
+  type: 'test'
+  ...
+# Subtest: project optimistic revisions reject a stale concurrent editor and foreign access
+ok 404 - project optimistic revisions reject a stale concurrent editor and foreign access
+  ---
+  duration_ms: 3484.4881
+  type: 'test'
+  ...
+# Subtest: one reservation atomically creates one durable outbox despite repeated request
+ok 405 - one reservation atomically creates one durable outbox despite repeated request
+  ---
+  duration_ms: 3683.1234
+  type: 'test'
+  ...
+# Subtest: lost dispatcher response redelivers same job without a second provider invocation
+ok 406 - lost dispatcher response redelivers same job without a second provider invocation
+  ---
+  duration_ms: 852.9595
+  type: 'test'
+  ...
+# Subtest: transport acceptance without execution retains durable redelivery
+ok 407 - transport acceptance without execution retains durable redelivery
+  ---
+  duration_ms: 558.6123
+  type: 'test'
+  ...
+# Subtest: worker timeout retains UNKNOWN reservation and never retries provider
+ok 408 - worker timeout retains UNKNOWN reservation and never retries provider
+  ---
+  duration_ms: 784.1504
+  type: 'test'
+  ...
+# Subtest: crashed worker lease is quarantined without calling provider again
+ok 409 - crashed worker lease is quarantined without calling provider again
+  ---
+  duration_ms: 636.9634
+  type: 'test'
+  ...
+# Subtest: provider IO runs outside retryable Firestore transaction callbacks
+ok 410 - provider IO runs outside retryable Firestore transaction callbacks
+  ---
+  duration_ms: 683.4058
+  type: 'test'
+  ...
+# Subtest: expired queued input never reaches on-demand provider
+ok 411 - expired queued input never reaches on-demand provider
+  ---
+  duration_ms: 428.6597
+  type: 'test'
+  ...
+# Subtest: Cloud Run transport constrains target and sends only stable job identity
+ok 412 - Cloud Run transport constrains target and sends only stable job identity
+  ---
+  duration_ms: 7.3734
+  type: 'test'
+  ...
+# {"event":"cloud-http-internal","traceId":"30cc083a-d626-4b30-a10d-bbc5e4172917","status":503,"durationMs":9.78,"stages":{"auth":{"calls":1,"durationMs":0.136,"errors":0},"identity":{"calls":1,"durationMs":8.743,"errors":0},"identity.callback":{"calls":1,"durationMs":3.922,"errors":0},"identity.read":{"calls":1,"durationMs":3.873,"errors":0}},"attempts":{"identity":1},"postCallbackOuterPendingMs":{"identity":2.664}}
+# Subtest: authenticated HTTP uses verified UID, rejects foreign/revoked/unverified tokens and forged balance
+ok 413 - authenticated HTTP uses verified UID, rejects foreign/revoked/unverified tokens and forged balance
+  ---
+  duration_ms: 717.2358
+  type: 'test'
+  ...
+# Subtest: recovery trigger quarantines expired running leases even without another worker delivery
+ok 414 - recovery trigger quarantines expired running leases even without another worker delivery
+  ---
+  duration_ms: 601.3358
+  type: 'test'
+  ...
+# Subtest: reservation binds immutable project revision atomically and rejects changed payload
+ok 415 - reservation binds immutable project revision atomically and rejects changed payload
+  ---
+  duration_ms: 437.6422
+  type: 'test'
+  ...
+# Subtest: crash before permission to invoke safely requeues and fences old worker
+ok 416 - crash before permission to invoke safely requeues and fences old worker
+  ---
+  duration_ms: 875.9098
+  type: 'test'
+  ...
+# Subtest: cancel before invocation releases reservation and prevents provider permission
+ok 417 - cancel before invocation releases reservation and prevents provider permission
+  ---
+  duration_ms: 504.7204
+  type: 'test'
+  ...
+# Subtest: UNKNOWN prevents a previously running sibling from capturing automatically
+ok 418 - UNKNOWN prevents a previously running sibling from capturing automatically
+  ---
+  duration_ms: 795.8587
+  type: 'test'
+  ...
+# Subtest: default-deny client rules reject reads and writes of actual Admin-created documents
+not ok 419 - default-deny client rules reject reads and writes of actual Admin-created documents
+  ---
+  duration_ms: 1263.1696
+  type: 'test'
+  location: 'C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-finance-full-20261127\\server\\commercial\\firestoreBackend.emulator.mjs:183:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    200 !== 403
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 403
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Users/rob62/Documents/Codex/2026-11-11/vistavo-finance-full-20261127/server/commercial/firestoreBackend.emulator.mjs:185:9)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: request replay lookup survives later project edits and expiry without recalculating price
+ok 420 - request replay lookup survives later project edits and expiry without recalculating price
+  ---
+  duration_ms: 440.6324
+  type: 'test'
+  ...
+# Subtest: expired heartbeat persists UNKNOWN immediately rather than waiting for a recovery sweep
+ok 421 - expired heartbeat persists UNKNOWN immediately rather than waiting for a recovery sweep
+  ---
+  duration_ms: 558.9251
+  type: 'test'
+  ...
+# Subtest: HTTP reserves at server price, replays without quoting and reports honest cancellation state
+ok 422 - HTTP reserves at server price, replays without quoting and reports honest cancellation state
+  ---
+  duration_ms: 1160.3926
+  type: 'test'
+  ...
+# Subtest: worker reports failed when bytes expire after provider success and reservation is refunded
+ok 423 - worker reports failed when bytes expire after provider success and reservation is refunded
+  ---
+  duration_ms: 649.2975
+  type: 'test'
+  ...
+# Subtest: expired queued sibling releases only its own reservation while an UNKNOWN stays reserved
+ok 424 - expired queued sibling releases only its own reservation while an UNKNOWN stays reserved
+  ---
+  duration_ms: 640.2708
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: 1 after_ack with intact history and no settled row retries bounded without an incident or a block
+ok 425 - 1 after_ack with intact history and no settled row retries bounded without an incident or a block
+  ---
+  duration_ms: 4231.7785
+  type: 'test'
+  ...
+# Subtest: 1 negative: one of the 13 documents changed since the POST keeps the incident and the block
+ok 426 - 1 negative: one of the 13 documents changed since the POST keeps the incident and the block
+  ---
+  duration_ms: 6248.4723
+  type: 'test'
+  ...
+# Subtest: 2 exhausting the attempt limit with intact history becomes needs_review with an alert and no block, and is never retried
+ok 427 - 2 exhausting the attempt limit with intact history becomes needs_review with an alert and no block, and is never retried
+  ---
+  duration_ms: 4865.1079
+  type: 'test'
+  ...
+# Subtest: 3 after_commit (the write committed, the response was lost) settles with no incident and no block
+ok 428 - 3 after_commit (the write committed, the response was lost) settles with no incident and no block
+  ---
+  duration_ms: 4872.4496
+  type: 'test'
+  ...
+# Subtest: 3b a divergent ACK is never silenced: the incident is recorded once and no row is left pending
+ok 429 - 3b a divergent ACK is never silenced: the incident is recorded once and no row is left pending
+  ---
+  duration_ms: 4316.4669
+  type: 'test'
+  ...
+# Subtest: 3b via the drain: a capture whose Account reservation answers as released records one incident and is never left pending without an alert
+ok 430 - 3b via the drain: a capture whose Account reservation answers as released records one incident and is never left pending without an alert
+  ---
+  duration_ms: 4507.4658
+  type: 'test'
+  ...
+# Subtest: 3b negative: when the quarantine write itself throws, the drain still records one incident and blocks the owner instead of leaving the row pending with no alert
+ok 431 - 3b negative: when the quarantine write itself throws, the drain still records one incident and blocks the owner instead of leaving the row pending with no alert
+  ---
+  duration_ms: 4533.0141
+  type: 'test'
+  ...
+# Subtest: 3c unavailable never reaches the bound; a permanent error does at the eighth attempt
+ok 432 - 3c unavailable never reaches the bound; a permanent error does at the eighth attempt
+  ---
+  duration_ms: 5967.846
+  type: 'test'
+  ...
+# Subtest: 4 a committed direct close with a lost response is the same close on the retry: already_closed, no block
+ok 433 - 4 a committed direct close with a lost response is the same close on the retry: already_closed, no block
+  ---
+  duration_ms: 1951.3536
+  type: 'test'
+  ...
+# Subtest: 5 an identical direct replay over a closed intent is already_closed; a missing confirmation is needs_review
+ok 434 - 5 an identical direct replay over a closed intent is already_closed; a missing confirmation is needs_review
+  ---
+  duration_ms: 4819.1361
+  type: 'test'
+  ...
+# Subtest: 5 negative: after a direct close, a change to identityVersion keeps needs_review with no false already_closed
+ok 435 - 5 negative: after a direct close, a change to identityVersion keeps needs_review with no false already_closed
+  ---
+  duration_ms: 2430.3822
+  type: 'test'
+  ...
+# Subtest: 5 negative: after a direct close, a change to intentTuple keeps needs_review with no false already_closed
+ok 436 - 5 negative: after a direct close, a change to intentTuple keeps needs_review with no false already_closed
+  ---
+  duration_ms: 2281.5918
+  type: 'test'
+  ...
+# Subtest: 5 negative: after a direct close, a change to projectVersion keeps needs_review with no false already_closed
+ok 437 - 5 negative: after a direct close, a change to projectVersion keeps needs_review with no false already_closed
+  ---
+  duration_ms: 2723.8739
+  type: 'test'
+  ...
+# Subtest: 5 negative: after a direct close, a change to originVersion keeps needs_review with no false already_closed
+ok 438 - 5 negative: after a direct close, a change to originVersion keeps needs_review with no false already_closed
+  ---
+  duration_ms: 2228.8797
+  type: 'test'
+  ...
+# Subtest: 5 negative: after a direct close, a change to guardVersion keeps needs_review with no false already_closed
+ok 439 - 5 negative: after a direct close, a change to guardVersion keeps needs_review with no false already_closed
+  ---
+  duration_ms: 2114.013
+  type: 'test'
+  ...
+# Subtest: 5 negative: a recreated closed intent (same content, new document) is not the close that was written
+ok 440 - 5 negative: a recreated closed intent (same content, new document) is not the close that was written
+  ---
+  duration_ms: 2202.0316
+  type: 'test'
+  ...
+# Subtest: 6 a hold row that needs review raises one alert from the Video report
+ok 441 - 6 a hold row that needs review raises one alert from the Video report
+  ---
+  duration_ms: 1517.7708
+  type: 'test'
+  ...
+# Subtest: 6 negative: a repeated sweep only counts a sighting, never a second alert
+ok 442 - 6 negative: a repeated sweep only counts a sighting, never a second alert
+  ---
+  duration_ms: 1680.5183
+  type: 'test'
+  ...
+# Subtest: 7 a hold with an unverified owner needs review without blocking the named account
+ok 443 - 7 a hold with an unverified owner needs review without blocking the named account
+  ---
+  duration_ms: 1222.8292
+  type: 'test'
+  ...
+# Subtest: 12b a blocked account produces one alert per account and epoch, deduped by the sweep; a guard without an incident is malformed
+ok 444 - 12b a blocked account produces one alert per account and epoch, deduped by the sweep; a guard without an incident is malformed
+  ---
+  duration_ms: 8379.7192
+  type: 'test'
+  ...
+# Subtest: 1 positive: a benign write to the outbox row itself (another drainer recorded a failure) with intact history is still a transient retry
+ok 445 - 1 positive: a benign write to the outbox row itself (another drainer recorded a failure) with intact history is still a transient retry
+  ---
+  duration_ms: 4211.3956
+  type: 'test'
+  ...
+# Subtest: 1 negative: a recreated outbox row (same tuple, new document) is a demonstrated divergence, not a transient retry
+ok 446 - 1 negative: a recreated outbox row (same tuple, new document) is a demonstrated divergence, not a transient retry
+  ---
+  duration_ms: 4133.1533
+  type: 'test'
+  ...
+# Subtest: 1a E-3 snapshot-less retry: each retry counts on the intent, reschedules, and never blocks or invents an incident
+ok 447 - 1a E-3 snapshot-less retry: each retry counts on the intent, reschedules, and never blocks or invents an incident
+  ---
+  duration_ms: 2512.8484
+  type: 'test'
+  ...
+# Subtest: 1b E-3 at the attempt limit without a snapshot: the intent becomes needs_review with one alert, no incident and no block
+ok 448 - 1b E-3 at the attempt limit without a snapshot: the intent becomes needs_review with one alert, no incident and no block
+  ---
+  duration_ms: 2858.458
+  type: 'test'
+  ...
+# Subtest: 1c E-3 negative: with a snapshot and a moved document the direct retry still keeps the incident and the block
+ok 449 - 1c E-3 negative: with a snapshot and a moved document the direct retry still keeps the incident and the block
+  ---
+  duration_ms: 2277.9449
+  type: 'test'
+  ...
+# Subtest: 4a a divergent ACK on an already settled row must not take the already_settled shortcut: it records an incident
+ok 450 - 4a a divergent ACK on an already settled row must not take the already_settled shortcut: it records an incident
+  ---
+  duration_ms: 3980.3728
+  type: 'test'
+  ...
+# Synthetic blocks-1.4a cleanup total: 30/30
+# Subtest: 4b re-sending after a C-3 transient ACK never duplicates balance: one settlement after the drain pass
+ok 451 - 4b re-sending after a C-3 transient ACK never duplicates balance: one settlement after the drain pass
+  ---
+  duration_ms: 4307.164
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Drain-control cleanup verified 1/1
+# Subtest: S1 without control the billing drain behaves exactly as today (characterization)
+ok 452 - S1 without control the billing drain behaves exactly as today (characterization)
+  ---
+  duration_ms: 5379.6976
+  type: 'test'
+  ...
+# Drain-control cleanup verified 2/2
+# Subtest: S1b without control the holds drain behaves exactly as today (characterization)
+ok 453 - S1b without control the holds drain behaves exactly as today (characterization)
+  ---
+  duration_ms: 1067.8508
+  type: 'test'
+  ...
+# Drain-control cleanup verified 3/3
+# Subtest: S2 shouldContinue (false) ends the pass cleanly after the rows already attended, leaving the rest untouched
+ok 454 - S2 shouldContinue (false) ends the pass cleanly after the rows already attended, leaving the rest untouched
+  ---
+  duration_ms: 1434.3529
+  type: 'test'
+  ...
+# Drain-control cleanup verified 4/4
+# Subtest: S2 shouldContinue (throw) ends the pass cleanly after the rows already attended, leaving the rest untouched
+ok 455 - S2 shouldContinue (throw) ends the pass cleanly after the rows already attended, leaving the rest untouched
+  ---
+  duration_ms: 1818.5067
+  type: 'test'
+  ...
+# Drain-control cleanup verified 5/5
+# Subtest: S3 perAccountCap=5 serves five rows of a large account and the small account in one pass; the rest stay due and successive passes exhaust them without repeating
+ok 456 - S3 perAccountCap=5 serves five rows of a large account and the small account in one pass; the rest stay due and successive passes exhaust them without repeating
+  ---
+  duration_ms: 9376.6436
+  type: 'test'
+  ...
+# Drain-control cleanup verified 6/6
+# Subtest: S4 the after cursor rotates three passes over every row exactly once, wraps on the fourth, and tolerates an unknown or foreign cursor
+ok 457 - S4 the after cursor rotates three passes over every row exactly once, wraps on the fourth, and tolerates an unknown or foreign cursor
+  ---
+  duration_ms: 2065.3764
+  type: 'test'
+  ...
+# Drain-control cleanup verified 7/7
+# Subtest: S5 a fresh drain, a concurrent drain and a stalled drain that wakes late move the balance exactly once
+ok 458 - S5 a fresh drain, a concurrent drain and a stalled drain that wakes late move the balance exactly once
+  ---
+  duration_ms: 7029.8232
+  type: 'test'
+  ...
+# Drain-control cleanup verified 8/8
+# Subtest: S6 a pass interrupted mid-way leaves the rest for the next pass, which completes without a second charge
+ok 459 - S6 a pass interrupted mid-way leaves the rest for the next pass, which completes without a second charge
+  ---
+  duration_ms: 6636.4648
+  type: 'test'
+  ...
+# Drain-control cleanup verified 9/9
+# Subtest: S7 drainExternalHolds honors shouldContinue and perAccountCap
+ok 460 - S7 drainExternalHolds honors shouldContinue and perAccountCap
+  ---
+  duration_ms: 5282.6817
+  type: 'test'
+  ...
+# Drain-control cleanup verified 10/10
+# Subtest: S8 the intents cursor rotates the intent queue through the drain without repeating
+ok 461 - S8 the intents cursor rotates the intent queue through the drain without repeating
+  ---
+  duration_ms: 1226.302
+  type: 'test'
+  ...
+# Drain-control cleanup verified 11/11
+# Drain-control cleanup total: 11/11
+# Subtest: S9 a stop in the intents section never leaks into the outbox section
+ok 462 - S9 a stop in the intents section never leaks into the outbox section
+  ---
+  duration_ms: 1102.5955
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Synthetic unknown-resolver cleanup verified 1/1
+# Subtest: (caracterizacion) cancelling before the provider is contacted releases everything and clears active
+ok 463 - (caracterizacion) cancelling before the provider is contacted releases everything and clears active
+  ---
+  duration_ms: 3709.443
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 2/2
+# Subtest: (caracterizacion) cancelling after the provider was contacted seals unknown, keeps the reservation and never captures
+ok 464 - (caracterizacion) cancelling after the provider was contacted seals unknown, keeps the reservation and never captures
+  ---
+  duration_ms: 3226.6596
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 3/3
+# Subtest: (caracterizacion) the per-entry lock refuses a second job on an input that already has an unknown
+ok 465 - (caracterizacion) the per-entry lock refuses a second job on an input that already has an unknown
+  ---
+  duration_ms: 4280.9761
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 4/4
+# Subtest: (caracterizacion) three distinct unknown jobs exhaust the account and the fourth enqueue is refused
+ok 466 - (caracterizacion) three distinct unknown jobs exhaust the account and the fourth enqueue is refused
+  ---
+  duration_ms: 9537.4541
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 5/5
+# Subtest: (caracterizacion) a sweep raises one unknown_age alert for a seeded unknown and writes only to billingPendingAlerts
+ok 467 - (caracterizacion) a sweep raises one unknown_age alert for a seeded unknown and writes only to billingPendingAlerts
+  ---
+  duration_ms: 6130.9583
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 6/6
+# Subtest: (caracterizacion) worker finish, stage and heartbeat over an unknown job are rejected and change nothing
+ok 468 - (caracterizacion) worker finish, stage and heartbeat over an unknown job are rejected and change nothing
+  ---
+  duration_ms: 4230.0686
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 7/7
+# Subtest: (rojo) before the deadline the resolver touches nothing: fields and balance are byte-identical
+ok 469 - (rojo) before the deadline the resolver touches nothing: fields and balance are byte-identical
+  ---
+  duration_ms: 4272.2978
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 8/8
+# Subtest: (rojo) exactly at quarantinedAtMs plus the window the resolver releases, one millisecond earlier it does not
+ok 470 - (rojo) exactly at quarantinedAtMs plus the window the resolver releases, one millisecond earlier it does not
+  ---
+  duration_ms: 4342.0783
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 9/9
+# Subtest: (rojo) with an admission the resolver sends unknown_expired and the real Account frees the reservation, never capturing
+ok 471 - (rojo) with an admission the resolver sends unknown_expired and the real Account frees the reservation, never capturing
+  ---
+  duration_ms: 4492.2432
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 10/10
+# Subtest: (rojo) without an admission the resolver frees with a plain release and the evidence names none
+ok 472 - (rojo) without an admission the resolver frees with a plain release and the evidence names none
+  ---
+  duration_ms: 3862.8302
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 11/11
+# Subtest: (rojo) an admission divergence (provider call row without a stored Account admission) releases and stays stable
+ok 473 - (rojo) an admission divergence (provider call row without a stored Account admission) releases and stays stable
+  ---
+  duration_ms: 5735.9423
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 12/12
+# Subtest: (rojo) two concurrent resolvers leave exactly one terminal movement and one release row
+ok 474 - (rojo) two concurrent resolvers leave exactly one terminal movement and one release row
+  ---
+  duration_ms: 7570.0956
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 13/13
+# Subtest: (rojo) a resolver racing a manual reconcile: one wins, the other reports false or zero
+ok 475 - (rojo) a resolver racing a manual reconcile: one wins, the other reports false or zero
+  ---
+  duration_ms: 14077.9073
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 14/14
+# Subtest: (rojo) a late provider answer after the release changes no artifact, no movement and no output row
+ok 476 - (rojo) a late provider answer after the release changes no artifact, no movement and no output row
+  ---
+  duration_ms: 4651.2818
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 15/15
+# Subtest: (rojo) the id cursor resolves more than one pass of expired rows without repeating or skipping
+ok 477 - (rojo) the id cursor resolves more than one pass of expired rows without repeating or skipping
+  ---
+  duration_ms: 10153.1509
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 16/16
+# Subtest: (rojo) a not-yet-due row at the front does not clog the pass, and a row that expires after the cursor is caught on the wrap
+ok 478 - (rojo) a not-yet-due row at the front does not clog the pass, and a row that expires after the cursor is caught on the wrap
+  ---
+  duration_ms: 7339.6815
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 17/17
+# Subtest: (rojo) the incoming cursor is honored: a second pass continues past the first without re-reading it
+ok 479 - (rojo) the incoming cursor is honored: a second pass continues past the first without re-reading it
+  ---
+  duration_ms: 9440.0535
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 18/18
+# Subtest: (rojo) a corrupt quarantine field counts failed, leaves the row untouched and never stops the pass
+ok 480 - (rojo) a corrupt quarantine field counts failed, leaves the row untouched and never stops the pass
+  ---
+  duration_ms: 18102.6177
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 19/19
+# Subtest: (rojo) a settlement exception counts failed and the other rows in the same pass still resolve
+ok 481 - (rojo) a settlement exception counts failed and the other rows in the same pass still resolve
+  ---
+  duration_ms: 7381.7075
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 20/20
+# Subtest: (rojo) unknown_expired before the Account floor returns too_early and the output row reschedules without counting an attempt
+ok 482 - (rojo) unknown_expired before the Account floor returns too_early and the output row reschedules without counting an attempt
+  ---
+  duration_ms: 4829.2682
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 21/21
+# Subtest: (rojo) resolving one unknown frees the account slot so the next enqueue is admitted, and the stale alert stays open
+ok 483 - (rojo) resolving one unknown frees the account slot so the next enqueue is admitted, and the stale alert stays open
+  ---
+  duration_ms: 13777.6977
+  type: 'test'
+  ...
+# Synthetic unknown-resolver cleanup verified 22/22
+# Synthetic unknown-resolver cleanup total: 22/22
+# Subtest: (rojo) a voice unknown is never eligible: an expired narration is left intact while a text row of the same pass resolves
+ok 484 - (rojo) a voice unknown is never eligible: an expired narration is left intact while a text row of the same pass resolves
+  ---
+  duration_ms: 8061.7399
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Synthetic C2a Video settlement cleanup verified 1/1
+# Subtest: S1 no speech after a provider admission releases with a no_speech claim (incident C-5)
+ok 485 - S1 no speech after a provider admission releases with a no_speech claim (incident C-5)
+  ---
+  duration_ms: 4952.0685
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 2/2
+# Subtest: S2 failure before any admission keeps the plain release and reports admitted:false
+ok 486 - S2 failure before any admission keeps the plain release and reports admitted:false
+  ---
+  duration_ms: 4339.0493
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 3/3
+# Subtest: S3 reconcile(failed) after an admission releases with not_delivered and the evidence hash
+ok 487 - S3 reconcile(failed) after an admission releases with not_delivered and the evidence hash
+  ---
+  duration_ms: 4637.4224
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 4/4
+# Subtest: S4 one drain settles a legacy protocol-1 row and a protocol-3 row together
+ok 488 - S4 one drain settles a legacy protocol-1 row and a protocol-3 row together
+  ---
+  duration_ms: 6619.7274
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 5/5
+# Subtest: S5 a new field without settlementProtocol 3 is quarantined before any Account call
+ok 489 - S5 a new field without settlementProtocol 3 is quarantined before any Account call
+  ---
+  duration_ms: 3656.5107
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 6/6
+# Subtest: S6 a repeated conflict stops at the attempt limit and becomes needs_review with an alert
+ok 490 - S6 a repeated conflict stops at the attempt limit and becomes needs_review with an alert
+  ---
+  duration_ms: 5446.6005
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 7/7
+# Subtest: S6b too_early does not count and reschedules the row for later
+ok 491 - S6b too_early does not count and reschedules the row for later
+  ---
+  duration_ms: 3925.9824
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 8/8
+# Subtest: S7 a double ACK of an admitted release with intact history settles without an incident
+ok 492 - S7 a double ACK of an admitted release with intact history settles without an incident
+  ---
+  duration_ms: 4164.819
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 9/9
+# Subtest: S8 a release applied before a lost ACK closes the row on the retry
+ok 493 - S8 a release applied before a lost ACK closes the row on the retry
+  ---
+  duration_ms: 4308.7892
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 10/10
+# Subtest: S9 the claim matches the stored admission and the row
+ok 494 - S9 the claim matches the stored admission and the row
+  ---
+  duration_ms: 4105.8619
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 11/11
+# Subtest: S10 the evidence hash is reproducible from the data written in the same transaction
+ok 495 - S10 the evidence hash is reproducible from the data written in the same transaction
+  ---
+  duration_ms: 3845.178
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 12/12
+# Subtest: S11 markExternalBillingSettled refuses any expected tuple that differs from the stored row
+ok 496 - S11 markExternalBillingSettled refuses any expected tuple that differs from the stored row
+  ---
+  duration_ms: 7335.6959
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 13/13
+# Subtest: S12 a row that changes after the snapshot is quarantined after the ACK, never settled
+ok 497 - S12 a row that changes after the snapshot is quarantined after the ACK, never settled
+  ---
+  duration_ms: 4830.2199
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 14/14
+# Subtest: S13 a protocol-3 row rejects a field that belongs to the other action
+ok 498 - S13 a protocol-3 row rejects a field that belongs to the other action
+  ---
+  duration_ms: 4488.6141
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 15/20
+# Synthetic C2a Video settlement cleanup verified 16/20
+# Synthetic C2a Video settlement cleanup verified 17/20
+# Synthetic C2a Video settlement cleanup verified 18/20
+# Synthetic C2a Video settlement cleanup verified 19/20
+# Synthetic C2a Video settlement cleanup verified 20/20
+# Subtest: S14 every permanent code is bounded by the attempt limit
+ok 499 - S14 every permanent code is bounded by the attempt limit
+  ---
+  duration_ms: 33135.471
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 21/21
+# Subtest: S15 an unexpected outbox key is quarantined before any Account call
+ok 500 - S15 an unexpected outbox key is quarantined before any Account call
+  ---
+  duration_ms: 4962.5535
+  type: 'test'
+  ...
+# Subtest: S16 the retry bound is literally 8
+ok 501 - S16 the retry bound is literally 8
+  ---
+  duration_ms: 1.069
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 22/22
+# Subtest: S17 a stored outbox row with an unexpected key is never an accepted snapshot
+ok 502 - S17 a stored outbox row with an unexpected key is never an accepted snapshot
+  ---
+  duration_ms: 4355.573
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 23/23
+# Subtest: S18 reconcile(failed) keeps the unknown attempt as the claim sent to Account
+ok 503 - S18 reconcile(failed) keeps the unknown attempt as the claim sent to Account
+  ---
+  duration_ms: 4237.0166
+  type: 'test'
+  ...
+# Subtest: S19 an admitted release without a resolution fails closed with invariant and moves no balance
+ok 504 - S19 an admitted release without a resolution fails closed with invariant and moves no balance
+  ---
+  duration_ms: 4.1302
+  type: 'test'
+  ...
+# Synthetic C2a Video settlement cleanup verified 24/24
+# Synthetic C2a Video settlement cleanup total: 24/24
+# Subtest: S20 unavailable is transient and never reaches the retry bound by counting
+ok 505 - S20 unavailable is transient and never reaches the retry bound by counting
+  ---
+  duration_ms: 6564.101
+  type: 'test'
+  ...
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: an active request counts one slot in BOTH bases
+ok 506 - an active request counts one slot in BOTH bases
+  ---
+  duration_ms: 2888.9388
+  type: 'test'
+  ...
+# Subtest: a reservation of another attempt with the same tuple cannot create work
+ok 507 - a reservation of another attempt with the same tuple cannot create work
+  ---
+  duration_ms: 1824.4289
+  type: 'test'
+  ...
+# Subtest: an immutable document rewritten between preflight and job write preserves only the ACK
+ok 508 - an immutable document rewritten between preflight and job write preserves only the ACK
+  ---
+  duration_ms: 2046.9442
+  type: 'test'
+  ...
+# Subtest: identity revoked after the local precheck prevents the Account POST
+ok 509 - identity revoked after the local precheck prevents the Account POST
+  ---
+  duration_ms: 1640.5896
+  type: 'test'
+  ...
+# Subtest: a job write does not commit the ACK after a changed immutable document
+ok 510 - a job write does not commit the ACK after a changed immutable document
+  ---
+  duration_ms: 2027.0698
+  type: 'test'
+  ...
+# Subtest: each immutable document rewritten after the preflight blocks the job and keeps only the ACK
+ok 511 - each immutable document rewritten after the preflight blocks the job and keeps only the ACK
+  ---
+  duration_ms: 22202.2469
+  type: 'test'
+  ...
+# Subtest: an existing conflicting ACK observation aborts the job in the same transaction
+ok 512 - an existing conflicting ACK observation aborts the job in the same transaction
+  ---
+  duration_ms: 2109.3647
+  type: 'test'
+  ...
+# Subtest: an intent rescheduled by the probe still creates work (semantic intent)
+ok 513 - an intent rescheduled by the probe still creates work (semantic intent)
+  ---
+  duration_ms: 2656.0765
+  type: 'test'
+  ...
+# Subtest: other jobs changing the balance do not block work (semantic account)
+ok 514 - other jobs changing the balance do not block work (semantic account)
+  ---
+  duration_ms: 2566.2288
+  type: 'test'
+  ...
+# Subtest: a blocked guard still stops the preflight without an Account POST
+ok 515 - a blocked guard still stops the preflight without an Account POST
+  ---
+  duration_ms: 1364.5694
+  type: 'test'
+  ...
+# Subtest: a guard absent at preflight and still clear at the job write is accepted
+ok 516 - a guard absent at preflight and still clear at the job write is accepted
+  ---
+  duration_ms: 2585.4387
+  type: 'test'
+  ...
+# Subtest: two sequential reservations keep distinct attempts and ACK observations
+ok 517 - two sequential reservations keep distinct attempts and ACK observations
+  ---
+  duration_ms: 3798.6062
+  type: 'test'
+  ...
+# Subtest: an ACK tuple of another attempt cannot be staged with this job
+ok 518 - an ACK tuple of another attempt cannot be staged with this job
+  ---
+  duration_ms: 2296.6246
+  type: 'test'
+  ...
+# Subtest: the Account POST must use exactly the prepared attempt history
+ok 519 - the Account POST must use exactly the prepared attempt history
+  ---
+  duration_ms: 1854.7989
+  type: 'test'
+  ...
+# Subtest: a guard blocked between the evidence capture and the preflight prevents the Account POST
+ok 520 - a guard blocked between the evidence capture and the preflight prevents the Account POST
+  ---
+  duration_ms: 1803.732
+  type: 'test'
+  ...
+# Subtest: a job request appearing between the evidence capture and the preflight prevents the Account POST
+ok 521 - a job request appearing between the evidence capture and the preflight prevents the Account POST
+  ---
+  duration_ms: 1716.7217
+  type: 'test'
+  ...
+# Subtest: a job marker appearing between the evidence capture and the preflight prevents the Account POST
+ok 522 - a job marker appearing between the evidence capture and the preflight prevents the Account POST
+  ---
+  duration_ms: 1860.9414
+  type: 'test'
+  ...
+# Subtest: a complete seal terminal pair existing at the preflight prevents the Account POST
+ok 523 - a complete seal terminal pair existing at the preflight prevents the Account POST
+  ---
+  duration_ms: 2043.3878
+  type: 'test'
+  ...
+# Subtest: a complete release terminal pair existing at the preflight prevents the Account POST
+ok 524 - a complete release terminal pair existing at the preflight prevents the Account POST
+  ---
+  duration_ms: 1830.0313
+  type: 'test'
+  ...
+# Subtest: a version-only change of the identity document after the preflight blocks the job and keeps only the ACK
+ok 525 - a version-only change of the identity document after the preflight blocks the job and keeps only the ACK
+  ---
+  duration_ms: 2297.9675
+  type: 'test'
+  ...
+# Subtest: a version-only change of the input document after the preflight blocks the job and keeps only the ACK
+ok 526 - a version-only change of the input document after the preflight blocks the job and keeps only the ACK
+  ---
+  duration_ms: 2269.6046
+  type: 'test'
+  ...
+# Subtest: a version-only change of the project document after the preflight blocks the job and keeps only the ACK
+ok 527 - a version-only change of the project document after the preflight blocks the job and keeps only the ACK
+  ---
+  duration_ms: 2272.5137
+  type: 'test'
+  ...
+# Subtest: a version-only change of the origin document after the preflight blocks the job and keeps only the ACK
+ok 528 - a version-only change of the origin document after the preflight blocks the job and keeps only the ACK
+  ---
+  duration_ms: 2264.0453
+  type: 'test'
+  ...
+# Subtest: a version-only change of the intentGuard document after the preflight blocks the job and keeps only the ACK
+ok 529 - a version-only change of the intentGuard document after the preflight blocks the job and keeps only the ACK
+  ---
+  duration_ms: 2062.3801
+  type: 'test'
+  ...
+# Subtest: a version-only change of the jobMarker document after the preflight blocks the job and keeps only the ACK
+ok 530 - a version-only change of the jobMarker document after the preflight blocks the job and keeps only the ACK
+  ---
+  duration_ms: 2334.9346
+  type: 'test'
+  ...
+1..530
+# tests 530
+# suites 0
+# pass 519
+# fail 6
+# cancelled 0
+# skipped 5
+# todo 0
+# duration_ms 1533860.8278

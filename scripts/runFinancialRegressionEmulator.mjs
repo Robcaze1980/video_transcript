@@ -59,6 +59,7 @@ const tracked = Object.freeze([
   'scripts/checkFinancialOwnedRootGuard.mjs',
   'scripts/runFinancialHarnessSelfchecks.mjs',
   'scripts/checkFinancialRegressionEquivalence.mjs',
+  'scripts/checkFinancialCandidateIntegrity.mjs',
   'scripts/prepareFinancialIsolation.mjs',
   'scripts/InspectFinancialRegressionFirestore.java',
   'scripts/runFinancialRegressionIsolated.ps1',

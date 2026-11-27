@@ -1,0 +1,98 @@
+No ejecuté nada: entrego la propuesta completa (script + ediciones exactas) en una sola respuesta.
+
+## Nuevo script `scripts/checkFinancialCandidateIntegrity.mjs`
+
+```js
+// Integridad estática del candidato congelado e4ed64d. Solo lectura: no escribe archivos,
+// no abre red, no inicia emulador ni fixture y no contiene secretos.
+// NO sustituye al comparador 0244bfc y NO verifica todo el setup (safety, target, backend gate).
+import {execFileSync} from 'node:child_process';
+import {readFileSync,realpathSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
+import ts from 'typescript';
+
+const base='e4ed64dc87122352d68ac68763b653308a377787';
+const repo=realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'));
+
+const head=execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+if(head!==base)throw Error(`Unexpected HEAD ${head}; expected ${base}`);
+
+const runnerPath='scripts/runFinancialRegressionEmulator.mjs';
+const show=file=>execFileSync('git',['show',`${base}:${file}`],{cwd:repo,encoding:'utf8',maxBuffer:10_000_000});
+const baseRunner=show(runnerPath);
+const currentRunner=readFileSync(path.join(repo,runnerPath),'utf8');
+
+const fixtureDeclaration=(source,label)=>{
+  const match=/const fixtureFiles = \[([^\]]+)\];/s.exec(source);
+  if(!match)throw Error(`fixtureFiles declaration missing: ${label}`);
+  return [...match[1].matchAll(/'([^']+)'/g)].map(m=>m[1]);
+};
+const skippedDeclaration=(source,label)=>{
+  const match=/const expectedSkippedNames = \[([\s\S]*?)\];/.exec(source);
+  if(!match)throw Error(`expectedSkippedNames declaration missing: ${label}`);
+  return [...match[1].matchAll(/'([^']+)'/g)].map(m=>m[1]);
+};
+
+const baseFiles=fixtureDeclaration(baseRunner,'base');
+const currentFiles=fixtureDeclaration(currentRunner,'current');
+if(JSON.stringify(baseFiles)!==JSON.stringify(currentFiles))throw Error('fixtureFiles differ from base');
+if(currentFiles.length!==14||new Set(currentFiles).size!==14)throw Error('Expected exactly 14 unique fixture files');
+
+const baseSkipped=skippedDeclaration(baseRunner,'base');
+const currentSkipped=skippedDeclaration(currentRunner,'current');
+if(currentSkipped.length!==5||new Set(currentSkipped).size!==5)throw Error('Expected exactly five voice skips');
+if(JSON.stringify(baseSkipped)!==JSON.stringify(currentSkipped))throw Error('expectedSkippedNames differ from base');
+
+const normalize=source=>source.replace(/\r\n/g,'\n');
+function calls(source,file){
+  const parsed=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS),found=[];
+  function visit(node){
+    if(ts.isCallExpression(node)){
+      const callee=node.expression.getText(parsed);
+      if(callee==='test'||callee.startsWith('test.')||callee==='it'||callee.startsWith('it.'))found.push(node.getText(parsed));
+    }
+    ts.forEachChild(node,visit);
+  }
+  visit(parsed);return found;
+}
+let total=0;
+for(const file of currentFiles){
+  const after=readFileSync(path.join(repo,file),'utf8');
+  if(!after.trim())throw Error(`Empty fixture file: ${file}`);
+  const previous=calls(normalize(show(file)),file),current=calls(normalize(after),file);
+  if(!previous.length||!current.length)throw Error(`Missing test/it calls: ${file}`);
+  if(previous.length!==current.length||JSON.stringify(previous)!==JSON.stringify(current))
+    throw Error(`Test calls differ from base: ${file}`);
+  total+=previous.length;
+  process.stdout.write(`${file}: ${previous.length} test-call bodies match\n`);
+}
+process.stdout.write(`Candidate integrity: PASS; base=${base}; files=${currentFiles.length}; static-calls=${total}.\n`);
+process.stdout.write('Does not replace the 0244bfc comparator; does not verify full fixture setup, safety, target or test-only backend gate.\n');
+```
+
+## Ediciones exactas propuestas
+
+- `scripts/runFinancialRegressionEmulator.mjs` — añadir al array `tracked`, junto a los demás checkers, para que su hash entre al manifiesto:
+  `'scripts/checkFinancialRegressionEquivalence.mjs',` → añadir debajo `'scripts/checkFinancialCandidateIntegrity.mjs',`
+- `scripts/prepareFinancialIsolation.mjs` — `const base='0244bfc591368524a4b980312c20c9b53952a532';` → `const base='e4ed64dc87122352d68ac68763b653308a377787';`
+- `scripts/runFinancialRegressionIsolated.ps1` — en `AssertFrozenSystem`, `$system.base -cne '0244bfc591368524a4b980312c20c9b53952a532'` → `$system.base -cne 'e4ed64dc87122352d68ac68763b653308a377787'`
+- Se conservan intactos: comparador 0244bfc, `expectedSkippedNames`, puertos, hashes, aislamiento, limpieza y demás guardas.
+
+## JSON
+
+```json
+{
+  "newScript": "scripts/checkFinancialCandidateIntegrity.mjs",
+  "trackedEntry": "'scripts/checkFinancialCandidateIntegrity.mjs'",
+  "oldBase": "0244bfc591368524a4b980312c20c9b53952a532",
+  "newBase": "e4ed64dc87122352d68ac68763b653308a377787"
+}
+```
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: propuesta de `scripts/checkFinancialCandidateIntegrity.mjs` (pin e4ed64d + HEAD, comparación de `fixtureFiles`/`expectedSkippedNames` contra e4ed64d con 14 fixtures únicos y 5 omisiones de voz, recorrido AST de cuerpos test/it con normalización solo de fin de línea y rechazo de vacío/faltante/alterado, solo lectura); ediciones exactas: alta de `'scripts/checkFinancialCandidateIntegrity.mjs'` en `tracked` del ejecutor y cambio de pin 0244bfc→e4ed64d en `prepareFinancialIsolation.mjs` y `runFinancialRegressionIsolated.ps1`; JSON con newScript/trackedEntry/oldBase/newBase.
+NEGATIVOS: no ejecutado (cero herramientas, cero pasos, sin escritura ni corridas); no es aceptación de saldo; pendientes 58/64 y retry-generation A; el script no sustituye la auditoría contra 0244bfc ni verifica todo el setup, safety, target ni backend gate; comparador antiguo conservado sin cambios; guardas y datos intactos; sin nube ni secretos.
+BLOQUEOS: ninguno; costo y tokens no medidos.
+=== FIN RESUMEN ===

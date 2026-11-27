@@ -1,0 +1,54 @@
+Confirmo el reemplazo exacto del pin en los tres archivos, sin tocar lógica, fixtures, omisiones ni el comparador antiguo. Todo verificado por lectura del texto que diste; nada ejecutado.
+
+```json
+{
+  "replacements": [
+    {
+      "file": "scripts/checkFinancialCandidateIntegrity.mjs",
+      "from": "const base='e4ed64dc87122352d68ac68763b653308a377787';",
+      "to": "const base='61e64070c2ac6245caaee8eaad620feb68d9e246';",
+      "effect": "El chequeo fija HEAD en 61e64070 y compara declaraciones y las 14 fixtures contra ese commit."
+    },
+    {
+      "file": "scripts/prepareFinancialIsolation.mjs",
+      "from": "const base='e4ed64dc87122352d68ac68763b653308a377787';",
+      "to": "const base='61e64070c2ac6245caaee8eaad620feb68d9e246';",
+      "effect": "El manifiesto candidato congela base=61e64070; el campo base cambia en el JSON emitido."
+    },
+    {
+      "file": "scripts/runFinancialRegressionIsolated.ps1",
+      "from": "$system.base -cne 'e4ed64dc87122352d68ac68763b653308a377787' -or",
+      "to": "$system.base -cne '61e64070c2ac6245caaee8eaad620feb68d9e246' -or",
+      "effect": "AssertFrozenSystem exige base=61e64070 en el manifiesto verificado."
+    }
+  ],
+  "unchanged": {
+    "oldComparatorBase": "0244bfc591368524a4b980312c20c9b53952a532",
+    "oldComparator": "scripts/checkFinancialRegressionEquivalence.mjs conserva su pin 0244bfc y su normalización (demo-vistavo-financial->ledger, 8198->8185, f=await fixture()->f=fixture()).",
+    "fixtures": "14 fixtures únicas, sin cambios de contenido ni de lista.",
+    "expectedSkippedNames": "Las cinco omisiones de voz, sin cambios.",
+    "guards": "Puertos 8198,9198,9298, hashes, aislamiento, limpieza y demás guardas: sin cambios."
+  },
+  "requiredFollowUps": [
+    "Como el campo base entra en el manifiesto, su hash cambia: hay que regenerar el manifiesto con prepareFinancialIsolation.mjs y recalcular las constantes $ExpectedManifestSha256 y $ExpectedSystemManifestSha256 del lanzador. Sin eso, AssertFrozenSystem falla por hash, no por pin.",
+    "Comprobar que el worktree está exactamente en 61e64070 y que el fast-forward no tocó el arnés: git diff e4ed64d 61e64070 -- scripts/runFinancialRegressionEmulator.mjs scripts/prepareFinancialIsolation.mjs scripts/runFinancialRegressionIsolated.ps1 <las 14 fixtures> debe salir vacío. Si no lo está, el pin nuevo no es suficiente y el chequeo de archivo completo fallará (que es el comportamiento deseado, pero bloquea el diagnóstico).",
+    "Confirmar dónde viven los dos casos nuevos: si están dentro de las 14 fixtures, el worktree debe tener esas fixtures idénticas a 61e64070 (de lo contrario la comparación de archivo completo rechaza). Si alguno es un archivo de fixture nuevo, la regla de 14 y la declaración fixtureFiles se rompen y habría que revisar el alcance antes de correr, sin tocar omisiones."
+  ],
+  "notCovered": [
+    "Sigue sin compararse el runner ni sus dependencias transitivas; solo declaraciones y las 14 fixtures.",
+    "Carreras, concurrencia y no determinismo de la corrida real siguen fuera del alcance estático.",
+    "Firewall/native networking y aislamiento de red no se ejercitan.",
+    "Setup completo (safety, target, backend gate de solo test) sigue a cargo de los otros checks.",
+    "La auditoría de cambios frente a 0244bfc permanece en el comparador antiguo."
+  ]
+}
+```
+
+**Efecto neto.** Los tres pines quedan en `61e64070c2ac6245caaee8eaad620feb68d9e246`; el comparador antiguo sigue en `0244bfc`; fixtures, omisiones y guardas intactas. El único efecto colateral no obvio es que cambiar `base` altera los bytes del manifiesto, así que las dos constantes de hash esperado del lanzador deben regenerarse; eso es trabajo de Codex antes de cualquier corrida, no un cambio de guarda.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: JSON con los tres reemplazos exactos e4ed64dc→61e64070 (`checkFinancialCandidateIntegrity.mjs`, `prepareFinancialIsolation.mjs`, `runFinancialRegressionIsolated.ps1`), la lista de lo que permanece igual (comparador antiguo en 0244bfc, 14 fixtures, cinco omisiones, guardas, puertos, hashes) y los seguimientos requeridos (regenerar manifiesto y recalcular `$ExpectedManifestSha256`/`$ExpectedSystemManifestSha256`; verificar `git diff e4ed64d 61e64070` vacío sobre el arnés; confirmar dónde viven los dos casos nuevos).
+NEGATIVOS: no ejecutado (cero herramientas, sin escritura ni corridas) y no se afirma que la batería pase; el pin nuevo no prueba por sí solo la equivalencia de fixtures (debe correrlo Codex); siguen sin cubrirse runner/dependencias, carreras, firewall y setup completo; no es aceptación de saldo; pendientes 58/64 y retry-generation A; sin nube ni secretos.
+BLOQUEOS: ninguno; costo y tokens no medidos.
+=== FIN RESUMEN ===

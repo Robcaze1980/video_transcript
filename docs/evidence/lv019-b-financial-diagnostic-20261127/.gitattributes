@@ -1,0 +1,4 @@
+*.tap -text -diff
+*.json -text -diff
+*.log -text -diff
+*.txt -text -diff

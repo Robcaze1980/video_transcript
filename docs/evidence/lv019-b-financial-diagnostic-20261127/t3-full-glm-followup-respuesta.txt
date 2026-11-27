@@ -1,0 +1,38 @@
+**Conclusión anterior — ¿cambia?**
+No en dirección; se estrecha el riesgo residual. Dos de las brechas que señalé quedan cerradas por evidencia:
+
+1. **Fixture setup fuera de cuerpos test/it:** cerrada por igualdad de archivo completo contra `61e6407` (solo CRLF/LF). Imports, helpers y constantes top-level quedan cubiertos.
+2. **Inclusión del hash del comparador en la candidata:** cerrada. El manifiesto lo contiene, el lanzador verifica la propiedad, exige SHA256 coincidente y ejecuta el comparador antes de `VerifyOnly` o de iniciar nada; alterar un byte lo rechazó antes de arrancar el emulador.
+
+**Controles del comparador (lo que exige, fail-safe)**
+- HEAD exacto `61e6407…`; cualquier otro commit aborta.
+- Lista de fixtures idéntica a base, exactamente 14 únicas; lista de omisiones idéntica a base, exactamente 5 únicas.
+- Cada fixture: archivo completo igual a base (solo CRLF/LF); nodos `test`/`it` (incluye `test.*`/`it.*`) iguales en orden y contenido; total estático 442.
+- Cualquier desviación → throw, no paso indebido.
+
+**Controles del lanzador (adicionales al comparador)**
+- Orden: `AssertFrozenSystem` (hash de system manifest + candidate manifest, base, project, host, puertos, path/SHA candidata) → resolución del comparador como archivo rastreado → presencia en manifiesto → SHA256 del script vs manifiesto → ejecución del comparador → exit 0 requerido → recién después `VerifyOnly` o arranque.
+- Verificación previa de Codex: byte alterado en el comparador → rechazo antes de iniciar emulador; restauración exacta.
+
+**Brechas residuales del comparador/lanzador (más estrechas)**
+- El contenido del runner fuera de las dos declaraciones fijadas no se compara contra `61e6407`; se hashea pero no se contrasta con el commit. Un cambio semántico en lógica del runner (guardas, timeouts, manejo de skips) pasaría el comparador.
+- No exige árbol limpio: una cuarta desviación no comprometida fuera de las superficies fijadas pasaría.
+- El total TAP runtime no se cruza contra el estático 442; ese número vive solo en el comparador.
+- Comentarios adyacentes y tests vía alias (`const t = test`) son invisibles en ambas versiones del runner; sin evidencia de que existan.
+
+**Limitaciones del runner, procesos nativos y dependencias (distintas del comparador)**
+- Preload no es firewall de SO; esbuild, addons nativos, hijos nativos y APIs no soportadas no cubiertos.
+- Tests sustituyen fetch por stub en memoria en puntos seleccionados.
+- Dependencias transitivas no hasheadas; `typescript` (usado por el comparador) no está hasheado — un tampering de ese paquete podría alterar el parseo, aunque el comparador solo-lectura y los pins reducen el incentivo/superficie.
+- Hashes pre/post no crean snapshot inmutable.
+- Java/javac/emulador: procesos nativos fuera del perímetro del preload.
+
+**Estado de la batería**
+Diagnóstica, no aceptación. Casos 64, retry-generation A y recuperación 409/pending siguen abiertos. Esta revisión es estática; no constituye evidencia de ejecución de la batería.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `scripts/checkFinancialCandidateIntegrity.mjs` (HEAD pin, 14 fixtures únicas, 5 omisiones únicas, igualdad de archivo completo por fixture vs 61e6407 con normalización CRLF/LF, igualdad de nodos test/it, 442 llamadas estáticas); diff de `scripts/runFinancialRegressionIsolated.ps1` (orden AssertFrozenSystem → resolución rastreada → presencia en manifiesto → SHA256 del comparador → ejecución con exit 0 requerido → VerifyOnly); manifiesto con `integrityScriptHashMatches: true`, `fixtureFiles: 14`, `staticCalls: 442`; verificaciones de Codex reportadas (comparador PASS, skip agregado rechazado, cambio fuera de cuerpo rechazado, VerifyOnly OK, byte alterado rechazado antes de emulador).
+NEGATIVOS: revisión estática; la batería NO se ejecutó y esta revisión no acepta el saldo. Runner fuera de las dos declaraciones fijadas no comparado vs base (solo hasheado). Sin exigencia de árbol limpio. Total TAP no cruzado contra 442. `typescript` y dependencias transitivas no hasheadas. Procesos nativos y preload no firewall de SO: limitaciones declaradas del runner, no controles del comparador. No examiné el código completo del runner, prepare ni el resto del ps1; solo los fragmentos provistos. Costo y tokens no medidos.
+BLOQUEOS: ninguno para esta revisión; pendiente la batería diagnóstica con casos 64, retry-generation A y recuperación 409/pending abiertos. Costo y tokens no medidos.
+=== FIN RESUMEN ===

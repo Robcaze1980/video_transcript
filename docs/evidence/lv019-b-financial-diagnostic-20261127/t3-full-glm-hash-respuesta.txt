@@ -1,0 +1,29 @@
+**Objeciones previas — estado**
+- **Cobertura del runner:** resuelta dentro de su alcance. El runner y el comparador están exigidos en el mapa del manifiesto autenticado por hash; el comparador valida cada una de las 81 entradas (ruta segura, archivo ordinario no symlink, realpath dentro del repo, SHA-256 igual). Mutar el runner o el comparador ahora rechaza antes del emulador, verificado por Codex con restauración byte a byte.
+- **Hash del comparador en la candidata:** resuelta con cadena completa: `AssertFrozenSystem` autentica ambos manifiestos → lanzador exige presencia y hash del comparador en el manifiesto autenticado → lo ejecuta con la ruta del manifiesto → exit 0 requerido antes de `VerifyOnly` o de iniciar nada. Orden correcto, fail-safe.
+- **Runner vs base:** matizado. El runner queda fijado por bytes al congelar y re-verificado al lanzar, pero el comparador no lo contrasta semánticamente contra `61e6407`; el diff mostrado es la evidencia de qué cambió. Suficiente para corrida diagnóstica; lo declaro como límite, no como control.
+
+**Controles que funcionan correctamente (revisión del código)**
+- Validación de rutas del manifiesto: regex de caracteres, segmentos sin `.`/`..`, `inside(repo, real)`, comparación case-insensitive en Windows, symlink excluido por `lstat` y `realpath`. Cualquier desviación lanza, no pasa.
+- Identidad del manifiesto: `project`, `host`, `expectedSkipped=5` exigidos; formato de hash `64 hex` exigido.
+- Fixtures: HEAD exacto, 14 únicas completas vs base (solo CRLF/LF), nodos test/it iguales, 442 llamadas estáticas.
+- Ventana de preparación: el preparador valida plataforma, Node v24, sin `NODE_OPTIONS`, identidad de Node, rutas seguras, JDK interno al root, JAR con SHA pinneado, y escribe el manifiesto de aislamiento con `wx`.
+
+**Riesgos residuales (reales, declarados o no)**
+1. **TOCTOU:** ventana entre PASS del comparador e inicio del emulador; nada re-verifica después. Sin snapshot inmutable. El propio comparador lo declara.
+2. **Dependencias no listadas:** `typescript` (usado por el comparador) y transitivas quedan fuera de los 81 hashes a menos que se hayan listado; no hay evidencia de que lo estén. Tampering de supply chain en ellas podría afectar el parseo o la ejecución.
+3. **Listado del manifiesto:** el proceso que genera las 81 entradas no se muestra; el preparador valida cada entrada pero no que el conjunto cubra todo lo rastreado por git. Un archivo modificado antes de congelar y listado en el manifiesto pasaría sin contraste vs base (los fixtures sí tienen ese contraste).
+4. **Fixtures no exigidas en el manifiesto:** el comparador compara su contenido vs base directamente, pero no requiere que las 14 estén en el mapa; la fijación por hash de fixtures depende de que el generador las haya incluido.
+5. **Total TAP vs 442:** sigue sin evidencia de cruce en el `summary()` del runner; el número 442 vive solo en el comparador.
+6. **`snapshot.version` no verificado en el comparador** (el preparador sí lo exige); inconsistencia menor, no fail-open.
+7. **Procesos nativos y firewall:** preload no es firewall de SO; esbuild, addons nativos, hijos nativos y APIs no soportadas fuera del perímetro. Declarado en limitaciones.
+
+**Verificación previa de Codex**
+Manifiesto con 81 entradas (candidate `d5f5bf33…`, sistema `b1fbc560…`), comparador y runner incluidos, `VerifyOnly` PASS con 14 fixtures / 442 llamadas / 81 hashes, mutaciones rechazadas antes del emulador y restauración exacta, autocontrol offline OK. **La batería completa NO se ejecutó**; casos 64, retry-generation A y conciliación 409/pending siguen abiertos. Esta revisión es estática: no certifica saldo ni producción ni autoriza corrida de aceptación.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `scripts/checkFinancialCandidateIntegrity.mjs` (argv manifiesto autenticado; identidad project/host/expectedSkipped; HEAD=61e6407; 14 fixtures completas vs base con CRLF/LF; 442 nodos test/it; validación de 81 entradas: ruta segura por regex y segmentos, archivo ordinario no symlink, realpath dentro del repo, SHA-256 igual; exigencia de runner y comparador en el mapa); `scripts/runFinancialRegressionIsolated.ps1` (AssertFrozenSystem autentica manifiestos por hash → presencia y hash del comparador → ejecución con exit 0 requerido antes de VerifyOnly/inicio); `scripts/prepareFinancialIsolation.mjs` (win32, Node v24, sin NODE_OPTIONS, identidad Node, rutas seguras, JDK dentro del root, JAR SHA pinneado, escritura wx); diff del runner (comparador en tracked); verificaciones de Codex: VerifyOnly PASS 14/442/81, mutación de comparador y runner rechazada antes del emulador con restauración byte a byte, autocontrol offline OK.
+NEGATIVOS: revisión estática de código; la batería NO se ejecutó y esta revisión no certifica saldo ni producción. TOCTOU entre chequeo y ejecución sin snapshot inmutable (declarado). Dependencias no listadas, incluida `typescript` del propio comparador (no evidenciado que estén en los 81). Proceso generador del mapa de 81 entradas no examinado; el preparador valida entradas pero no completitud del conjunto vs git. Fixtures no exigidas explícitamente en el mapa del manifiesto. Total TAP runtime no cruzado contra 442 en los fragmentos vistos. `snapshot.version` no chequeado en el comparador. No examiné el ps1 completo ni el resto del runner; solo fragmentos provistos. Casos 64, retry-generation A y conciliación 409/pending pendientes.
+BLOQUEOS: ninguno para esta revisión; la corrida diagnóstica queda lista en diseño, con la batería completa aún sin ejecutar. Costo y tokens no medidos.
+=== FIN RESUMEN ===

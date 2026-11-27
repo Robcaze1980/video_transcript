@@ -1,0 +1,37 @@
+**Comparador nuevo — verificación dentro de su alcance**
+- **HEAD:** `git rev-parse HEAD` exige exactamente `e4ed64dc…`; cualquier commit distinto aborta. Fail-safe.
+- **Fixtures:** extrae `fixtureFiles` por regex, la compara elemento a elemento contra base y exige 14 únicas; declaración ausente, formato alterado, lista distinta o duplicados → throw, no paso indebido.
+- **Omisiones:** extrae `expectedSkippedNames`, exige 5 únicas e iguales a base; en runtime `noSkipped` del executor exige los nombres exactos contra el TAP real. Cadena base→comparador→runtime coherente.
+- **Cuerpos AST:** parsea con TS, captura el texto completo de cada expresión `test`/`it` (incluye `test.*`/`it.*`), normaliza CRLF y compara orden y contenido contra `git show base:file`. Correcto para lo que declara cubrir.
+
+**Variaciones que podrían pasar indebidamente**
+1. Cambios en setup de fixtures fuera de expresiones `test`/`it` (imports, helpers, constantes top-level) no se contrastan con base.
+2. Cambios en el runner fuera de `fixtureFiles` y `expectedSkippedNames` (lógica de guardas, timeouts, manejo de skips) no se contrastan con base; el congelado hashea el árbol tal cual, no lo valida contra el commit.
+3. El comparador no exige árbol limpio: una cuarta desviación no comprometida fuera de las superficies fijadas pasaría.
+4. Comentarios adyacentes a las llamadas y tests invocados por alias (`const t = test; t(...)`) son invisibles en ambas versiones; sin evidencia de que existan en base.
+
+Mitigación parcial: el comparador antiguo contra 0244bfc queda intacto y cubre la equivalencia histórica de llamadas, y la limitación está declarada en el propio script.
+
+**Hash del nuevo script en la candidata**
+- Mecanismo visible y correcto: `scripts/checkFinancialCandidateIntegrity.mjs` agregado a `tracked` en el runner — condición necesaria.
+- No evidenciado en los fragmentos: regeneración del manifiesto congelado ni actualización de `ExpectedSystemManifestSha256`/`ExpectedManifestSha256` (el diff del ps1 solo cambia el pin de base). Si el manifiesto es estático, el pin quedaría desalineado y `AssertFrozenSystem` fallaría al arranque — fallo seguro, no fail-open, pero la inclusión efectiva del hash debe confirmarse inspeccionando el manifiesto/`result.json` en el momento del freeze.
+
+**Pins nuevos — validaciones preservadas**
+- ps1: solo cambia `$system.base`; siguen verificados `version=1`, `project=demo-vistavo-financial`, `host=127.0.0.1:8198`, `fixedPorts=8198,9198,9298`, ruta y SHA del manifiesto candidata, y SHA del system manifest. Proyecto demo, loopback, puertos fijos y manifiestos intactos según líneas visibles.
+- prepare: solo cambia el pin; exigencias win32, node v24 y ausencia de `NODE_OPTIONS` intactas según diff.
+- No se observa debilitamiento de barreras en los fragmentos provistos.
+
+**Mecanismo FAIL del ejecutor**
+- Fallos contados (`not ok`) → `failCount>0` → behavior FAIL + exit 1; `complete` exige coherencia entre exit code y failCount.
+- Todo imprevisto —crash, signal, timeout, interrupción, logs ilegibles, skip de más/menos, cancelled/todo, guard denied, `mismatchAfter`, `pathChanges`, manifiesto alterado, node cambiado, conteos inconsistentes, filas TAP faltantes vía `numberedCases`— produce `complete=false` → INCOMPLETE, nunca PASS. Comportamiento conservador.
+- Brecha menor: el total TAP no se cruza contra un total esperado (p. ej. 441 estático); ese número solo vive en el comparador, no en `summary()`.
+
+**Lectura global**
+El diseño es sólido y fail-safe en su alcance declarado; los riesgos residuales están acotados y documentados. Esta revisión es estática y de diseño: **no** constituye evidencia de que la batería se ejecutó ni aceptación del saldo; los casos 58, 64 y retry-generation A siguen abiertos y la batería diagnóstica aislada sigue pendiente.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `scripts/checkFinancialCandidateIntegrity.mjs` (verificación de HEAD, 14 fixtures, 5 omisiones y cuerpos test/it vs base, solo lectura); diff de `scripts/prepareFinancialIsolation.mjs` (pin e4ed64d), `scripts/runFinancialRegressionEmulator.mjs` (tracked incluye el comparador nuevo), `scripts/runFinancialRegressionIsolated.ps1` (pin nuevo con checks de proyecto demo, loopback, puertos fijos y SHA de manifiestos intactos); resumen TAP y condición final del executor (fail-safe). Preflight reportado por quien coordina: comparador PASS con 14 fixtures y 441 llamadas estáticas; skip agregado y cuerpo de test modificado rechazados con restauración byte a byte; autocontroles offline de guardas OK.
+NEGATIVOS: revisión estática de diseño; la batería NO se ejecutó y esta revisión no acepta el saldo; casos 58, 64 y retry-generation A pendientes. Variaciones fuera del alcance del comparador podrían pasar: setup de fixtures fuera de llamadas test/it, cambios del runner fuera de las dos declaraciones fijadas, desviaciones adicionales del árbol de trabajo vs e4ed64d, comentarios adyacentes y tests vía alias invisibles. La inclusión efectiva del hash del nuevo script en la candidata congelada no está evidenciada: el mecanismo (tracked) es visible, pero la regeneración del manifiesto y los SHA esperados no aparecen en el diff; el fallo ante pin desalineado sería seguro, no fail-open. No hay cruce runtime del total TAP contra el total estático 441. Solo examiné los fragmentos provistos, no el código completo del manifiesto, prepare ni ps1. Costo y tokens no medidos (revisión sin herramientas).
+BLOQUEOS: ninguno para esta revisión; el pendiente declarado es la batería diagnóstica aislada con sus tres casos abiertos. Costo y tokens no medidos.
+=== FIN RESUMEN ===

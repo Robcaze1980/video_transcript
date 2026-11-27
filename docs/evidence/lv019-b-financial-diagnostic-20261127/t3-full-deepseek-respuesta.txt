@@ -1,0 +1,36 @@
+## Revisión estática — LV-019.B (comparador de integridad de candidata, base `e4ed64d`)
+
+Revisión de solo lectura sobre el paquete entregado. **No ejecuté ni verifiqué la batería**; el preflight (14 fixtures, 441 llamadas, rechazo de skip y de cuerpo modificado, autocontroles offline) lo cito como *reportado por Codex*, no como evidencia propia. No usé herramientas.
+
+**HEAD y anclaje**
+- `git rev-parse HEAD` + `if(head!==base)` con `base='e4ed64d…'` → verifica HEAD y es fail-closed. Coherente con el nuevo pin de `prepareFinancialIsolation.mjs` y de `runFinancialRegressionIsolated.ps1` (ambos movidos a `e4ed64d`), así que las tres anclas coinciden.
+- Límite: solo comprueba `HEAD`; **no exige árbol limpio**. Lo que no sea fixture comparado ni runner declarado depende del pin del manifiesto.
+
+**Fixtures y omisiones**
+- `fixtureDeclaration`/`skippedDeclaration` con `match` nulo → `throw` (fail-closed). Comparan por JSON estricto contra `git show base:...`, y exigen 14 únicos y 5 únicos. Un reordenamiento o un renombrado de declaración se rechaza.
+- Comparan **solo las dos declaraciones** del runner (`fixtureFiles`, `expectedSkippedNames`), no el resto de la lógica del runner.
+
+**Cuerpos AST**
+- `calls()` compara texto exacto de nodos `test`/`test.*`/`it`/`it.*` base vs árbol, con longitud y orden; `throw` si algún lado queda vacío; suma `441`. Es un oráculo independiente del manifiesto (usa `git`).
+- Puntos ciegos reales: no cubre `describe`, hooks (`before/after/beforeEach/afterEach`), imports/constantes de nivel superior, ni alias (`const t=it; t(...)` → callee `t`, no contado). Una variación introducida ahí **no la detecta este script**; solo el pin del manifiesto la pararía.
+
+**Hash del nuevo script y pins del sistema**
+- El diff añade `scripts/checkFinancialCandidateIntegrity.mjs` a `tracked`, lo que *implica* que su hash entra en el manifiesto **siempre que** `prepareFinancialIsolation` consuma `tracked` (su cuerpo no está en el paquete). Es inferencia, no evidencia.
+- El hunk de `.ps1` **no muestra** actualización de `ExpectedManifestSha256`/`ExpectedSystemManifestSha256`; como `runFinancialRegressionEmulator.mjs` sí cambió (nueva entrada en `tracked`), esos pines deben regenerarse o `AssertFrozenSystem` fallará (fail-closed, no inseguro, pero bloqueante).
+- Los pins conservados siguen validando: `version=1`, `project='demo-vistavo-financial'`, `host='127.0.0.1:8198'`, `fixedPorts='8198,9198,9298'`, `candidate.path/sha256` y ambos manifiestos. No hay control de *procesos* distinto de puertos/loopback en lo mostrado.
+
+**Ejecutor ante errores/omisiones**
+- `checksPass` exige `noSkipped` por conteo y nombres ordenados, `numberedCases`, `countsConsistent`, `guardInstances≥files+1`, `noCancelled/noTodo`. `complete` añade `manifestAfterSha===manifestSha256`, `nodeUnchanged`, sin `mismatchAfter/pathChanges` y `exitCode` coherente con `failCount`; `pass=complete&&behavior==='PASS'`; `process.exitCode=1` si no pasa. Una omisión no prevista → `noSkipped=false` → `INCOMPLETE` + exit 1.
+- Matiz de consume: imprime `INCOMPLETE` (no `FAIL`) cuando faltan checks; quien consuma debe tratar exit≠0 como no-pass. `syntheticTsxIpcRequests` se cuenta pero **no** se exige en `checksPass`.
+
+**Variaciones que podrían pasar indebidamente**
+- Cambios en la lógica del runner fuera de las dos declaraciones, en código de `describe`/hooks/imports, por alias, o en archivos fuera de la lista de fixtures: este comparador no los ve (queda solo el pin del manifiesto).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: `scripts/checkFinancialCandidateIntegrity.mjs` verifica HEAD=e4ed64d (throw si no), compara `fixtureFiles`/`expectedSkippedNames` contra `git show base:`, exige 14 y 5 únicos, y compara texto de nodos test/it base-vs-árbol (441, fail-closed si vacío). `.ps1` conserva project=demo-vistavo-financial, host=127.0.0.1:8198, fixedPorts=8198,9198,9298 y ambos manifiestos; el ancla coincide en los tres archivos. `checksPass/complete` rechazan omisiones no previstas con exit≠0.
+NEGATIVOS: No verifiqué (no medido) la inclusión del hash del nuevo script en el manifiesto: el generador no está en el paquete y el diff del `.ps1` no muestra regeneración de `ExpectedManifestSha256`/`ExpectedSystemManifestSha256`; es inferencia condicionada a que `prepareFinancialIsolation` consuma `tracked`. No se muestra dónde/cómo se invoca el script ni con qué árbol/cwd (repo resuelto por ubicación del archivo), ni que valide la candidata real. No se comprueba árbol limpio. Puntos ciegos AST: `describe`, hooks, imports, constantes de nivel superior, alias y lógica del runner. `syntheticTsxIpcRequests` contado sin exigirse; sin control de procesos aparte de puertos. No ejecuté la batería; casos 58, 64 y retry-generation A siguen pendientes; no toqué datos reales ni nube.
+BLOQUEOS: ninguno; costo y tokens no medidos.
+=== FIN RESUMEN ===
+
+Sugerencia para cerrar el flanco INCONCLUYENTE: adjuntar el cuerpo de `prepareFinancialIsolation.mjs` (generación/hash del manifiesto) y la línea de invocación del comparador dentro del emulador, más el pin de manifiesto actualizado. Con eso la pregunta del hash pasa de inferencia a evidencia.
