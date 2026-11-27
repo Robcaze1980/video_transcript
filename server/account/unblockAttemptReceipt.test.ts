@@ -1,6 +1,7 @@
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash,generateKeyPairSync,randomUUID,sign} from 'node:crypto';
 import {expect,it,vi} from 'vitest';
 import {AccountStore} from './backend';
+import {unblockPermitBytes,unblockReceiptBytes} from './unblockHistoryProof';
 
 type Row=Record<string,unknown>;
 type Ref={path:string};
@@ -17,6 +18,9 @@ const incident='1'.repeat(64);
 function fixture(){
  const rows=new Map<string,Stored>();
  const writes:string[]=[];
+ const observedCommits=new Map<string,{receipt:Stored;incident:Stored}>();
+ const permitKeys=generateKeyPairSync('ed25519'),receiptKeys=generateKeyPairSync('ed25519');
+ const trust={realm:'synthetic-account-database',permitKey:permitKeys.publicKey,receiptKey:receiptKeys.publicKey};
  let sequence=0,transactions=0,next:Promise<unknown>=Promise.resolve(),dropAck=false,failCommit=false;
  const put=(path:string,data:Row,version=++sequence)=>{
   rows.set(path,{data:structuredClone(data),created:rows.get(path)?.created??version,updated:version});
@@ -29,7 +33,8 @@ function fixture(){
  };
  const time=(version:number):Timestamp=>({seconds:42,nanoseconds:version});
  const version=(path:string,field:'created'|'updated')=>'42:'+rows.get(path)![field];
- const root={collection:(collection:string)=>({doc:(id:string)=>({path:collection+'/'+id})})};
+ const root={path:'syntheticRoots/unblock-history',
+  collection:(collection:string)=>({doc:(id:string)=>({path:collection+'/'+id})})};
  const db={runTransaction<T>(fn:(tx:Tx)=>Promise<T>):Promise<T>{
   transactions++;
   const operation=next.then(async()=>{
@@ -60,6 +65,12 @@ function fixture(){
      writes.push(path);
      if(data===null)rows.delete(path);else put(path,data,commit);
     }
+    // This synthetic observer sees the original commit before the caller can lose its response.
+    for(const {receiptPath,incidentPath} of [a,b]){
+     if(pending.has(receiptPath)&&pending.has(incidentPath))observedCommits.set(receiptPath,{
+      receipt:structuredClone(rows.get(receiptPath)!),incident:structuredClone(rows.get(incidentPath)!),
+     });
+    }
     if(dropAck){dropAck=false;throw Error('synthetic committed ACK lost');}
    }
    return result;
@@ -67,7 +78,8 @@ function fixture(){
   next=operation.catch(()=>{});
   return operation;
  }};
- const freshStore=()=>new AccountStore(db as never,root as never,()=>100);
+ const freshStore=(realm=trust.realm,
+  rootPath=root.path)=>new AccountStore(db as never,{...root,path:rootPath} as never,()=>100,{...trust,realm});
  const store=freshStore();
 
  function makeAccount(label:'A'|'B'){
@@ -80,6 +92,7 @@ function fixture(){
   const incidentPath='videoBillingIncidents/'+key;
   const authorityPath='videoBillingUnblockAuthorities/'+key;
   const receiptPath='videoBillingUnblocks/'+digest([accountId,incident,'unblock']);
+  const historyPath='videoBillingUnblockHistory/'+key;
   const reservationPath='videoReservations/'+label,ledgerPath='ledgerEntries/'+label;
   const command:Command={incidentId:incident,attemptId:randomUUID(),authorizationSha256:digest(['fixture',label]),
    reviewRef:'synthetic-evidence-'+label,epoch:1,createdAtMs:5};
@@ -92,19 +105,41 @@ function fixture(){
   put(ledgerPath,{ownerAccountId:accountId,kind:'video_reserve',seconds:3});
   // Stands in for a protected Account enrollment and an already-approved dispatch.
   // No running component in this cut can manufacture these documents from a request.
-  function grant(overrides:Partial<Command>={}){
+  function grantRows(overrides:Partial<Command>={}){
    Object.assign(command,overrides);
    put(authorityPath,{...tuple,...command,unblockProtocol:2,identityVersion:version(identityPath,'updated'),
     incidentVersion:version(incidentPath,'created'),guardVersion:version(guardPath,'created')});
    put(incidentPath,{...at(incidentPath),unblockProtocol:2,unblockAuthorityVersion:version(authorityPath,'created')});
   }
+  let permitted:Parameters<typeof unblockPermitBytes>[0];
+  function grant(overrides:Partial<Command>={}){
+   grantRows(overrides);
+   const activeIncidentVersion=version(incidentPath,'updated');
+   permitted={...tuple,...command,realm:trust.realm,rootPath:root.path,activeIncidentVersion,
+    identityVersion:version(identityPath,'updated'),incidentVersion:version(incidentPath,'created'),
+    authorityVersion:version(authorityPath,'created'),guardVersion:version(guardPath,'created')};
+   put(historyPath,{activeIncidentVersion,permitSignature:sign(null,unblockPermitBytes(permitted),
+    permitKeys.privateKey).toString('base64url')});
+  }
+  function publishReceipt({lost=false,wrongSigner=false}={}){
+   const observed=observedCommits.get(receiptPath);
+   if(!observed)throw Error('synthetic observer has no original Account commit');
+   const receiptBytes=unblockReceiptBytes(permitted,{receiptVersion:'42:'+observed.receipt.created,
+    reviewedIncidentVersion:'42:'+observed.incident.updated,unblockedAtMs:observed.receipt.data.unblockedAtMs as number});
+   const receiptSignature=sign(null,receiptBytes,wrongSigner?permitKeys.privateKey:receiptKeys.privateKey).toString('base64url');
+   put(historyPath,{...at(historyPath),receiptSignature});
+   if(lost)throw Error('synthetic proof publication ACK lost');
+  }
   const {incidentId,epoch,createdAtMs,reviewRef}=command;
-  return {accountId,uid,identityKey,guardPath,identityPath,incidentPath,authorityPath,receiptPath,
-   economic:[accountPath,reservationPath,ledgerPath],command,legacy:{incidentId,epoch,createdAtMs,reviewRef},grant};
+  return {accountId,uid,identityKey,guardPath,identityPath,incidentPath,authorityPath,receiptPath,historyPath,
+   economic:[accountPath,reservationPath,ledgerPath],command,legacy:{incidentId,epoch,createdAtMs,reviewRef},
+   grantRows,grant,publishReceipt};
  }
  const a=makeAccount('A'),b=makeAccount('B');
  const economicSnapshot=()=>[...a.economic,...b.economic].map(path=>structuredClone(rows.get(path)));
- return {a,b,store,rows,writes,at,put,recreate,freshStore,economicSnapshot,snapshot:()=>structuredClone(rows),
+ const unconfiguredStore=()=>new AccountStore(db as never,root as never,()=>100);
+ const sharedKeyStore=()=>new AccountStore(db as never,root as never,()=>100,{...trust,receiptKey:trust.permitKey});
+ return {a,b,store,rows,writes,at,put,recreate,freshStore,unconfiguredStore,sharedKeyStore,economicSnapshot,snapshot:()=>structuredClone(rows),
   transactions:()=>transactions,dropNextAck:()=>{dropAck=true;},rejectNextCommit:()=>{failCommit=true;}};
 }
 
@@ -121,11 +156,19 @@ it('recovers a lost commit response by exact read and replay with one decision a
  expect(f.writes).toEqual([a.receiptPath,a.incidentPath,a.guardPath]);
  expect(f.rows.has(a.guardPath)).toBe(false);
  const committed=f.snapshot();
+ expect(await read()).toEqual({state:'awaiting_proof',...a.command});
+ expect(await f.freshStore().confirmVideoBillingUnblockAttempt(a.identityKey,a.command)).toEqual({
+  state:'awaiting_proof',...a.command,
+ });
+ expect(f.snapshot()).toEqual(committed);
+ expect(()=>a.publishReceipt({lost:true})).toThrow('proof publication ACK lost');
+ const certified=f.snapshot();
  expect(await read()).toEqual({state:'confirmed',...a.command,blocked:false,replayed:true});
  expect(await f.freshStore().confirmVideoBillingUnblockAttempt(a.identityKey,a.command)).toEqual({
   state:'confirmed',...a.command,blocked:false,replayed:true,
  });
- expect(f.snapshot()).toEqual(committed);
+ expect(f.snapshot()).toEqual(certified);
+ expect(f.writes).toEqual([a.receiptPath,a.incidentPath,a.guardPath]);
  expect(f.rows.get(b.guardPath)).toEqual(bGuard);
  expect(f.economicSnapshot()).toEqual(balance);
 });
@@ -138,10 +181,12 @@ it('rejects a failed commit without publishing a receipt, then two exact attempt
  const apply=()=>f.freshStore().confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
  await expect(apply()).rejects.toThrow('commit rejected');
  expect(f.snapshot()).toEqual(before);
+ expect(()=>a.publishReceipt()).toThrow('no original Account commit');
  expect(await f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).toMatchObject({state:'pending'});
  const first=apply(),second=apply();
- expect(await first).toMatchObject({state:'confirmed',replayed:false});
- expect(await second).toMatchObject({state:'confirmed',replayed:true});
+ expect(await first).toMatchObject({state:'awaiting_proof'});
+ expect(await second).toMatchObject({state:'awaiting_proof'});
+ a.publishReceipt();
  const result=await f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command);
  expect(result).toMatchObject({state:'confirmed',replayed:true});
  expect(f.writes.filter(path=>path===a.receiptPath)).toHaveLength(1);
@@ -161,17 +206,58 @@ it('keeps identical incident keys in separate accounts and rejects crossover of 
  expect(f.rows.get(b.guardPath)).toEqual(before.get(b.guardPath));
  expect(f.rows.has(b.receiptPath)).toBe(false);
  expect(await f.store.videoBillingUnblockAttemptReceipt(b.identityKey,b.command)).toMatchObject({state:'pending'});
- expect(await f.store.confirmVideoBillingUnblockAttempt(b.identityKey,b.command)).toMatchObject({state:'confirmed'});
+ expect(await f.store.confirmVideoBillingUnblockAttempt(b.identityKey,b.command)).toMatchObject({state:'awaiting_proof'});
+ a.publishReceipt();b.publishReceipt();
+ expect(await f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).toMatchObject({state:'confirmed'});
+ expect(await f.store.videoBillingUnblockAttemptReceipt(b.identityKey,b.command)).toMatchObject({state:'confirmed'});
  expect(f.economicSnapshot()).toEqual(economic);
 });
 
+it('fails closed with unconfigured trust, a different deployment or root, or a second account carrying the copied proof',async()=>{
+ const f=fixture(),{a,b}=f;
+ a.grant();b.grant(a.command);
+ f.put(b.historyPath,{...f.at(b.historyPath),permitSignature:f.at(a.historyPath).permitSignature});
+ const before=f.snapshot();
+ for(const [store,identityKey] of [
+  [f.unconfiguredStore(),a.identityKey],
+  [f.sharedKeyStore(),a.identityKey],
+  [f.freshStore('different-synthetic-database'),a.identityKey],
+  [f.freshStore(undefined,'syntheticRoots/elsewhere'),a.identityKey],
+  [f.freshStore(),b.identityKey],
+ ] as const){
+  await expect(store.confirmVideoBillingUnblockAttempt(identityKey,a.command)).rejects.toMatchObject({code:'conflict'});
+  await expect(store.videoBillingUnblockAttemptReceipt(identityKey,a.command)).rejects.toMatchObject({code:'conflict'});
+ }
+ expect(f.snapshot()).toEqual(before);
+ expect(f.writes).toEqual([]);
+});
+
+it('requires the receipt authority even when the permit signer signs the exact recorded decision',async()=>{
+ const f=fixture(),{a,b}=f;
+ a.grant();
+ const balance=f.economicSnapshot(),bGuard=structuredClone(f.rows.get(b.guardPath));
+ await expect(f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command)).resolves.toMatchObject({state:'awaiting_proof'});
+ a.publishReceipt({wrongSigner:true});
+ const before=f.snapshot();
+ await expect(f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).rejects.toMatchObject({code:'conflict'});
+ await expect(f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command)).rejects.toMatchObject({code:'conflict'});
+ expect(f.snapshot()).toEqual(before);
+ a.publishReceipt();
+ await expect(f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).resolves.toMatchObject({state:'confirmed'});
+ expect(f.writes).toEqual([a.receiptPath,a.incidentPath,a.guardPath]);
+ expect(f.rows.get(b.guardPath)).toEqual(bGuard);
+ expect(f.economicSnapshot()).toEqual(balance);
+});
+
 it.each([
- 'missing authority','identical authority recreation','authority restored in place','identical incident recreation',
+ 'missing authority','missing historical proof','identical authority recreation','authority restored in place',
+ 'identical incident recreation','incident restored in place',
  'identical current guard recreation','identity changed and restored','same epoch with changed historical reference',
 ] as const)('fails closed with %s before allowing a first dispatch',async scenario=>{
  const f=fixture(),{a,b}=f;
  a.grant();
  if(scenario==='missing authority')f.rows.delete(a.authorityPath);
+ if(scenario==='missing historical proof')f.rows.delete(a.historyPath);
  if(scenario==='identical authority recreation')f.recreate(a.authorityPath);
  if(scenario==='authority restored in place'){
   const original=f.at(a.authorityPath);
@@ -179,6 +265,11 @@ it.each([
   f.put(a.authorityPath,original);
  }
  if(scenario==='identical incident recreation')f.recreate(a.incidentPath);
+ if(scenario==='incident restored in place'){
+  const original=f.at(a.incidentPath);
+  f.put(a.incidentPath,{...original,state:'reviewed'});
+  f.put(a.incidentPath,original);
+ }
  if(scenario==='identical current guard recreation')f.recreate(a.guardPath);
  if(scenario==='identity changed and restored'){
   const original=f.at(a.identityPath);
@@ -207,6 +298,7 @@ it('old generation before the Account decision fails, but a later guard does not
  const second=fixture(),{a}=second;
  a.grant();
  await second.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
+ a.publishReceipt();
  await second.store.blockVideoBilling(a.identityKey,'2'.repeat(64));
  const later=second.snapshot(),laterMoney=second.economicSnapshot();
  expect(await second.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).toMatchObject({
@@ -228,7 +320,9 @@ it('shares a live guard with another incident and consumes the approved attempt 
  const prepared=f.snapshot();
  expect(await f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).toMatchObject({state:'pending'});
  expect(f.snapshot()).toEqual(prepared);
- expect(await f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command)).toMatchObject({state:'confirmed',blocked:false,replayed:false});
+ expect(await f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command)).toMatchObject({state:'awaiting_proof'});
+ a.publishReceipt();
+ expect(await f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).toMatchObject({state:'confirmed',blocked:false});
  expect(f.economicSnapshot()).toEqual(money);
 });
 
@@ -236,6 +330,7 @@ it('does not reinterpret a missing or corrupted receipt after the incident is re
  const f=fixture(),{a}=f;
  a.grant();
  await f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
+ a.publishReceipt();
  const receipt=f.at(a.receiptPath);
  f.put(a.receiptPath,{...receipt,authorizationSha256:'c'.repeat(64)});
  const read=()=>f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command);
@@ -315,7 +410,7 @@ it('provenance audit: an identically recreated receipt must not certify the orig
  const apply=()=>f.freshStore().confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
  f.dropNextAck();
  await expect(apply()).rejects.toThrow('committed ACK lost');
- expect(await query()).toMatchObject({state:'confirmed',replayed:true});
+ expect(await query()).toMatchObject({state:'awaiting_proof'});
 
  const original=structuredClone(f.rows.get(a.receiptPath)!);
  f.recreate(a.receiptPath);
@@ -323,6 +418,8 @@ it('provenance audit: an identically recreated receipt must not certify the orig
  expect(recovered.data).toEqual(original.data);
  expect(recovered.created).not.toBe(original.created);
  expect(recovered.created).toBe(recovered.updated);
+ // Even delayed publication uses the version captured at commit, never the row now in Firestore.
+ a.publishReceipt();
  const before=f.snapshot(),economic=f.economicSnapshot();
 
  const answers=await Promise.allSettled([query(),apply()]);
@@ -330,7 +427,37 @@ it('provenance audit: an identically recreated receipt must not certify the orig
  expect(f.economicSnapshot()).toEqual(economic);
  expect(f.rows.get(b.guardPath)).toEqual(before.get(b.guardPath));
  expect(f.writes.filter(path=>path===a.receiptPath)).toHaveLength(1);
- expect(answers.map(answer=>answer.status)).toEqual(['rejected','rejected']);
+ expect(answers).toMatchObject([
+  {status:'rejected',reason:{code:'conflict'}},{status:'rejected',reason:{code:'conflict'}},
+ ]);
+});
+
+it('does not confirm a replaced reviewed incident or repeat a decision after visually restoring the active state',async()=>{
+ const f=fixture(),{a}=f;
+ a.grant();
+ const active=f.at(a.incidentPath),guard=f.at(a.guardPath),economic=f.economicSnapshot();
+ await f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
+ a.publishReceipt();
+ const read=()=>f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command);
+ const apply=()=>f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
+ await expect(read()).resolves.toMatchObject({state:'confirmed'});
+
+ const reviewed=f.at(a.incidentPath);
+ f.put(a.incidentPath,{...reviewed,reviewedAtMs:101});
+ f.put(a.incidentPath,reviewed);
+ await expect(read()).rejects.toMatchObject({code:'conflict'});
+
+ f.rows.delete(a.receiptPath);
+ f.put(a.incidentPath,active);
+ f.put(a.guardPath,guard);
+ const {activeIncidentVersion,permitSignature}=f.at(a.historyPath);
+ f.put(a.historyPath,{activeIncidentVersion,permitSignature});
+ const before=f.snapshot();
+ await expect(read()).rejects.toMatchObject({code:'conflict'});
+ await expect(apply()).rejects.toMatchObject({code:'conflict'});
+ expect(f.snapshot()).toEqual(before);
+ expect(f.economicSnapshot()).toEqual(economic);
+ expect(f.writes).toEqual([a.receiptPath,a.incidentPath,a.guardPath]);
 });
 
 it('provenance audit: coordinated recreation with coherent new pins must not reauthorize the original request',async()=>{
@@ -343,7 +470,8 @@ it('provenance audit: coordinated recreation with coherent new pins must not rea
  // The fixture deliberately grants this ability to no application method or HTTP caller.
  for(const path of paths.slice(0,3))f.recreate(path);
  f.rows.delete(a.authorityPath);
- a.grant();
+ a.grantRows();
+ f.put(a.historyPath,{...f.at(a.historyPath),activeIncidentVersion:'42:'+f.rows.get(a.incidentPath)!.updated});
 
  for(const [index,path] of paths.entries())expect(f.rows.get(path)!.created).not.toBe(original[index].created);
  expect(f.at(a.authorityPath)).toMatchObject({
@@ -362,6 +490,9 @@ it('provenance audit: coordinated recreation with coherent new pins must not rea
  ]);
  expect(f.economicSnapshot()).toEqual(economic);
  expect(f.rows.get(b.guardPath)).toEqual(before.get(b.guardPath));
+ expect(answers).toMatchObject([
+  {status:'rejected',reason:{code:'conflict'}},{status:'rejected',reason:{code:'conflict'}},
+ ]);
  expect({outcomes:answers.map(answer=>answer.status),
   receiptWrites:f.writes.filter(path=>path===a.receiptPath).length,
   guardRemains:f.rows.has(a.guardPath),
@@ -374,7 +505,10 @@ it.each(['before decision','after decision'] as const)(
  'provenance audit: a same-owner maintenance write changes the identity pin %s',async phase=>{
   const f=fixture(),{a}=f;
   a.grant();
-  if(phase==='after decision')await f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
+  if(phase==='after decision'){
+   await f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
+   a.publishReceipt();
+  }
   const original=structuredClone(f.rows.get(a.identityPath)!);
   // No matching runtime writer was found. This represents a possible future repair or backfill.
   f.put(a.identityPath,{...original.data,syntheticMaintenanceNote:'version changes without rebinding'});
@@ -405,6 +539,7 @@ it('provenance audit: existing bootstrap and a project write leave the enrolled 
  const afterProject=f.economicSnapshot(),bGuard=structuredClone(f.rows.get(b.guardPath));
  expect(await f.store.videoBillingUnblockAttemptReceipt(a.identityKey,a.command)).toMatchObject({state:'pending'});
  await f.store.confirmVideoBillingUnblockAttempt(a.identityKey,a.command);
+ a.publishReceipt();
  expect(await f.store.bootstrap(a.uid)).toMatchObject({created:false});
  expect(await f.freshStore().videoBillingUnblockAttemptReceipt(a.identityKey,a.command))
   .toMatchObject({state:'confirmed',replayed:true});

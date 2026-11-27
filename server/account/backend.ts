@@ -2,6 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {FieldPath,type Firestore,type DocumentReference,type Transaction,type DocumentSnapshot} from 'firebase-admin/firestore';
 import type {AccountView,AccountProject,ProjectKind,ProjectPage,ProjectSummary,LedgerPage} from './contracts';
 import {UNKNOWN_RESOLUTION_MIN_AGE_MS,sameResolution,validResolution,type VideoResolution,type VideoSettlementOptions} from './settlementContract';
+import {unblockPermitBytes,unblockReceiptBytes,verifiesUnblockHistory,type UnblockHistoryTrust} from './unblockHistoryProof';
 
 export class AccountFault extends Error {constructor(readonly code:'invalid'|'not_found'|'account_not_provisioned'|'conflict'|'deleted'|'quota'|'insufficient'|'invariant'|'too_early'){super(code);}}
 const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
@@ -44,6 +45,8 @@ function documentVersion(doc:DocumentSnapshot,field:'createTime'|'updateTime'){
  return stamp&&integer(stamp.seconds)&&integer(stamp.nanoseconds)&&stamp.nanoseconds<1_000_000_000?
   stamp.seconds+':'+stamp.nanoseconds:null;
 }
+const documentVersionValid=(value:unknown):value is string=>typeof value==='string'&&
+ /^(0|[1-9]\d{0,15}):(0|[1-9]\d{0,8})(?![\s\S])/.test(value);
 function matchesUnblockAttempt(doc:DocumentSnapshot,fields:Record<string,unknown>){
  return doc.exists&&Object.entries(fields).every(([key,value])=>doc.get(key)===value);
 }
@@ -135,7 +138,8 @@ const cursorFor=(owner:string,time:number,key:string)=>Buffer.from(JSON.stringif
 
 /** Production-only standalone drafts. No imports/calls to candidate, GCS, AI or purchase code. */
 export class AccountStore {
- constructor(readonly db:Firestore,readonly root:DocumentReference,readonly now=()=>Date.now()){}
+ constructor(readonly db:Firestore,readonly root:DocumentReference,readonly now=()=>Date.now(),
+  private readonly unblockHistoryTrust?:UnblockHistoryTrust){}
  private identity(uid:string){return {key:uidKey(uid),ref:this.root.collection('identities').doc(uidKey(uid))};}
  /** Bind identity and account to the caller's Account Firestore transaction. */
  private async resolve(uid:string,tx:Transaction){
@@ -323,7 +327,7 @@ export class AccountStore {
    return {unblocked:true as const,replayed:false as const,blocked:remaining.blocked};
   });
  }
- /** Test-only v2 seam. It never enrolls an incident, issues a permit, or fences a prior attempt. */
+ /** Test-only v2 seam. It verifies detached evidence and cannot issue or fence an attempt. */
  async confirmVideoBillingUnblockAttempt(identityKey:string,input:UnblockAttemptRequest){
   return this.videoBillingUnblockAttempt(identityKey,input,true);
  }
@@ -332,9 +336,11 @@ export class AccountStore {
   return this.videoBillingUnblockAttempt(identityKey,input,false);
  }
  private async videoBillingUnblockAttempt(identityKey:string,input:UnblockAttemptRequest,apply:boolean){
-  if(process.env.NODE_ENV!=='test')throw new AccountFault('conflict');
+  const trust=this.unblockHistoryTrust;
+  if(process.env.NODE_ENV!=='test'||!trust?.realm||!this.root.path||trust.permitKey.equals(trust.receiptKey))
+   throw new AccountFault('conflict');
   const request=unblockAttemptRequest(input),identityRef=this.identityFromKey(identityKey);
-  const conflict=()=>{throw new AccountFault('conflict');};
+  const conflict=():never=>{throw new AccountFault('conflict');};
   return this.db.runTransaction(async tx=>{
    const identity=await tx.get(identityRef);
    if(!identity.exists)throw new AccountFault('account_not_provisioned');
@@ -344,35 +350,45 @@ export class AccountStore {
    const guardRef=this.root.collection('videoBillingGuards').doc(accountId);
    const recordRef=this.root.collection('videoBillingIncidents').doc(incidentKey);
    const receiptRef=this.root.collection('videoBillingUnblocks').doc(hash([accountId,incident,'unblock']));
-   const [account,guard,record,authority,receipt]=await tx.getAll(
+   const [account,guard,record,authority,receipt,history]=await tx.getAll(
     this.root.collection('accounts').doc(accountId),guardRef,recordRef,
     this.root.collection('videoBillingUnblockAuthorities').doc(incidentKey),receiptRef,
+    this.root.collection('videoBillingUnblockHistory').doc(incidentKey),
    );
    accountRecord(account,identityKey);
    const owner={ownerAccountId:accountId,identityKey,incidentId:incident,unblockProtocol:unblockAttemptProtocol};
    const tuple={...request,...owner};
    const authorityVersion=documentVersion(authority,'createTime'),incidentVersion=documentVersion(record,'createTime');
    const identityVersion=documentVersion(identity,'updateTime');
-   // These pins are expected historical versions from Account's protected records.
-   // The authority document cannot be inferred from the current guard or recreated here.
    if(!matchesUnblockAttempt(record,owner)||!integer(record.get('createdAtMs'))||
       !authorityVersion||!incidentVersion||!identityVersion||
       record.get('unblockAuthorityVersion')!==authorityVersion||
       documentVersion(authority,'updateTime')!==authorityVersion||
-      !matchesUnblockAttempt(authority,{...tuple,incidentVersion,identityVersion}))conflict();
+      !matchesUnblockAttempt(authority,{...tuple,incidentVersion,identityVersion}))return conflict();
    const originalGuardVersion=authority.get('guardVersion');
-   if(typeof originalGuardVersion!=='string'||!/^\d+:\d{1,9}(?![\s\S])/.test(originalGuardVersion))conflict();
+   const activeIncidentVersion=history.get('activeIncidentVersion');
+   if(!documentVersionValid(originalGuardVersion)||!documentVersionValid(activeIncidentVersion))return conflict();
+   const permit={...tuple,realm:trust.realm,rootPath:this.root.path,authorityVersion,incidentVersion,
+    identityVersion,guardVersion:originalGuardVersion,activeIncidentVersion};
+   if(!verifiesUnblockHistory(trust.permitKey,unblockPermitBytes(permit),history.get('permitSignature')))conflict();
    const blocked=billingHold(guard,accountId,identityKey);
+   const receiptSignature=history.get('receiptSignature');
    if(receipt.exists){
     const receiptVersion=documentVersion(receipt,'createTime');
+    const reviewedIncidentVersion=documentVersion(record,'updateTime');
+    const unblockedAtMs=receipt.get('unblockedAtMs');
     if(!matchesUnblockAttempt(receipt,{...tuple,authorityVersion,guardVersion:originalGuardVersion})||
-       !receiptVersion||documentVersion(receipt,'updateTime')!==receiptVersion||
-       !integer(receipt.get('unblockedAtMs'))||record.get('state')!=='reviewed'||
+       !receiptVersion||documentVersion(receipt,'updateTime')!==receiptVersion||!reviewedIncidentVersion||
+       !integer(unblockedAtMs)||record.get('state')!=='reviewed'||
        record.get('unblockAttemptId')!==request.attemptId||
-       record.get('reviewedAtMs')!==receipt.get('unblockedAtMs'))conflict();
+       record.get('reviewedAtMs')!==unblockedAtMs)return conflict();
+    if(receiptSignature===undefined)return {state:'awaiting_proof' as const,...request};
+    if(!verifiesUnblockHistory(trust.receiptKey,
+     unblockReceiptBytes(permit,{receiptVersion,reviewedIncidentVersion,unblockedAtMs}),receiptSignature))conflict();
     return {state:'confirmed' as const,...request,blocked,replayed:true};
    }
-   if(!blocked||record.get('state')!=='active'||record.get('reviewedAtMs')!==undefined||
+   if(receiptSignature!==undefined||documentVersion(record,'updateTime')!==activeIncidentVersion||
+      !blocked||record.get('state')!=='active'||record.get('reviewedAtMs')!==undefined||
       record.get('unblockAttemptId')!==undefined||documentVersion(guard,'createTime')!==originalGuardVersion||
       guard.get('epoch')!==request.epoch||guard.get('createdAtMs')!==request.createdAtMs)conflict();
    const remaining=nextGuardReview(guard);
@@ -382,7 +398,7 @@ export class AccountStore {
    tx.create(receiptRef,{...tuple,authorityVersion,guardVersion:originalGuardVersion,unblockedAtMs:time});
    tx.update(recordRef,{state:'reviewed',reviewedAtMs:time,unblockAttemptId:request.attemptId});
    if(remaining.blocked)tx.update(guardRef,{reviewedCount:remaining.reviewedCount});else tx.delete(guardRef);
-   return {state:'confirmed' as const,...request,blocked:remaining.blocked,replayed:false};
+   return {state:'awaiting_proof' as const,...request};
   });
  }
  /** Atomically prevent a future reserve or return the existing reservation's receipt. */
