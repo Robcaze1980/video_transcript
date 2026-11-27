@@ -2078,3 +2078,13 @@ La candidata local `a3efa8d` pasó **5/5** al conectar Video y Cuenta con transp
 El respaldo GLM revisó el seguimiento documental y dio PASS acotado, con límites sobre enlaces y revisiones. [Informe](docs/reviews/LV-019-B-seguimiento-saldo-GLM-openrouter-20261127.txt).
 
 Una segunda propuesta de sucesor se conservó sin aplicar: su lectura ficticia de Cuenta, reapertura parcial y carrera de confirmación previa requieren corrección. [Contraste](docs/evidence/lv019-b-successor-proposal-20261127/02-codex-observations.md).
+
+Se reunieron el arnés de reglas, los casos conservados y el ensayo de confirmación primera en la candidata WIP `a6f9c3d`. Todavía no incorpora el sucesor ni certifica la batería combinada. [Alcance](https://github.com/Robcaze1980/video_transcript/blob/6980e41e04c44e43e678d38d55c730f89357c804/docs/evidence/lv019-b-financial-combined-wip-20261127/README.md).
+
+En el corte combinado se repitieron los focos con **5/8** y **5/5**, y pasó la comprobación de tipos. El sucesor y la batería completa siguen pendientes.
+
+## 2026-11-27 · LV-019.B · Sucesor local y contraprueba de carrera
+
+La candidata local `226d84b` pasó **22/22** focos en emulador y **70/70** unitarias de Cuenta; la última falla anterior era un campo extra en el test y se corrigió sin relajar su rechazo. DeepSeek y GLM dieron **FALLA** por una carrera posterior a la última lectura. La contraprueba real en `667b2f0` obtuvo **22/23**: Video quedó abierto al aparecer una incidencia nueva. Se conservan TAP y revisiones; la corrección sigue pendiente. Los costos individuales T3 no fueron observables. No se tocó nube ni saldo real. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/667b2f09ac2f75843638bc557d0bfe838ad20787/docs/evidence/lv019-b-successor-integrated-wip-20261127/README.md).
+
+GLM revisó por T3 los extractos del seguimiento, con PASS documental acotado. Codex precisó que las revisiones FALLA precedieron a la contraprueba y uniformó la descripción de la ventana. [Informe](docs/reviews/LV-019-B-estado-667b2f0-GLM-T3-20261127.txt).

@@ -1,0 +1,20 @@
+He revisado los cinco extractos activos contra la evidencia proporcionada sin abrir enlaces ni usar herramientas.
+
+**Coherencia general:** Los extractos son consistentes entre sí y con la evidencia: estado «EN CURSO, SIN CERTIFICAR», trabajo local no aceptado, producción sin cambios, autoridad/transporte sintéticos, y pendientes (corrección de carrera, revisión dual, batería completa, autoridad/contrato reales). No detecto aceptación anticipada ni afirmaciones obsoletas.
+
+**Hallazgos menores:**
+
+1. **Ambigüedad referencial sobre la revisión FALLA:** Extractos 1, 2 y 5 dicen que GLM y DeepSeek dieron FALLA «a la versión revisada/examinada». La evidencia indica que el FALLA precedió a `667b2f0` (que añadió la contraprueba como respuesta). El lector podría inferir erróneamente que los revisores examinaron `667b2f0` y le dieron FALLA, cuando en realidad examinaron la versión previa (`226d84b` o equivalente). `667b2f0` aún no ha sido revisado independientemente.
+
+2. **Variación terminológica en la ventana de carrera:** Extracto 1 dice «posterior al último recibo», Extracto 5 dice «después de la última lectura», Extracto 2 dice «al cerrar Video». Si «recibo», «lectura» y «cierre de Video» son eventos distintos en el sistema, la descripción de la ventana no es unívoca. Si son el mismo evento, conviene unificar el término.
+
+3. **Variación de etiqueta de estado:** Extractos 1-2 usan «EN CURSO, SIN CERTIFICAR»; Extracto 3 usa «EN CURSO LOCAL». Ambos transmiten lo mismo pero no son idénticos.
+
+4. **Extracto 2 añade «identidad»** a los criterios de aceptación que la evidencia no menciona explícitamente (la evidencia solo dice «autoridad real y contrato de servicios»). No es contradicción, pero conviene verificar que «identidad» esté en la especificación vigente.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Contrasté los cinco extractos contra la evidencia suministrada (candidata `226d84b` 22/22+70/70, FALLA de GLM/DeepSeek por ventana posterior al recibo, `667b2f0` con contraprueba 22/23, batería pendiente, sin cambio en producción/saldo). No encontré contradicciones sustanciales, aceptación anticipada ni afirmaciones obsoletas. Enlaces no abiertos.
+NEGATIVOS: (1) Ambigüedad sobre qué versión recibió el FALLA de los revisores —podría leerse como aplicado a `667b2f0` cuando la evidencia indica que precede a esa candidata. (2) Variación terminológica «último recibo»/«última lectura»/«cerrar Video» para la misma ventana de carrera. (3) Etiqueta de estado no idéntica entre extractos («EN CURSO, SIN CERTIFICAR» vs «EN CURSO LOCAL»). (4) «Identidad» aparece como criterio en Extracto 2 sin respaldo explícito en la evidencia resumida.
+BLOQUEOS: Ninguno.
+=== FIN RESUMEN ===

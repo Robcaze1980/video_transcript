@@ -933,3 +933,7 @@ La carga de reglas del emulador se corrigió y pasó **3/3** locales; esto no ve
 Al conservar los casos originales, el foco terminó **5/8**: tres casos de recuperación siguen fallando. [Evidencia](docs/evidence/lv019-b-financial-preserved-20261127/README.md).
 
 La confirmación primera se probó después en una candidata local **5/5**, pero el sucesor sigue sin integrar. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/a3efa8d13b58adedbdfd74f5ad13f72627ec127e/docs/evidence/lv019-b-fenced-video-local-20261127/README.md). GLM rechazó la primera propuesta del sucesor y DeepSeek la dejó inconclusa por límites de entorno, claim y autoridad; no se aplicó. [Propuesta, revisiones y contraste](docs/evidence/lv019-b-successor-proposal-20261127/README.md).
+
+### 27 nov 2026 · Carrera posterior al recibo de Cuenta
+
+En el emulador, una incidencia nueva de Cuenta insertada después de la última lectura y antes del cierre de Video dejó la guarda de Video abierta. Pasaron 22 de 23 casos; la contraprueba falló como esperaba la auditoría independiente. No se demostró exposición a clientes ni movimiento de saldo real. La ruta local sigue sin aceptar y falta un contrato/garantía verificable entre servicios. [TAP y revisiones](https://github.com/Robcaze1980/video_transcript/blob/667b2f09ac2f75843638bc557d0bfe838ad20787/docs/evidence/lv019-b-successor-integrated-wip-20261127/README.md).
