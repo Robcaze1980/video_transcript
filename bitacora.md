@@ -2053,3 +2053,10 @@ El caso histórico 77 se adaptó al contrato actual. La candidata `9eeb815` pas�
 La candidata `e4ed64d` revalida las relaciones de observación y admisión antes del cierre de Video. Dos negativos fallaron antes del cambio y pasaron después; los dos positivos y los once controles anteriores pasaron: **15/15** en emulador, sin omisiones y con limpieza **15/15**. GLM y DeepSeek dieron PASS acotados tras conservar el INCONCLUYENTE inicial de DeepSeek. El reintento de una relación legítima aparecida después sigue sin demostrar. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/e4ed64dc87122352d68ac68763b653308a377787/docs/evidence/lv019-b-t3-relaciones-20261127/README.md).
 
 La revisión documental de GLM señaló que el siguiente paso omitía la relación válida tardía y pidió distinguir quién ejecutó las pruebas; Codex corrigió ambos puntos y GLM dio PASS acotado posterior. Se conservan el [FALLA inicial](docs/reviews/LV-019-B-t3-relaciones-doc-GLM-inicial-20261127.txt) y el [seguimiento](docs/reviews/LV-019-B-t3-relaciones-doc-GLM-seguimiento-20261127.txt).
+
+
+## 2026-11-27 · LV-019.B · Solicitud pendiente y guarda ausente
+
+La candidata `61e6407` añadió dos casos: una solicitud pendiente modificada y una guarda ausente no producen un segundo envío ni cambian el saldo comprobado. Pasaron **17/17** pruebas en emulador, sin omisiones, con limpieza **17/17** y 22 colecciones sintéticas vacías antes y después. GLM y DeepSeek dieron PASS acotados a la revisión estática; Codex ejecutó los controles. La recuperación de 409/pending y la batería integrada siguen pendientes. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/61e64070c2ac6245caaee8eaad620feb68d9e246/docs/evidence/lv019-b-t3-pending-20261127/README.md).
+
+GLM revisó el estado documental y dio PASS acotado; Codex aclaró que la comprobación de una guarda de intención no completa la guarda general por devolución vencida. [Revisión](docs/reviews/LV-019-B-t3-pending-doc-GLM-20261127.txt).
