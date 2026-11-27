@@ -10,7 +10,9 @@ La [consulta sobre recuperación de 708c414](docs/reviews/LV-019-B-recuperacion-
 
 La [investigación de Firestore](docs/reviews/LV-019-B-firestore-commit-conciliacion-20261126.md) recomienda evaluar primero un recibo exacto y un cerco transaccional en Cuenta. Requiere comprobar la frontera real de escritores, el retiro de versiones anteriores y la restauración; no sustituye las puertas vigentes ni autoriza tratar `pending` como ausencia de POST.
 
-El prototipo `0e6876b` de ese cerco pasó **120/120** en memoria y obtuvo dos revisiones PASS acotadas. La autorización y el ancla se siembran en las pruebas; aún faltan emisor, ruta e IAM reales, corte y migración. [Alcance](docs/reviews/LV-019-B-cerco-cuenta-0e6876b-adjudicacion-20261126.md).
+El prototipo `0e6876b` de ese cerco pasó **120/120** en memoria y obtuvo dos revisiones PASS acotadas; el seguimiento `61c54b1` añadió controles y pasó **127/127** sin cambiar runtime. La autorización y el ancla se siembran en las pruebas; aún faltan emisor, ruta e IAM reales, corte y migración. [Alcance](docs/reviews/LV-019-B-cerco-cuenta-0e6876b-adjudicacion-20261126.md).
+
+El diseño de inscripción `fca7bd3` conserva la ruta cerrada; el seguimiento documental `2b1b141` repitió **130/130** pruebas existentes. GLM y DeepSeek siguen INCONCLUYENTES: faltan concretar autoridad, origen, idempotencia y conexión real. [Contraste](docs/reviews/LV-019-B-inscripcion-2b1b141-adjudicacion-20261126.md).
 
 ## Estado para retomar
 

@@ -1,0 +1,12 @@
+# LV-019.B · Seguimiento del diseño de inscripción
+
+**26 nov 2026.** El seguimiento documental [`2b1b141`](https://github.com/Robcaze1980/video_transcript/blob/2b1b141a38026a729279d88dfbfd75be66cf0f47/docs/specs/LV-019-B-desbloqueo-inscripcion-video-20261126.md) precisa la identidad de servicio, el índice de ocurrencia, el sucesor, `pending`, el JSON y la referencia de revisión. La ruta sigue cerrada. Sus **130/130** pruebas son las suites existentes, no pruebas de la ruta propuesta.
+
+[GLM](LV-019-B-inscripcion-2b1b141-GLM-20261126.txt) y [DeepSeek](LV-019-B-inscripcion-2b1b141-DeepSeek-20261126.txt) devolvieron **INCONCLUYENTE**. Reconocen mejoras al contrato, pero no acreditan saldo, IAM, restauración ni funcionamiento integrado. Codex contrastó los señalamientos con el diseño y el código incluido en el paquete:
+
+- El diseño dice que un ancla no se adopta desde otra ocurrencia, pero debe concretar cómo se guarda y coteja ese origen. También debe precisar el registro y la autoridad de `scopeId`, la derivación compartida de `accountRealmId`, las claves de idempotencia y reclamo en Video y el punto de rechazo de un envío tardío.
+- Debe aclarar qué componente verifica la evidencia asociada a `reviewRef` y cómo se responden los rechazos de política. Cuenta depende de la atestación del emisor autorizado; el formato de una referencia o un digest no acreditan por sí solos su origen.
+- Siguen sin implementar el acto de operador, el alta acreditada del hold, el vínculo, el emisor dedicado, la política por propósito, el parser nuevo, la ruta y su cliente. La propagación y validación de identidad deben conservar los controles existentes; la política y permisos efectivos siguen pendientes.
+- DeepSeek señaló dos hashes distintos para el log focal. Codex verificó ambos archivos: `9be4e104…` corresponde a la ejecución del corte original `fca7bd3`; `0fbcf2b0…` corresponde a la repetición del seguimiento `2b1b141`. Son ejecuciones distintas, no una comparación de integridad del mismo archivo. La especificación debe identificarlas con claridad.
+
+El paquete ocultó correos de servicio con etiquetas distintas y no incluyó claves ni datos de clientes. Se usó el respaldo OpenRouter autorizado para una consulta estática sin herramientas por modelo: GLM servido `z-ai/glm-5.3-flash`, **12.430 entrada, 8.299 salida, US$0,0040855419**; DeepSeek `deepseek/deepseek-v4.1-flash`, **13.104 entrada, 28.206 salida, US$0,02161754892**. Caché de entrada cero; costo de Codex y Google no medido. La auditoría C2 interrumpida quedó fuera de estas consultas.

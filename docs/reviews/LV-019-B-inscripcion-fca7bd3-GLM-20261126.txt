@@ -1,0 +1,40 @@
+# Revisión estática independiente
+
+Solicitud: a9c6750550f1bda1305878fe2694782986331f615fb335e3c42e8940dd08757f
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: INCONCLUYENTE
+Tokens entrada/cache/salida: 13262/0/21702
+Costo observado USD: 0.012711897
+SHA-256 del informe original: a61c9dbe7f0b4f6a7b12bab4171b8a2320264c42f80a55c126f88a2c0da9ad88
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática, solo con el paquete. Sin datos reales, sin C2, sin certificar producción.
+
+**Vínculo operador→principal→cuenta→origen.** En el diseño el acto del operador entra por el digest canónico sobre la solicitud auditada (testigos, autoridad, vínculo, generación de Cuenta — spec:30) más `operatorRef` pseudónimo (spec:29) y revalidación del operador actual en cada acto (spec:9,21,37); el servicio entra por un principal dedicado cotejado por correo, `sub`, raíz y propósito en servidor (spec:23); el bearer queda reducido a identidad de servicio (spec:12). `accountId` se deriva en Cuenta y se rechaza del cuerpo (spec:29); la procedencia del hold exige registro acreditado del escritor bajo corte (spec:21,28). El vínculo es correcto en papel, pero dos anclas (escritor de acto de Video, registro de origen) no existen (spec:50) y el propio digest se declara sin autoridad sobre la fuente (spec:30) — autoevaluación coherente.
+
+**Replay y POST tardío.** Replay exacto idempotente (200+`replayed:true`, misma huella), misma clave con carga/vínculo distinto o recibo legado inesperado → 409 (spec:35); inscripción y replay no despachan; reclamo único de despacho; lectura de recibo dentro de la transacción de Cuenta; timeout → lectura/replay, nunca reenvío (spec:35,37). No asume que recibo ausente excluya POST tardío: prueba ambos órdenes del cerco "con el POST anterior tardío" (spec:45) y declara la invariante de despliegue "ninguna versión vieja puede ignorar un cerco" (spec:46), no demostrable estáticamente. El estado `pending` del recibo (accountBillingClient.ts:91) no se usa como prueba de ausencia de POST.
+
+**Separación, corte, privacidad, otras cuentas.** Emisor sin despacho ni escritura directa, worker no inscribe, Cuenta no lee Video (spec:21,46); la inscripción conserva guardia y no mueve saldos/reservas/libro (spec:35); el arranque sigue limitado a las dos identidades legadas (runtime.ts:45) — no hay camino para el principal nuevo. Errores sin titular (http.ts:40), sin notas libres al log (spec:33); etiquetas de correo consistentes entre runtime (runtime.ts:8) y fixtures. Estados legados fuera de alcance sin reclasificación retrospectiva (spec:3,19).
+
+**Hallazgos.**
+- R1 · Reproducible (interfaz): `trustedServiceClaims` valida `sub` y lo descarta (runtime.ts:14-17); verificador y cotejo HTTP no tienen `sub` (http.ts:4,27-28). El cotejo por `sub`/raíz/propósito (spec:23) exige cambio de interfaz reconocido en spec:12 pero ausente de la lista de etapas de spec:50.
+- R2 · No verificable en paquete: el fallthrough del router para rutas internas sin match (http.ts tras la línea 65) no está suministrado; el 404 de la ruta nueva solo lo atestan el diff y el log 130/130.
+- R3 · Hueco menor de política: `iss` nunca se lee (runtime.ts:14-17); se promete ligar "emisor" (spec:12) y la matriz de pruebas (spec:42) no incluye emisor equivocado.
+- R4 · Pendiente de cliente: el 409 estructurado (spec:35) no es transportable por el `post` actual, que aplana a 'conflict' (accountBillingClient.ts:46); reconocido en spec:11.
+- R5 · Definición faltante: `json()` no puede rechazar claves JSON duplicadas (último gana, http.ts:12-13); la prueba de "campos duplicados" (spec:42) necesita política explícita.
+- R6 · Ambigüedad de diseño: composición exacta de la clave del índice de ocurrencia no definida (spec:28,35) frente a unicidad entre dueños/intentos y coexistencia de dos cuentas con el mismo `holdId` (spec:45).
+- R7 · Ambigüedad de diseño: "un sucesor" (spec:3) frente a misma clave/vínculo distinto→conflicto (spec:35) y bloqueo de otro intento por origen (spec:28); no se especifica cómo se inscribe un sucesor legítimo ni la recuperación tras A→B→A más allá de "sigue en revisión" (spec:19). Alternativa conservadora válida, pero debe explicitarse.
+- R8 · Decisión abierta declarada: prueba histórica independiente ante escritor privilegiado (spec:21,44) queda "se decidirá aparte".
+
+**Supuestos no comprobados (atestados, no en paquete):** log 130/130 y tsc 0 (solo ruta+hash, spec:52); las otras cinco suites; prototipo 0e6876b 120/120 y dictámenes duales; helpers `accountRows`/`incidentOf`/`unresolvedRows` (billingUnblock.ts:297-301) y código más allá de 315; accountBillingClient.ts:56-79; contrato de cerco de Cuenta y §3.3 citados sin suministro; reintentos de `IdTokenClient` (spec:11) son propiedad de runtime no comprobable estáticamente.
+
+**Controles negativos conservados:** ruta cerrada con configuración explícita para los dos principales legados con cuerpo `fenced_v1` completo (404, cero llamadas al store), 401 a token ausente/ajeno, positivos legados preservados, handler con emisor supuesto y ancla desde cuerpo excluidos como verificación (spec:50).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Diseño coherente con el código visible: sin ruta de inscripción en router/runtime (runtime.ts:45, http.ts:23-65), replay idempotente y 409 ante carga/vínculo distinto o recibo legado inesperado (spec:35), sin despacho por inscripción (spec:35,37); negativo de ruta atestado por el diff (404 a ambos legados con 401 previo y cero llamadas al store) y log 130/130+tsc 0 citados con hash.
+NEGATIVOS: Ruta cerrada para los dos principales legados con configuración explícita y cuerpo fenced_v1 completo; positivos legados conservados; `pending` no tratado como prueba de ausencia de POST en vuelo; ancla desde cuerpo y handler con emisor supuesto excluidos explícitamente (spec:50); sin certificación de producción ni de IAM/restauración.
+BLOQUEOS: Paquete incompleto para verificar fallthrough del router tras http.ts:65, las otras cinco suites, contrato de cerco de Cuenta, §3.3, prototipo 0e6876b, helpers de billingUnblock.ts y accountBillingClient.ts:56-79; faltan por construir escritor de acto de Video, registro acreditado de origen de hold, generación de vínculo, principal por propósito con política, codificación canónica y propagación de `sub` (runtime.ts:14-17, http.ts:4); frontera A0, IAM real y restauración con corte nuevo pendientes; clave del índice de ocurrencia y semántica del sucesor sin resolver (spec:28,35 vs 3,19).
+=== FIN RESUMEN ===

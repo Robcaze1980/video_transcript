@@ -1,0 +1,42 @@
+# Revisión estática independiente
+
+Solicitud: 9ee242167d6a0daa997c1d575522e235302c67e6dd135c1a667be33da77172aa
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: INCONCLUYENTE
+Tokens entrada/cache/salida: 13104/0/28206
+Costo observado USD: 0.02161754892
+SHA-256 del informe original: 8115677541b5e177e44d7c672110297c9857e72827996d20145d47f764c648cf
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión independiente y estática. No ejecuté pruebas ni herramientas; no inspeccioné archivos fuera del paquete. No certifico IAM, saldo ni producción.
+
+**Estado de las observaciones previas**
+
+- **Claims `iss`/`sub`/`aud` y política por propósito:** el contrato queda precisado en `docs/specs/LV-019-B-desbloqueo-inscripcion-video-20261126.md:19-20`, pero sigue abierto en implementación: `server/account/runtime.ts:14-16` devuelve solo `{email,email_verified}`; `server/account/http.ts:4` no expone `sub`/`iss`/`aud`; `server/account/runtime.ts:45-51` mantiene exactamente dos correos y solo `api`/`worker`. No hay política de acción `unblock-enroll` ejecutable.
+- **Claves de ocurrencia, replay y sucesor:** `spec:52-54` define `originKey`, `enrollmentKey` y `anchorKey`; `spec:62` define `reconcileId`. Queda un hueco concreto: `anchorKey = digest([accountId, holdId])` no incorpora `originKey`; mismo `accountId`+`holdId` con otra ocurrencia colisiona. El texto dice que “jamás se adopta desde otra ocurrencia” (`spec:54`), pero no fija explícitamente que el documento ancla almacene y coteje `originKey` y devuelva conflicto si difiere.
+- **`pending` y POST en vuelo:** resuelto como contrato explícito en `spec:64`; no se interpreta como “no enviado”. La implementación y la acción de conciliación siguen abiertas.
+- **JSON con claves duplicadas:** resuelto como contrato en `spec:33`; el parser actual `server/account/http.ts:7-13` usa `JSON.parse`, admite hasta 400 KB y no detecta duplicados. El parser nuevo no está implementado.
+- **`reviewRef` opaco:** acotado como formato y vínculo en `spec:40`. Persiste una limitación: Cuenta no puede verificar de forma independiente que Video generó y guardó esa referencia; depende de la atestación del emisor.
+- **Emisor, acto de operador, vínculo y origen de hold:** siguen abiertos y declarados en `spec:15,21,27,29,77` y `docs/evidence/lv019-b-unblock-enrollment-20261126/CONTRASTE-REVISION.md:19-20`. No hay acción autenticada conectada, ni alta acreditada del hold, ni vínculo durable, ni emisor dedicado.
+
+**Incoherencias concretas**
+
+- **Evidencia de prueba no coincide:** `spec:81` declara el log `outputs/unblock-enrollment-20261126/focal.log` con SHA-256 `9be4e104...`; `CONTRASTE-REVISION.md:23` declara `outputs/unblock-enrollment-review-20261126/focal.log` con SHA-256 `0fbcf2b0...`. El encargo cita `0fbcf2b0...`. No se puede cotejar el mismo log con el paquete.
+- **`accountRealmId` sin contrato de derivación compartida:** `spec:40` y `spec:46` lo incluyen en `base`, pero no aparece en la tabla de campos de `spec:35-42`. Si solo lo resuelve Cuenta, Video no puede calcular `authorizationSha256`; falta fijar que ambos lados derivan el mismo valor de la política de destino.
+- **Idempotencia local de Video incompleta:** `spec:25` habla de “clave estable” sin definirla; `spec:66` exige un “único reclamo de despacho” sin fijar su clave. `spec:72` exige “un solo `attemptId` tras dos solicitudes iguales”, pero no se define el identificador de idempotencia del acto local ni del reclamo.
+- **Ruta de ejecución del intento admitido:** `spec:64-66` describe la secuencia, pero no identifica la ruta versionada que ejecuta el intento admitido ni el punto exacto donde se rechaza el POST tardío. La frase “orden Cuenta→Video” queda ambigua frente a la secuencia Video prepara → Cuenta inscribe → Video despacha.
+
+**Controles negativos y límites**
+
+- Se conservan: `404` de ruta no registrada en `server/account/http.ts:84`; `404` para no `POST`/`Origin` en `http.ts:24`; `401` para token ausente o inválido en `http.ts:26-27`; `403` para correo no permitido en `http.ts:28`; cero llamadas al store en esa rama.
+- El control citado en `spec:79` y `CONTRASTE-REVISION.md:21` usa el cuerpo del borrador y un verificador sintético; demuestra rechazo del router, no el parser nuevo ni una política habilitada.
+- No verificable en el paquete: parser de duplicados, límite de 8 KiB, política de acción, emisor dedicado, acto de operador, alta de hold, vínculo, IAM, Firestore integrado, restauración, envío/reintentos del SDK, producción y revisión dual del diseño actualizado.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Contrato documental de 2b1b141 revisado; claims, claves, pending, JSON y reviewRef quedan precisados en el texto, pero no hay implementación ni ejecución verificable en el paquete; el hash del log no coincide (spec:81 9be4… vs contraste:23 0fbcf…).
+NEGATIVOS: Conservados 404 de ruta no registrada (http.ts:84), 404 para no POST/Origin (http.ts:24), 401 para token ausente o inválido (http.ts:26-27), 403 para correo no permitido (http.ts:28) y cero llamadas al store en esa rama; el control citado usa cuerpo del borrador y verificador sintético y no prueba parser ni política.
+BLOQUEOS: Faltan acción autenticada de operador, emisor dedicado, alta acreditada del hold, vínculo durable, clave local de idempotencia y de reclamo, política de acción, escritor de inscripción y pruebas de IAM, Firestore, restauración y producción.
+=== FIN RESUMEN ===

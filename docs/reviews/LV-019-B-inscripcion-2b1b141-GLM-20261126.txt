@@ -1,0 +1,59 @@
+# Revisión estática independiente
+
+Solicitud: b8eb1bf90b760df92c140dab99c0badb72a64fe8ada904baf9465d65e3b01d3c
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: INCONCLUYENTE
+Tokens entrada/cache/salida: 12430/0/8299
+Costo observado USD: 0.0040855419
+SHA-256 del informe original: de9e2cc743c5031924eb2609ef58e1939be9ca252ae942411e5089b23777239f
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# Revisión estática independiente — LV-019.B @ 2b1b141
+
+## 1. Estado de las observaciones previas (contrato vs. abierto)
+
+| Observación previa | Estado en el diseño actualizado | Implementación |
+|---|---|---|
+| Claims `iss`/`sub`/`aud` | **Resuelto como contrato** (spec:19): propagar claims verificados del token, cotejo explícito de `iss` con el emisor autorizado, alias sujeto a política. Negativo de `iss`-aceptado-por-biblioteca-fuera-de-política agregado como criterio (spec:71). | **Abierta**: `server/account/runtime.ts:14-16` sigue devolviendo solo `{email, email_verified}`; `ServiceIdentityVerifier` en `server/account/http.ts:4` carece de `sub`/`iss`. Declarada (spec:79, contraste:12). |
+| Política por propósito | Resuelta (spec:20): política de inscripción separada y cerrada, propósito como autorización de aplicación, cuerpo `purpose` solo cotejado. Runtime `runtime.ts:45` aún exige exactamente dos correos legados; sin ruta de configuración nueva — declarada (spec:79). | Abierta |
+| Claves índice/replay/sucesor | Resueltas (spec:52-54): `originKey` por `(scopeId, sourceOccurrenceId)` excluyendo titular/holdId/intento/generación/cutId; `enrollmentKey` por `enrollmentId`; `anchorKey` `[accountId, holdId]`. A→B→A conserva revisión con generación nueva (spec:58). Sin defecto detectado en la composición. | Criterios de prueba (spec:74) |
+| Regla de `pending` | Resuelta (spec:64): prohibición explícita de tratar `pending` como no-enviado, con resolución solo por recibo exacto o transacción de cerco; negativo en spec:74. | Criterios de prueba |
+| JSON con claves duplicadas | Resuelto como contrato (spec:33): detección previa a materializar, equivalencia tras escapes, 8 KiB. Parser actual (`http.ts:7-13`, `JSON.parse`, 400 000 bytes) no cambia — declarado. | Abierta (declarada) |
+| `reviewRef` opaco | Resuelto (spec:40): prefijo `unblock-review-v1:` + 64 hex generados en Video, vínculo durable, rechazo de texto libre/URL/legado (que sigue aceptando hasta 200 imprimibles en `http.ts:46` sin conflicto). | Criterios de prueba (spec:71) |
+| Emisor, acto de operador, vínculo, origen de hold | Resueltos como contrato: autoridad por rol (spec:9-15, 21), creación versionada del hold con `(scopeId, sourceOccurrenceId)` preexistente y jamás inferida del cuerpo (spec:29), generación del vínculo cotejada. Autor y contrato de la creación del hold aún sin elegir (spec:29, «Falta seleccionar»). | Abiertas (declaradas, spec:79) |
+
+## 2. Coherencia estática con el código citado
+
+- El 404 de caída del router existe en `server/account/http.ts:84` tras la rama interna; el 404 por método/`Origin` en `http.ts:24` y el 401 por token ausente/inválido en `http.ts:26-27`. Los negativos reportados son consistentes con el código: principal legado válido → 404 en `http.ts:84` (el store nunca se alcanza); token de usuario/ausente → 401. Sin contradicción con el contraste:21.
+- La legibilidad de la frontera de arranque (`runtime.ts:45`) significa que **hoy no existe camino de configuración** para un tercer principal; el diseño no promete activarlo (spec:20, 79). Coherente.
+- El digest `base` (spec:46) es un arreglo de orden fijo con solo escalares; los enteros son seguros (spec:44). Sin ambigüedad de canonicidad detectada más allá de fijar la codificación JSON compacta, que el diseño ya exige.
+
+## 3. Defectos y ambigüedades nuevos (menores, no contradicciones)
+
+1. **Códigos de rechazo no especificados fuera de la familia 409** (spec:31 vs. spec:58): el cuerpo cerrado solo diferencia `409 generation_moved/conflict/needs_review`. Para rechazos de política (ámbito, propósito, principal fuera de ámbito) no se fija si es 403/404 ni el código del cuerpo. Ambigüedad menor de contrato; los criterios de spec:71 no exigen un código concreto.
+2. **Punto de exigencia de `reviewRef` con evidencia asociada ambiguo** (spec:71): la prueba «uno de forma válida sin evidencia asociada» está listada bajo «Autenticación y permisos del ingreso nuevo» (entrada de Cuenta), pero Cuenta no lee Video (spec:75); la asociación solo puede verificarla el emisor en su lectura transaccional (spec:27, 40) o por el vínculo de testigos. El diseño lo implica pero no lo dice; conviene fijar qué parte rechaza y con qué código.
+3. **Alta del registro de `scopeId`** (spec:52: «se registra una vez»): no se especifica quién lo escribe, con qué autorización ni qué pasa ante `scopeId` presente en otra raíz física. Cubierto parcialmente por el negativo de cruce de `scopeId` (spec:74), pero el acto de registro carece de contrato de escritura.
+
+Ninguno de los tres invalida el diseño; son omisiones de precisión de segundo orden, no incoherencias internas.
+
+## 4. Limitaciones ya declaradas (no defectos nuevos)
+
+- Solo documentación: sin handler, sin parser nuevo, sin cliente versionado, sin política habilitada (spec:79, contraste:20, 23).
+- 130/130 y `tsc` corresponden a suites y código **previos e inalterados**; no ejercitan ruta nueva, política, parser propuesto ni alta transaccional (spec:70, 79).
+- IAM efectivo, Firestore integrado, restauración, retención, frontera de escritores y decisión sobre escritor privilegiado: sin verificar (spec:73-75, contraste:20).
+- No se certifica saldo, IAM ni producción. C2 no evaluado.
+
+## 5. Controles negativos pertinentes (conservados como criterios, aún no implementados)
+
+Spec:70 (404/401/cero store, cuerpo del borrador original, verificador sintético), spec:71 (iss fuera de política, sub distinto, claves duplicadas con escapes, `accountId`/`authorizedBy`/claims en cuerpo, cero store), spec:72 (revocado, reautenticación vencida, `authorizedBy` aportado), spec:73 (huella alterada, fuente simulada), spec:74 (`pending`/409 sin POST ni cambio de guardia, reasignación de origen, recibo que gana), spec:75 (worker legado no inscribe, versión vieja no ignora cerco).
+
+Todo lo no verificable desde el paquete: comportamiento real del SDK con `iss`, IAM efectivo, integración Firestore, restauración, producción y el vínculo §3.3 citado (fuera del paquete).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Las siete observaciones de GLM/DeepSeek quedan resueltas como contrato en el diseño 2b1b141 (claims spec:19, política spec:20, claves spec:52-54, pending spec:64, JSON spec:33, reviewRef spec:40, procedencia/emisor spec:21,27,29) sin incoherencia interna detectada; el código citado (runtime.ts:14-16, http.ts:4,7-13,24-27,45,84) confirma que la implementación sigue ausente, como declara el propio corte. Tres omisiones menores nuevas: códigos de rechazo de política no especificados fuera de 409 (spec:31/58), punto de exigencia de evidencia de reviewRef ambiguo entre emisor y Cuenta (spec:71), y contrato de escritura del registro de scopeId ausente (spec:52).
+NEGATIVOS: Como criterios aún no implementados: 404 a ambos principales legados y 401 a token ausente/de usuario con cero llamadas al store (http.ts:24-27,84); rechazos de iss/sub/duplicados JSON/cuerpo con accountId o claims; pending y 409 sin POST ni cambio de guardia; reasignación de origen y recibo previo que gana. Lo comprobado en el corte es solo el cierre del router existente con cuerpo del borrador original y verificador sintético.
+BLOQUEOS: Sin implementar: propagación de sub/iss (runtime.ts:16), política de inscripción y camino de configuración para el tercer principal (runtime.ts:45), parser con detección de duplicados (http.ts:7-13), ruta y cliente versionado, escritor de acto autenticado de Video, alta acreditada del hold con autor sin elegir (spec:29), generación de vínculo, y pruebas de IAM, Firestore integrado, corte y restauración. No certificado saldo, IAM ni producción.
+=== FIN RESUMEN ===

@@ -1,0 +1,39 @@
+# Revisión estática independiente
+
+Solicitud: ec53a3a565b518f8dba469cecf531e7df4440bcdaa952477faf3809f6ec10cc9
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: INCONCLUYENTE
+Tokens entrada/cache/salida: 14529/0/20288
+Costo observado USD: 0.02131294275
+SHA-256 del informe original: 06d78aaf049f00b3ef198cc2e3c1fca32fe5d49c212f0afe2b28433c3bdd71e7
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Hallazgos estáticos:
+
+- **No hay vínculo OIDC por propósito/sub.** El contrato pide devolver el `sub` validado y cotejar principal dedicado por correo, `sub`, raíz y propósito (`docs/specs/LV-019-B-desbloqueo-inscripcion-video-20261126.md:23`). Pero `ServiceIdentityVerifier` solo declara `email?`/`email_verified?` (`server/account/http.ts:4-5`), y `trustedServiceClaims` valida `sub` pero lo descarta al devolver solo correo (`server/account/runtime.ts:14-16`). Además, con audiencia el runtime exige exactamente dos correos legados (`server/account/runtime.ts:44-45`) y no tiene política de acción/propósito. Contradicción con “accionable en los archivos actuales” (`doc:50`): un emisor dedicado no puede configurarse sin cambiar runtime/tipos.
+- **El operador no queda verificado en Cuenta.** El bearer solo acredita al servicio (`doc:12`); el contrato acepta `operatorRef`/`authorizationSha256` desde el cuerpo (`doc:29-30`) y el propio documento reconoce que el digest no tiene autoridad criptográfica sobre la fuente (`doc:30`). En Video, `unblockBillingAccount` solo valida `authorizedBy` contra un patrón (`server/commercial/billingUnblock.ts:269`) y lo persiste (`:278`); no aplica Firebase/revocación/lista/reautenticación. La ruta de operador sigue ausente (`doc:9-10,50`). Por tanto, la vinculación operador verificado→inscripción depende de una confianza no comprobada en el servicio emisor.
+- **Origen de hold no verificable con el código actual.** La ruta de bloqueo solo acepta `identityKey` e `incidentId` y llama a `store.blockVideoBilling` (`server/account/http.ts:56-59`). No hay `sourceOccurrenceId`/`videoAuditId` ni prueba acreditada de origen. El contrato exige leer “prueba de origen de hold” y crear índice/ancla (`doc:21,28,35`), pero no existe implementación en el corte. Dos filas coherentes no sustituyen esa relación (`doc:21`).
+- **Idempotencia/replay no cerrada.** No se define la clave exacta de replay/unicidad; “misma clave” queda vago (`doc:35`). `attemptId`/`enrollmentId` son campos de cuerpo (`doc:30`). Sin `AccountStore` real no se prueba que el replay exacto no duplique, que el conflicto cubra cambio de dueño/incidente/carga, ni que el índice de ocurrencia sea único. El test añadido solo prueba que la ruta no existe.
+- **`pending` no está tratado como resultado desconocido.** El cliente legacy devuelve `{state:'pending'}` sin demostrar ausencia de POST en vuelo (`server/commercial/accountBillingClient.ts:91`). El contrato solo dice consultar recibo o conciliación (`doc:37`) y no prohíbe interpretar `pending` como “no despachado”. Riesgo de doble dispatch si se usa como ausencia.
+- **Corte y separación Cuenta/Video no acreditados.** El documento acepta que A0 no acredita escritura efectiva ni retiro de escritores y que marcas iguales admiten recreación coordinada (`doc:13`). La política de corte depende de prueba de frontera/restauración que no está (`doc:46`). El endpoint propuesto queda apagado sin modo/política/escritor explícitos (`doc:23`), pero `InternalServicePolicy` no modela acción ni propósito (`server/account/http.ts:5`).
+- **Cliente/transporte no soporta el diseño.** `accountApiUrl` está fijado en código (`server/commercial/accountBillingClient.ts:5`) y `endpoint` restringe a ese origen (`:20`); `GoogleAuth.getIdTokenClient` usa credenciales por defecto (`:37`), no un principal dedicado configurable. No hay método de `enroll` ni validación de replay. El documento reconoce reintentos/ramas de autenticación (`doc:11`), pero no hay implementación.
+- **Privacidad incompleta.** `reviewRef` admite cualquier texto imprimible de 1-200 (`server/account/http.ts:46,53`; `server/commercial/accountBillingClient.ts:86,108`) y se devuelve (`:90`). El contrato prohíbe notas libres/contenido de usuario (`doc:33`), pero no valida que `reviewRef` sea referencia opaca. Tampoco hay prueba de redacción para la ruta nueva; los errores legacy pueden incluir JSON de generaciones/claves (`server/commercial/billingUnblock.ts:295,299`).
+- **Control negativo válido pero limitado.** El diff añadido en `server/account/http.test.ts` prueba POST sin `Origin`/query con dos tokens legados→404, token ausente/no aceptado→401 y `calls=[]`. No cubre GET, `Origin` presente, query, UTF-8/JSON inválido, campos extra/duplicados, `accountId`, `authorizedBy`, claims OIDC, principal dedicado fuera de ámbito ni cero escritura con política habilitada. Por eso el PASS es solo de ruta cerrada, no del contrato.
+
+Controles negativos que se conservan:
+- Ruta propuesta no registrada: tokens legados `service`/`worker`→404 y cero llamadas al store; token ausente/no verificado→401.
+- `pending` no demuestra ausencia de POST en vuelo (`accountBillingClient.ts:91`).
+- `authorizationSha256` por sí solo no da autoridad criptográfica sobre la fuente (`doc:30`).
+- La lectura A0 no acredita escritura efectiva ni retiro de escritores (`doc:13`).
+- El bearer solo identifica al servicio, no al operador (`doc:12`).
+
+Falta por comprobar: IAM real, permisos efectivos, emisor dedicado con `sub`/propósito, procedencia acreditada del hold, unicidad real en `AccountStore`, replay/`pending`, frontera de escritores, restauración, retención de recibos, no escritura directa Video→Cuenta, no lectura Cuenta→Video, disponibilidad de otras cuentas y salida a clientes. El prototipo en memoria con ancla sembrada no sustituye la inscripción real (`doc:45,54`).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: El diseño y el test de ruta cerrada están anclados a `server/account/http.ts`/`runtime.ts`; el diff solo prueba 404/401 y `calls=[]` para la ruta nueva, y el documento reconoce que faltan emisor, hold, vínculo, corte/IAM/restauración.
+NEGATIVOS: Ruta propuesta no registrada: dos tokens legados reciben 404 y `calls=[]`; token ausente/no verificado recibe 401; `pending` no prueba ausencia de POST en vuelo (`accountBillingClient.ts:91`); `authorizationSha256` no tiene autoridad criptográfica por sí solo (doc 30); A0 no acredita escritura efectiva (doc 13); el bearer solo identifica al servicio (doc 12).
+BLOQUEOS: Faltan propagación de `sub` y política por propósito/acción (`runtime.ts:14-16,44-51`; `http.ts:4-5`), emisor dedicado compatible con la lista de solo dos correos legados (`runtime.ts:45`), verificación de operador en Video (`billingUnblock.ts:269,278`), origen de hold en la creación actual (`http.ts:56-59`), idempotencia/replay y manejo de `pending` (`doc:35,37`), validación de `reviewRef`/privacidad (`http.ts:46,53`), cliente/transporte configurable (`accountBillingClient.ts:5,20,37`), AccountStore real y prueba de corte/restauración/IAM.
+=== FIN RESUMEN ===
