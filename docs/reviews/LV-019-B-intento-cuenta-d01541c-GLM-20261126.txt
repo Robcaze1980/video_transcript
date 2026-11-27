@@ -1,0 +1,31 @@
+# Revisión estática independiente
+
+Solicitud: 84079f1e0a5899e34d7db81b04003cada8da193d4fb16d0fa4ffa75f17ef364e
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 14967/0/12115
+Costo observado USD: 0.006164643375
+SHA-256 del informe original: 1530ae033f3960df051d97eca4853d15b213422b2daae450a9c412a3326c604f
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática completada sobre el diff y el test suministrados; nada ejecutado, sin herramientas.
+
+Verificaciones clave:
+- **Tupla/autoridad/versiones**: la cadena de pines (backend.ts:358-364) ata recibo↔autoridad↔incidente↔identidad↔guardia vía createTime/updateTime; la recreación idéntica falla porque los pines viven en documentos no reescritos (test:168-196, siete escenarios). El pin del guardia (376) rechaza recreación con epoch/createdAtMs iguales — correcto frente al aviso de marcas compartidas; no se trata igualdad actual como autoridad.
+- **Máximo una decisión**: la escritura solo ocurre con recibo ausente, incidente activo y guardia viva (375-384); la repetición exacta (366-373) y el ACK perdido (test:111-131) no reescriben; los pines impiden un segundo attemptId distinto (test:252-268).
+- **Pending es lectura**: retorna en 379 antes de todo write; test:117-118 y 229-230 lo prueban con snapshot intacto.
+- **Legacy**: la extracción de `nextGuardReview` preserva la lógica; las guardas de protocolo (274, 307) solo afectan documentos sellados v2, inexistentes hoy; test:280-293 mantiene el replay legacy intacto (290-292).
+- **Entorno/validación**: gate 335 y validación 336 previos a la transacción; test:295-308 comprueba `transactions()===0`.
+
+Sin defectos reales en el alcance. Observaciones: (1) la recreación idéntica del recibo no es detectable por pines cruzados; el replay solo lee y el incidente corrobora attemptId/reviewedAtMs, así que el riesgo económico es nulo, pero el escenario carece de test; (2) el pin de updateTime de identidad (355) falla cerrado ante cualquier escritura futura legítima de identidad; (3) transacción serial simulada, no emulador: concurrencia y reloj reales sin verificar.
+
+Límites declarados respetados: sin emisor autenticado, sin cercado, sin integración Video/Cuenta, sin liberación ni cobro.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: backend.ts:358-384 pines y escritura única; test:111-131 ACK perdido, 133-149 commit fallido y concurrencia, 168-196 recreaciones, 280-293 legacy, 295-308 gate/cuerpo malformado con cero transacciones; 110/110 declarados, hash no cotejable sin el log.
+NEGATIVOS: siete escenarios de recreación/corrupción (test:168-196), cruce entre cuentas (151-166), recibo corrupto o ausente (235-250), tupla alterada antes/después (252-268), reviewedCount inconsistente (270-278), replay legacy intacto (290-292), producción y cuerpo malformado sin transacción (295-308).
+BLOQUEOS: sin focal-final.log no verifico el SHA256; simulación propia del test, no emulador Firestore; el sembrado no acredita emisor autenticado, corte de escritores ni resolución de generación cambiada; no se certifica solución completa ni producción; falta test de recreación idéntica del recibo.
+=== FIN RESUMEN ===

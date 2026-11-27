@@ -1,0 +1,24 @@
+# Revisión estática independiente
+
+Solicitud: 061979474b449929b792a8248eb41ca223fce4b9cee8f2db9d26c07e5eca5b6e
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: FALLA
+Tokens entrada/cache/salida: 4288/0/9446
+Costo observado USD: 0.0055188243
+SHA-256 del informe original: 15e4e2602164ff761b632dd0837d08cffa10188e07ba573f47e9fbee368a4ad9
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+La autoridad suficiente para integrar sin reenvío incierto no está en el paquete. El incremento mínimo realizable primero en AccountStore sería un documento autoritativo previo: `videoBillingUnblockIntents/{hash([accountId, incidentId, reviewRef, epoch, createdAtMs])}`, escrito por endpoint autenticado de Account antes de que Video cree `requestedRef` (`server/commercial/billingUnblock.ts:414`). Debe guardar `ownerAccountId`, `identityKey`, `incidentId`, `reviewRef`, `epoch`, `createdAtMs`, `intentId`, `state:prepared|applied|aborted`. Mismo payload ⇒ replay; payload distinto ⇒ 409 tipado, sin escrituras. El `unblock` solo aplica si el guard conserva `epoch/createdAtMs`; si no, `generation_conflict`, no `conflict` genérico.
+
+Resuelve: retry idempotente de una misma decisión registrada y distinción entre “no registrado” y “registrado pendiente”. No resuelve: POST en vuelo real; 409 por avance legítimo de generación; continuidad histórica por timestamps; ni sustituye claim/witness/dispatch de Video. Defectos concretos: `server/commercial/billingUnblock.ts:404-405` rechaza `pending` con claim existente, sin recuperación automática; `server/commercial/accountBillingClient.ts:46` colapsa todo 409 a `conflict`; `server/commercial/billingUnblock.ts:414-416` no codifica si el POST se envió; `server/account/backend.ts:244-247` `pending` solo prueba ausencia de recibo, no ausencia de POST en vuelo. No verificable: `holdId` como `incidentId` en `server/commercial/billingUnblock.ts:396,419` frente a su derivación en `:368`, falta contrato de creación.
+
+Falta autenticación del emisor, contrato HTTP, migración, anclaje de `intentId` en Video/witness/dispatch y corte leído por Account. `unavailable` en `accountBillingClient.ts:50` es disponibilidad, no duplicación demostrada.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: server/commercial/billingUnblock.ts:404-405 rechaza pending con claim no fresco; accountBillingClient.ts:46 colapsa 409; billingUnblock.ts:414-416 no codifica envío; account/backend.ts:244-247 pending no prueba no-POST-en-vuelo; faltan intent previo, auth, contrato, migración y corte.
+NEGATIVOS: no repetir envío incierto (billingUnblock.ts:404-405); no mover saldo/reserva ni blocked:false (account/backend.ts:261,288-290); no atribuir dueño sin validación (account/backend.ts:243,251,276,282); no inferir continuidad por timestamps.
+BLOQUEOS: no existe documento autoritativo Account previo ni autenticación de emisor; contrato HTTP y migración ausentes; Video no ancla intentId en claim/witness/dispatch; Account no lee corte; dominio incidentId vs holdId no verificable.
+=== FIN RESUMEN ===
