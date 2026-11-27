@@ -373,6 +373,12 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
       if(row.state!==null&&data.state!==row.state&&!(holdSettled&&(data.state==='applied'||data.state==='needs_review')))throw new UnblockFault('conflict');
       if(holdSettled&&data.state==='applied')continue;
       if(row.reviewField&&data[row.reviewField]!==clean.incidentKey)throw new UnblockFault('conflict');
+      // The RELATION that made the row belong to this incident is re-checked too: an observation incident must still
+      // name this incident as its intent, and an admission guard must still name this incident or an observation
+      // incident this same unblock hands back. A relation that drifted after the audited read aborts the release.
+      if(row.collection==='billingIntentObservationIncidents'&&data.intentId!==clean.incidentKey)throw new UnblockFault('conflict');
+      if(row.collection==='billingIntentAdmissionGuards'&&data.incidentId!==clean.incidentKey
+        &&!planned.some(candidate=>candidate.collection==='billingIntentObservationIncidents'&&candidate.id===data.incidentId))throw new UnblockFault('conflict');
       // A row handed to another account between phases must not be advanced: only the admission guard has no `accountId`.
       if(row.collection!=='billingIntentAdmissionGuards'&&data.accountId!==accountId)throw new UnblockFault('conflict');
       if(row.collection==='billingIntents'){
