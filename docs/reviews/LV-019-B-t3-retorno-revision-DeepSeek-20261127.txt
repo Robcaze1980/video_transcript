@@ -1,0 +1,33 @@
+Reviso solo los extractos aportados. No ejecuté nada ni accedí a código.
+
+**Pieza A — test `11 resume` en `billingUnblock.emulator.mjs:746-778`**
+- Verificaciones previas conservadas: `UnblockFault conflict` (:758), auditoría visible + `planned` pending (:762-764), `unblocked/videoBlocked` (:768), guard ausente / hold `applied` / alerta dispositioned (:772-774). Sí se conservan.
+- El mock usa el doble real: envuelve `c.accountBilling.unblock`/`unblockReceipt` (:753-756) y lanza el error sintético **después** del commit (:755), así que el recibo confirmado es real dentro del doble en proceso; es Account simulado, no llamada real.
+- Contadores coherentes con el flujo `billingUnblock.ts:396-419`: una lectura de recibo por intento (la rama `confirmed` :397-400 no re-lee) → `posts=1`, `receipts=1→2`, recibo Account =1 (:759-761, :769-771). El `posts===1` sí descarta un segundo envío.
+- Negativos/límites:
+  - Los conteos exactos dependen de `accountPhase` (:396) y de que no reintente/duplique lectura; no es visible en los extractos.
+  - `isolated` declara solo `db/root/accountBilling` (:757) y **sustituye a `deps(c)`** en el segundo intento (:767). Si la ruta de recuperación usa otras dependencias de `deps`, quedan `undefined`; no verificable y es un cambio de comportamiento respecto al test anterior.
+  - No se prueba la rama `if('fresh' in opened) throw new UnblockFault('conflict')` (:398): la recuperación nunca entra "fresh".
+  - No se prueba el caso recibo `pending` con/sin claim (:404-405) ni el rechazo de reenvío con pending-no-fresh; solo el camino `confirmed`.
+  - Las dos variantes terminan con **las mismas aserciones** (:773 exige `applied` en ambas): no se asevera que `needs_review` recorra :462 sin el `continue` de :466, ni que `applied` tome ese `continue`.
+  - No se compara el recibo confirmado con lo aceptado (epoch/createdAtMs de :399) contra el commit original.
+  - "POST" es nominal: cuenta la llamada al doble en proceso, no un POST HTTP.
+
+**Pieza B — arnés sin commit sobre `1a099`**
+- Selección exacta: nombres (:23-31) coinciden con los del test (:747) incluida las dos variantes nuevas. El validador (:32) pasa a `[A-Za-z0-9: _]+`: admite `:` y espacio, excluye `|()[]\*+?.{}^$-`, sin metacaracteres de alternación, así que `selectedPattern` (:34) sigue seguro.
+- No puede declarar PASS con menos/diferentes: `tests` (:191 + :33), `numberedCases` (:193), `countsConsistent` (:195) y `selectedNamesMatch` (:198) son obligatorios en `acceptableChecks` (:204-205); si un nombre no casa, `totalTests<7` falla cerrado. Manifest 7 en `prepare` (:21) es consistente.
+- Aislamiento/limpieza observables: raíces vacías antes (:285), inventario después (:306-308), `cleanups` compara antes/después (:308), `mismatchAfter`/`pathChanges` (:310-316), `nodeUnchanged` fail-closed (:317-318), `manifestAfterSha===manifestSha256` y `exitCode↔failCount` (:324-325).
+- Autochequeo: 7 filas + sufijo 7 (:209-210) y 6 negativos (:212-215): nombre cambiado, `not ok`, `skipped`, `tests 6`, guards vacío, network denied.
+- Negativos/límites:
+  - `acceptableChecks` **no mira `failCount`** (:204-205): un bloque con 7 filas, `# pass 6`, `# fail 1` y 6 `ok`+1 `not ok` daría `countsConsistent` true; solo `behavior`/`pass` (:326) lo contiene. No hay negativo que aísle ese caso.
+  - Frontera del umbral sin probar: `accept(good,'')` cubre 0 líneas, no 1 línea (< `fixtureFiles.length+1`, :204); tampoco se prueban `# todo 1`, `# cancelled 1` ni `rows.length≠#tests`.
+  - El positivo usa `guards` = 2 líneas fijas (:208) pero el umbral es `fixtureFiles.length+1` (:204): acoplamiento no derivado; si cambia el nº de archivos fixture, el positivo fallaría con mensaje engañoso.
+  - El diff solo actualiza la cadena `base` en el PS1 (:43) y en `prepare`; **no** muestra actualizar `$ExpectedManifestSha256`/`$ExpectedSystemManifestSha256` (:41-42) pese a que el manifiesto/sistema cambian (base y `expectedSelected` 7). Si son literales congelados, `AssertFrozenSystem` fallará: no verificable con los extractos.
+  - Límite declarado por el propio arnés (:329): el preload no es cortafuegos OS y las dependencias transitivas no están todas hasheadas.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Diff 39e0529..1a099 (`billingUnblock.emulator.mjs:746-778`, `billingUnblock.ts:384-421`/`:448-475`) y diff de arnés (`prepareUnblockFocusIsolation.mjs`, `runUnblockFocusEmulator.mjs:20-35`/`:172-215`/`:270-335`, `runUnblockFocusIsolated.ps1:40-45`). Conservación de aserciones A y bloqueo de PASS por selección/conteo en B verificados por lectura; `node --check` y autochequeo TAP reportados como pasados localmente (no reejecutados aquí). Sin emulador.
+NEGATIVOS: A) conteos dependientes de `accountPhase` no visible; `isolated` sin forma completa de `deps` y cambia el segundo intento; rama `fresh` (:398) y caso `pending` (:404-405) no cubiertos; ambas variantes con idénticas aserciones finales; recibo confirmado no contrastado con epoch/createdAtMs; "POST" contado sobre doble en proceso. B) `acceptableChecks` ignora `failCount`; negativo de frontera de 1 línea de guard, `todo`/`cancelled`/`numberedCases` ausentes; `guards` del positivo acoplado a `fixtureFiles.length+1`; constantes `ExpectedManifestSha256`/`ExpectedSystemManifestSha256` no actualizadas en el diff; aislamiento parcial por preload.
+BLOQUEOS: las dos variantes de A no se ejecutaron en emulador y su corrección depende de `accountPhase` y de la forma real de `deps`, fuera de los extractos; en B no se observan las constantes SHA congeladas ni el nº real de archivos fixture, por lo que no se puede certificar el corte.
+=== FIN RESUMEN ===

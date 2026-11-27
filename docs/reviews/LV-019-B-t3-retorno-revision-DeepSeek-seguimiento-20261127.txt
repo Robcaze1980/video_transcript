@@ -1,0 +1,27 @@
+Reviso solo los extractos aportados y los datos observados por Codex. No ejecuté nada, no leí código externo, no modifiqué nada. No certifico saldo integrado ni producción. Costo: no medido.
+
+**Qué quedó confirmado**
+- `accountPhase` visible en `server/commercial/billingUnblock.ts:169-172`: envuelve una sola operación y, ante fallo, relanza `UnblockFault('conflict')` con `stage:'account'`; no reintenta ni duplica lectura. Hace determinista el fallo de lectura de recibo y respalda `receipts=1→2`. Resuelve el bloqueo previo.
+- Forma completa de `deps` en `server/commercial/billingUnblock.emulator.mjs:241`: devuelve `{db,root,accountBilling}`, idéntica a `UnblockDeps` (`billingUnblock.ts:91-95`). El `isolated` que declara esos tres cubre la forma completa: no quedan dependencias `undefined`. Resuelto.
+- SHA de manifiesto son parámetros, no literales congelados: `scripts/runUnblockFocusIsolated.ps1:7-9` los recibe como `Mandatory` y `AssertFrozenSystem` los compara en `:41-42`; el literal congelado de `base` (`:43` = `1a099b52...`) es coherente, y Codex observa que se pasaron y verificaron. Resuelto el riesgo de que `AssertFrozenSystem` fallara por constante obsoleta.
+- `failCount` sí entra al corte: `scripts/runUnblockFocusEmulator.mjs:325-326` exige `exitCode === (failCount===0?0:1)` y `pass = complete && behavior==='PASS'`. Un bloque con `# fail 1` no puede dar PASS aunque `acceptableChecks` no lo inspeccione. Resuelto a nivel de gate.
+- Corte fail-closed visible en `:322-325`: `acceptableChecks`, `cleanups`, `!rootsInventoryError`, `signal===null`, `!timedOut`, `!interrupted`, `logsReadable`, `!mismatchAfter`, `!pathChanges`, `manifestAfterSha===manifestSha256`, `nodeUnchanged` y consistencia exitCode↔failCount; informe con flag `wx` (`:330`) y `exitCode=1` si `!pass` (`:332`).
+
+**Qué sigue incierto (límites, no cierran el plan)**
+- Siguen sin probarse la rama `fresh` (`billingUnblock.ts:398`) ni el caso `pending` (`:404-405`); solo el camino `confirmed`.
+- Las dos variantes cierran con las mismas aserciones finales (`:773` exige `applied` en ambas): no se asevera el enrutado distinto `needs_review` vs `applied` (`:462`/`:466`).
+- El recibo confirmado no se contrasta con `epoch`/`createdAtMs` del commit original; el helper de `billingUnblock.emulator.mjs:235-241` provee esos campos, pero no se observa la comparación en el test.
+- "POST" es conteo nominal sobre el doble en proceso, no un POST HTTP real.
+- Huecos de autotest: sin negativo de frontera de 1 línea de guard, sin `todo`/`cancelled`/`numberedCases`/`rows.length≠#tests`; el positivo usa `guards`=2 fijo frente al umbral `fixtureFiles.length+1` (acoplamiento), y el nº real de archivos fixture no es observable.
+- Aislamiento parcial declarado por el propio arnés (`:329`): el preload no es cortafuegos OS, dependencias transitivas no todas hasheadas, hashes pre/post no son snapshot inmutable.
+- Cierre de proceso: la JVM se terminó por handle tras agotar su plazo de apagado; los criterios visibles de `complete` cubren el proceso Node y los snapshots, pero no se observa validación del apagado limpio del emulador. No afecta los datos ya limpiados (7/7, 22 colecciones vacías antes/después), pero queda fuera de lo verificable estáticamente.
+
+**Resultado estático del foco**
+Con los extractos nuevos, los tres bloqueos que sostenían el INCONCLUYENTE previo (accountPhase, forma real de `deps`, SHA como parámetros) quedan resueltos, y el `failCount` sí corta a nivel de gate. Lo que permanece son límites de cobertura y de aislamiento que el encargo pide considerar. En el alcance estrecho —"los dos tests de hold y su arnés hacen lo que se afirma"— el foco es **PASS parcial**: conserva y afirma el comportamiento de hold/guard y sus contadores, y el arnés corta fail-closed. No cierra el plan: no cubre otros estados ni HTTP real.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Extractos nuevos: `billingUnblock.ts:91-95` (UnblockDeps={db,root,accountBilling}), `billingUnblock.ts:169-172` (accountPhase relanza conflict, sin reintento), `billingUnblock.emulator.mjs:241` (deps con la misma forma), `runUnblockFocusEmulator.mjs:315-335` (complete/pass fail-closed, failCount ligado a exitCode y behavior, informe `wx`), `runUnblockFocusIsolated.ps1:1-13`/`:36-55` (SHA esperados como parámetros Mandatory, comparados en :41-42). Datos observados por Codex: 7 pruebas en emulador aislado, 0 omitidas, 7/7 pass, fixture 7/7, 22 colecciones vacías antes/después, Node exit 0, SHAs verificados como parámetros, sin saldo real. Contraste de los bloqueos previos (accountPhase, forma de deps, SHA congelados) y del corte por failCount.
+NEGATIVOS: rama `fresh` (:398) y caso `pending` (:404-405) sin cubrir; ambas variantes con aserciones finales idénticas (:773); recibo confirmado no contrastado con epoch/createdAtMs; "POST" nominal sobre doble en proceso; huecos de autotest (frontera de 1 línea, `todo`/`cancelled`/`numberedCases`, `rows.length≠#tests`); positivo `guards`=2 acoplado a `fixtureFiles.length+1` (nº real no observable); aislamiento parcial por preload (:329); apagado de la JVM por handle no cubierto por los criterios visibles de `complete`. Costo: no medido.
+BLOQUEOS: ninguno que impida el PASS parcial del foco; permanecen abiertos por alcance (otros estados, HTTP real) y por lo no observable estáticamente (nº de archivos fixture, validación del apagado del emulador). No cierra el plan.
+=== FIN RESUMEN ===

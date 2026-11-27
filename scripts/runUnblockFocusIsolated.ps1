@@ -40,7 +40,7 @@ $jdkInputs = [ordered]@{java=$javaPath;javac=$javacPath;javaDll=(Join-Path $jdkP
 function AssertFrozenSystem {
   if ((Sha256 $systemManifestPath) -cne $ExpectedSystemManifestSha256 -or
       (Sha256 $manifestPath) -cne $ExpectedManifestSha256 -or
-      $system.version -ne 1 -or $system.base -cne '37c9b939fd81eddd3aceb7e71852d04af7a63d90' -or
+      $system.version -ne 1 -or $system.base -cne '1a099b52b145001abf5b51340c54158f08ae239d' -or
       $system.project -cne 'demo-vistavo-financial' -or $system.host -cne '127.0.0.1:8198' -or
       (($system.fixedPorts -join ',') -cne '8198,9198,9298') -or
       $system.candidate.path -ine $manifestPath -or $system.candidate.sha256 -cne $ExpectedManifestSha256 -or

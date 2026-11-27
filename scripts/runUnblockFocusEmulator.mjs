@@ -19,15 +19,17 @@ import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedR
 
 const project = 'demo-vistavo-financial';
 const host = '127.0.0.1:8198';
-// The focus runs exactly these five synthetic cases. All other cases are excluded, not passed.
+// The focus runs exactly these seven synthetic cases. All other cases are excluded, not passed.
 const selectedNames = [
   'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',
   'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',
   'a missing writer cut cannot authorize an Account unblock',
   'a modified writer cut cannot authorize an Account unblock',
   'a recreated writer cut cannot authorize an Account unblock',
+  '11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock',
+  '11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock',
 ];
-if(selectedNames.some(name=>!/^[A-Za-z ]+$/.test(name)))throw Error('Unsafe focus name');
+if(selectedNames.some(name=>!/^[A-Za-z0-9: _]+$/.test(name)))throw Error('Unsafe focus name');
 const expectedSelected = selectedNames.length;
 const selectedPattern = '^(?:'+selectedNames.join('|')+')$';
 const guardFile = 'scripts/financialEmulatorNetworkGuard.cjs';
@@ -205,11 +207,11 @@ function acceptableChecks(checks) {
 if(process.argv.length===3&&process.argv[2]==='--self-check'){
   const guards='VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS\n'.repeat(2);
   const rows=selectedNames.map((name,index)=>'ok '+(index+1)+' - '+name).join('\n');
-  const suffix='\n# tests 5\n# pass 5\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n';
+  const suffix='\n# tests 7\n# pass 7\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n';
   const good=rows+suffix,accept=(a,b=guards)=>{const c=summary(a,b);return acceptableChecks(c)&&c.failCount===0;};
   if(!accept(good)||accept(good.replace(selectedNames[0],'unselected case'))||
      accept(good.replace('ok 1 -','not ok 1 -'))||accept(good.replace('# skipped 0','# skipped 1'))||
-     accept(good.replace('# tests 5','# tests 6'))||accept(good,'')||
+     accept(good.replace('# tests 7','# tests 6'))||accept(good,'')||
      accept(good,guards+'VISTAVO_REVIEW_NETWORK_DENIED\n'))fail('Focused TAP self-check failed');
   process.stdout.write('Focused TAP self-check: PASS; positive and six negative cases. No emulator started.\n');
   process.exit(0);
