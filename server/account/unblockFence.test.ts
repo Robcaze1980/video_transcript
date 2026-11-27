@@ -58,7 +58,7 @@ function fixture(){
   queue=operation.catch(()=>{});
   return operation;
  }};
- const store=()=>new AccountStore(db as never,root as never,()=>100);
+ const store=(now=100)=>new AccountStore(db as never,root as never,()=>now);
 
  function account(label:string){
   const accountId=randomUUID(),uid='synthetic-fence-'+label,identityKey=AccountStore.identityKey(uid);
@@ -124,6 +124,8 @@ it('recovers a predecessor commit with lost ACK before granting any successor',a
 it('recovers the same fence after its ACK is lost and rejects the predecessor even if its POST was already in flight',async()=>{
  const f=fixture(),{a,b}=f;a.enroll();a.authorize();b.enroll();b.authorize();
  const money=f.economic(),before=f.copy();
+ expect(a.successor.epoch).toBe(a.initial.epoch);
+ expect(a.successor.attemptId).not.toBe(a.initial.attemptId);
  f.dropNextAck();
  const fence=f.reconcile(),late=f.confirm();
  await expect(fence).rejects.toThrow('commit response lost');
@@ -206,13 +208,90 @@ it('keeps a permitted successor in review if its generation moves again',async()
  expect(f.rows.has(a.receipt)).toBe(false);
 });
 
-it.each(['anchor missing','grant missing','guard recreated','identity restored','grant from another owner'] as const)(
+it('rejects a grant edited and restored in place without consuming the still-valid predecessor',async()=>{
+ const f=fixture(),{a}=f;a.enroll();a.authorize();
+ const path=a.grant(),original=f.rows.get(path)!;
+ f.put(path,{...original.data,epoch:2});f.put(path,original.data);
+ expect(f.rows.get(path)?.created).toBe(original.created);
+ expect(f.rows.get(path)?.updated).not.toBe(original.updated);
+ const before=f.copy();
+ await expect(f.reconcile()).rejects.toMatchObject({code:'conflict'});
+ await expect(f.read()).resolves.toMatchObject({state:'pending',attemptId:a.initial.attemptId});
+ expect(f.copy()).toEqual(before);
+ expect(f.writes).toEqual([]);
+});
+
+it('keeps a successor receipt in review when its authorization grant is missing',async()=>{
+ const f=fixture(),{a}=f;a.enroll();a.authorize();
+ await f.reconcile();await f.confirm(a,a.successor);
+ f.rows.delete(a.grant());
+ const before=f.copy();
+ expect(f.at(a.receipt)).toMatchObject({attemptId:a.successor.attemptId});
+ await expect(f.read(a,a.successor)).rejects.toMatchObject({code:'conflict'});
+ await expect(f.confirm(a,a.successor)).rejects.toMatchObject({code:'conflict'});
+ await expect(f.reconcile()).rejects.toMatchObject({code:'conflict'});
+ expect(f.copy()).toEqual(before);
+ expect(f.writes).toEqual([a.anchor,a.receipt,a.incident,a.guard]);
+});
+
+it('recovers the old receipt and reports the new guard still blocked even when epoch and wall time repeat',async()=>{
+ const f=fixture(),{a,b}=f;a.enroll();a.authorize();
+ const originalGuard=f.rows.get(a.guard)!;
+ await f.confirm();
+ await f.store(a.initial.createdAtMs).blockVideoBilling(a.identityKey,rivalId);
+ const currentGuard=f.rows.get(a.guard)!;
+ expect(currentGuard.created).not.toBe(originalGuard.created);
+ expect(currentGuard.data).toMatchObject({epoch:a.initial.epoch,createdAtMs:a.initial.createdAtMs});
+ const before=f.copy(),writes=[...f.writes],money=f.economic();
+ const expected={state:'confirmed',attemptId:a.initial.attemptId,epoch:a.initial.epoch,createdAtMs:a.initial.createdAtMs,blocked:true};
+ await expect(f.read()).resolves.toMatchObject(expected);
+ await expect(f.reconcile()).resolves.toMatchObject(expected);
+ expect(await f.store().videoBillingHold(a.identityKey,rivalId)).toEqual({blocked:true,recorded:true});
+ expect(f.rows.get(b.guard)).toEqual(before.get(b.guard));
+ expect(f.copy()).toEqual(before);
+ expect(f.writes).toEqual(writes);
+ expect(f.economic()).toEqual(money);
+});
+
+it('accepts an incident with a valid creation time different from the guard creation time',async()=>{
+ const f=fixture(),{a}=f;
+ f.put(a.incident,{...f.at(a.incident),createdAtMs:a.initial.createdAtMs+3});
+ a.enroll();a.authorize();
+ expect(f.at(a.incident).createdAtMs).not.toBe(f.at(a.guard).createdAtMs);
+ await expect(f.confirm()).resolves.toMatchObject({state:'confirmed',createdAtMs:a.initial.createdAtMs});
+ expect(f.writes).toEqual([a.receipt,a.incident,a.guard]);
+});
+
+it('rejects a malformed incident creation time before applying or reconciling',async()=>{
+ const f=fixture(),{a}=f;a.enroll();a.authorize();
+ f.put(a.incident,{...f.at(a.incident),createdAtMs:'5'});
+ const before=f.copy();
+ await expect(f.confirm()).rejects.toMatchObject({code:'conflict'});
+ await expect(f.reconcile()).rejects.toMatchObject({code:'conflict'});
+ expect(f.copy()).toEqual(before);
+ expect(f.writes).toEqual([]);
+});
+
+it('rejects a nonpositive incident count before nextGuardReview can authorize an action',async()=>{
+ const f=fixture(),{a}=f;a.enroll();a.authorize();
+ f.put(a.guard,{...f.at(a.guard),incidentCount:0});
+ const before=f.copy();
+ await expect(f.confirm()).rejects.toMatchObject({code:'invariant'});
+ await expect(f.reconcile()).rejects.toMatchObject({code:'invariant'});
+ expect(f.copy()).toEqual(before);
+ expect(f.writes).toEqual([]);
+});
+
+it.each(['anchor missing','grant missing','guard recreated','incident recreated','identity restored','grant from another owner'] as const)(
  'fails closed without changing either account (%s)',async scenario=>{
   const f=fixture(),{a,b}=f;a.enroll();a.authorize();b.enroll();b.authorize();
   if(scenario==='anchor missing')f.rows.delete(a.anchor);
   if(scenario==='grant missing')f.rows.delete(a.grant());
   if(scenario==='guard recreated'){
    const original=f.at(a.guard);f.rows.delete(a.guard);f.put(a.guard,original);
+  }
+  if(scenario==='incident recreated'){
+   const original=f.at(a.incident);f.rows.delete(a.incident);f.put(a.incident,original);
   }
   if(scenario==='identity restored'){
    const original=f.at(a.identity);f.put(a.identity,{...original,accountId:b.accountId});f.put(a.identity,original);
