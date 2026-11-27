@@ -1,0 +1,7 @@
+# LV-019.B: pruebas financieras en curso · 27 nov 2026
+
+**Respaldo WIP, sin aceptar y con fallos esperados.** El foco local ejecutó ocho casos: **5 aprobados y 3 fallidos**; los fallos siguen exigiendo recuperación segura de un intento incierto. No se corrigió el código de recuperación ni se repitió la batería completa. [TAP, diff y alcance](https://github.com/Robcaze1980/video_transcript/blob/e308334e287a806e8defae151649f59c1695c486/docs/evidence/lv019-b-financial-preserved-20261127/README.md). La propuesta anterior se rechazó por pérdida de cobertura; sus dos revisiones están conservadas en ese corte documental.
+
+Los casos `retry-generation A` y `retry-generation B` se conservaron byte por byte; al caso original de generación se le añadió únicamente el mock de lectura pendiente que faltaba. Se agregaron pruebas separadas de recibo y de lecturas directas. La revisión dual de este seguimiento queda pendiente.
+
+El arnés fija la base `61e6407`. Para reproducir desde otra PC, crea un worktree aislado desde esa revisión y aplica sin commit el diff de esta rama para los cinco archivos de arnés y `server/commercial/billingUnblock.emulator.mjs`; instala las dependencias de ese worktree y genera manifiestos nuevos antes de correr. Los manifiestos anteriores dependen de la PC y sus hashes; no reutilizarlos. Solo Firestore Emulator y cuentas ficticias; nada se despliega ni modifica saldo real.
