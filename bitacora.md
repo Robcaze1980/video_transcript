@@ -2041,3 +2041,8 @@ El foco se amplió a **10/10** con tres casos históricos y se guardó en `ac6f0
 La candidata `c395315` reforzó el caso pendiente del corte anterior: el transporte sintético contó cero órdenes antes, una después de la confirmación de Cuenta y el fallo de Video, y una al recuperar; el recibo se consultó de nuevo. Pasaron **10/10** controles en Firestore Emulator, con limpieza **10/10** y 22 colecciones vacías antes y después. GLM y DeepSeek dieron PASS acotado en T3; no ejecutaron la batería. La JVM propia se terminó por handle. No certifica producción ni la batería financiera integrada. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/c395315be05bc12f9b9bdc9da7effe1ab95e8883/docs/evidence/lv019-b-t3-video-retry-count-20261127/README.md). Tokens y costo por tarea no medidos.
 
 GLM también revisó el diff documental y dio PASS acotado; Codex precisó que la lectura adicional del recibo se comprobó al menos una vez. [Revisión documental](docs/reviews/LV-019-B-t3-contador-documentacion-GLM-20261127.txt).
+
+
+## 2026-11-27 · LV-019.B · Fallo incierto de Cuenta
+
+El caso histórico 77 se adaptó al contrato actual. La candidata `9eeb815` pasó **11/11** controles locales, con limpieza **11/11** y 22 colecciones sintéticas vacías antes y después. El recibo pendiente mantiene el bloqueo y no autoriza un segundo envío; la recuperación del estado incierto sigue pendiente. DeepSeek dio INCONCLUYENTE inicial por alcance omitido; tras aportar controles y precisar el contrato, GLM y DeepSeek dieron PASS acotados. La especificación se alineó con el contrato de no reenviar. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/9eeb815e1209fb18231e4ce98d6c0d91ff4fbbe6/docs/evidence/lv019-b-t3-fallo-cuenta-20261127/README.md).
