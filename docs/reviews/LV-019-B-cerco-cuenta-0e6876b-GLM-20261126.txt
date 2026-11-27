@@ -1,0 +1,46 @@
+# Revisión estática independiente
+
+Solicitud: 321e89affe673208bc4171b4d8a9676e17897bbb00cf79b361bc8bfc0833f646
+Modelo solicitado: ~z-ai/glm-flash-latest
+Modelo servido: z-ai/glm-5.3-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 16663/0/16061
+Costo observado USD: 0.013030813125
+SHA-256 del informe original: d42d6110cbce8e2c66b79d1748fabd4213be8cae44aa7791cba64a4b71b5f2c6
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+# Revisión estática independiente — LV-019.B (cerco de desbloqueo en Cuenta)
+
+## Veredicto razonado
+La pieza es coherente con su contrato declarado. No encontré bypass ni bloqueo injustificado reproducible en el orden de comprobaciones. Todo lo que falta está declarado como condición de integración o límite explícito del diseño.
+
+## Verificación del orden de comprobaciones (`server/account/backend.ts:344-416`)
+1. **Puerta cerrada**: `NODE_ENV!=='test'` → conflicto antes de abrir transacción (backend.ts:346); verificado en `unblockFence.test.ts:260-270` con `transactions()===0` y cero escrituras.
+2. **Validación de entrada estricta**: campos exactos, propiedades de datos (no getters), prototipo plano (backend.ts:32-48). Errores → `invalid`, no `conflict`.
+3. **Anclaje**: incidente marcado `fenced_v1` + pin de `identity.updateTime`, `incident.createTime` y `guardVersion` del ancla (backend.ts:364-372). "Guard recreado" e "identidad restaurada" fallan cerrados (`unblockFence.test.ts:209-228`).
+4. **Caso receipt ya confirmado**: la rama de recibo (backend.ts:392-398) corre **antes** de la escritura de cerco (405-408) y antes de habilitar sucesor. Verificado en ambos órdenes: confirmar primero → conciliación recupera `confirmed` con el intento anterior y el ancla intacta (`test:107-122`, línea 118); conciliar primero → POST tardío del predecesor rechazado (`test:124-144`, línea 130-131).
+5. **Época**: `guard.epoch===request.epoch` y `createdAtMs` exigidos en la rama sin recibo (backend.ts:400-402); 409 por época cubierto en `test:173-194`, con hermana abierta (`videoBillingHold` línea 190) y nueva autorización con otro ID de conciliación (183-187).
+6. **Concurrencia de conciliadores**: primer cerco gana; segundo con grant rival → conflicto, replay exacto sin escrituras (`test:146-158,160-171`).
+7. **Grants inmutables**: `createTime===updateTime` + coincidencia de campos (backend.ts:384-390); "grant missing"/"de otro dueño" fallan cerrados.
+8. **Compatibilidad**: legacy rechaza filas marcadas (backend.ts:281,314) y los métodos nuevos rechazan legacy (el `owner` exige `unblockProtocol`, backend.ts:364,371); bidireccional en `test:230-243`.
+9. **Cero efectos financieros**: sin escrituras en accounts/reservas/libro; `economic()` invariante afirmado en todas las pruebas con escrituras (121,143,157,193,257).
+
+## Hallazgos (ninguno es defecto funcional; distinción explícita)
+- **Límite declarado, no defecto**: el recibo confirmado se recupera por igualdad de campos + `createTime===updateTime`, sin pin del `createTime` original del recibo (backend.ts:393-394); un escritor privilegiado que lo recrea idéntico engaña al lector. Documentado en spec (líneas 24-26) y en `test:245-258`. Fuera de garantía.
+- **Acoplamiento de disponibilidad**: el método de solo lectura exige el grant cuando el ancla está cercada (backend.ts:384-390 corre antes de la rama de recibo). Falla cerrado, pero un read de recibo histórico depende de la retención del grant; sin prueba negativa específica de read en `test:209-228`.
+- **Huecos de prueba menores**: (a) grant editado in situ con campos compatibles solo lo detecta `createTime≠updateTime` y no hay caso que lo ejerza; (b) "incidente recreado" no se prueba directamente (mecanismo idéntico al pin de identidad ya probado); (c) `successorEpoch===previousEpoch` permitido (backend.ts:46,378) — coherente con el chequeo de época del guard, pero sin caso que lo fije; (d) `incident.createdAtMs` solo se valida como entero, no se cruza con guard/petición (backend.ts:371), igual que legacy.
+- **Supuestos pendientes, no defectos de esta pieza**: emisor/inscripción, ruta HTTP, IAM, corte de escritores anteriores, restauración, migración, concurrencia real, Firestore — la fixture siembra el ancla y serializa transacciones; un POST entre servicios no se ejecuta.
+
+## Controles negativos conservados
+Puerta NODE_ENV (260-270); fails-closed ×5 escenarios sin escrituras (209-228); rechazo tardío de POST cercado (124-144); grant rival (160-171); 409 de época con hermana abierta (173-194); deriva posterior deja en revisión sin recibo (196-207); legado bidireccional (230-243); ACK perdido en ambas direcciones (107-144); invariancia económica.
+
+## No visto
+`billingHold`, `blockVideoBilling`, `identityFromKey`, `contracts.ts`, `http.ts`, `accountBillingClient.ts`, `billingUnblock.ts`; ejecución real de las 120 pruebas ni el log con hash 20240a4113…; Firestore, IAM, emisor, concurrencia real, despliegue.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Orden de comprobaciones correcto en backend.ts:344-416 — rama de recibo (392-398) precede al cerco (405-408) y al sucesor; época/guardVersion exigidos (400-402); grants inmutables (384-390); legacy rechaza marcadas (281,314) y nuevas rechazan legacy (364,371); tests unblockFence.test.ts:107-270 cubren ambos órdenes, ACK perdido ×2, cero POST, 409 de época, POST tardío, replays sin escritura, grant rival, fails-closed ×5, legado, dos cuentas y cero efectos financieros.
+NEGATIVOS: Límite declarado no defecto: recibo recreado idéntico por escritor privilegiado lee como confirmed (backend.ts:393-394; spec:24-26; test:245-258). Huecos menores sin caso: grant editado in situ (solo lo detecta createTime≠updateTime, 387-389), incidente recreado, read cercado dependiente de grant existente (384-390), successorEpoch===previousEpoch permitido (46,378), incident.createdAtMs sin cruce (371). Solo revisión estática; no ejecuté las 120 pruebas.
+BLOQUEOS: No verificable en esta pieza: emisor/inscripción, ruta HTTP, IAM efectivo, corte de escritores anteriores, restauración/migración, concurrencia real, Firestore aislado; fixture siembra ancla/autorización y serializa transacciones; no certifica saldo completo ni producción.
+=== FIN RESUMEN ===

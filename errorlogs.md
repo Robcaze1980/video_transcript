@@ -918,4 +918,6 @@ El seguimiento `e21889c` reprodujo en emulador que la guarda financiera de Video
 
 El prototipo cerrado `d01541c` acepta un recibo idéntico recreado y una autorización reconstruida con marcas coherentes en un doble de memoria. Las contrapruebas emplean escritura privilegiada simulada y no demuestran acceso de cliente ni cobro duplicado. El seguimiento conserva **113 aprobadas y dos fallos**; exige una autoridad histórica y corte antes de integrar. [Contraste](docs/reviews/LV-019-B-intento-cuenta-d01541c-adjudicacion-20261126.md).
 
+La primera batería adaptada de la rama `0244bfc` se interrumpió con **49 aprobadas y 34 fallidas**, sin resumen final ni inventario posterior completo. Veintiséis fallos señalan directamente la comprobación de corte de escritor en `billingUnblock.ts:405`; la fixture anterior no prepara ese testigo y se contrasta la relación. Las otras ocho aserciones se revisan individualmente. La ejecución usó un emulador propio ya terminado, sin afectar procesos ajenos ni saldo real. No se considera una regresión aprobada ni se repitió automáticamente.
+
 Una revisión independiente de `b7f5ef0` se interrumpió por una alerta automática de posible riesgo de ciberseguridad. No produjo un informe final verificable; se conserva como revisión inconclusa y no se habilita la candidata.

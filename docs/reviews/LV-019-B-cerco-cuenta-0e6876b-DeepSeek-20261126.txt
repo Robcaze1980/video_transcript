@@ -1,0 +1,48 @@
+# Revisión estática independiente
+
+Solicitud: dcbce1e12e1d140e490b5efa42cb3a22aa8927b71daaba6a0df76055174e46f2
+Modelo solicitado: deepseek/deepseek-v4.1-flash
+Modelo servido: deepseek/deepseek-v4.1-flash
+Estado verificado: COMPLETED
+Resultado: PASS
+Tokens entrada/cache/salida: 18236/0/50821
+Costo observado USD: 0.02944808757
+SHA-256 del informe original: e7027060df36ced35c9bc554c597a97d55957389bdd7abf2a9cd41b2b3858152
+El informe completo sigue; solo se normalizó el espacio al final de líneas. El original permanece en outputs.
+
+Revisión estática del corte experimental. No encontré bypass reproducible ni bloqueo injustificado dentro del modelo declarado.
+
+Hallazgos concretos:
+- El orden en `runFencedUnblock` es correcto para el caso “recibo ya confirmado”: valida comando, ancla, incidente, intento activo y grant; luego lee el hold; si el recibo existe, coteja recibo/incidente y devuelve `confirmed` sin escribir (`server/account/backend.ts:371-398`). Por tanto, una conciliación posterior a una confirmación previa recupera el recibo y no habilita sucesor.
+- Tras el cerco, el predecesor tardío falla por `active.attemptId`/`active.epoch` (`backend.ts:379-383`), y solo el sucesor autorizado puede confirmar (`backend.ts:384-389`, `410-414`).
+- La conciliación sin recibo previo escribe únicamente el ancla con el sucesor y su época (`backend.ts:405-408`); no toca recibo, incidente ni guard.
+- Los replays exactos devuelven estado sin escritura (`backend.ts:398`, `404`, `407-408`).
+- La compatibilidad legacy queda cerrada: operaciones viejas rechazan filas con `unblockProtocol` (`backend.ts:281`, `314`) y los métodos nuevos exigen incidente/ancla con `fenced_v1` (`backend.ts:364-372`).
+- No hay efectos sobre saldo, reservas ni libro en estas rutas; los tests comparan `economic()` y aislamiento entre cuentas (`unblockFence.test.ts:107-270`).
+
+Observaciones no bloqueantes / a confirmar:
+- `nextGuardReview` (`backend.ts:57-64`) no valida que `incidentCount` sea entero antes de comparar. Si `billingHold` no lo validara, un guard corrupto podría no lanzar `invariant`. No vi `billingHold` en el paquete.
+- `checkedReconcileUnblock` (`backend.ts:46`) y `runFencedUnblock` (`backend.ts:378`) permiten `successorEpoch === previousEpoch`. Si el contrato exige época estrictamente nueva, falta confirmarlo.
+- El pin de `identity.updateTime` (`backend.ts:367`) y el pin de `guard.createTime` (`backend.ts:401`) pueden detener mantenimiento legítimo; ya está declarado como pendiente de política.
+- En recuperación de recibo con guard recreado, `backend.ts:392-398` no coteja el `createTime` actual del guard. Es coherente para recuperar historia, pero el consumidor debe mirar `blocked`.
+
+Controles negativos vistos:
+- ACK perdido de confirmación y recuperación sin sucesor (`unblockFence.test.ts:107-122`).
+- ACK perdido de cerco y rechazo del predecesor tardío (`:124-144`).
+- Cerco sin POST previo y conciliadores concurrentes (`:146-158`).
+- Grant competidor (`:160-171`).
+- 409 por época y conservación de incidente hermano (`:173-194`).
+- Deriva posterior a permiso (`:196-207`).
+- Fallos cerrados por ancla/grant/guard/identidad (`:209-228`).
+- Legado preservado y no convertible (`:230-243`).
+- Límite declarado de escritor privilegiado que recrea recibo (`:245-258`).
+- Cierre fuera de `NODE_ENV=test` (`:260-270`).
+
+No visto / falta por comprobar: Firestore real, transacciones reales, concurrencia real, IAM efectivo, emisor, ruta HTTP nueva, autenticación de servicio/operador, migración, restauración, corte de escritores legacy y doble cargo/devolución con saldo real. No evalúo ni sustituyo la auditoría C2 interrumpida.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: diff `server/account/backend.ts:26-64,344-415`; tests `server/account/unblockFence.test.ts:107-270`; sin bypass reproducible en orden de comprobaciones, recibo ya confirmado, ambos órdenes, ACK perdido, 409 por época, replays, competidor, legacy ni efectos financieros.
+NEGATIVOS: `unblockFence.test.ts:107-144` ACK perdido/predecesor tardío; `:146-158` cerco sin POST y concurrentes; `:160-171` grant competidor; `:173-207` 409 por época y deriva; `:209-228` fallos cerrados; `:230-243` legacy; `:245-258` límite de escritor privilegiado; `:260-270` cierre fuera de test.
+BLOQUEOS: faltan Firestore/IAM/emisor/HTTP/auth reales, concurrencia real, migración, restauración, corte de escritores legacy y prueba financiera con saldo real; revisar si `billingHold` valida `incidentCount` y si se exige época estrictamente nueva.
+=== FIN RESUMEN ===
