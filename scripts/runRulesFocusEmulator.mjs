@@ -19,7 +19,7 @@ import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedR
 
 const project = 'demo-vistavo-financial';
 const host = '127.0.0.1:8198';
-// The focus runs exactly these 23 synthetic cases. All other cases are excluded, not passed.
+// The focus runs exactly these 30 synthetic cases. All other cases are excluded, not passed.
 // Case A is preserved verbatim; a failure is reported, never rewritten or skipped.
 const selectedNames = [
   '11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt',
@@ -45,6 +45,13 @@ const selectedNames = [
   'successor partial resume derives the claim from the durable request, not from the done close',
   'successor stale Account clear: a newer incident between receipt and release keeps the Video guard',
   'successor: an incident AFTER the last receipt and BEFORE the release keeps the Video guard',
+  'successor partial replay: a real partial closure, rival review, then a post-read incident keeps Video closed',
+  'successor: a lost ACK alone creates no done',
+  'successor: a mutated Account identity rejects without writes',
+  'successor: an empty or oversized Video uid rejects without writes',
+  'successor: a substituted Account root rejects without writes',
+  'successor: a missing accredited root fails closed before any write',
+  'successor: an unblock of account A writes nothing to account B in the same AccountStore and B keeps operating',
 ];
 
 const exactExtendedFocusNames = new Set([
@@ -54,8 +61,8 @@ const exactExtendedFocusNames = new Set([
 ]);
 
 if (
-  selectedNames.length !== 23 ||
-  new Set(selectedNames).size !== 23 ||
+  selectedNames.length !== 30 ||
+  new Set(selectedNames).size !== 30 ||
   selectedNames.some(name =>
     !/^[A-Za-z0-9:, _\/-]+$/.test(name) &&
     !exactExtendedFocusNames.has(name)

@@ -5,7 +5,7 @@ import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,statSync,writeF
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const base='226d84bf5d2b310ed40381c3a87b786cfdcae898';
+const base='667b2f09ac2f75843638bc557d0bfe838ad20787';
 const repo=realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'));
 const [candidateArg,jdkArg,jarArg]=process.argv.slice(2);
 if(process.argv.length!==5||process.platform!=='win32'||!/^v24\./.test(process.version)||process.env.NODE_OPTIONS||!candidateArg||!jdkArg||!jarArg)

@@ -30,6 +30,7 @@ import {ALERT_COLLECTION,alertIdentity} from './billingPendingAlerts';
 import {hasInvalidGuardReference} from './billingPendingReport';
 import {accountHoldId,legacyHoldId} from './billingHoldIdentity';
 import type {AccountBillingClient} from './accountBillingClient';
+import {accountIdentityKey} from './accountBillingClient';
 import {stableStringify} from './pipelineContracts';
 
 /** Immutable Video records of one audited unblock; one document per (incident, action). */
@@ -122,6 +123,9 @@ export interface UnblockDeps{
   db:Firestore;root:DocumentReference;
   accountBilling:Pick<AccountBillingClient,'unblock'|'unblockReceipt'>;
   successor?:SuccessorBilling;
+  // SOLO seam de emulador: raíz de Cuenta en la MISMA instancia Firestore.
+  // Nunca se define en producción. Con `successor` y sin ella, se falla cerrado.
+  localAccountRoot?:DocumentReference;
 }
 
 type Clean={incidentKey:string;alertKey:string;epoch:number;createdAtMs:number;updatedAtMs:number;accountEpoch:number;accountCreatedAtMs:number;evidenceRef:string;note:string|null};
@@ -213,6 +217,65 @@ function attestedLocalEmulatorPair(db:Firestore,value:unknown):boolean{
   try{return JSON.stringify(emulatorEvidence(db))===JSON.stringify((value as {video?:unknown}).video);}
   catch{return false;}
 }
+const attestedAccountRoots=new WeakMap<object,{path:string;firestore:Firestore}>();
+
+export function attestLocalEmulatorPairWithAccountRoot(videoDb:Firestore,accountDb:Firestore,accountRoot:DocumentReference){
+  if(videoDb!==accountDb)throw new UnblockFault('invalid');
+  const token=attestLocalEmulatorPair(videoDb,accountDb);
+  if(accountRoot.firestore!==videoDb)throw new UnblockFault('invalid');
+  attestedAccountRoots.set(token,{path:accountRoot.path,firestore:accountRoot.firestore});
+  return token;
+}
+
+function attestedAccountRoot(token:unknown,root:DocumentReference):boolean{
+  if(typeof token!=='object'||token===null)return false;
+  const bound=attestedAccountRoots.get(token);
+  return !!bound&&bound.path===root.path&&bound.firestore===root.firestore;
+}
+async function videoIdentityOf(tx:Transaction,root:DocumentReference,accountId:string){
+  const page=await tx.get(root.collection('identities').where('accountId','==',accountId).limit(2));
+  const docs=page.docs.filter(doc=>doc.get('accountId')===accountId&&typeof doc.get('uid')==='string');
+  if(docs.length!==1)throw Object.assign(new UnblockFault('conflict'),{stage:'video_identity_ambiguous'});
+  const doc=docs[0],uid=doc.get('uid') as string;
+  if(!digest(doc.id))throw Object.assign(new UnblockFault('conflict'),{stage:'video_identity_digest'});
+  let key:string;
+  try{key=accountIdentityKey(uid);}catch{throw Object.assign(new UnblockFault('conflict'),{stage:'video_identity_key'});}
+  if(doc.id!==key)throw Object.assign(new UnblockFault('conflict'),{stage:'video_identity_key'});
+  return {doc,identityKey:doc.id,uid};
+}
+
+type GuardResolution={kind:'legacy'}|{kind:'resolved';guardRef:DocumentReference;identityKey:string;accountIdCuenta:string};
+
+async function resolveAccountGuard(tx:Transaction,deps:UnblockDeps,videoAccountId:string):Promise<GuardResolution>{
+  const seam=deps.successor;
+  if(!seam)return {kind:'legacy'};
+  const accountRoot=deps.localAccountRoot;
+  if(!accountRoot)throw Object.assign(new UnblockFault('unresolved'),{stage:'account_root_unaccredited'});
+  if(accountRoot.firestore!==deps.db)throw Object.assign(new UnblockFault('invalid'),{stage:'account_root_firestore'});
+  if(!attestedLocalEmulatorPair(deps.db,seam.attestation))throw new UnblockFault('invalid');
+  if(!attestedAccountRoot(seam.attestation,accountRoot))throw Object.assign(new UnblockFault('invalid'),{stage:'account_root_substituted'});
+  const video=await videoIdentityOf(tx,deps.root,videoAccountId);
+  const accountIdentity=await tx.get(accountRoot.collection('identities').doc(video.identityKey));
+  if(!accountIdentity.exists)throw Object.assign(new UnblockFault('conflict'),{stage:'account_identity_missing'});
+  if(accountIdentity.get('uid')!==video.uid)throw Object.assign(new UnblockFault('conflict'),{stage:'account_identity_uid'});
+  const accountIdCuenta=accountIdentity.get('accountId');
+  if(typeof accountIdCuenta!=='string'||!uuid.test(accountIdCuenta))throw Object.assign(new UnblockFault('conflict'),{stage:'account_identity_account'});
+  return {kind:'resolved',guardRef:accountRoot.collection('videoBillingGuards').doc(accountIdCuenta),identityKey:video.identityKey,accountIdCuenta};
+}
+
+// Si NO existe, `tx.get(ref)` deja la referencia en el read set (creación concurrente detectada).
+// Si existe y no cuadra con `billingHold`, falla cerrado.
+async function readAccountGuard(tx:Transaction,resolution:GuardResolution):Promise<boolean>{
+  if(resolution.kind!=='resolved')return false;
+  const guard=await tx.get(resolution.guardRef);
+  if(!guard.exists)return false;
+  if(guard.get('ownerAccountId')!==resolution.accountIdCuenta||guard.get('identityKey')!==resolution.identityKey||
+    guard.get('blocked')!==true||!whole(guard.get('incidentCount'),1)||!whole(guard.get('epoch'),1)||
+    !whole(guard.get('createdAtMs'),0)||!whole(guard.get('updatedAtMs'),0))
+    throw Object.assign(new UnblockFault('conflict'),{stage:'account_guard_shape'});
+  return true;
+}
+
 function successorOf(deps:UnblockDeps):SuccessorBilling|null{
   const seam=deps.successor;
   if(!seam)return null;
@@ -455,6 +518,11 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
 
   // Phase 0 probes the local state before the receipt lookup. A fresh writer must
   // prove the same state again when the audit and the dispatch claim are created.
+  const seam=successorOf(deps);
+  if(seam)await db.runTransaction(async tx=>{
+    await readAccountGuard(tx,await resolveAccountGuard(tx,deps,accountId));
+  });
+
   const opened=await db.runTransaction(async tx=>{
     const [guard,alert,requested,done,released,witness,dispatch,cut]=await tx.getAll(guardRef,alertRef,requestedRef,doneRef,releasedRef,witnessRef,dispatchRef,cutRef);
     const observed={guard,requested,done,witness,dispatch,cut};
@@ -535,7 +603,6 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
     let acceptedAttemptId:string|null=null;
   let account:{replayed:boolean;blocked:boolean};
   const identityKey=await accountPhase(()=>identityKeyOf(root,accountId));
-  const seam=successorOf(deps);
   const granted=seam?.attempt??null;
   const claimRef=seam&&granted?root.collection(UNBLOCK_SUCCESSOR_COLLECTION)
     .doc(successorClaimId(accountId,requestedRef.id,granted)):null;
@@ -686,7 +753,9 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
     const releasePin=pin;
     return db.runTransaction(async tx=>{
       await recheck(tx,observed,releasePin??undefined);
-      if(account.blocked)return {unblocked:true as const,replayed:true as const,accountBlocked:true,videoBlocked:true,
+      const resolution=await resolveAccountGuard(tx,deps,accountId);
+      const localAccountBlocked=await readAccountGuard(tx,resolution);
+      if(account.blocked||localAccountBlocked)return {unblocked:true as const,replayed:true as const,accountBlocked:true,videoBlocked:true,
         advanced:Array.isArray(record.advanced)?record.advanced.map(String):[],auditId:String(record.auditId)};
       const rivals=unresolvedRows(await accountRows(tx,root,accountId),new Set());
       if(rivals.length)return {unblocked:true as const,replayed:true as const,accountBlocked:false,videoBlocked:true as const,
@@ -704,6 +773,8 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
 
   return db.runTransaction(async tx=>{
     await recheck(tx,observed,pin??undefined);
+    const resolution=await resolveAccountGuard(tx,deps,accountId);
+    const localAccountBlocked=await readAccountGuard(tx,resolution);
     const rows:Array<{planned:PlannedRow;snap:DocumentSnapshot;exit?:string}>=[];
     for(const row of planned){
       const snap=await tx.get(root.collection(row.collection).doc(row.id));
@@ -739,7 +810,7 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
     // Account says whether OTHER Account incidents remain; Video checks its own side again, because an incident could have
     // landed after the audited read. Either one keeps the guard blocked: `unblocked:true` never means the account is open.
     const rivals=unresolvedRows(await accountRows(tx,root,accountId),new Set(rows.map(row=>row.planned.collection+'/'+row.planned.id)));
-    const clear=!account.blocked&&rivals.length===0;
+    const clear=!account.blocked&&rivals.length===0&&!localAccountBlocked;
     const advanced:string[]=[];
     for(const {planned:row,snap,exit} of rows){
       const auditId=unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs);
@@ -757,8 +828,8 @@ export async function unblockBillingAccount(deps:UnblockDeps,accountId:string,re
     }
     const auditId=unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs);
     if(clear)tx.set(root.collection('billingReleaseReopenings').doc(accountId),{accountId,auditId});
-    tx.create(doneRef,{auditId,action:'unblocked',...payload,kind,accountId,holdId,advanced,accountBlocked:account.blocked,videoBlocked:!clear,videoRivals:rivals,accountReplayed:account.replayed,accountEpoch:accepted.epoch,accountCreatedAtMs:accepted.createdAtMs,recordedAtMs:nowMs});
-    return {unblocked:true as const,replayed:false as const,accountBlocked:account.blocked,videoBlocked:!clear,advanced,auditId};
+    tx.create(doneRef,{auditId,action:'unblocked',...payload,kind,accountId,holdId,advanced,accountBlocked:account.blocked||localAccountBlocked,videoBlocked:!clear,videoRivals:rivals,accountReplayed:account.replayed,accountEpoch:accepted.epoch,accountCreatedAtMs:accepted.createdAtMs,recordedAtMs:nowMs});
+    return {unblocked:true as const,replayed:false as const,accountBlocked:account.blocked||localAccountBlocked,videoBlocked:!clear,advanced,auditId};
   });
 }
 
