@@ -1,0 +1,1 @@
+Synthetic financial regression: PASS; evidence: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-financial-runs\run-7c90a4b4-d88b-4943-84a3-1d084dacf5bf

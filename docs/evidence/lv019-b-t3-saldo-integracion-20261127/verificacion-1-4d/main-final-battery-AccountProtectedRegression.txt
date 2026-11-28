@@ -1,0 +1,7 @@
+HEAD c044257 status 2
+Synthetic manifest prepared: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-account-full-manifests\manifest-983fcd22-15ca-40dc-9afe-17782cdc4198.json
+Review its hashes before --run. No fixture was started.
+manifest: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-account-full-manifests\manifest-983fcd22-15ca-40dc-9afe-17782cdc4198.json
+run exit 0 (101s)
+Synthetic Account full fixture: PASS; evidence: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-account-full-runs\run-50ecc863-76ba-4fa3-84e1-98bf07c2b809
+DONE

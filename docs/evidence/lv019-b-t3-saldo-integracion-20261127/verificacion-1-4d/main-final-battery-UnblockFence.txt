@@ -1,0 +1,7 @@
+HEAD c044257 status 2
+Synthetic manifest prepared: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-unblock-fence-manifests\manifest-0a99787c-89d7-4b9a-ad04-142f472fa156.json
+Review its hashes before --run. No fixture was started.
+manifest: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-unblock-fence-manifests\manifest-0a99787c-89d7-4b9a-ad04-142f472fa156.json
+run exit 0 (36s)
+Synthetic unblock focus: PASS; evidence: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-financial-runs\run-ad78d23b-998e-4c99-86e3-b945b74d8743
+DONE

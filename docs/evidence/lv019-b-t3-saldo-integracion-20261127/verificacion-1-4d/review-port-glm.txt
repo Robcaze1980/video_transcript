@@ -1,0 +1,25 @@
+**Revisión estática**
+
+1. **Afirmaciones y orden**
+- T1 (`2943-2960`): afirma el resultado observable correcto: conflicto, guarda viva, `needs_review`, alerta abierta y sin cierre. No atribuye el rechazo a `sameGuard` en particular; es una prueba de comportamiento, no de predica­do individual. El éxito final tras restaurar la guarda ayuda a descartar que el estado mutado fuera válido para continuar.
+- T2 (`2962-2982`): la reordenación es correcta y necesaria. Primero demuestra que existe `unblock_requested`; después cierra la alerta y comprueba que la reanudación no consulta recibo ni llama a `unblock`. No depende de un orden accidental.
+- T3 (`2984-2996`): el nombre y las aserciones coinciden en lo esencial: cero llamadas a Cuenta y guarda bloqueada. Sería más fuerte añadir que el registro parcial y la auditoría no cambian, pero no hace que la aserción actual sea engañosa.
+- T4 (`2998-3011`): cubre bien el cierre concurrente tras leer el recibo y afirma que no se libera Video, no se escribe `video_released` ni marca de reapertura.
+- T5 (`3013-3030`): la fase 0 queda bien fijada: alerta de otra generación o guarda de otra cuenta producen conflicto con cero llamadas a Account y cero auditoría.
+
+2. **T2 y reenvío**
+- La reescritura es coherente con el contrato: si el fallo ocurre antes de crear el registro, la siguiente llamada es fresca; si ocurre después de enviar a Account, sí hay registro y la siguiente llamada es reanudación.
+- El cierre final demuestra específicamente que reabrir la alerta no autoriza un nuevo `unblock`. Si el contrato quisiera afirmar también “ningún acceso a Account”, habría que añadir `receiptCalls` sin cambio tras reabrir. Tal como está redactado el cierre, la aserción actual es válida.
+
+3. **T1 como defensa en profundidad**
+- La clasificación es razonable. Lo demostrado es que, aunque `sameGuard` deje de rechazar ciertas mutaciones, el resultado final sigue siendo conflicto por comprobaciones redundantes de propiedad, generación, tipo/holdId, versión y continuidad.
+- Lo no demostrado es que cada condición de `sameGuard` sea individualmente necesaria en ese punto. No veo una rotura concreta plausible que la prueba permita pasar: un cambio de guarda incompatible debería seguir siendo rechazado por el resto de la transacción. Para atribuir el rechazo a `sameGuard`, harían falta mutaciones combinadas o una prueba más aislada, pero eso no invalida la protección de resultado.
+
+**Costo y alcance:** revisión estática del material provisto, sin ejecución ni costo observable.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Revisión del DIFF de las cinco pruebas y de los fragmentos de `billingUnblock.ts`; sin ejecución, archivos modificados ni costo observable.
+NEGATIVOS: T2 afirma solo “no reenvía `unblock`” tras reabrir la alerta; si se quiere probar también “no lee recibo”, falta `receiptCalls`. T1 prueba el resultado de conflicto, no la necesidad individual de `sameGuard`. T3 podría añadir aserciones de inmutabilidad del registro/auditoría.
+BLOQUEOS: ninguno.
+=== FIN RESUMEN ===

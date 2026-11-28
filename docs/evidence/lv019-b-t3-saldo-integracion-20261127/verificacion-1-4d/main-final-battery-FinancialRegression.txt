@@ -1,0 +1,7 @@
+HEAD c044257 status 2
+Synthetic manifest prepared: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-financial-manifests\manifest-6e11f2dc-655d-4940-8d7b-022c2b1d0a44.json
+Review its hashes before --run. No fixture was started.
+manifest: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-financial-manifests\manifest-6e11f2dc-655d-4940-8d7b-022c2b1d0a44.json
+run exit 0 (1903s)
+Synthetic financial regression: PASS; evidence: C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\outputs\lv019-b-financial-runs\run-7c90a4b4-d88b-4943-84a3-1d084dacf5bf
+DONE

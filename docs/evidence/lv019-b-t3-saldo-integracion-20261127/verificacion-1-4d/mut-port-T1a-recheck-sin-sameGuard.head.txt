@@ -1,0 +1,5 @@
+HEAD 81437db cambios-sin-commit: 2  hash-ts: 3d8bebe7edc5
+suite exit 0
+pass 1  fail 0
+Synthetic unblock-1.4b cleanup total: 1/1
+DONE

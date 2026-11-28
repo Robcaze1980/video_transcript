@@ -1,6 +1,6 @@
 # Suite de 61 pruebas del desbloqueo (contrato previo al cerco) · archivada 27 nov 2026
 
-**No vigente.** Esta carpeta conserva la suite de la línea principal del desbloqueo auditado de Video, escrita antes de integrar la candidata del cerco. La suite vigente es `server/commercial/billingUnblock.emulator.mjs` (91 pruebas). Contexto de la decisión: [integración](../../evidence/lv019-b-t3-saldo-integracion-20261127/INTEGRACION.md).
+**No vigente. Las cinco pruebas por portar se portaron el 27 nov 2026 (tarea 1.4d); ver el [resultado](../../evidence/lv019-b-t3-saldo-integracion-20261127/verificacion-1-4d/README.md).** Esta carpeta conserva la suite de la línea principal del desbloqueo auditado de Video, escrita antes de integrar la candidata del cerco. La suite vigente es `server/commercial/billingUnblock.emulator.mjs` (91 pruebas). Contexto de la decisión: [integración](../../evidence/lv019-b-t3-saldo-integracion-20261127/INTEGRACION.md).
 
 ## Por qué se archiva y no se borra
 
