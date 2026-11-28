@@ -1,0 +1,39 @@
+### Hallazgos (máx. 8, priorizados por impacto/esfuerzo/seguridad)
+
+| # | Tipo / Prioridad | Ruta y línea | Descripción |
+|---|---|---|---|
+| 1 | **DEFECTO OBSERVADO** (Alto impacto / Medio esfuerzo) | `server/commercial/firestoreBackend.ts:1854-1887` | `scanDueRows` consulta `state == X` ordenado por `__name__` y filtra `due(d)` (`nextAttemptAt <= now`) **en memoria**. Con muchas filas en `retry_wait` o `release_pending` no vencidas, escanea páginas de 100 lecturas (+ hasta 200 lecturas en `billingIntentResolutionPolls` por página en L1864) hasta agotar la colección o el presupuesto de tiempo. |
+| 2 | **MEJORA FUTURA** (Medio impacto / Bajo esfuerzo) | `server/commercial/firestoreBackend.ts:1845` | `dueRows` ejecuta una lectura previa (`doc(afterId).get()`) en cada llamada (2 veces en `pendingExternalBillingIntents` y `pendingExternalBilling`) solo para validar si el cursor existe. |
+| 3 | **HIPOTESIS** (Medio impacto / Medio esfuerzo) | `server/commercial/firestoreBackend.ts:1891-1897` | `pendingExternalHolds` usa índice compuesto `(state, nextAttemptAt)` (`billing-hold.indexes.json`) sin cursor de rotación `afterId`. Si >`limit` holds fallan repetidamente con `nextAttemptAt` vencido, las mismas primeras filas pueden acaparar los turnos. |
+| 4 | **MEJORA FUTURA** (Bajo impacto / Bajo esfuerzo) | `server/commercial/billingDrainLease.ts:27-35, 118-137` | `billingDrainLease/current`, `counter` y `cursors` reciben escrituras serializadas (~14-16 ops por pasada de 60 s cada 5 min). Muy por debajo del límite de 1 escritura/s de Firestore, sin punto caliente en operación normal. |
+| 5 | **HIPOTESIS** (Medio impacto / N/A) | `server/commercial/firestoreBackend.ts:2420` | `escalateStaleBillingRows` invoca `this.staleScan(...)`, cuyo código no figura en el material (**no verificado**). Si `staleScan` no usa índice por `createdAtMs`, escaneará todos los documentos no terminales en cada pasada. |
+| 6 | **HIPOTESIS** (Bajo impacto / N/A) | `docs/specs/LV-019-B-ejecutor-periodico-drenajes.md:3.1-3.2` | Cloud Run sin estado y solapamiento de Scheduler: si una instancia cae con arriendo vivo, el TTL de 90 s libera el candado antes de la siguiente pasada (5 min); el solapamiento devuelve `skipped: lease_held`. El manejador HTTP y el timeout configurado de Cloud Run son **no verificados**. |
+
+---
+
+### Evaluación por área
+
+1. **Concurrencia, idempotencia y cuota:** La seguridad no depende del arriendo (`billingDrainLease.ts`), sino de la idempotencia en Cuenta por `(reserva, acción)`, `claimExternalBillingRelease` (`firestoreBackend.ts:1590`) y la verificación de `createTime` + 13 documentos en `quarantineExternalBillingOutbox` (`L2597-2621`). `billingGuards` y `videoBillingGuards` solo escriben ante incidentes/desbloqueos; sin contención en flujo normal.
+2. **Índices y paginación:** `pendingExternalHolds` (`L1893`) coincide con `billing-hold.indexes.json` `(state ASC, nextAttemptAt ASC)`. `scanDueRows` y `resolveExpiredUnknown` (`L2971`) usan índices automáticos `(state, __name__)`.
+3. **Costo por pasada (fórmulas, sin precios — no verificado):**
+   - **Arriendo:** $2R + 2W$ (`acquire`) $+ \lfloor D/10 \rfloor (1R + 1W)$ (`renew`) $+ S(1R + 1W)$ (`setDrainCursor`, $S \le 5$) $+ F \cdot 1R$ (`assertDrainLeaseHeld`) $+ (1R + 1W)$ (`release`).
+   - **Listados:** `dueRows` $= \sum (1R_{cursor} + \lceil N_{esc}/100 \rceil \cdot 100R + 2 N_{rel\_cand} R_{polls})$. `pendingExternalHolds` $= \min(limit, N_{holds}) R$. `resolveExpiredUnknown` $= \min(limit, N_{unk}) R$. `staleScan` $= \text{no verificado}$.
+   - **Por fila:** $1 \text{ a } 14 R + 1 \text{ a } 2 W$ según ruta (`claim`, `recordFailure`, `quarantine`).
+   - **Por trabajo de video:** **no verificado** (faltan rutas de creación/cierre de job en el material).
+4. **Identidad y reglas:** `firestore.rules` y `account.rules` aplican denegación total (`allow read, write: if false;`). `jobForUid` (`L3013`) revalida identidad y `accountId` en transacción.
+5. **Seguridad/privacidad antes de caché:** No existe caché; cualquier caché futuro de `accounts`, `jobs` o `billingGuards` debe particionarse por `accountId`/`uid` e invalidarse transaccionalmente para evitar fugas entre inquilinos o lectura de bloqueos obsoletos.
+
+---
+
+### 3 Benchmarks reproducibles (emulador / datos sintéticos)
+
+1. **Saturación de `scanDueRows` con `retry_wait` futuro:** 5 000 docs en `billingIntents`/`billingOutbox` (98% con `nextAttemptAt = now + 10 min`, 2% vencidos), `limit = 100`. Medir p50/p95/p99 de latencia y lecturas totales. *Control negativo:* 100% vencidos (debe leer $\le 100$ docs).
+2. **Contención de arriendo y doble ACK:** 2 ejecutores concurrentes compitiendo por `acquireDrainLease` + 50 filas `billingOutbox` con fallo local simulado tras ACK de Cuenta. Medir p50/p95/p99 de `quarantineExternalBillingOutbox` y tasa de `already_settled`/`retry_wait` vs incidentes. *Control negativo:* mutar 1 de los 13 docs de historial (debe crear incidente y bloqueo).
+3. **Escalamiento de `escalateStaleBillingRows` y `resolveExpiredUnknown`:** 1 000 docs mixtos (50% >48h, 50% <48h, incluyendo `release_pending` y `unknown` de voz). Medir p50/p95/p99 por fila y avance exacto del cursor `next` ante `shouldContinue() => false` a mitad de página. *Control negativo:* filas con `leaseUntil > now` o voz en `unknown` (deben omitirse sin escritura).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: billingDrainLease.ts, firestoreBackend.ts (L1580-1651, L1831-1902, L2319-2390, L2410-2481, L2573-2644, L2959-3020), account/backend.ts (L225-243, L303-332), rules e indexes.json.
+NEGATIVOS: Denegación total en reglas; sin puntos calientes en lease/guards en flujo normal; idempotencia verificada en Cuenta y doble ACK.
+BLOQUEOS: Faltan staleScan, manejador HTTP/Cloud Run y rutas de creación de job; emulador no valida límites reales de Firestore.
+=== FIN RESUMEN ===

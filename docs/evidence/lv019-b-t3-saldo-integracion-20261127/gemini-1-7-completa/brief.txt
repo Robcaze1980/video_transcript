@@ -1,0 +1,976 @@
+Revisor independiente de arquitectura, rendimiento y costo del backend de saldo de Vistavo LV-019.B (cierre del paso 1.7). Revision ESTATICA, SIN herramientas, UNA sola respuesta. Version: commit c987377. Todo el material es codigo, reglas e indices sinteticos; sin claves ni datos de clientes.
+
+LIMITES DE LA RESPUESTA (pedidos por el dueno para controlar el gasto): maximo 800 palabras y 8 hallazgos, tabla o lista compacta, sin preambulo ni repeticiones. Marca «no verificado» lo que no puedas comprobar con el material; NO inventes cifras, precios, rendimiento ni URLs.
+
+CONTEXTO: Firebase/Google Cloud para una aplicacion de traduccion de video con saldo: Auth, dos Firestore independientes (Video `(default)` y Cuenta `vistavo-live`, SIN transaccion conjunta; Cuenta es idempotente por (reserva, accion) y autoridad del saldo), backend TypeScript sin estado en Cloud Run, GCS privado, ejecutor periodico (Cloud Scheduler) con candado de arriendo, 5 secciones, cursores de rotacion, presupuesto de 60 s y hasta 100 filas por seccion, hasta 7 consultas de edad. Nada esta desplegado; todo se probo en emuladores (que NO imponen indices compuestos, el limite de una escritura sostenida por segundo por documento, 500 operaciones por transaccion ni la contencion real).
+
+EVALUA (solo con el material de abajo): 1. concurrencia e idempotencia entre Video y Cuenta y puntos calientes de cuota (candado `billingDrainLease/current`, cursores, contadores, documento de cuenta, `billingGuards`); 2. patrones de listado, paginacion e indices de las colas (intenciones, salidas, bloqueos, unknown, edad) frente a los indices mostrados; 3. costo de lecturas y escrituras POR PASADA del ejecutor y por trabajo de video, con FORMULAS (sin precios si no los puedes verificar); 4. Cloud Run sin estado: arranque en frio, apagado con arriendo vivo, solapamiento de Cloud Scheduler, tiempo maximo de peticion; 5. identidad, tenencia y denegacion por defecto de las reglas; 6. riesgos de seguridad y privacidad ANTES de proponer cualquier cache.
+ENTREGA: clasifica cada hallazgo como DEFECTO OBSERVADO, HIPOTESIS o MEJORA FUTURA, con ruta y linea; prioriza por impacto, esfuerzo y seguridad; propone 3 benchmarks reproducibles sobre emulador o datos sinteticos (metricas p50/p95/p99, volumen, controles negativos). No propongas desplegar nada.
+
+FORMATO OBLIGATORIO: termina con exactamente este bloque, una linea por campo:
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: ...
+NEGATIVOS: ...
+BLOQUEOS: ...
+=== FIN RESUMEN ===
+
+=== MATERIAL ===
+
+--- Diseno del ejecutor periodico (docs/specs/LV-019-B-ejecutor-periodico-drenajes.md, seccion 3) ---
+## 3. Diseño
+
+**3.1 Dónde corre.** Un sub-manejador aislado dentro de la pasada de mantenimiento existente (la misma identidad privada y el mismo planificador de 5 minutos; sin un segundo planificador). Cada sección de la pasada (archivos, IA, drenaje de saldo y, después, el barrido de alertas) tiene su propio `try/catch` y presupuesto de tiempo; la respuesta resume el estado de cada una.
+
+**3.2 Candado con arriendo.** Documento `billingDrainLease/current` en la base de Video: `{holderId, token, expiresAtMs}`. Se adquiere en una transacción si no existe o venció; `token` crece en cada adquisición; el arriendo dura 90 s y se renueva cada 10 s durante la pasada; se libera al terminar. Si otro lo tiene, la pasada devuelve `skipped: lease_held` sin error. El token se registra en el latido. **El candado es una optimización** (ver 2.2); una pasada que despierta tarde tras una pausa no puede duplicar un cobro. La renovación y la liberación son **condicionales a `holderId` y `token`** (un titular antiguo no puede renovar ni borrar el arriendo del nuevo), y antes de **cada fila** la pasada comprueba que sigue siendo la titular con un margen de al menos 15 s; si perdió el arriendo, termina limpiamente sin tocar más filas. La tenencia máxima es el presupuesto de la pasada (60 s): no se renueva sin progreso.
+
+**3.3 Orden y límites de una pasada.** Igual que el modo `billing` de hoy: bloqueos pendientes, intenciones, salidas y bloqueos de nuevo. Presupuesto de 60 s repartido por sección (por ejemplo 15 s para bloqueos antes, 15 s intenciones, 20 s salidas y 10 s bloqueos después) para que ninguna agote el de las demás; al agotarse no se toman filas nuevas de esa sección. Hasta 100 filas por tipo (ya existente) y **un máximo de 5 filas por cuenta y pasada**. **Rotación:** un cursor persistente por tipo (en el mismo documento del arriendo) hace que cada pasada empiece después de la última fila atendida y dé la vuelta, de modo que las mismas primeras cuentas no acaparen los turnos; las liberaciones y los bloqueos siguen yendo primero (alternancia ya existente).
+
+**3.4 Fallos.** Por fila: reintento con espera creciente (ya existente) y, tras el tope de `conflict` del paso 1.1, `needs_review` con alerta. `too_early` reprograma sin contar. **Toda ruta de error de una fila deja constancia de un intento** (y la espera creciente); ninguna fila puede fallar repetidamente sin avanzar en su contador. Una **edad máxima** (valor a fijar con datos; propuesta inicial 48 h) lleva la fila a `needs_review` con alerta aunque el motivo sea de infraestructura. Un error al adquirir el arriendo no cambia filas y se refleja en el latido. Con el arriendo vigente, las versiones de los documentos solo cambian por la propia pasada; una pasada que lo pierde a mitad de fila puede provocar una cuarentena evitable (la reconciliación del doble ACK la cubre cuando el historial sigue intacto), por eso la comprobación previa a cada fila.
+
+**3.5 Latido y señales.** Una línea estructurada por pasada con `{event:'billing-drain', startedAtMs, durationMs, outcome, settled, failed, intentsRecovered, intentsFailed, holds, skippedRows, unknownResolved, staleEscalated, leaseToken}` (`staleEscalated` = filas llevadas a `needs_review` por la edad máxima, paso 1.6c) donde `outcome` es `ok`, `partial`, `error`, `disabled` o `skipped` (`disabled` y `skipped` son estados sanos); solo recuentos, sin identificadores ni contenido. Alertas, todas evaluadas por Cloud Monitoring fuera del servicio: **sin latido**, `outcome:error` sostenido, `failed > 0` sostenido y **edad de la fila pendiente más antigua** (la entrega el barrido de alertas, paso 3.4).
+
+**3.6 Interruptor.** `VISTAVO_BILLING_DRAIN=1` activa el sub-manejador; sin él devuelve `disabled` y registra el latido igualmente. Es independiente del interruptor del proveedor y del de voz.
+
+
+--- server/commercial/billingDrainLease.ts (completo) ---
+/**
+ * LV-019.B phase 1 (plan step 1.6, first part): the LEASE that serializes the periodic drain executor.
+ * It is a single document under the Video root, `billingDrainLease/current`, with a strictly growing fencing token.
+ * The lease is an OPTIMIZATION, never the safety guarantee: the Account side is idempotent per action and reservation,
+ * so a second or late pass cannot move balance twice. What the lease buys is less redundant work and fewer false
+ * positives. That is why a corrupt lease document is treated as takeable instead of blocking the executor: the token,
+ * not the lease, is what stops a stale holder from renewing, releasing or writing a cursor.
+ * Every write is transactional and the clock is always the caller's `now`: no wall clock is read inside a transaction,
+ * so a test can place an expiry exactly. The two pure reads (`assertDrainLeaseHeld`, `getDrainCursor`) write nothing.
+ * No billing row, balance or Account call is touched, and no write path is imported: the module can be wired into the
+ * maintenance pass without dragging in the drain or the billing mode.
+ * Design: docs/specs/LV-019-B-ejecutor-periodico-drenajes.md (3.2, 3.3, 3.5)
+ */
+import type {DocumentReference,Firestore} from 'firebase-admin/firestore';
+
+/** The lease document is fixed: one executor per root, so no per-holder document is needed. */
+export const DRAIN_LEASE_COLLECTION='billingDrainLease';
+export const DRAIN_LEASE_DOC_ID='current';
+/**
+ * Monotonic token source. It lives outside the lease document so the token also grows after a release (the lease is
+ * deleted). A stored token that is not a positive safe integer is IGNORED (it counts as 0): renew, release and the
+ * cursor are fenced by EQUALITY of holderId AND token, never by order, so a token that is reset or corrupted can never
+ * let a stale holder keep or take over someone else's lease. The only way to reach EXHAUSTED is a counter already at
+ * Number.MAX_SAFE_INTEGER, which one acquisition every 5 minutes would take on the order of 1e11 years to reach; the
+ * operational recovery would be to delete `billingDrainLease/counter` with the owner's notice, never silently.
+ */
+export const DRAIN_LEASE_COUNTER_DOC_ID='counter';
+/** One document holding the rotation cursor per kind. */
+export const DRAIN_LEASE_CURSOR_DOC_ID='cursors';
+/** The kinds the rotation cursor is defined for. */
+export const DRAIN_CURSOR_KINDS=Object.freeze(['intents','outbox','holds','unknown','age'] as const);
+export type DrainCursorKind=typeof DRAIN_CURSOR_KINDS[number];
+/** A pass holds the lease for 90 s and renews every 10 s; the margin checked before each row is 15 s. */
+export const DEFAULT_DRAIN_LEASE_TTL_MS=90_000;
+export const DEFAULT_DRAIN_LEASE_MARGIN_MS=15_000;
+/** Renewal cadence of the design (3.2): the executor renews every 10 s during a pass. */
+export const DEFAULT_DRAIN_LEASE_RENEW_EVERY_MS=10_000;
+/** Tenure ceiling: twice the 60 s pass budget, so a renewal loop with a defect can never hold the lease forever. */
+export const DEFAULT_DRAIN_LEASE_MAX_TENURE_MS=120_000;
+export const MIN_DRAIN_LEASE_TTL_MS=1_000;
+export const MAX_DRAIN_LEASE_TTL_MS=600_000;
+/** The tenure shares the ttl bounds; a limit outside them is a bad parameter, not an omitted one. */
+export const MIN_DRAIN_LEASE_MAX_TENURE_MS=MIN_DRAIN_LEASE_TTL_MS;
+export const MAX_DRAIN_LEASE_MAX_TENURE_MS=MAX_DRAIN_LEASE_TTL_MS;
+
+export interface DrainLeaseDoc{holderId:string;token:number;expiresAtMs:number;acquiredAtMs:number;renewedAtMs:number}
+export interface DrainLeaseTarget{db:Firestore;root:DocumentReference}
+export interface AcquireDrainLeaseOptions extends DrainLeaseTarget{holderId:string;now:number;ttlMs?:number}
+export interface RenewDrainLeaseOptions extends DrainLeaseTarget{holderId:string;token:number;now:number;ttlMs?:number;maxTenureMs?:number}
+export interface ReleaseDrainLeaseOptions extends DrainLeaseTarget{holderId:string;token:number}
+export interface AssertDrainLeaseHeldOptions extends DrainLeaseTarget{holderId:string;token:number;now:number;minRemainingMs?:number}
+export interface GetDrainCursorOptions extends DrainLeaseTarget{kind:DrainCursorKind}
+export interface SetDrainCursorOptions extends DrainLeaseTarget{kind:DrainCursorKind;holderId:string;token:number;cursor:string|null;now:number}
+export type AcquireDrainLeaseResult={acquired:true;token:number;expiresAtMs:number}|{acquired:false;reason:'held'};
+
+/** Fixed messages: a value is never echoed, so a rejected parameter cannot leak into a log through its error. */
+const INVALID_HOLDER='invalid holder id',INVALID_CLOCK='invalid clock',INVALID_TTL='invalid lease ttl',INVALID_TOKEN='invalid lease token',INVALID_MARGIN='invalid remaining margin',INVALID_KIND='invalid cursor kind',INVALID_CURSOR='invalid cursor id',INVALID_TENURE='invalid max tenure',EXHAUSTED='lease token exhausted';
+/** A holder id is a label, not a path: bounded, no separator and no control character. */
+const MAX_HOLDER_BYTES=200;
+/**
+ * A cursor is a document id read back into a path, so it must be a plain document id: bounded, no separator, no control
+ * character, no `.`/`..`, and not a Firestore reserved id of the form `__...__` (which Firestore refuses or treats
+ * specially). This is a validity rule for the value, not a proof that the document exists.
+ */
+const MAX_CURSOR_BYTES=1500;
+/** Firestore reserves ids wrapped in double underscores; a cursor naming one is refused. */
+const RESERVED_DOC_ID=/^__.*__$/;
+
+const isSafeInteger=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value);
+const nonNegative=(value:unknown):value is number=>isSafeInteger(value)&&value>=0;
+const positive=(value:unknown):value is number=>isSafeInteger(value)&&value>=1;
+const boundedLabel=(value:unknown,max:number):value is string=>typeof value==='string'&&value.length>=1&&Buffer.byteLength(value,'utf8')<=max&&!/[\/\u0000-\u001f\u007f]/.test(value);
+const plainDocId=(value:unknown):value is string=>boundedLabel(value,MAX_CURSOR_BYTES)&&value!=='.'&&value!=='..'&&!RESERVED_DOC_ID.test(value);
+const isKind=(value:unknown):value is DrainCursorKind=>typeof value==='string'&&(DRAIN_CURSOR_KINDS as readonly string[]).includes(value);
+const asRecord=(value:unknown):Record<string,unknown>|undefined=>value!==null&&typeof value==='object'?value as Record<string,unknown>:undefined;
+/** Only `undefined` selects a default: a `null` ttl or margin is a bad parameter, not an omitted one. */
+const orDefault=(value:number|undefined,fallback:number):number=>value===undefined?fallback:value;
+
+function validHolder(holderId:unknown):asserts holderId is string{if(!boundedLabel(holderId,MAX_HOLDER_BYTES))throw new Error(INVALID_HOLDER);}
+function validClock(now:unknown):asserts now is number{if(!nonNegative(now))throw new Error(INVALID_CLOCK);}
+function validTtl(ttlMs:unknown):asserts ttlMs is number{if(!isSafeInteger(ttlMs)||ttlMs<MIN_DRAIN_LEASE_TTL_MS||ttlMs>MAX_DRAIN_LEASE_TTL_MS)throw new Error(INVALID_TTL);}
+function validTenure(maxTenureMs:unknown):asserts maxTenureMs is number{if(!isSafeInteger(maxTenureMs)||maxTenureMs<MIN_DRAIN_LEASE_MAX_TENURE_MS||maxTenureMs>MAX_DRAIN_LEASE_MAX_TENURE_MS)throw new Error(INVALID_TENURE);}
+function validToken(token:unknown):asserts token is number{if(!positive(token))throw new Error(INVALID_TOKEN);}
+function validMargin(minRemainingMs:unknown):asserts minRemainingMs is number{if(!nonNegative(minRemainingMs))throw new Error(INVALID_MARGIN);}
+function validKind(kind:unknown):asserts kind is DrainCursorKind{if(!isKind(kind))throw new Error(INVALID_KIND);}
+function validCursor(cursor:unknown):asserts cursor is string|null{if(cursor!==null&&!plainDocId(cursor))throw new Error(INVALID_CURSOR);}
+
+/** Reads a stored lease. A document that does not match the exact shape is `null`: it cannot name a live owner. */
+function readLease(data:unknown):DrainLeaseDoc|null{
+  const record=asRecord(data);
+  if(record===undefined)return null;
+  const {holderId,token,expiresAtMs,acquiredAtMs,renewedAtMs}=record;
+  if(!boundedLabel(holderId,MAX_HOLDER_BYTES)||!positive(token)||!nonNegative(expiresAtMs)||!nonNegative(acquiredAtMs)||!nonNegative(renewedAtMs))return null;
+  if(acquiredAtMs>expiresAtMs||renewedAtMs>expiresAtMs||renewedAtMs<acquiredAtMs)return null;
+  // A window wider than the maximum ttl could not have been written by an honest holder of this contract, so the
+  // document is not a lease we trust: it reads as malformed and becomes takeable (liveness, never security).
+  if(expiresAtMs-renewedAtMs>MAX_DRAIN_LEASE_TTL_MS)return null;
+  return {holderId,token,expiresAtMs,acquiredAtMs,renewedAtMs};
+}
+/**
+ * A lease is held only while it is well formed, its expiry is in the future (`expiresAtMs === now` is already expired),
+ * and that expiry is no more than the maximum ttl ahead of the caller's clock. An expiry further ahead than an honest
+ * clock could have written within the allowed skew is not trusted, so the lease reads as takeable. This is a liveness
+ * bound only: the safety guarantee never depended on the lease.
+ */
+const isHeld=(lease:DrainLeaseDoc|null,now:number):lease is DrainLeaseDoc=>lease!==null&&lease.expiresAtMs>now&&lease.expiresAtMs-now<=MAX_DRAIN_LEASE_TTL_MS;
+/** The lease document, the counter and the cursors live in the same fixed collection under the root. */
+const leaseRef=(root:DocumentReference)=>root.collection(DRAIN_LEASE_COLLECTION).doc(DRAIN_LEASE_DOC_ID);
+const counterRef=(root:DocumentReference)=>root.collection(DRAIN_LEASE_COLLECTION).doc(DRAIN_LEASE_COUNTER_DOC_ID);
+const cursorsRef=(root:DocumentReference)=>root.collection(DRAIN_LEASE_COLLECTION).doc(DRAIN_LEASE_CURSOR_DOC_ID);
+const storedToken=(data:unknown):number=>{const token=asRecord(data)?.token;return positive(token)?token:0;};
+/**
+ * The next token is one past the highest token ever observed: in the counter, in a live lease document, or even in a
+ * corrupt one. A malformed document is takeable (the token, not the document, fences the holder), but its numeric token
+ * was still issued once, so the new token must be strictly greater than it: a stale holder is never out-fenced by a token
+ * that was already handed out and then lost to corruption.
+ * A stored token that is not a positive safe integer (a string, a fraction, an oversized number, a missing field) is
+ * IGNORED here and counts as 0. That is safe because renew, release and the cursor are fenced by EQUALITY of holderId
+ * AND token, not by order: a token that is reset or corrupted cannot let a stale holder keep or take over a lease.
+ */
+function nextToken(counter:unknown,lease:unknown):number{
+  const base=Math.max(storedToken(counter),storedToken(lease));
+  if(base>=Number.MAX_SAFE_INTEGER)throw new Error(EXHAUSTED);
+  return base+1;
+}
+
+/**
+ * Takes the lease when it is free or expired. `expiresAtMs` is `now + ttlMs` and the token is strictly greater than any
+ * token ever issued for this root. Returns `held` (never an error) when a live lease belongs to someone else or to us.
+ */
+export async function acquireDrainLease(options:AcquireDrainLeaseOptions):Promise<AcquireDrainLeaseResult>{
+  const {db,root,holderId,now}=options,ttlMs=orDefault(options.ttlMs,DEFAULT_DRAIN_LEASE_TTL_MS);
+  validHolder(holderId);validClock(now);validTtl(ttlMs);
+  const ref=leaseRef(root),counter=counterRef(root);
+  return db.runTransaction(async tx=>{
+    const observed=await tx.get(ref),current=readLease(observed.data());
+    if(isHeld(current,now))return {acquired:false,reason:'held'} as const;
+    const token=nextToken((await tx.get(counter)).data(),observed.data()),expiresAtMs=now+ttlMs;
+    // A full replacement, not a merge: no field of a previous holder can survive into the new lease.
+    tx.set(ref,{holderId,token,expiresAtMs,acquiredAtMs:now,renewedAtMs:now});
+    tx.set(counter,{token});
+    return {acquired:true,token,expiresAtMs} as const;
+  });
+}
+
+/** Shared gate for renew, release and the cursor: the caller must own the live lease with exactly its own token. */
+function ownsLease(lease:DrainLeaseDoc|null,holderId:string,token:number,now:number):boolean{
+  return lease!==null&&lease.holderId===holderId&&lease.token===token&&isHeld(lease,now);
+}
+
+/**
+ * Extends the lease, but only for the holder that owns it, with its own token, while it is still live for the caller's
+ * clock, and only while it has not already reached the maximum tenure. Anything else (another holder, another token, an
+ * expired lease, an exhausted tenure) returns `false` and writes nothing.
+ *
+ * The renewal is MONOTONIC: a clock that steps back (an NTP correction, a replica behind) must never shorten the
+ * expiry or move the renewal time behind the stored one, because that would produce a document whose `renewedAtMs` is
+ * before `acquiredAtMs`, which `readLease` rejects, making the holder lose its OWN live lease after being told
+ * `true`. So the renewal point is the later of the caller's clock and the stored renewal, and the expiry only ever
+ * moves forward. The tenure is measured from the ORIGINAL acquisition, so a defective renewal loop cannot retain the
+ * lease forever.
+ */
+export async function renewDrainLease(options:RenewDrainLeaseOptions):Promise<boolean>{
+  const {db,root,holderId,token,now}=options,ttlMs=orDefault(options.ttlMs,DEFAULT_DRAIN_LEASE_TTL_MS),maxTenureMs=orDefault(options.maxTenureMs,DEFAULT_DRAIN_LEASE_MAX_TENURE_MS);
+  validHolder(holderId);validToken(token);validClock(now);validTtl(ttlMs);validTenure(maxTenureMs);
+  const ref=leaseRef(root);
+  return db.runTransaction(async tx=>{
+    const lease=readLease((await tx.get(ref)).data());
+    // Ownership is decided by the caller's clock: a lease expired for that now is not renewed, even if a stored renewal
+    // would still look live.
+    if(!ownsLease(lease,holderId,token,now))return false;
+    if(now-lease!.acquiredAtMs>=maxTenureMs)return false;
+    const at=Math.max(now,lease!.renewedAtMs),expiresAtMs=Math.max(lease!.expiresAtMs,at+ttlMs);
+    // The identity is preserved exactly; only the expiry and the renewal time move, and only forward.
+    tx.set(ref,{holderId,token,expiresAtMs,acquiredAtMs:lease!.acquiredAtMs,renewedAtMs:at});
+    return true;
+  });
+}
+
+/**
+ * Drops the lease, but only for the holder that owns it with its own token. It never deletes the lease of another
+ * holder, and it deliberately does NOT require the lease to still be live: a stalled pass whose lease already expired
+ * must be able to clean up after itself, and if someone else took over meanwhile the holder/token check refuses.
+ */
+export async function releaseDrainLease(options:ReleaseDrainLeaseOptions):Promise<boolean>{
+  const {db,root,holderId,token}=options;
+  validHolder(holderId);validToken(token);
+  const ref=leaseRef(root);
+  return db.runTransaction(async tx=>{
+    const lease=readLease((await tx.get(ref)).data());
+    if(lease===null||lease.holderId!==holderId||lease.token!==token)return false;
+    tx.delete(ref);
+    return true;
+  });
+}
+
+/**
+ * Pure check, used before each row: is this holder still the owner with at least `minRemainingMs` of margin?
+ * It writes nothing, so it is a plain read and not a transaction: the point is to notice a lease lost earlier, and no
+ * transaction could make this decision atomic with the row write that follows it anyway.
+ */
+export async function assertDrainLeaseHeld(options:AssertDrainLeaseHeldOptions):Promise<boolean>{
+  const {db,root,holderId,token,now}=options,minRemainingMs=orDefault(options.minRemainingMs,DEFAULT_DRAIN_LEASE_MARGIN_MS);
+  validHolder(holderId);validToken(token);validClock(now);validMargin(minRemainingMs);
+  const lease=readLease((await leaseRef(root).get()).data());
+  if(!ownsLease(lease,holderId,token,now))return false;
+  return lease!.expiresAtMs-now>=minRemainingMs;
+}
+
+/** Reads one rotation cursor. A missing, null or malformed value reads as `null`. It writes nothing, so it is a plain read. */
+export async function getDrainCursor(options:GetDrainCursorOptions):Promise<string|null>{
+  const {db,root,kind}=options;
+  validKind(kind);
+  const stored=asRecord((await cursorsRef(root).get()).data())?.[kind];
+  return plainDocId(stored)?stored:null;
+}
+
+/**
+ * Writes one rotation cursor, but only while the caller still owns a live lease (the same gate as `renewDrainLease`).
+ * The cursor document is merged, so the three kinds never overwrite each other. Returns `false` and writes nothing when
+ * the caller is not the owner, the token does not match, or the lease has expired.
+ */
+export async function setDrainCursor(options:SetDrainCursorOptions):Promise<boolean>{
+  const {db,root,kind,holderId,token,cursor,now}=options;
+  validKind(kind);validHolder(holderId);validToken(token);validCursor(cursor);validClock(now);
+  const ref=leaseRef(root),cursors=cursorsRef(root);
+  return db.runTransaction(async tx=>{
+    const current=readLease((await tx.get(ref)).data());
+    if(!ownsLease(current,holderId,token,now))return false;
+    tx.set(cursors,{[kind]:cursor},{merge:true});
+    return true;
+  });
+}
+
+--- server/commercial/firestoreBackend.ts: pendingExternalBillingIntents (primeras lineas, con numero de linea) ---
+1831:   async pendingExternalBillingIntents(limit=25,afterId?:string|null){
+1832:     if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
+1833:     const now=Date.now(),due=(d:DocumentSnapshot)=>!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<=now;
+1834:     const polls=new Map<string,string>();
+1835:     const [reserves,releases]=await Promise.all([this.dueRows('billingIntents','reserve_pending',limit,due,afterId),this.dueRows('billingIntents','release_pending',limit,due,afterId,{now,polls})]);
+1836:     return interleave(releases,reserves,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d),resolutionPollId:polls.get(d.id)}));
+1837:   }
+1838:   /**
+1839:    * Rows of one `state` that satisfy `due`, in document-id order, scanning pages (equality + id order: automatic index) until `limit` are found or the state is exhausted.
+1840:    * An `afterId` that names a row of this collection makes the read ROTATE: it starts strictly AFTER it and, when that tail is shorter than `limit`, wraps to the beginning
+1841:    * and stops before the cursor, so one rotation serves each due row at most once. An `afterId` that is not a row of this collection (or `null`/absent) reads from the
+1842:    * beginning; without it the query is exactly the plain equality+id one.
+1843:    */
+1844:   private async dueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean,afterId?:string|null,schedule?:{now:number;polls:Map<string,string>}){
+1845:     if(!afterId||!(await this.root.collection(collection).doc(afterId).get()).exists)return this.scanDueRows(collection,state,limit,due,null,null,schedule);
+1846:     const out=await this.scanDueRows(collection,state,limit,due,afterId,null,schedule);
+1847:     if(out.length<limit)for(const d of await this.scanDueRows(collection,state,limit-out.length,due,null,afterId,schedule))out.push(d);
+1848:     return out;
+1849:   }
+1850:   /** One bounded scan of a `state` in document-id order, with a first-page exclusive `startAfterId` and an exclusive `stopBeforeId`. */
+1851:   private async scanDueRows(collection:string,state:string,limit:number,due:(d:DocumentSnapshot)=>boolean,startAfterId:string|null,stopBeforeId:string|null,schedule?:{now:number;polls:Map<string,string>}){
+1852:     const out:DocumentSnapshot[]=[];let last:DocumentSnapshot|undefined,first=true;
+1853:     for(;;){
+1854:       let query=this.root.collection(collection).where('state','==',state).orderBy(FieldPath.documentId()).limit(100);
+1855:       if(first&&startAfterId)query=query.startAfter(this.root.collection(collection).doc(startAfterId));else if(last)query=query.startAfter(last);
+1856:       first=false;
+1857:       const page=await query.get();
+1858:       const waiting=new Set<string>();
+1859:       if(schedule){
+1860:         const candidates=page.docs.filter(d=>(stopBeforeId===null||d.id<stopBeforeId)&&due(d)&&/^[a-f0-9]{64}$/.test(d.id));
+1861:         const owners=new Map<string,{id:string;action:'release'|'seal'}>();
+1862:         for(const d of candidates)for(const action of ['release','seal'] as const)owners.set(intentTerminalKey(d.id,action),{id:d.id,action});
+1863:         if(owners.size){
+1864:           const results=await this.db.getAll(...Array.from(owners.keys(),id=>this.ref('billingIntentResolutionPolls',id)));
+1865:           const choices=new Map<string,{invalid:boolean;earliest?:TerminalPollTurn}>();
+1866:           for(const poll of results){
+1867:             if(!poll.exists)continue;
+1868:             const {id,action}=owners.get(poll.id)!,data=poll.data();
+1869:             const choice=choices.get(id)??{invalid:false};choices.set(id,choice);
+1870:             if(!validTerminalPoll(data,id,action)||!Number.isSafeInteger(schedule.now)){choice.invalid=true;continue;}
+1871:             if(schedule.now<data.nextAttemptAt)continue;
+1872:             const first=choice.earliest;
+1873:             if(!first||data.nextAttemptAt<first.nextAttemptAt||data.nextAttemptAt===first.nextAttemptAt&&data.terminalId<first.terminalId)choice.earliest=data;
+1874:           }
+1875:           for(const [id,choice] of choices){
+1876:             if(choice.invalid||!choice.earliest)waiting.add(id);
+1877:             else schedule.polls.set(id,choice.earliest.terminalId);
+1878:           }
+1879:         }
+1880:       }
+1881:       let crossed=false;
+1882:       for(const d of page.docs){
+1883:         if(stopBeforeId!==null&&d.id>=stopBeforeId){crossed=true;break;}
+1884:         if(!waiting.has(d.id)&&due(d)){out.push(d);if(out.length>=limit)return out;}
+1885:       }
+1886:       if(crossed||page.docs.length<100)return out;
+1887:       last=page.docs[page.docs.length-1];
+1888:     }
+1889:   }
+1890:   /** These events are new-format only; existing incidents require a separate audited backfill. */
+1891:   async pendingExternalHolds(limit=25){
+1892:     if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
+1893:     const rows=await this.root.collection('billingHoldOutbox').where('state','==','pending').where('nextAttemptAt','<=',Date.now()).orderBy('nextAttemptAt').limit(limit).get();
+1894:     // The listing does NOT validate the generation: one poisoned row must not stop every other hold. The row already
+1895:     // carries `epoch`/`createdAtMs` through `d.data()`; `authorizeExternalHold` validates it and sends the bad row to review.
+1896:     return rows.docs.map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
+1897:   }
+1898:   /** Never send a hold for an owner inferred solely from a potentially corrupt outbox row. */
+1899:   async authorizeExternalHold(row:Record<string,unknown>):Promise<{state:'eligible';hold:ExternalBillingHold}|{state:'changed'}|{state:'needs_review'}>{
+1900:     if(!row||typeof row.id!=='string'||!/^[a-f0-9]{64}$/.test(row.id)||typeof row.snapshotVersion!=='string'||!/^\d{1,15}:\d{9}$/.test(row.snapshotVersion))throw new LedgerFault('invalid');
+1901:     const ref=this.ref('billingHoldOutbox',row.id);
+1902:     return this.db.runTransaction(async tx=>{
+
+--- server/commercial/firestoreBackend.ts: pendingExternalBilling (primeras lineas, con numero de linea) ---
+2319:   async pendingExternalBilling(limit=25,afterId?:string|null){
+2320:     if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new LedgerFault('invalid');
+2321:     const now=Date.now();
+2322:     const [pending,retry]=await Promise.all([this.dueRows('billingOutbox','pending',limit,()=>true,afterId),this.dueRows('billingOutbox','retry_wait',limit,d=>typeof d.get('nextAttemptAt')==='number'&&d.get('nextAttemptAt')<=now,afterId)]);
+2323:     return interleave(pending,retry,limit).map(d=>({...d.data(),id:d.id,snapshotVersion:outboxVersion(d)}));
+2324:   }
+2325:   async recordExternalBillingFailure(jobId:string,code:string,expected?:ExternalBillingOutboxFailureEvidence){
+2326:     identifier(jobId);if(!expected)return false;validOutboxSnapshot(expected.outbox);
+2327:     if(expected.outbox.jobId!==jobId||typeof expected.snapshotVersion!=='string'||!/^\d{1,15}:\d{9}(?![\s\S])/.test(expected.snapshotVersion)||!['pending','retry_wait'].includes(expected.state))throw new LedgerFault('invalid');
+2328:     // LV-019.B C2a: `too_early` is an early refusal of an unknown-expired release; it must be preserved, must not consume an attempt, and reschedules for later.
+2329:     const tooEarly=code==='too_early';
+2330:     if(!tooEarly&&!/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden)$/.test(code))code='unavailable';const ref=this.ref('billingOutbox',jobId);
+2331:     return this.db.runTransaction(async tx=>{
+2332:       const [d,job,terminal,artifact]=await tx.getAll(ref,this.ref('jobs',jobId),this.ref('movements','terminal:'+jobId),this.ref('artifacts',jobId));
+2333:       if(!d.exists||d.get('state')!==expected.state||outboxVersion(d)!==expected.snapshotVersion||!matchesOutboxSnapshot(d.data(),expected.outbox)||hasIntentLease(d.data()!)||!validUnleasedBillingMetadata(d.data()!)||!Number.isSafeInteger(d.get('nextAttemptAt'))||d.get('nextAttemptAt')<0)return false;
+2334:       const owner=await this.verifiedOutboxOwner(tx,jobId,job,expected.outbox),t=terminal.data(),a=artifact.data();
+2335:       if(!owner||owner.guardBlocked||owner.intentState!=='job_created'||(expected.outbox.action==='capture'?owner.job.state!=='succeeded'||owner.job.completedAttemptId!==expected.outbox.attemptId||a?.attemptId!==expected.outbox.attemptId:!['failed','cancelled'].includes(owner.job.state))||
+2336:         t?.accountId!==owner.accountId||t.reference!==jobId||t.credits!==expected.outbox.seconds||t.kind!=='external_'+expected.outbox.action||a?.accountId!==owner.accountId||a.jobId!==jobId||a.inputId!==owner.job.inputId)return false;
+2337:       const previous=d.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
+2338:       const now=Date.now();
+2339:       if(tooEarly){tx.update(ref,{state:'retry_wait',lastErrorCode:'too_early',nextAttemptAt:now+UNKNOWN_RESOLUTION_MIN_AGE_MS,lastAttemptAtMs:now});return true;}
+2340:       const attempts=Number(previous)+1,delay=Math.min(15*60_000,1000*2**Math.min(attempts,10));
+2341:       // LV-019.B C2a: every permanent refusal shares one bound, so no row can retry forever. The row becomes `needs_review` (reported by
+2342:       // `readPendingReport`, alerted by `raisePendingAlerts`) and is never retried again; the owner is not blocked, so no hold and no guard are set.
+2343:       // Only `unavailable` is exempt: it is transient infrastructure and step 1.6 bounds it by the periodic runner's maximum age.
+2344:       if(code!=='unavailable'&&attempts>=EXTERNAL_BILLING_ATTEMPT_LIMIT){tx.update(ref,{state:'needs_review',attempts,lastErrorCode:code,lastAttemptAtMs:now});return true;}
+2345:       tx.update(ref,{state:'retry_wait',attempts,lastErrorCode:code,nextAttemptAt:now+delay,lastAttemptAtMs:now});return true;
+2346:     });
+2347:   }
+2348:   /** An error/timeout is not an ACK; stale evidence cannot write or release a lease. */
+2349:   async recordExternalBillingIntentFailure(accountId:string,requestKey:string,code:string,expected?:ExternalBillingIntentFailureEvidence){
+2350:     identifier(accountId);text(requestKey);if(!expected)return false;
+2351:     if(!['unleased','leased'].includes(expected.mode)||!/^\d{1,15}:\d{9}(?![\s\S])/.test(expected.snapshotVersion)||typeof expected.intentGuardVersion!=='string'||!/^\d{1,15}:\d{9}(?![\s\S])/.test(expected.intentGuardVersion)||!['reserve_pending','release_pending'].includes(expected.state))throw new LedgerFault('invalid');
+2352:     const witness=expected.witness;validIntentWitness(witness);
+2353:     if(witness.accountId!==accountId||witness.intentId!==hash([accountId,requestKey]))throw new LedgerFault('invalid');
+2354:     if(expected.mode==='leased'&&(typeof expected.leaseToken!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/i.test(expected.leaseToken)||
+2355:       typeof expected.leaseOwner!=='string'||!/^[a-z0-9][a-z0-9._:-]{0,127}(?![\s\S])/i.test(expected.leaseOwner)||!Number.isSafeInteger(expected.generation)||expected.generation<1||!Number.isSafeInteger(expected.leaseUntil)||expected.leaseUntil<0))throw new LedgerFault('invalid');
+2356:     if(!/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden|reserved_unconfirmed)$/.test(code))code='unavailable';
+2357:     const ref=this.ref('billingIntents',witness.intentId);
+2358:     return this.db.runTransaction(async tx=>{
+2359:       const [d,account,identity,input,origin,request,marker,guard,intentGuard]=await tx.getAll(ref,this.ref('accounts',accountId),this.ref('identities',witness.identityKey),this.ref('inputs',witness.inputId),this.ref('billingIntentWitnesses',witness.intentId),this.ref('requests',witness.intentId),this.ref('billingIntentJobMarkers',witness.intentId),this.ref('billingGuards',accountId),this.ref('billingIntentAdmissionGuards',witness.intentId));
+2360:       if(!d.exists||outboxVersion(d)!==expected.snapshotVersion||d.get('state')!==expected.state)return false;
+2361:       const uid=identity.get('uid');
+2362:       if(!account.exists||!identity.exists||identity.get('accountId')!==accountId||typeof uid!=='string'||!uid||uid.length>128||hash(['firebase',uid])!==witness.identityKey||
+2363:         !input.exists||input.get('accountId')!==accountId||!validStoredIntentWitness(origin,witness)||!validClearIntentAdmissionGuard(intentGuard,witness.intentId)||outboxVersion(intentGuard)!==expected.intentGuardVersion||request.exists||marker.exists||this.billingBlocked(guard,accountId))return false;
+2364:       let row:ExternalBillingIntent;try{row=this.billingIntent(d,accountId,requestKey,witness);}catch(error){if(error instanceof LedgerFault)return false;throw error;}
+2365:       if(row.inputId!==witness.inputId||row.operation!==witness.operation||row.revision!==witness.revision||row.jobId)return false;
+2366:       externalIntentTransitionDue(d);const raw=d.data()!,now=Date.now();
+2367:       if(expected.mode==='unleased'?hasIntentLease(raw):!hasIntentLease(raw)||!sameIntentLease(raw,expected)||expected.leaseUntil<=now)return false;
+2368:       const previous=d.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
+2369:       const attempts=Number(previous)+1;
+2370:       tx.update(ref,{attempts,lastErrorCode:code,nextAttemptAt:now+billingAttemptDelay(attempts),lastAttemptAtMs:now,...(expected.mode==='leased'?{leaseToken:FieldValue.delete(),leaseOwner:FieldValue.delete(),leaseUntil:FieldValue.delete()}:{})});return true;
+2371:     });
+2372:   }
+2373:   /**
+2374:    * LV-019.B step 1.6c (design 3.4): the DRAIN's three evidence-less intent routes must still leave a trace of an attempt.
+2375:    * Those routes have no `snapshotVersion`, no failure evidence and no status snapshot, so nothing can be fenced against a
+2376:    * stale read: this method takes NO evidence on purpose. It only advances SCHEDULING metadata (attempts, growing wait,
+2377:    * lastErrorCode, lastAttemptAtMs) inside ONE transaction that re-reads the row and requires it to still be
+2378:    * `reserve_pending` or `release_pending`, unleased and with valid scheduling metadata. At EXTERNAL_BILLING_ATTEMPT_LIMIT
+2379:    * the intent moves to `needs_review` with an alert and WITHOUT blocking the owner, exactly like the outbox recorder. It
+2380:    * never moves balance, never touches a hold, a guard or a witness, and never creates an incident.
+2381:    */
+2382:   async recordExternalBillingIntentStall(accountId:string,requestKey:string,code:string){
+2383:     identifier(accountId);text(requestKey);
+2384:     if(!/^(unavailable|insufficient|conflict|invalid|quota|not_found|forbidden|reserved_unconfirmed)$/.test(code))code='unavailable';
+2385:     const ref=this.ref('billingIntents',hash([accountId,requestKey]));
+2386:     return this.db.runTransaction(async tx=>{
+2387:       const d=await tx.get(ref);
+2388:       if(!d.exists)return false;
+2389:       const row=d.data() as ExternalBillingIntent;
+2390:       // The row is re-read here: only a still-pending, unleased, well-formed row is rescheduled.
+
+--- server/commercial/firestoreBackend.ts: escalateStaleBillingRows (primeras lineas, con numero de linea) ---
+2410:   async escalateStaleBillingRows(options:{now:number;maxAgeMs?:number;limit:number;after?:string|null;shouldContinue?:()=>boolean|Promise<boolean>}){
+2411:     const now=options?.now,limit=options?.limit,after=options?.after??null,maxAgeMs=options?.maxAgeMs===undefined?EXTERNAL_BILLING_MAX_AGE_MS:options.maxAgeMs,shouldContinue=options?.shouldContinue;
+2412:     if(!Number.isSafeInteger(now)||(now as number)<0)throw new LedgerFault('invalid');
+2413:     if(!Number.isSafeInteger(limit)||(limit as number)<1||(limit as number)>100)throw new LedgerFault('invalid');
+2414:     if(!Number.isSafeInteger(maxAgeMs)||(maxAgeMs as number)<1)throw new LedgerFault('invalid');
+2415:     if(after!==null&&!plainDocumentId(after))throw new LedgerFault('invalid');
+2416:     if(shouldContinue!==undefined&&typeof shouldContinue!=='function')throw new LedgerFault('invalid');
+2417:     // The three sources and only their NON-terminal states; a terminal row is never a candidate.
+2418:     const sources=[{collection:'billingIntents',states:['reserve_pending','release_pending']},{collection:'billingOutbox',states:['pending','retry_wait']},{collection:'billingHoldOutbox',states:['pending']}] as const;
+2419:     const candidates:Array<{collection:string;id:string;state:string}>=[];
+2420:     for(const source of sources)for(const state of source.states)for(const d of await this.staleScan(source.collection,state,after,limit as number))
+2421:       candidates.push({collection:source.collection,id:d.id,state});
+2422:     // Order by (id, collection), NOT (collection, id): the cursor `after` is a single id shared by every collection, so
+2423:     // ordering by id keeps it monotone and one rotation visits each row once. Ties on the same id are broken by
+2424:     // collection only to keep the order stable.
+2425:     candidates.sort((a,b)=>a.id===b.id?(a.collection<b.collection?-1:a.collection>b.collection?1:0):(a.id<b.id?-1:1));
+2426:     // The cut never splits a group of rows that share the last selected id: `after` is only an id, so every row with that
+2427:     // id must travel in the same page or the next pass (which reads strictly after it) would lose the ones left behind.
+2428:     const selected=candidates.slice(0,limit as number);
+2429:     if(selected.length===limit){
+2430:       const cutId=selected[selected.length-1].id;
+2431:       for(const candidate of candidates.slice(limit))if(candidate.id===cutId)selected.push(candidate);
+2432:     }
+2433:     // Cursor and limit follow the expired-unknown resolver: `next` is the last row attended only when the page was FULL,
+2434:     // and `null` otherwise (a short tail ends the rotation, so the next pass starts over from the beginning).
+2435:     const report={scanned:selected.length,escalated:0,failed:0,next:(selected.length>=limit?selected[selected.length-1]?.id??null:null) as string|null,stopped:false};
+2436:     // On a stop the cursor may only advance past ids whose WHOLE tie group was attended: fter is a single id, so
+2437:     // stopping inside a group would make the next pass read strictly after it and lose the rows left in that group.
+2438:     let completed:string|null=null;
+2439:     for(let index=0;index<selected.length;index++){
+2440:       const candidate=selected[index];
+2441:       if(shouldContinue!==undefined){
+2442:         let proceed=false;
+2443:         try{proceed=!!(await shouldContinue());}catch{proceed=false;}
+2444:         if(!proceed){report.stopped=true;report.next=completed??after;break;}
+2445:       }
+2446:       let outcome:'escalated'|'skipped'|'failed';
+2447:       try{
+2448:         outcome=await this.db.runTransaction(async tx=>{
+2449:           const ref=this.ref(candidate.collection,candidate.id);
+2450:           const doc=await tx.get(ref);
+2451:           if(!doc.exists)return 'skipped' as const;
+2452:           const state=doc.get('state');
+2453:           const nonTerminal=sources.find(source=>source.collection===candidate.collection)!.states as readonly string[];
+2454:           // The state must be EXACTLY the one the scan saw: a row that advanced to another non-terminal state is left for
+2455:           // the next rotation rather than escalated on a stale view.
+2456:           if(typeof state!=='string'||!nonTerminal.includes(state)||state!==candidate.state)return 'skipped' as const;
+2457:           const createdAtMs=doc.get('createdAtMs');
+2458:           const clock=now as number,limitAge=maxAgeMs as number;
+2459:           if(typeof createdAtMs!=='number'||!Number.isSafeInteger(createdAtMs)||createdAtMs<0||createdAtMs>clock)return 'failed' as const;
+2460:           if(clock-createdAtMs<=limitAge)return 'skipped' as const;
+2461:           // An active lease means someone is working the row right now: it is seen again in the next rotation.
+2462:           const leaseUntil=doc.get('leaseUntil');
+2463:           if(Number.isSafeInteger(leaseUntil)&&Number(leaseUntil)>clock)return 'skipped' as const;
+2464:           if(await this.deferVerifiedReleaseAge(tx,candidate.collection,doc,clock,limitAge))return 'skipped' as const;
+2465:           // A dangling or expired lease must not survive on a reviewed row; the audited release (1.4b) reopens it.
+2466:           const clearLease=hasIntentLease(doc.data()!)?{leaseToken:FieldValue.delete(),leaseOwner:FieldValue.delete(),leaseUntil:FieldValue.delete()}:{};
+2467:           tx.update(ref,{state:'needs_review',reviewReason:'max_age',updatedAtMs:clock,...clearLease});return 'escalated' as const;
+2468:         });
+2469:       }catch{outcome='failed';}
+2470:       if(outcome==='escalated')report.escalated++;else if(outcome==='failed')report.failed++;
+2471:       // An id becomes a safe cursor only once no later selected candidate shares it.
+2472:       if(index===selected.length-1||selected[index+1].id!==candidate.id)completed=candidate.id;
+2473:     }
+2474:     return report;
+2475:   }
+2476:   /** The report still observes the original creation date. Only a verified refund can wait for its next drain. */
+2477:   private async deferVerifiedReleaseAge(tx:Transaction,collection:string,doc:DocumentSnapshot,clock:number,maxAgeMs:number){
+2478:     const row=doc.data()!;
+2479:     if(collection==='billingIntents'&&row.state!=='release_pending'||collection==='billingOutbox'&&row.action!=='release'||collection==='billingHoldOutbox')return false;
+2480:     const accountId=row.accountId;
+2481:     if(typeof accountId!=='string'||!uuid.test(accountId)||hasIntentLease(row)||!validUnleasedBillingMetadata(row)||
+
+--- server/commercial/firestoreBackend.ts: resolveExpiredUnknown (primeras lineas, con numero de linea) ---
+2959:   async resolveExpiredUnknown(options:{now:number;limit:number;after?:string|null;windowMs?:number;skewMs?:number;shouldContinue?:()=>boolean|Promise<boolean>}){
+2960:     const now=options?.now,limit=options?.limit,after=options?.after??null,windowMs=options?.windowMs,skewMs=options?.skewMs,shouldContinue=options?.shouldContinue;
+2961:     if(!Number.isSafeInteger(now)||(now as number)<0)throw new LedgerFault('invalid');
+2962:     if(!Number.isSafeInteger(limit)||(limit as number)<1||(limit as number)>100)throw new LedgerFault('invalid');
+2963:     if(after!==null&&!plainDocumentId(after))throw new LedgerFault('invalid');
+2964:     // Test-only overrides: `windowMs` may only SHORTEN the window, `skewMs` must stay within its ceiling. Anything else
+2965:     // (non-number, NaN, Infinity, negative or out of range) is a bad parameter, not a policy change.
+2966:     if(windowMs!==undefined&&(!Number.isSafeInteger(windowMs)||(windowMs as number)<MIN_TEST_UNKNOWN_WINDOW_MS||(windowMs as number)>UNKNOWN_REVIEW_WINDOW_MS))throw new LedgerFault('invalid');
+2967:     if(skewMs!==undefined&&(!Number.isSafeInteger(skewMs)||(skewMs as number)<0||(skewMs as number)>MAX_TEST_UNKNOWN_SKEW_MS))throw new LedgerFault('invalid');
+2968:     if(shouldContinue!==undefined&&typeof shouldContinue!=='function')throw new LedgerFault('invalid');
+2969:     // The page read is the first database access, so a rejected argument never reaches the runner (validated above).
+2970:     const page=await this.db.runTransaction(async tx=>{
+2971:       let query=this.root.collection('jobs').where('state','==','unknown').orderBy(FieldPath.documentId()).limit(limit as number);
+2972:       if(after!==null)query=query.startAfter(after);
+2973:       return (await tx.get(query)).docs.map(doc=>doc.id);
+2974:     });
+2975:     const report={scanned:page.length,resolved:0,notDue:0,failed:0,next:(page.length===limit?page[page.length-1]:null) as string|null,stopped:false};
+2976:     let lastAttended:string|null=null;
+2977:     for(const jobId of page){
+2978:       if(shouldContinue!==undefined){
+2979:         let proceed=false;
+2980:         try{proceed=!!(await shouldContinue());}catch{proceed=false;}
+2981:         if(!proceed){report.stopped=true;report.next=lastAttended??after;break;}
+2982:       }
+2983:       let outcome:'resolved'|'not_due'|'failed'|'skipped';
+2984:       try{
+2985:         outcome=await this.db.runTransaction(async tx=>{
+2986:           const doc=await tx.get(this.ref('jobs',jobId));
+2987:           if(!doc.exists||doc.get('state')!=='unknown')return 'skipped' as const;
+2988:           // Voice has its own proportional-charge policy and recovery (C2/C3): releasing a narration here with K=0 would
+2989:           // contradict the owner's policy, so a voice row is never eligible. It is counted not-due and left untouched.
+2990:           if(narrationRequiresReview(doc.get('operation')))return 'not_due' as const;
+2991:           const accountId=doc.get('accountId');
+2992:           if(typeof accountId!=='string')return 'failed' as const;
+2993:           const c=await this.context(tx,accountId,jobId,true);
+2994:           if(c.job.state!=='unknown')return 'skipped' as const;
+2995:           const admitted=!!c.providerReceipts&&c.providerReceipts.length>0;
+2996:           const verdict=classifyUnknownQuarantine({quarantinedAtMs:c.job.quarantinedAtMs,unknownAttemptId:c.job.unknownAttemptId},{jobId,admitted,now:now as number,...(windowMs!==undefined?{windowMs}:{}),...(skewMs!==undefined?{skewMs}:{})});
+2997:           if(verdict.state==='invalid')return 'failed' as const;
+2998:           if(verdict.state==='not_due')return 'not_due' as const;
+2999:           if(admitted)this.settle(tx,c,'failed',verdict.evidence,{kind:'unknown_expired',evidenceSha256:verdict.evidenceSha256});
+3000:           else this.settle(tx,c,'failed',verdict.evidence);
+3001:           tx.update(c.jobRef,{resolvedAs:'unknown_expired'});
+3002:           return 'resolved' as const;
+3003:         });
+3004:       }catch{outcome='failed';}
+3005:       lastAttended=jobId;
+3006:       if(outcome==='resolved')report.resolved++;
+3007:       else if(outcome==='not_due')report.notDue++;
+3008:       else if(outcome==='failed')report.failed++;
+3009:     }
+3010:     return report;
+3011:   }
+3012:   /** Customer status must recheck identity and job ownership in the same transaction. */
+3013:   async jobForUid(accountId:string,jobId:string,uid:string) {
+3014:     identifier(accountId);identifier(jobId);
+3015:     return this.db.runTransaction(async tx=>{
+3016:       if(!await verifiedUidAccountInTransaction(tx,this.root,accountId,uid))throw new LedgerFault('not_found');
+3017:       const doc=await tx.get(this.ref('jobs',jobId));
+3018:       if(!doc.exists||doc.get('accountId')!==accountId)throw new LedgerFault('not_found');return doc.data() as Job;
+3019:     });
+3020:   }
+3021: }
+3022: 
+
+--- server/commercial/firestoreBackend.ts: quarantineExternalBillingOutbox (primeras lineas, con numero de linea) ---
+2573:   async quarantineExternalBillingOutbox(outboxId:string,options:ExternalBillingOutboxQuarantine):Promise<ExternalBillingOutboxQuarantineResult>{
+2574:     if(typeof outboxId!=='string'||!outboxId||Buffer.byteLength(outboxId)>1500||outboxId==='.'||outboxId==='..'||/[\/\x00-\x1f\x7f]/.test(outboxId)||!options||!['before_ack','after_ack'].includes(options.phase))throw new LedgerFault('invalid');
+2575:     const phase=options.phase,rawVersion=options.snapshotVersion,version=typeof rawVersion==='string'&&/^\d{1,15}:\d{9}$/.test(rawVersion)?rawVersion:null;
+2576:     if(phase==='before_ack'&&!version)return {state:'changed',ownerBlocked:false};
+2577:     let after:{expected:ExternalBillingOutboxSnapshot;ack:ExternalBillingObservation;ackMatches:boolean;settlementSnapshot:ExternalBillingSettlementReadSnapshot|null}|null=null;
+2578:     if(options.phase==='after_ack'){
+2579:       const expected=copyOutboxSnapshot(options.expected);if(!expected)throw new LedgerFault('invalid');
+2580:       const observation=options.ack;if(!observation)throw new LedgerFault('invalid');
+2581:       const ack={reservationId:observation.reservationId,state:observation.state,seconds:observation.seconds};
+2582:       // LV-019.B 3b: an ACK that does not correspond to the row's action is a DEMONSTRATED DIVERGENCE, not a shape error. It is recorded below
+2583:       // (needs_review + hold + guard) instead of thrown, so a divergent ACK can never be silenced leaving the row `pending` with no incident.
+2584:       // `ackMatches` gates the two safe fast paths (already_settled and the transient retry): only a matching ACK may take them.
+2585:       const ackMatches=ack.reservationId===expected.reservationId&&ack.seconds===expected.seconds&&ack.state===(expected.action==='capture'?'captured':'released');
+2586:       const snapshot=copyExternalBillingSettlementReadSnapshot(options.settlementSnapshot);
+2587:       after={expected,ack,ackMatches,settlementSnapshot:snapshot&&matchesOutboxSnapshot(snapshot.expected,expected)?snapshot:null};
+2588:     }
+2589:     const key=hash(['billing-outbox-review-v1',outboxId,phase,version,after?safeOutboxAudit(after.expected):null]);
+2590:     const outbox=this.ref('billingOutbox',outboxId),incident=this.ref('billingOutboxReviewIncidents',key),job=uuid.test(outboxId)?this.ref('jobs',outboxId):null;
+2591:     return this.db.runTransaction(async tx=>{
+2592:       const [current,existing,...jobDocs]=await tx.getAll(outbox,incident,...(job?[job]:[])),jobDoc=jobDocs[0];
+2593:       const currentVersion=current.exists?outboxVersion(current):null;
+2594:       // LV-019.B double ACK (docs/specs/LV-019-B-doble-ack-liquidacion.md): another drainer already settled this exact row (same document: its createTime is the one
+2595:       // read before the POST, only its updateTime moved), and the 13 other documents this POST validated still have their pre-POST versions, so the ACK confirms
+2596:       // that same settlement. Nothing is written; any other case is reviewed below.
+2597:       if(after?.ackMatches&&after.settlementSnapshot&&current.exists&&current.get('state')==='settled'&&matchesOutboxSnapshot(current.data(),after.expected)){
+2598:         const reread=await this.captureExternalBillingSettlement(tx,after.expected,after.settlementSnapshot.intentId),before=after.settlementSnapshot.versions.outbox,row=reread?.versions.outbox;
+2599:         if(reread&&before.exists&&row?.exists&&before.createTime===row.createTime&&settlementDocumentNames.every(name=>name==='outbox'||JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot!.versions[name])))return {state:'already_settled',ownerBlocked:false};
+2600:       }
+2601:       // LV-019.B C-3 (design v2 3.1): a local failure that did not commit is not a divergence. When the ACK matches the row's action, the row still
+2602:       // carries the expected tuple in pending/retry_wait and the other 13 settlement documents keep their pre-POST versions, only the local mark
+2603:       // failed. The row's OWN version (updateTime) is deliberately NOT part of the discriminator (design v2 3.1): another drainer may record a local
+2604:       // failure on the same row (same tuple, still pending/retry_wait, no lease, history intact) and that benign race is still transient. A lease means
+2605:       // a NEWER turn actively owns the row (a real divergence: it already re-leased the row for another pass), so a leased row is never rescheduled here.
+2606:       // The row's DOCUMENT IDENTITY (createTime) IS required, the same as the `already_settled` shortcut: a row deleted and recreated with the same
+2607:       // tuple is a DIFFERENT document and a demonstrated divergence, not the row the pass read (DeepSeek 2). The expected tuple already includes
+2608:       // accountId and identityKey and matchesOutboxSnapshot compares them, so this path needs no separate owner check (review adjudication DeepSeek 5).
+2609:       // No incident, no hold and no guard here: count the attempt and reschedule, bounded by the shared attempt limit. Any other case (a version of one
+2610:       // of the 13 other documents moved, a differing tuple, a recreated row, a lease or a divergent ACK) keeps the incident + hold + block below.
+2611:       if(after?.ackMatches&&after.settlementSnapshot&&current.exists&&['pending','retry_wait'].includes(current.get('state'))&&!hasIntentLease(current.data()!)&&matchesOutboxSnapshot(current.data(),after.expected)){
+2612:         const beforeOutbox=after.settlementSnapshot.versions.outbox,currentOutbox=terminalDocumentVersion(current);
+2613:         const sameOutboxDocument=!!beforeOutbox&&beforeOutbox.exists&&!!currentOutbox&&currentOutbox.exists&&beforeOutbox.createTime===currentOutbox.createTime;
+2614:         const reread=await this.captureExternalBillingSettlement(tx,after.expected,after.settlementSnapshot.intentId);
+2615:         const intact=sameOutboxDocument&&!!reread&&settlementDocumentNames.every(name=>name==='outbox'||JSON.stringify(reread.versions[name])===JSON.stringify(after.settlementSnapshot!.versions[name]));
+2616:         if(intact){
+2617:           const previous=current.get('attempts')??0;if(!Number.isSafeInteger(previous)||previous<0||previous>=Number.MAX_SAFE_INTEGER)throw new LedgerFault('invariant');
+2618:           const now=Date.now(),attempts=Number(previous)+1,delay=Math.min(15*60_000,1000*2**Math.min(attempts,10));
+2619:           if(attempts>=EXTERNAL_BILLING_ATTEMPT_LIMIT){tx.update(outbox,{state:'needs_review',attempts,lastErrorCode:'closure_unverified',lastAttemptAtMs:now});return {state:'needs_review',ownerBlocked:false};}
+2620:           tx.update(outbox,{state:'retry_wait',attempts,lastErrorCode:'closure_unverified',nextAttemptAt:now+delay,lastAttemptAtMs:now});return {state:'retry_wait',ownerBlocked:false};
+2621:         }
+2622:       }
+2623:       if(phase==='before_ack'&&(!current.exists||!currentVersion||currentVersion!==version))return {state:'changed',ownerBlocked:false};
+2624:       // A settled row with the same tuple alone does not prove its history was unchanged.
+2625:       if(phase==='before_ack'&&current.get('state')==='settled')return {state:'changed',ownerBlocked:false};
+2626:       const owner=jobDoc?await this.verifiedOutboxOwner(tx,outboxId,jobDoc,after?.expected):null;
+2627:       // A related document may have been repaired even while the outbox version stayed fixed.
+2628:       if(phase==='before_ack'&&owner&&!owner.guardBlocked&&owner.intentState==='job_created'&&['pending','retry_wait'].includes(current.get('state'))){
+2629:         const raw=current.data()!,candidate=raw as ExternalBillingOutboxSnapshot;
+2630:         // A row with an unexpected key is never a clean repair; only an exact v1/v3 tuple with its documented metadata may take the `changed` fast path.
+2631:         let valid=!!copyOutboxSnapshot(raw,OUTBOX_METADATA_KEYS);if(valid)try{validOutboxSnapshot(candidate);}catch(error){if(error instanceof LedgerFault)valid=false;else throw error;}
+2632:         if(valid&&!hasIntentLease(raw)&&validUnleasedBillingMetadata(raw)&&Number.isSafeInteger(raw.nextAttemptAt)&&raw.nextAttemptAt>=0&&candidate.jobId===outboxId&&candidate.accountId===owner.accountId&&matchesExternalBilling(candidate,owner.billing)){
+2633:           const [terminal,artifact]=await tx.getAll(this.ref('movements','terminal:'+outboxId),this.ref('artifacts',outboxId)),t=terminal.data(),a=artifact.data();
+2634:           const stateValid=candidate.action==='capture'?owner.job.state==='succeeded':['failed','cancelled'].includes(owner.job.state);
+2635:           if(stateValid&&(candidate.action!=='capture'||candidate.attemptId===owner.job.completedAttemptId&&candidate.attemptId===a?.attemptId)&&t?.accountId===owner.accountId&&t.reference===outboxId&&t.credits===candidate.seconds&&t.kind==='external_'+candidate.action&&
+2636:             a?.accountId===owner.accountId&&a.jobId===outboxId&&a.inputId===owner.job.inputId)return {state:'changed',ownerBlocked:false};
+2637:         }
+2638:       }
+2639:       const idHash=hash(['billing-outbox-id',outboxId]),now=Date.now(),
+2640:         hold=owner?externalHold(owner.accountId,owner.billing.identityKey,'outbox',key,this.guardEpoch(owner.guardDoc,owner.accountId,{field:'lastOutboxIncidentId',id:key},now)):null,
+2641:         holdDoc=hold?await tx.get(this.ref('billingHoldOutbox',hold.id)):null;
+2642:       const invalidHold=!!hold&&!!holdDoc!.exists&&(!matchesHold(holdDoc!.data(),hold!)||!['pending','applied','needs_review'].includes(holdDoc!.get('state')));
+2643:       if(existing.exists&&(existing.get('outboxIdHash')!==idHash||existing.get('phase')!==phase))throw new LedgerFault('invariant');
+2644:       const audit={state:'needs_review',phase,reason:after?'remote_ack_outbox_changed':'invalid_outbox',outboxId:uuid.test(outboxId)?outboxId:null,outboxIdHash:idHash,
+
+--- server/commercial/firestoreBackend.ts: fenceExternalBillingRelease (primeras lineas, con numero de linea) ---
+1580:   async fenceExternalBillingRelease(accountId:string,requestKey:string,billing:ExternalVideoBilling):Promise<ExternalBillingReleaseFence>{
+1581:     const claimed=await this.claimExternalBillingRelease(accountId,requestKey,billing);
+1582:     return claimed.state==='job_created'?claimed:{state:'release_pending'};
+1583:   }
+1584:   /**
+1585:    * LV-019.B step 1.3a: the same atomic reserve_pending -> release_pending transition as the fence, but it also
+1586:    * reports whether THIS call performed the transition. Two concurrent drains therefore agree on which one owns the
+1587:    * single release: the loser sees `transitioned:false` and must not contact Account again. Behavior is otherwise
+1588:    * identical to `fenceExternalBillingRelease` (work check, blocked guard, admission guard).
+1589:    */
+1590:   async claimExternalBillingRelease(accountId:string,requestKey:string,billing:ExternalVideoBilling):Promise<{state:'release_pending';transitioned:boolean}|{state:'job_created';jobId:string}>{
+1591:     identifier(accountId);text(requestKey);if(!billing||typeof billing!=='object')throw new LedgerFault('invalid');
+1592:     const authorizedBilling=copyExternalBilling(billing);validExternalBilling(authorizedBilling);
+1593:     const key=hash([accountId,requestKey]),account=this.ref('accounts',accountId),intent=this.ref('billingIntents',key),request=this.ref('requests',key),guard=this.ref('billingGuards',accountId),intentGuard=this.ref('billingIntentAdmissionGuards',key);
+1594:     return this.db.runTransaction(async tx=>{
+1595:       const [a,d,prior,blocked,admission]=await tx.getAll(account,intent,request,guard,intentGuard);if(!a.exists)throw new LedgerFault('not_found');
+1596:       if(this.billingBlocked(blocked,accountId)||!validClearIntentAdmissionGuard(admission,key))throw new LedgerFault('conflict');
+1597:       const row=this.billingIntent(d,accountId,requestKey,authorizedBilling);
+1598:       if(prior.exists){const jobId=await this.verifiedExternalJob(tx,prior,accountId,row.inputId,requestKey,row.operation,row.revision,authorizedBilling);if(row.jobId&&row.jobId!==jobId)throw new LedgerFault('invariant');return {state:'job_created',jobId};}
+1599:       if(row.state==='job_created'||row.jobId)throw new LedgerFault('invariant');
+1600:       if(row.state==='release_pending'){externalIntentTransitionDue(d);return {state:'release_pending',transitioned:false};}
+1601:       if(row.state!=='reserve_pending')throw new LedgerFault('conflict');
+1602:       const nextAttemptAt=externalIntentTransitionDue(d);
+1603:       tx.update(intent,{state:'release_pending',updatedAtMs:Date.now(),nextAttemptAt});return {state:'release_pending',transitioned:true};
+1604:     });
+1605:   }
+1606:   /**
+1607:    * LV-019.B step 1.3a: close an A-3 intent for review WITHOUT blocking the owner.
+1608:    * The caller has already fenced the release window and proven that either the account
+1609:    * is blocked or Account refused the release (inherited reservation or stored admission).
+1610:    * No hold, no guard epoch and no balance movement is written: the A2 sweep alerts on
+1611:    * `needs_review`. The observed tuple always comes from the caller's authorized billing, never
+1612:    * from a caller-supplied status read; the incident also records WHERE that tuple came from, so an
+1613:    * operator never mistakes the intent's expected tuple for a real Account read.
+1614:    */
+1615:   async closeA3ReservationForReview(accountId:string,requestKey:string,billing:ExternalVideoBilling,observed:ExternalBillingObservation,options?:{requireBlocked?:boolean}):Promise<ExternalBillingReviewResult|{state:'not_blocked'}>{
+1616:     identifier(accountId);text(requestKey);validExternalBilling(billing);billing=copyExternalBilling(billing);
+1617:     if(!observed||observed.reservationId!==billing.reservationId||observed.state!=='reserved'||!Number.isSafeInteger(observed.seconds)||observed.seconds!==billing.seconds)throw new LedgerFault('invalid');
+1618:     const requireBlocked=options?.requireBlocked===true;
+1619:     const key=hash([accountId,requestKey]),intent=this.ref('billingIntents',key),incident=this.ref('billingReviewIncidents',key),guard=this.ref('billingGuards',accountId);
+1620:     return this.db.runTransaction(async tx=>{
+1621:       const reads=requireBlocked?await tx.getAll(intent,incident,guard):await tx.getAll(intent,incident);
+1622:       const d=reads[0],existing=reads[1],blocked=requireBlocked?reads[2]:null;if(!d.exists)throw new LedgerFault('not_found');
+1623:       const row=this.billingIntent(d,accountId,requestKey,billing);
+1624:       // A `requireBlocked` caller has NOT read Account status: its `observed` tuple is the EXPECTED tuple of the intent,
+1625:       // not a real observation. Close for review only when the row is still reserve_pending AND the account is truly
+1626:       // blocked, proven here in this same transaction. Every other null-evidence reason (a benign version race, an
+1627:       // existing work request or marker, a foreign or expired lease, a missing input or identity, or a release already
+1628:       // underway) returns `not_blocked` without writing, and the caller keeps today's stall behavior. The two other
+1629:       // callers (the fence conflict and the Account release refusal) do not ask for the proof.
+1630:       let blockedNow=false;if(requireBlocked){try{blockedNow=this.billingBlocked(blocked!,accountId);}catch{blockedNow=false;}}
+1631:       if(requireBlocked&&(row.state!=='reserve_pending'||!blockedNow))return {state:'not_blocked' as const};
+1632:       if(row.state==='job_created'||row.jobId)throw new LedgerFault('conflict');
+1633:       if(row.state==='closed')return {state:'needs_review',reason:'direct_status_uncertain'};
+1634:       const now=Date.now();
+1635:       // `firstObservedProvenance` separates a real Account status read (the fence-conflict and Account-refusal callers) from the intent's expected tuple (the requireBlocked caller, which never read Account).
+1636:       const firstObservedProvenance=requireBlocked?'expected_from_intent':'account_status';
+1637:       if(!existing.exists)tx.create(incident,{accountId,intentId:key,identityKey:billing.identityKey,reservationId:billing.reservationId,expectedSeconds:billing.seconds,reason:'direct_status_uncertain',firstObserved:{...observed,atMs:now},firstObservedProvenance,createdAtMs:now,updatedAtMs:now});
+1638:       if(row.state!=='needs_review')tx.update(intent,{state:'needs_review',reviewReason:'direct_status_uncertain',reviewIncidentId:key,updatedAtMs:now});
+1639:       return {state:'needs_review',reason:'direct_status_uncertain'};
+1640:     });
+1641:   }
+1642:   /** Preserve an anomalous external observation without issuing a refund or capture. */
+1643:   async recordExternalBillingReview(accountId:string,requestKey:string,billing:ExternalVideoBilling,observed:ExternalBillingObservation,snapshotInput?:unknown):Promise<ExternalBillingReviewResult>{
+1644:     identifier(accountId);text(requestKey);validExternalBilling(billing);billing=copyExternalBilling(billing);validExternalBilling(billing);
+1645:     if(!observed||typeof observed!=='object')throw new LedgerFault('invalid');observed={reservationId:observed.reservationId,state:observed.state,seconds:observed.seconds};
+1646:     if(!observed||observed.reservationId!==billing.reservationId||!['reserved','captured','released'].includes(observed.state)||!Number.isSafeInteger(observed.seconds)||observed.seconds<1)throw new LedgerFault('invalid');
+1647:     const snapshot=snapshotInput===undefined?undefined:copyDirectObservationSnapshot(snapshotInput);
+1648:     if(snapshotInput!==undefined&&(!snapshot||!['status','seal'].includes(snapshot.source)))throw new LedgerFault('invalid');
+1649:     const key=hash([accountId,requestKey]),account=this.ref('accounts',accountId),intent=this.ref('billingIntents',key),request=this.ref('requests',key),guard=this.ref('billingGuards',accountId),incident=this.ref('billingReviewIncidents',key),intentGuard=this.ref('billingIntentAdmissionGuards',key);
+1650:     return this.db.runTransaction(async tx=>{
+1651:       const [a,d,prior,blocked,existing,admission]=await tx.getAll(account,intent,request,guard,incident,intentGuard);
+
+--- server/account/backend.ts: bloqueo y desbloqueo de Cuenta (225-243 y 303-333) ---
+225:  async blockVideoBilling(identityKey:string,incident:string){
+226:   incidentId(incident);const identityRef=this.identityFromKey(identityKey),time=this.now();
+227:   return this.db.runTransaction(async tx=>{
+228:    const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+229:    if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+230:    const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+231:    const account=this.root.collection('accounts').doc(accountId),guard=this.root.collection('videoBillingGuards').doc(accountId),record=this.root.collection('videoBillingIncidents').doc(hash([accountId,incident]));
+232:    const [stored,held,previous]=await tx.getAll(account,guard,record);accountRecord(stored,identityKey);const blocked=billingHold(held,accountId,identityKey);
+233:    if(previous.exists){
+234:     if(!blocked||previous.get('ownerAccountId')!==accountId||previous.get('identityKey')!==identityKey||previous.get('incidentId')!==incident||previous.get('state')!=='active'||!integer(previous.get('createdAtMs')))invariant();
+235:     return {blocked:true as const,recorded:true as const,created:false};
+236:    }
+237:    const count=blocked?Number(held.get('incidentCount'))+1:1,epoch=blocked?Number(held.get('epoch'))+1:1;
+238:    if(!integer(count,1)||!integer(epoch,1)||!integer(time))invariant();
+239:    tx.create(record,{ownerAccountId:accountId,identityKey,incidentId:incident,state:'active',createdAtMs:time});
+240:    if(blocked)tx.update(guard,{incidentCount:count,epoch,updatedAtMs:time});
+241:    else tx.create(guard,{ownerAccountId:accountId,identityKey,blocked:true,incidentCount:count,epoch,createdAtMs:time,updatedAtMs:time});
+242:    return {blocked:true as const,recorded:true as const,created:true};
+243:   });
+...
+303:  async unblockVideoBilling(identityKey:string,request:{incidentId:string;epoch:number;createdAtMs:number;reviewRef:string}){
+304:   if(!request||typeof request!=='object'||Array.isArray(request)||Object.keys(request).sort().join(',')!=='createdAtMs,epoch,incidentId,reviewRef')bad();
+305:   const {incidentId:incident,epoch,createdAtMs,reviewRef}=request;
+306:   incidentId(incident);if(!integer(epoch,1)||!integer(createdAtMs)||!reviewRefValid(reviewRef))bad();
+307:   const identityRef=this.identityFromKey(identityKey),time=this.now();
+308:   return this.db.runTransaction(async tx=>{
+309:    const identity=await tx.get(identityRef);if(!identity.exists)throw new AccountFault('account_not_provisioned');
+310:    if(typeof identity.get('uid')!=='string'||uidKey(identity.get('uid'))!==identityKey)invariant();
+311:    const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
+312:    const accountRef=this.root.collection('accounts').doc(accountId),guardRef=this.root.collection('videoBillingGuards').doc(accountId),recordRef=this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])),unblockRef=this.root.collection('videoBillingUnblocks').doc(hash([accountId,incident,'unblock']));
+313:    const [stored,guard,record,unblock]=await tx.getAll(accountRef,guardRef,recordRef,unblockRef);accountRecord(stored,identityKey);
+314:    if(record.get('unblockProtocol')!==undefined||unblock.get('unblockProtocol')!==undefined)throw new AccountFault('conflict');
+315:    // A repeat of the same decision is a receipt; any different payload for the same incident is refused, and neither writes.
+316:    if(unblock.exists){
+317:     if(unblock.get('ownerAccountId')===accountId&&unblock.get('identityKey')===identityKey&&unblock.get('incidentId')===incident&&unblock.get('epoch')===epoch&&unblock.get('createdAtMs')===createdAtMs&&unblock.get('reviewRef')===reviewRef)return {unblocked:true as const,replayed:true as const,blocked:guard.exists};
+318:     throw new AccountFault('conflict');
+319:    }
+320:    const blocked=billingHold(guard,accountId,identityKey);
+321:    if(!blocked||guard.get('epoch')!==epoch||guard.get('createdAtMs')!==createdAtMs)throw new AccountFault('conflict');
+322:    if(!record.exists)throw new AccountFault('conflict');
+323:    if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
+324:    if(record.get('state')!=='active')throw new AccountFault('conflict');
+325:    // `incidentCount` incidents are known; each unblock adds one reviewed incident, and the guard survives until all are reviewed.
+326:    const remaining=nextGuardReview(guard);
+327:    tx.create(unblockRef,{ownerAccountId:accountId,identityKey,incidentId:incident,epoch,createdAtMs,reviewRef,unblockedAtMs:time});
+328:    tx.update(recordRef,{state:'reviewed',reviewedAtMs:time});
+329:    if(remaining.blocked)tx.update(guardRef,{reviewedCount:remaining.reviewedCount});else tx.delete(guardRef);
+330:    return {unblocked:true as const,replayed:false as const,blocked:remaining.blocked};
+331:   });
+332:  }
+333:  /** Closed test seam. Enrollment and reconciliation approval must predate this operation. */
+
+--- deploy/google-cloud/firestore.rules ---
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Browser access goes through the authenticated API, not direct database SDK writes.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
+
+--- deploy/google-cloud/account.rules ---
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  match /{document=**} { allow read, write: if false; }
+ }
+}
+
+--- deploy/google-cloud/firestore.indexes.json ---
+{
+  "indexes": [
+    {
+      "collectionGroup": "outbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "nextAttemptAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "leaseUntil",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "uploads",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "purgeState",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "expiresAtMs",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "fileOutbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "nextAttemptAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "accountId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "inputId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "artifacts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "inputId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "accountId",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "artifacts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "nextAttemptAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "outbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "aiProfile",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "nextAttemptAt",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "projects",
+      "fieldPath": "draft",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "jobs",
+      "fieldPath": "snapshot",
+      "indexes": []
+    }
+  ]
+}
+
+--- deploy/google-cloud/billing-hold.indexes.json ---
+{
+  "indexes": [
+    {
+      "collectionGroup": "billingHoldOutbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "state", "order": "ASCENDING" },
+        { "fieldPath": "nextAttemptAt", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
+
+--- deploy/google-cloud/account.indexes.json ---
+{
+  "database": "vistavo-live",
+  "indexes": [
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ownerAccountId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "deleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAtMs",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "ledgerEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ownerAccountId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAtMs",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

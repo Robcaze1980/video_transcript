@@ -1,0 +1,16 @@
+{
+  "model": "google/gemini-4-hydrogen",
+  "briefSha256": "ca0a42a2a40121d06366fd6e097c88c62a157ae0e508eaee5d12b52d752c5825",
+  "requestSha256": "5b323e9600181cddac84e228bc44860c2f805a46b776e42f28a52950daab754e",
+  "briefBytes": 78886,
+  "state": "COMPLETED",
+  "verdict": "INCONCLUYENTE",
+  "httpStatus": 200,
+  "generationId": "gen-1795843250-SCxDCxdAu1mG0SQJ7stL",
+  "servedModel": "google/gemini-4-hydrogen",
+  "finishReason": "stop",
+  "inputTokens": 23502,
+  "cachedInputTokens": 0,
+  "outputTokens": 4019,
+  "cost": 0.064741545
+}

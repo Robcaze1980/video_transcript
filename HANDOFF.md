@@ -18,7 +18,7 @@ El foco aislado `2a24676` pasó **7/7** en emulador para respuestas inciertas, c
 
 ## Próximo paso (27 nov, tarde)
 
-1. **1.7.** La revisión Gemini mínima ya se hizo (INCONCLUYENTE, sin defecto demostrado; [adjudicación](docs/evidence/lv019-b-t3-saldo-integracion-20261127/gemini-1-7/ADJUDICACION.md)). Falta cerrar la fase con T3 sobre el conjunto y decidir con Rob si se lanza la auditoría completa de arquitectura (costo mayor). La tarea 1.4d (cinco pruebas portadas) está hecha.
+1. **1.7.** La revisión Gemini mínima y la auditoría completa ya se hicieron (ambas INCONCLUYENTES, sin defecto de saldo; [adjudicación completa](docs/evidence/lv019-b-t3-saldo-integracion-20261127/gemini-1-7-completa/ADJUDICACION.md)). Falta resolver 1.4c (decidido: incidentes uno a uno y operador solo el dueño) y repetir la revisión T3 del conjunto para cerrar la fase. La tarea 1.4d (cinco pruebas portadas) está hecha.
 2. **Decisión de Rob.** La rama `codex/vistavo-continue-20261127` se publicó en GitHub el 27 nov por orden de Rob, con la integración certificada. Falta decidir el orden de 1.4c, D2 y la guardia de admisión.
 3. **Proceso.** Rob decidió el 27 nov (tarde) avanzar directo con OpenRouter para código y propuestas, y revisar con T3 las integraciones; ver [AGENTS](AGENTS.md).
 4. **Entorno.** Los lanzadores oficiales de la línea del cerco necesitan emulador en 8198 (`demo-vistavo-financial`) y el de Cuenta protegida en 8185; ejecutar en un árbol con `node_modules` real y raíces sintéticas vacías.
@@ -35,7 +35,7 @@ La revisión T3 del conjunto (GLM INCONCLUYENTE, DeepSeek FALLA por contradiccio
 | 1.4 Bloqueos | **Abierto** ([plan de 1.4c](docs/specs/LV-019-B-1-4c-limites-plan-20261127.md)) | 1.4a y 1.4b verificados en local; la devolución de reservas tras un desbloqueo está cubierta en la regresión (dos reservas devueltas una sola vez, otra cuenta intacta); **1.4c** (límites de diseño) **bloquea** |
 | 1.5 Legado | Verificado en local | [Recibo](docs/evidence/lv019-b-codex-legado-1-5-20261121/RECIBO.md); el corte y la migración de escritores reales siguen pendientes |
 | 1.6 Ejecutor periódico | Verificado en local | [Recibo 1.6b](docs/evidence/lv019-b-t3-codificacion-1-6b2-20261121/RECIBO.md): dos pasadas simultáneas y una pausada que despierta tarde, un solo movimiento de saldo |
-| 1.7 Cierre | **Abierto** | Falta repetir la revisión T3 del conjunto sobre el estado ya corregido, la regresión final en el cierre y la decisión de Rob sobre la auditoría Gemini completa (la mínima fue INCONCLUYENTE) |
+| 1.7 Cierre | **Abierto** | Falta repetir la revisión T3 del conjunto sobre el estado ya corregido, la regresión final en el cierre y la auditoría Gemini completa ya se hizo (INCONCLUYENTE, sin defecto de saldo; tarea 1.6d de rendimiento) |
 
 ## Estado para retomar
 
