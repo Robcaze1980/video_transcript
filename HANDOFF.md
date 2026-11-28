@@ -18,7 +18,7 @@ El foco aislado `2a24676` pasó **7/7** en emulador para respuestas inciertas, c
 
 ## Próximo paso (27 nov, tarde)
 
-1. **1.7.** Lanzar la revisión Gemini mínima aprobada por Rob (paquete de unos 8 mil tokens, salida de hasta 1800; script de una sola vez fuera del repositorio con la clave ya vinculada), adjudicar sus hallazgos contra el código y cerrar la fase con T3 sobre el conjunto. La tarea 1.4d (cinco pruebas portadas) está hecha.
+1. **1.7.** La revisión Gemini mínima ya se hizo (INCONCLUYENTE, sin defecto demostrado; [adjudicación](docs/evidence/lv019-b-t3-saldo-integracion-20261127/gemini-1-7/ADJUDICACION.md)). Falta cerrar la fase con T3 sobre el conjunto y decidir con Rob si se lanza la auditoría completa de arquitectura (costo mayor). La tarea 1.4d (cinco pruebas portadas) está hecha.
 2. **Decisión de Rob.** La rama `codex/vistavo-continue-20261127` se publicó en GitHub el 27 nov por orden de Rob, con la integración certificada. Falta decidir el orden de 1.4c, D2 y la guardia de admisión.
 3. **Proceso.** Rob decidió el 27 nov (tarde) avanzar directo con OpenRouter para código y propuestas, y revisar con T3 las integraciones; ver [AGENTS](AGENTS.md).
 4. **Entorno.** Los lanzadores oficiales de la línea del cerco necesitan emulador en 8198 (`demo-vistavo-financial`) y el de Cuenta protegida en 8185; ejecutar en un árbol con `node_modules` real y raíces sintéticas vacías.

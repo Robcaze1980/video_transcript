@@ -1,0 +1,25 @@
+### Hallazgos
+
+1. **HIPOTESIS — Ventana cross-database en desbloqueo (`server/commercial/billingUnblock.ts:748-757, 782-841`)**: Sin transacción conjunta entre Cuenta y Video, un nuevo incidente en Cuenta tras `seam.receipt` (751) y antes de `tx.delete(guardRef)` (834) podría dejar Video abierto con Cuenta bloqueada. Se mitiga con `localAccountBlocked` (785), pero su actualización síncrona no es verificable en el fragmento.
+2. **MEJORA FUTURA — Lecturas redundantes en `recheck` (`server/commercial/billingUnblock.ts:591, 680, 783`)**: En la ruta `fresh`, `recheck` lee los mismos 8 documentos (`guard`, `alert`, `requested`, `done`, `released`, `witness`, `dispatch`, `cut`) en la línea 680 y nuevamente en la 783, además de las lecturas previas en 535 y 671.
+3. **MEJORA FUTURA — Transacción final extensa (`server/commercial/billingUnblock.ts:782-841`)**: La transacción de fase 3 ejecuta `recheck` (8 lecturas), `resolveAccountGuard`/`readAccountGuard` (no verificado), un bucle de lecturas por cada `planned` (788) más 2 lecturas por cada `billingIntents` (814), y `accountRows` (820) antes de escribir, aumentando el riesgo de contención y reintentos en Firestore.
+4. **HIPOTESIS — Posible punto caliente en `cutRef` y `guardRef` (`server/commercial/billingUnblock.ts:490, 535, 591, 671`)**: `cutRef` (`UNBLOCK_WRITER_CUT_ID`) es un documento global leído en todas las transacciones del flujo; si otro proceso lo actualiza con frecuencia, provocará abortos por contención.
+
+### Conteo de lecturas y escrituras (por desbloqueo completo)
+
+* **Cuenta (`server/account/backend.ts:308-331`)**: 5 lecturas (`identityRef` en 309 + `tx.getAll` de 4 docs en 313); 3 escrituras (`unblockRef` create 327, `recordRef` update 328, `guardRef` update/delete 329).
+* **Video (`server/commercial/billingUnblock.ts`)**:
+  * Fase 0 (`opened`, 534-579): 8 lecturas (`tx.getAll` 535) + `accountRows` (no verificado) + 1 opcional (`billingIntentAdmissionGuards` 518); 0 escrituras. (Más `seam` en 530-532: no verificado).
+  * Fase 2 (`fresh`, 670-680): 8 lecturas (671) + `accountRows` (no verificado) + 1 opcional + 8 lecturas (`recheck` 680); 3 escrituras (`requestedRef`, `witnessRef`, `dispatchRef` 676-678).
+  * Fase 3 (782-841): 8 lecturas (`recheck` 783) + `resolveAccountGuard`/`readAccountGuard` (no verificado) + `N` lecturas `planned` (788) + `2*I` lecturas de `billingIntents` (814) + `accountRows` (820); `N` escrituras (825-830) + 1 `doneRef` (839) + 3 si `clear` (`guardRef`, `alertRef`, `billingReleaseReopenings` 834-838).
+  * `identityKeyOf` (845-850): 1 query (`limit(2)`).
+
+### No verificado
+* Implementación y costo de `accountRows`, `resolveAccountGuard`, `readAccountGuard`, `successorOf`, y la ruta legacy sin `seam`.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: `server/account/backend.ts:225-243,303-333`; `server/commercial/billingUnblock.ts:485-600,640-700,748-858`
+NEGATIVOS: No se observó doble movimiento de saldo ni escritura en cuenta equivocada en el código revisado.
+BLOQUEOS: Faltan definiciones de `accountRows`, `resolveAccountGuard`, `readAccountGuard` y la ruta legacy sin `seam` para cerrar la verificación.
+=== FIN RESUMEN ===
