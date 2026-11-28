@@ -2861,3 +2861,80 @@ test('successor: an unblock of account A writes nothing to account B in the same
   const reservationOtro2=await c.store.reserveVideo(identityKeyOtro,randomUUID(),30);
   assert.ok(reservationOtro2,'B can create another 30s reservation after A was processed');
 });
+
+test('successor: swapping identity A to account B after the last receipt rejects, keeps Video blocked and leaves B untouched',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_account_swap'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+
+  // B lives in the SAME AccountStore.
+  const uidOtro='synthetic-swap-other-uid';
+  const boot=await c.store.bootstrap(uidOtro);
+  const accountIdOtro=boot.account.id;
+  await ref(c.accountRoot,'accounts',accountIdOtro).update({credited:120,available:120});
+  const identityKeyOtro=accountIdentityKey(uidOtro);
+  const reservationOtro=await c.store.reserveVideo(identityKeyOtro,randomUUID(),60);
+  assert.ok(reservationOtro,'B reserves 60s before the sabotage');
+
+  const bBalanceBefore=await c.store.videoBalance(identityKeyOtro);
+  const bReservationsBefore=(await c.accountRoot.collection('videoReservations').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+  const bLedgerBefore=(await c.accountRoot.collection('ledgerEntries').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+
+  let receiptCalls=0,confirms=0,videoAtSabotage=null;
+  const swap={...base,successor:{...base.successor,
+    async receipt(input){
+      const value=await base.successor.receipt(input);receiptCalls++;
+      if(receiptCalls===2){
+        // Baseline at the sabotage point: the Phase 0 audit/dispatch writes and the Account confirmation already
+        // happened BEFORE this read, so they belong to the legitimate prior state, not to the release.
+        videoAtSabotage=await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS);
+        // Sabotage AFTER the last receipt and BEFORE the Video transaction: point identity A at account B, keeping A's uid.
+        await c.accountRoot.collection('identities').doc(c.identity).update({accountId:accountIdOtro});
+      }
+      return value;
+    },
+    async confirm(input){confirms++;return base.successor.confirm(input);}}};
+
+  // Mutations of A that already happened BEFORE the sabotage (documented, not asserted as unchanged):
+  //   - Phase 0 may have created the `unblock_requested` audit and continuity rows;
+  //   - the Account receipt/confirm path may have advanced Account A's incident/guard bookkeeping.
+  // Only the outcome AFTER the sabotage is asserted.
+  const videoGuardBefore=await guardOf(c).get();
+
+  await assert.rejects(unblockBillingAccount(swap,c.account,body,'operator-ana',9_500_010_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict');
+
+  assert.ok(videoAtSabotage,'the sabotage ran during the pre-release revalidation');
+  assert.equal(receiptCalls,2,'one snapshot and one pre-release revalidation');
+  assert.equal(confirms,1,'no second confirm is sent');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video A stays blocked');
+  assert.equal((await guardOf(c).get()).get('blocked'),videoGuardBefore.get('blocked'));
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0,'no release');
+  assert.deepEqual(await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS),videoAtSabotage,'no Video write after the sabotage');
+
+  assert.deepEqual(await c.store.videoBalance(identityKeyOtro),bBalanceBefore,'B balance untouched');
+  assert.deepEqual((await c.accountRoot.collection('videoReservations').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0),bReservationsBefore,'B reservations untouched');
+  assert.deepEqual((await c.accountRoot.collection('ledgerEntries').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0),bLedgerBefore,'B ledger untouched');
+});
+
+test('successor: an identity already pointing at another account rejects before any write',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_pre_swap'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+  const uidOtro='synthetic-pre-swap-other-uid';
+  const boot=await c.store.bootstrap(uidOtro);
+  await ref(c.accountRoot,'accounts',boot.account.id).update({credited:120,available:120});
+  // Alter identity A BEFORE the call: it now points at account B while keeping A's uid.
+  await c.accountRoot.collection('identities').doc(c.identity).update({accountId:boot.account.id});
+  const videoBefore=await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS);
+  const accountBefore=await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS);
+  await assert.rejects(unblockBillingAccount(base,c.account,body,'operator-ana',9_500_011_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.deepEqual(await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS),videoBefore,'no Video write');
+  assert.deepEqual(await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS),accountBefore,'no Account write');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video stays blocked');
+});

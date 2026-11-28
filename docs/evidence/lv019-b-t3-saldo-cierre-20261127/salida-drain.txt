@@ -1,0 +1,9 @@
+
+ RUN  v5.0.5 C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127
+
+
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+   Start at  17:15:53
+   Duration  2.64s (tests 96%, import 3%, transform 1%, worker 1%)
+

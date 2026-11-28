@@ -260,6 +260,14 @@ async function resolveAccountGuard(tx:Transaction,deps:UnblockDeps,videoAccountI
   if(accountIdentity.get('uid')!==video.uid)throw Object.assign(new UnblockFault('conflict'),{stage:'account_identity_uid'});
   const accountIdCuenta=accountIdentity.get('accountId');
   if(typeof accountIdCuenta!=='string'||!uuid.test(accountIdCuenta))throw Object.assign(new UnblockFault('conflict'),{stage:'account_identity_account'});
+  // Bind the derived account to THIS identity in the SAME transaction: the account document must exist and name the
+  // identity, with the AccountStore schema/unit. A swapped accountId (identity A pointing at account B) is rejected
+  // here, before B's guard is ever read. The read stays in the read set, so a concurrent change aborts the attempt.
+  const account=await tx.get(accountRoot.collection('accounts').doc(accountIdCuenta));
+  if(!account.exists)throw Object.assign(new UnblockFault('conflict'),{stage:'account_missing'});
+  if(account.get('identityKey')!==video.identityKey)throw Object.assign(new UnblockFault('conflict'),{stage:'account_identity_key'});
+  if(account.get('schemaVersion')!==1)throw Object.assign(new UnblockFault('conflict'),{stage:'account_schema'});
+  if(account.get('unit')!=='video_seconds')throw Object.assign(new UnblockFault('conflict'),{stage:'account_unit'});
   return {kind:'resolved',guardRef:accountRoot.collection('videoBillingGuards').doc(accountIdCuenta),identityKey:video.identityKey,accountIdCuenta};
 }
 
