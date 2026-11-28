@@ -1,6 +1,6 @@
 # LV-019.B · Tarea 1.4c · Límites de diseño del desbloqueo: plan por límite (27 nov 2026)
 
-**Estado: PLAN PROPUESTO, sin implementar.** Catálogo de los ocho límites abiertos del desbloqueo auditado, con lo que hace hoy el código, lo que falta y la decisión que necesita. El estado de la tarea vive en el [backlog](../../backlog.md#lv-019b--ruta-principal); este documento solo ordena el trabajo. Los límites provienen del análisis de las revisiones finales de GLM y DeepSeek sobre la línea integrada (27 nov) y del recorrido de Codex; **ninguno se reprodujo aún con una prueba nueva**, y cada fila lo indica cuando corresponde. Todos fallan cerrado: ninguno mueve saldo ni libera un bloqueo por error; el costo es que el operador no tiene una salida automática.
+**Estado: PLAN CON DECISIONES DE ROB (27 nov, noche), sin implementar.** Catálogo de los ocho límites abiertos del desbloqueo auditado, con lo que hace hoy el código, lo que falta y la decisión que necesita. El estado de la tarea vive en el [backlog](../../backlog.md#lv-019b--ruta-principal); este documento solo ordena el trabajo. Los límites provienen del análisis de las revisiones finales de GLM y DeepSeek sobre la línea integrada (27 nov) y del recorrido de Codex; **ninguno se reprodujo aún con una prueba nueva**, y cada fila lo indica cuando corresponde. Todos fallan cerrado: ninguno mueve saldo ni libera un bloqueo por error; el costo es que el operador no tiene una salida automática.
 
 | # | Límite | Hoy (comportamiento verificable en el código) | Qué hace falta | Depende de | Decisión de Rob |
 | --- | --- | --- | --- | --- | --- |
@@ -20,3 +20,11 @@
 3. **5 y 8** quedan como límites aceptados mientras las bases reales estén vacías.
 
 Cada paso sigue el criterio de «production ready» del [plan paso a paso](LV-019-B-plan-paso-a-paso-20261120.md): pruebas primero, mutaciones, regresión completa y revisión de GLM y DeepSeek.
+
+## Decisiones de Rob (27 nov 2026, noche)
+
+1. **Varios incidentes del mismo tipo sobre una guarda (límites 1, 2 y 3): se resuelven uno a uno.** Cada incidente se revisa por separado, con su propia auditoría; el desbloqueo de uno no resuelve a los demás. Implica un diseño en que los otros incidentes de la cuenta no impidan desbloquear el que la guarda nombra, y una guarda que sobrevive hasta que se revisen todos (como ya hace Cuenta con su contador de incidentes revisados).
+2. **Operador (límites 4 y 6): solo Rob, con su inicio de sesión.** Ruta privada que acepta únicamente la identidad del dueño y deja auditoría; sin segunda persona. La identidad concreta del dueño se configura fuera del repositorio.
+3. **Auditoría completa de arquitectura de Gemini (cierre 1.7): aprobada con tope bajo.** Costo estimado de unos 10 a 30 centavos.
+
+Siguiente trabajo de código: la ruta y la autenticación del operador junto con el manejo de errores (límites 6 y 7), y después el diseño «uno a uno» de varios incidentes por guarda. Ambos mueven saldo o su operación: pruebas primero, mutaciones, regresión completa y dos revisores.
