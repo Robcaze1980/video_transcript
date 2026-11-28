@@ -1,0 +1,12 @@
+Examiné el código enviado de `billingUnblock.ts`, `account/backend.ts`, el cliente y la ruta HTTP, más las pruebas incluidas; no pude compilar, ejecutar pruebas ni revisar archivos o dependencias no incluidos. Costo: no medido.
+
+1. **MEDIA** — En `unblockBillingAccount`, la transacción inicial devuelve objetos con formas distintas: las ramas de `released`, `done` puro y parcial no incluyen `resume`; solo las ramas de `requested` y nueva solicitud lo incluyen. Después, la fase 2 evalúa `('partial' in opened || opened.resume)`. En TypeScript, la uninón resultante no garantiza `resume` en todos los miembros, por lo que esta línea produce error de compilación (`Property 'resume' does not exist on type ...`). Estado inicial: código nuevo listo para revisión. Evento: ejecutar `tsc`. Resultado: la compilación falla antes del despliegue aunque el comportamiento del emulador sea correcto. Corrección mínima: declarar un tipo explícito para el resultado de la fase 0 con `resume` opcional, o añadir `resume:false as const` a todas las ramas que hoy carecen de esa propiedad.
+
+No identifiqué una secuencia concreta que borre la guarda de Video sobre un bloqueo posterior, adopte por error la generación de la Cuenta, reutilice un id de hold/auditoría entre ocurrencias distintas ni avance filas tras un cambio de dueño o relación. Las ramas ya decididas y los límites declarados no se repiten.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: `billingUnblock.ts:unblockBillingAccount`; retorno inicial de fase 0 con unión sin `resume` uniforme y lectura posterior `opened.resume` en fase 2; riesgo de error TS2339.
+NEGATIVOS: no se ejecutaron `tsc`, pruebas, regresiones ni verificación de tipos del proyecto completo; no se revisaron módulos no incluidos.
+BLOQUEOS: none
+=== FIN RESUMEN ===
