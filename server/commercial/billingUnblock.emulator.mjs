@@ -678,6 +678,10 @@ test('11 partial then repeat: once Account has no other incident, the identical 
   assert.equal(alert.get('dispositionedBy'),'operator-ana');assert.equal(alert.get('dispositionAuditId'),unblockAuditId(blocked.incident,'video_released',blocked.guard.epoch,blocked.guard.createdAtMs));
   const releasedRecord=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'video_released',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
   assert.equal(releasedRecord.get('accountEpoch'),requestBody.accountEpoch,'the release record names the Account generation of the confirmed call');assert.equal(releasedRecord.get('accountCreatedAtMs'),requestBody.accountCreatedAtMs);
+  // The release of the Video guard also marks the account for the reopening sweep, with the audit id of this release.
+  const reopening=await ref(c.root,'billingReleaseReopenings',c.account).get();
+  assert.equal(reopening.exists,true,'the partial release marks the account for the reopening sweep');
+  assert.equal(reopening.get('auditId'),unblockAuditId(blocked.incident,'video_released',blocked.guard.epoch,blocked.guard.createdAtMs));
   await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-bob',9_000_009_000),error=>error instanceof UnblockFault&&error.code==='conflict');
   await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,evidenceRef:'ticket-other'},'operator-ana',9_000_009_000),error=>error instanceof UnblockFault&&error.code==='conflict');
   assert.deepEqual(await signatures(c.root),before.video);
@@ -782,7 +786,9 @@ test('11 resume: an audited request only resumes on the SAME guard generation, o
   await guardOf(c).delete();
   await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_002_000),error=>error instanceof UnblockFault&&error.code==='conflict');
   await guardOf(c).set(original);
-  for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}]]){
+  for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}],
+    // Codex mutation round 7 (integrated line): a guard that is no longer blocked, or that names the incident through BOTH fields, is not the audited guard.
+    ['not blocked',{blocked:false}],['both incident fields',{lastIncidentId:original.lastOutboxIncidentId}]]){
     await guardOf(c).update(change);
     await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_002_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
     await guardOf(c).set(original);
@@ -800,7 +806,9 @@ test('11 partial: the repeat only resumes on the SAME guard generation and never
   let calls=0;const fail=async()=>{calls++;throw new Error('unexpected Account request');};
   const counting={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
   const before=withoutGuard(c,await signatures(c.root)),original=(await guardOf(c).get()).data();
-  for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}]]){
+  for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}],
+    // (A guard that is no longer `blocked:true` is not a live block: the completion record then answers as a pure replay, which the resume test above and phase 3 pin separately.)
+    ['both incident fields',{lastIncidentId:original.lastOutboxIncidentId}]]){
     await guardOf(c).update(change);
     await assert.rejects(unblockBillingAccount(counting,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
     await guardOf(c).set(original);
@@ -898,6 +906,104 @@ test('11 negative: an alert of another kind or account, and an ambiguous owner i
   await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
   assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,0,'Account was never asked');
   assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+});
+// ---------------------------------------------------------------------------
+// Codex mutation round 7 (certification of the integrated line, 27 nov 2026): behavior of the line's own code that its mutants showed was not pinned.
+// ---------------------------------------------------------------------------
+test('11 negative: a guard that stops being blocked, or names the incident through both fields, in phase 3 aborts the release',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_phase3_guard_shape'),c=blocked.c,requestBody=await request(c,blocked),row=outbox(c,blocked.job.id);
+  const original=(await guardOf(c).get()).data(),real=c.accountBilling.unblock.bind(c.accountBilling),readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
+  for(const [name,change] of [['the guard is no longer blocked',{blocked:false}],['the guard names the incident through both fields',{lastIncidentId:original.lastOutboxIncidentId}]]){
+    // The first attempt reaches Account through `unblock`; Account has confirmed by the second one, which then reads the receipt instead.
+    c.accountBilling.unblock=async(...args)=>{await guardOf(c).update(change);return real(...args);};
+    c.accountBilling.unblockReceipt=async(...args)=>{const receipt=await readReceipt(...args);await guardOf(c).update(change);return receipt;};
+    await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
+    c.accountBilling.unblock=real;c.accountBilling.unblockReceipt=readReceipt;
+    assert.equal((await guardOf(c).get()).exists,true,name+': the guard is not deleted');assert.equal((await row.get()).get('state'),'needs_review',name+': nothing was advanced');
+    assert.equal((await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).get('status'),'open',name+': the alert stays open');
+    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,name+': no completion record');
+    await guardOf(c).set(original);
+  }
+  const done=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000);
+  assert.equal(done.videoBlocked,false);assert.equal((await row.get()).get('state'),'retry_wait');
+});
+test('11 negative: an alert that is no longer open stops a resume before it reaches Account',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_resume_alert_closed'),c=blocked.c,requestBody=await request(c,blocked),alertRef=ref(c.root,ALERT_COLLECTION,blocked.alertKey);let calls=0;
+  const fail=async()=>{calls++;throw Object.assign(new Error('synthetic'),{code:'unavailable'});};
+  const failing={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(calls,1);
+  await alertRef.update({status:'superseded'});
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(calls,1,'a resume over a closed alert never reaches Account');
+  await alertRef.update({status:'open'});
+  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_002_000);
+  assert.equal(resumed.videoBlocked,false);
+});
+test('11 negative: an alert that is no longer open stops a partial repeat before it reaches Account',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_partial_alert_closed'),c=blocked.c,alertRef=ref(c.root,ALERT_COLLECTION,blocked.alertKey);
+  await addAccountIncident(c);
+  const requestBody=await request(c,blocked);
+  assert.equal((await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000)).videoBlocked,true);
+  let calls=0;const fail=async()=>{calls++;throw new Error('unexpected Account request');};
+  const counting={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
+  await alertRef.update({status:'superseded'});
+  await assert.rejects(unblockBillingAccount(counting,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(calls,0,'a partial repeat over a closed alert never reaches Account');
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+});
+test('11 negative: an alert that closes during the partial repeat keeps the Video guard and writes no release',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_partial_alert_closes'),c=blocked.c,other=await addAccountIncident(c),requestBody=await request(c,blocked),alertRef=ref(c.root,ALERT_COLLECTION,blocked.alertKey);
+  assert.equal((await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000)).videoBlocked,true);
+  await reviewOtherAccountIncident(c,other);
+  const readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
+  c.accountBilling.unblockReceipt=async(...args)=>{const receipt=await readReceipt(...args);await alertRef.update({status:'superseded'});return receipt;};
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_005_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  c.accountBilling.unblockReceipt=readReceipt;
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is not released over a closed alert');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0,'no release record');
+  assert.equal((await alertRef.get()).get('status'),'superseded','the alert is left as the other writer set it');
+  assert.equal((await ref(c.root,'billingReleaseReopenings',c.account).get()).exists,false,'no reopening mark');
+});
+test('11 partial: a receipt that is not confirmed, or that names another Account generation than the completion record, never releases and never asks Account again',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_partial_receipt_shape'),c=blocked.c,other=await addAccountIncident(c),requestBody=await request(c,blocked);
+  assert.equal((await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000)).videoBlocked,true);
+  await reviewOtherAccountIncident(c,other);
+  const readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);let unblockCalls=0;
+  const withReceipt=receipt=>({db:c.db,root:c.root,accountBilling:{unblockReceipt:receipt,unblock:async()=>{unblockCalls++;throw new Error('a partial repeat must not resend the unblock');}}});
+  for(const [name,receipt] of [
+    ['a pending receipt',async()=>({state:'pending'})],
+    ['another Account epoch',async(...args)=>({...await readReceipt(...args),epoch:requestBody.accountEpoch+1})],
+    ['another Account createdAtMs',async(...args)=>({...await readReceipt(...args),createdAtMs:requestBody.accountCreatedAtMs+1})],
+  ]){
+    await assert.rejects(unblockBillingAccount(withReceipt(receipt),c.account,requestBody,'operator-ana',9_000_005_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
+    assert.equal(unblockCalls,0,name+': Account is never asked to unblock again');
+    assert.equal((await guardOf(c).get()).get('blocked'),true,name+': the Video guard stays');
+    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0,name+': no release record');
+  }
+  const released=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_006_000);
+  assert.equal(released.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
+});
+// Phase 0 is the only gate BEFORE Account is asked. If it accepted an alert of another generation, or a guard that names another account, Account would be
+// unblocked first and phase 3 (which checks the same things again) would then refuse forever: Account open, Video blocked, no way out.
+test('11 negative: phase 0 refuses an open alert of another generation, or a guard that names another account, before Account is ever asked',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_phase0_gate'),c=blocked.c,requestBody=await request(c,blocked);
+  const accountAsked=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
+  const alert=(await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).data();
+  const otherState='blocked:'+(requestBody.epoch+1)+':'+requestBody.createdAtMs+':'+blocked.incident,fields={...alert,state:otherState},key=alertKey(fields.kind,fields.rowId,fields.state,fields.reason);
+  await ref(c.root,ALERT_COLLECTION,key).create({...fields,alertKey:key});
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,alertKey:key},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict','an open alert of another generation');
+  assert.equal(accountAsked(),0,'Account is never asked for an alert of another generation');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0,'no audit record');
+  const original=(await guardOf(c).get()).data();
+  await guardOf(c).update({accountId:randomUUID()});
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict','a guard that names another account');
+  assert.equal(accountAsked(),0,'Account is never asked for a guard of another account');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0,'no audit record');
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true,'Account stays blocked');
+  await guardOf(c).set(original);
+  const done=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_002_000);
+  assert.equal(done.videoBlocked,false);
 });
 // GLM review of the integrated line (27 nov 2026), finding 3: phase 3 re-reads state and owner of every audited row, but the RELATION that made a
 // row belong to this incident (an observation incident's `intentId`, an admission guard's `incidentId`) must still hold at release time.
