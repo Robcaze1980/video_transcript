@@ -1,0 +1,40 @@
+**AnÃ¡lisis del cambio 667b2f0â†’fbf01bf**
+
+RevisÃ© la lÃ³gica de `resolveAccountGuard`, `readAccountGuard`, su uso en las tres rutas (pre-fase 0, parcial y final), la interacciÃ³n con el read set de Firestore, y las pruebas nuevas.
+
+**Hallazgos materiales**
+
+1. **Read set y detecciÃ³n de guardas creadas concurrentemente** â€” La transacciÃ³n final usa `tx.get(ref)` sobre `videoBillingGuards/<accountId>` incluso cuando el documento no existe. Firestore rastrea la lectura de documentos inexistentes en transacciones; si la guarda se crea entre la lectura y el commit, la transacciÃ³n aborta y se reintentarÃ¡. En el reintento, la guarda existe y `localAccountBlocked` es `true`, forzando `clear=false`. Esto es correcto y cubre la ventana original descrita.
+
+2. **ValidaciÃ³n `owner-check` anti-sustituciÃ³n de accountId** â€” El cÃ³digo requiere que `accounts/<accountIdCuenta>` exista, tenga `identityKey===video.identityKey`, `schemaVersion===1` y `unit==='video_seconds'`. Esto impide que un `accountId` de la identidad A se cambie hacia B y se lea la guarda de B, porque la validaciÃ³n del documento de cuenta falla antes de llegar a la guarda. Correcto para el escenario descrito.
+
+3. **`videoIdentityOf` como query en transacciÃ³n** â€” La query `where('accountId','==',accountId).limit(2)` dentro de `tx.get` queda en el read set. Si un documento nuevo que coincida aparece entre la lectura y el commit, Firestore detecta el cambio en el conjunto de resultados y aborta. Correcto para detectar ambigÃ¼edad de identidad en tiempo real.
+
+4. **Orden lecturas-antes-de-escrituras** â€” En la transacciÃ³n final (lÃ­nea 782-841), todas las lecturas (`recheck`, `resolveAccountGuard`, `readAccountGuard`, filas planificadas, `accountRows`) ocurren antes de cualquier `tx.update`/`tx.create`/`tx.delete`. En la ruta parcial (lÃ­nea 762-779), igual: lecturas primero, luego decidir, y solo escribir si no hay bloqueo. No detecto efectos secundarios dentro del closure que escriban antes de que todas las decisiones estÃ©n tomadas.
+
+5. **Ruta parcial con `localAccountBlocked`** â€” LÃ­nea 766: si `account.blocked||localAccountBlocked`, retorna sin escribir nada, reportando `accountBlocked:true` y `videoBlocked:true`. La guarda de Video no se elimina. El test `'successor partial replay:...'` verifica que el documento `done` histÃ³rico no muta. Correcto.
+
+6. **CÃ¡lculo de `clear`** â€” `clear=!account.blocked&&rivals.length===0&&!localAccountBlocked` es una conjunciÃ³n de tres condiciones. La tercera (guarda local de Cuenta bloqueada) es la nueva defensa. Correcto.
+
+7. **TransacciÃ³n pre-fase 0** â€” LÃ­nea 529-532: es una sonda de lectura sin escrituras. Si falla (identidad ambigua, cuenta ausente, guarda con forma incorrecta), el flujo completo aborta antes de cualquier escritura de fase 0. No aÃ±ade entradas al read set de transacciones posteriores (es una transacciÃ³n separada que ya hizo commit). Correcto como verificaciÃ³n temprana.
+
+**Observaciones menores (no materiales)**
+
+- En la ruta parcial, `replayed:true` semÃ¡nticamente no es un "replay" sino un retorno temprano sin escritura nueva, pero el flag es coherente con el patrÃ³n existente y no afecta la correctitud del bloqueo.
+- El test `'successor: an empty or oversized Video uid rejects'` modifica el uid de la identidad de Video, lo que causa que `accountIdentityKey(uid)` produzca una clave distinta del `doc.id`, disparando `video_identity_key`. La prueba es vÃ¡lida pero indirecta: no prueba especÃ­ficamente el caso de uid vacÃ­o per se, sino que cualquier uid que produzca una clave distinta del id del documento falla. Aceptable como prueba negativa.
+
+**Secuencias intentadas y descartadas**
+
+- IntentÃ© construir una secuencia donde la identidad se cambia en la pre-fase 0 y la guarda de B se lee en la transacciÃ³n final: `resolveAccountGuard` se re-ejecuta dentro de la transacciÃ³n final y detecta el cambio.
+- IntentÃ© una secuencia donde la guarda de Cuenta se actualiza (por ejemplo, `blocked` cambia a `true`) entre la lectura y el commit: Firestore aborta por el read set.
+- IntentÃ© una secuencia donde la cuenta document `accounts/<accountId>` se elimina entre la lectura y el commit: la transacciÃ³n aborta porque el documento se leyÃ³.
+- IntentÃ© una secuencia donde el `uid` de Video cambia entre la pre-fase 0 y la transacciÃ³n final, manteniendo el accountId: `videoIdentityOf` en la transacciÃ³n final lo detecta (query en read set) y `accountIdentity.get('uid')!==video.uid` falla si el uid de Cuenta no coincide.
+
+No encontrÃ© una secuencia concreta dentro del alcance del emulador que deje Video abierto con saldo bloqueado en Cuenta, o que libere/escriba la cuenta equivocada.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Diff de billingUnblock.ts y pruebas nuevas revisadas lÃ­nea por lÃ­nea. Read set de transacciones de Firestore correctamente usado para detectar cambios concurrentes en identidades y guardas. ValidaciÃ³n owner-check previene sustituciÃ³n de accountId. Ruta parcial y final re-ejecutan resolveAccountGuard dentro de la transacciÃ³n. clear requiere tres condiciones falsas. Las dos pruebas nuevas de mezcla de cuentas cubren el escenario de sustituciÃ³n. Negativos de escritura verificados por signatures.
+NEGATIVOS: No se acreditÃ³ autoridad/IAM real ni producciÃ³n. Ruta legacy sin successor conserva la carrera original. Attestation certifica clientes Firestore, no identidad fÃ­sica de la base. No se midiÃ³ concurrencia real mÃ¡s allÃ¡ de inyecciÃ³n determinÃ­stica. La regresiÃ³n de Cuenta protegida y el lanzador aislado oficial se ejecutan despuÃ©s de esta revisiÃ³n.
+BLOQUEOS: Ninguno dentro del alcance declarado.
+=== FIN RESUMEN ===

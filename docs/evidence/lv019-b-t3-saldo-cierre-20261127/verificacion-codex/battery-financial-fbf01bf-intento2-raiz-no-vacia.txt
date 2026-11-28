@@ -1,0 +1,16 @@
+HEAD fbf01bf status 0
+Synthetic manifest prepared: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\outputs\lv019-b-financial-manifests\manifest-075a28dc-7ddc-4375-bf86-014cf1198770.json
+Review its hashes before --run. No fixture was started.
+manifest: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\outputs\lv019-b-financial-manifests\manifest-075a28dc-7ddc-4375-bf86-014cf1198770.json
+run exit 1 (19s)
+file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/scripts/runFinancialRegressionEmulator.mjs:110
+function fail(message) { throw Error(message); }
+                               ^
+
+Error: Dedicated synthetic roots must start empty
+    at fail (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/scripts/runFinancialRegressionEmulator.mjs:110:32)
+    at file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/scripts/runFinancialRegressionEmulator.mjs:327:81
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+
+Node.js v24.13.0
+DONE

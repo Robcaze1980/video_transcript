@@ -1,0 +1,28 @@
+**Alcance y mÃ©todo.** Reviso estÃ¡ticamente el diff de `server/commercial/billingUnblock.ts` (seam `successor`+`localAccountRoot`, `resolveAccountGuard`/`readAccountGuard`, guarda dentro de la transacciÃ³n final y de la parcial, sonda nueva previa a fase 0) y las pruebas nuevas de `billingUnblock.emulator.mjs`. No dispongo del cÃ³digo de Cuenta, ni de `freshRecord` ni de la fase de `confirm`; lo marco donde condiciona la conclusiÃ³n.
+
+**Lo que sostiene.** El `owner-check` (lÃ­neas 259-270 aprox.) es sÃ³lido contra el swap descrito: exige `accounts/<accountIdCuenta>.identityKey===video.identityKey` ademÃ¡s de `uid`, `schemaVersion===1` y `unit==='video_seconds'`; apuntar Aâ†’B obliga a que la cuenta B nombre a A. Las dos pruebas de swap son las que caen al quitar la comprobaciÃ³n, y una prueba aparte confirma el pre-swap antes de escribir. `readAccountGuard` falla cerrado ante forma/`blocked`/`ownerAccountId`/`identityKey` inconsistentes. En la transacciÃ³n final (782-841) y en la parcial (759-780) se respeta lecturas-antes-de-escrituras y la guarda se lee antes de cualquier escritura (785 antes de 823/833; 765 antes de 771). La ruta legacy (`seam` nulo) queda intacta.
+
+**Hallazgos.**
+
+1. [HipÃ³tesis, media] La defensa presupone que crear una incidencia en Cuenta actualiza `videoBillingGuards/<accountId>` en el mismo commit. Si Cuenta escribe incidencia y guarda por separado, o la guarda se materializa con retraso, la lectura de 785 ve estado limpio y `clear` puede quedar `true` con incidencia activa. El paquete no incluye el camino de escritura de Cuenta; no verificable aquÃ­.
+
+2. [Negativo verificado, media] La ventana real readâ†’commit no se ejercita. Las pruebas nuevas inyectan la incidencia dentro del wrapper de `receipt` (sÃ­ncrono), o sea ANTES de arrancar la transacciÃ³n final; ninguna crea la guarda DESPUÃ‰S de la lectura de 785 y ANTES del commit. Se demuestra "guarda ya bloqueada en la lectura", no el "entra al read set y aborta/reintenta" que afirma el comentario. Coincide con el lÃ­mite declarado de no medir concurrencia; no lo cuento como FALLA, pero es evidencia faltante para la afirmaciÃ³n.
+
+3. [HipÃ³tesis, media-baja] `readAccountGuard` lanza `conflict` si la guarda existe con `blocked!==true`. Si Cuenta conserva la guarda limpia (`blocked:false`) en vez de borrarla, todo desbloqueo fallarÃ­a cerrado. Depende de la semÃ¡ntica de Cuenta (ausente).
+
+4. [ObservaciÃ³n, baja] El comentario 527-528 ("a fresh writer must prove the same state again when the audit and the dispatch claim are created") no se cumple: la sonda de fase 0 (529-532) es una transacciÃ³n aparte y `opened` (534) no lee la guarda de Cuenta; la creaciÃ³n de audit/dispatch no queda atada a esa prueba. No hay fuga (no libera), pero la afirmaciÃ³n sobra.
+
+5. [ObservaciÃ³n, baja] Inconsistencia de identidad: `identityKeyOf` (845) sÃ³lo exige `digest(doc.id)`; `videoIdentityOf` exige ademÃ¡s `doc.id===accountIdentityKey(uid)`. En el caso aceptado coinciden y si no la transacciÃ³n aborta (cerrado), pero conviene unificar para no depender de que el chequeo estricto tape al laxo.
+
+6. [ObservaciÃ³n, baja] En la transacciÃ³n final las filas (`advanced`, 823-832) se escriben aunque `clear=false`, dejando filas avanzadas con la guarda viva. Es intencional y auditable por `videoBlocked:true`, pero es un efecto que conviene documentar.
+
+7. [HipÃ³tesis, baja] `videoIdentityOf` resuelve la ambigÃ¼edad con `where(...).limit(2)` dentro de transacciÃ³n; no se demuestra que el alta concurrente de una segunda identidad haga abortar la transacciÃ³n (detecciÃ³n de adiciones en consultas limit). Si no, la "identidad ambigua" podrÃ­a colarse.
+
+No hay defecto demostrado que rompa lo declarado; el owner-check y la guarda cerrada sÃ­ estÃ¡n cubiertos y mutados. Uso/costo: no observable en este canal.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Lectura estÃ¡tica del diff de `billingUnblock.ts` (seam y atestaciÃ³n de raÃ­z, `resolveAccountGuard`/`readAccountGuard`, guarda en transacciÃ³n final 782-841 y parcial 759-780, sonda de fase 0 529-532) y de las pruebas nuevas (swap, pre-swap, root sustituido, root ausente, uid vacÃ­o/largo, aislaciÃ³n A/B, ACK perdido, parcial+post-lectura). El `owner-check` exige `identityKey`+`schemaVersion`+`unit`; las dos pruebas de swap son exactamente las que caen al eliminar la comprobaciÃ³n `identityKey`. Lecturas antes de escrituras en las dos transacciones de liberaciÃ³n y guarda leÃ­da antes de escribir.
+NEGATIVOS: No verifiquÃ© el camino de escritura de Cuenta (atomicidad incidenciaâ†’guarda), ni la semÃ¡ntica de la guarda con `blocked:false`, ni el abort/reintento del read-set para una incidencia que entre entre la lectura de 785 y el commit (las pruebas inyectan la incidencia antes de la transacciÃ³n). No ejecutÃ© pruebas: revisiÃ³n estÃ¡tica.
+BLOQUEOS: Falta el cÃ³digo de Cuenta (contrato y escritura de `videoBillingGuards`) para confirmar la atomicidad; el resto queda como hipÃ³tesis, no como FALLA.
+=== FIN RESUMEN ===

@@ -1,0 +1,1 @@
+Synthetic Account full fixture: PASS; evidence: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cuenta-guarda-20261127\outputs\lv019-b-account-full-runs\run-a2f34feb-9903-4455-87b8-bf82bc1697e7

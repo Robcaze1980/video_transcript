@@ -1,0 +1,28 @@
+Eres el autor de codigo en T3 para LV-019.B, pase 2 (regresion de Cuenta protegida en la linea del cerco). Trabajas SOLO en tu worktree (rama lv019b/t3-saldo-cuenta-guarda-20261127, base: el commit del pase 1). Lee AGENTS.md (secciones "Coordinacion y entrega" y "Metodologia") y respetalo. Todo texto para el dueño va en español neutro latinoamericano (costo, video; sin voseo).
+
+PROBLEMA DEMOSTRADO (Codex lo reprodujo): en esta linea, `node scripts/runAccountProtectedRegressionEmulator.mjs --run <manifiesto>` falla a los 2 segundos con "Synthetic review network guard requires the fixed demo environment". Causa: ese lanzador usa `scripts/financialEmulatorNetworkGuard.cjs`, que en esta linea esta fijado a 127.0.0.1:8198 / demo-vistavo-financial (aislamiento de la regresion financiera), mientras que el lanzador de Cuenta y su fixture (`server/account/backendProtected.emulator.mjs`) exigen 127.0.0.1:8185 / demo-vistavo-ledger. En la linea principal (commit df11284) el guard sigue fijado a 8185/demo-vistavo-ledger: `git show df11284:scripts/financialEmulatorNetworkGuard.cjs` y `git show df11284:scripts/financialEmulatorNetworkGuard.windows.cjs` (el repositorio es el mismo; esos commits existen).
+
+OBJETIVO: que la regresion de Cuenta protegida vuelva a correr en esta linea SIN debilitar ni cambiar el guard financiero (scripts/financialEmulatorNetworkGuard.cjs y .windows.cjs NO se tocan).
+Solucion esperada y minima: crear scripts/accountEmulatorNetworkGuard.cjs y scripts/accountEmulatorNetworkGuard.windows.cjs como copias de las versiones de df11284 (fijadas a 8185/demo-vistavo-ledger), y apuntar el lanzador de Cuenta a ellas (constante guardFile y la lista `tracked`, que se fija por hash en el manifiesto). Si el guard windows tiene referencias al nombre del archivo, ajustalas en la copia. Si ves una solucion mas segura, explicala; no hagas cambios mayores.
+
+PASOS:
+0. Prepara node_modules como COPIA REAL (el lanzador rechaza uniones/junctions): robocopy C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\node_modules .\node_modules /E /NFL /NDL /NJH /NJS /NP /MT:16   (si ya existe una union node_modules en tu worktree, quitala con "cmd /c rmdir node_modules" — SIN -Recurse — antes de copiar). node_modules no se versiona.
+1. Implementa el cambio. Verifica `npx tsc --noEmit` (Node 24).
+2. Ejecuta, con Node 24 en el PATH y quitando del entorno NODE_OPTIONS, GOOGLE_APPLICATION_CREDENTIALS, OPENROUTER_API_KEY, GEMINI_API_KEY, K_SERVICE:
+   node scripts/runAccountProtectedRegressionEmulator.mjs --prepare   (imprime la ruta de un manifiesto)
+   node scripts/runAccountProtectedRegressionEmulator.mjs --run <ruta-del-manifiesto>
+   Esperado: "Synthetic Account full fixture: PASS" con 38 pruebas y 51 fixtures. Guarda la salida en un archivo y lee solo el final.
+3. Haz commit local en tu rama (sin push) y escribe docs/evidence/lv019-b-t3-saldo-cierre-20261127/RESULTADO-pase2.md con comandos exactos, cifras reales, ruta de la evidencia del lanzador (outputs/.../run-.../result.json) y lo que NO pudiste comprobar.
+
+ENTORNO (ya preparado por Codex; NO lo investigues ni lo cambies): el emulador de 127.0.0.1:8185 (proyecto demo-vistavo-ledger) esta levantado y VACIO con reglas deny-all (GET de documento -> 403). El de 8198 tambien esta levantado: NO lo uses ni lo toques. No inicies ni detengas emuladores. Si el lanzador dice "Dedicated synthetic roots must start empty", DETENTE e informa (Codex reinicia el emulador); no borres datos.
+
+LIMITES: puedes modificar SOLO scripts/runAccountProtectedRegressionEmulator.mjs, los dos archivos nuevos scripts/accountEmulatorNetworkGuard*.cjs y archivos nuevos bajo docs/evidence/lv019-b-t3-saldo-cierre-20261127/. Cualquier otro archivo: DETENTE y justificalo. Sin push, sin red externa, sin claves, sin llamar modelos. No toques otros worktrees ni el repositorio principal.
+TOPES: 40 llamadas a herramientas en total. Si pasadas 15 llamadas no has completado UNA ejecucion de --run, DETENTE e informa con el comando y la salida exactos. Si repites 3 veces el mismo comando fallido sin hipotesis nueva, DETENTE. No afirmes que algo paso sin haber visto su salida.
+
+Tu ultimo mensaje debe terminar exactamente con:
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: (comandos y cifras reales, hash del commit)
+NEGATIVOS: (que comprobaciones impiden que el guard de Cuenta se use con otro entorno, y que no se pudo probar)
+BLOQUEOS: (lo que impidio terminar, o ninguno)
+=== FIN RESUMEN ===
