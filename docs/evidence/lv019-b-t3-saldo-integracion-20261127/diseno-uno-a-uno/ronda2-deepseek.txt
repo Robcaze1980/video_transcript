@@ -1,0 +1,32 @@
+Revisión del DISEÑO v2 «incidentes uno a uno» (LV-019.B 1.4c), repo 147e8d5, solo con el material.
+
+**1. Hechos (1–8)**
+- H1 ✓ demostrado (622–636): `nextEpoch=doc.get(field)===id?epoch:epoch+1`, `createdAtMs` conservado.
+- H2 ✓ demostrado (164–168, 419–428): `sameGuard` exige `intent!==outbox`; `incidentOf` calcula el hold con la generación actual ⇒ no halla el de un incidente anterior.
+- H3 ✓ demostrado (404–414, 513–514).
+- H4 confirmable en lo mostrado (64–84): incidente `outboxIncident??intentIncident??''`. La afirmación «comparado en dos sitios con el elegido» se sostiene (173, 505).
+- H5 parcial/no confirmable: la semántica `superseded` está documentada (168–175), pero la lógica que la ejecuta está truncada (188–190): no puedo verificar el barrido.
+- H6 ✓ demostrado (325–337): la fila lleva `sourceKind/sourceId` y, con generación, `epoch/createdAtMs`; `accountRows` lee holds (400).
+- H7 parcial: `clear=!account.blocked&&rivales==0&&!localAccountBlocked` sí está (821); el aborto por `sameVersion(observed.guard,guard)` y la comparación de `recheck` NO se muestran (783) ⇒ hipótesis.
+- H8 parcial: firma y cuerpo de `unblockVideoBilling` visibles (303–330); `nextGuardReview` no ⇒ el conteo de revisados no es verificable.
+
+**2. Secuencias de riesgo**
+(a) Ambigüedad de `kind` (demostrado en el texto): v1 rechazaba «both name it (corrupt)» (`intent===outbox`→null, 420). v2 «deduce kind» desde las filas, sin regla para una clave presente en `billingReviewIncidents` Y `billingOutboxReviewIncidents` ⇒ podría liberar filas del tipo equivocado. Impacto = hipótesis (requiere la clave en ambas colecciones).
+(b) Fórmula de alerta (demostrado): el informe valida el id con `guardIncidentId` y marca `invalidReference` (78, 82). v2 la describe como `lastOutboxIncidentId ?? lastIncidentId`. Si no replica la validación, `sameOpenAlert`/`freshRecord` divergen del estado real ⇒ fila sin salida o alerta mal disposicionada.
+(c) Rivales de fase final (demostrado, imprecisión): §2.3 cambia solo la fase 0; la final (820) cuenta como rivales a los OTROS incidentes abiertos con `owned`=solo el elegido. Hoy es correcto, pero el diseño no lo fija: si un implementador «corrige» también la fase final, desbloquear el ÚLTIMO incidente con otro abierto daría `clear=true` ⇒ **se borra la guarda con Video aún bloqueado**.
+(d) Localizador de hold (demostrado): exige `id===videoHoldId(kind,sourceId,hold.epoch,hold.createdAtMs)` — autoconsistente, pero NO contrasta la época del hold con la del incidente; un hold residual con `sourceId` correcto y época antigua pasaría (adopción errónea = hipótesis).
+(e) Doble movimiento / idempotencia (NO confirmable): el diseño afirma que `unblockAuditId` incluye el incidente, pero `requestedRef/doneRef/dispatchRef` (522, 534–535) no muestran su derivación. Si no fueran por‑incidente, P1/P2 colisionan: el segundo desbloqueo se leería como replay ⇒ saldo movido una vez y el otro incidente sin salida.
+(f) Ruta Cuenta‑primero: P16 cubre un incidente nuevo durante la llamada, pero el diseño no fija la generación de Cuenta enviada cuando Cuenta y Video divergen de orden ni el caso «Cuenta libera y la fase final aborta» salvo P11.
+
+**3. Pruebas**
+P1–P16 no bastan. Faltan negativas: (i) misma clave en ambas colecciones ⇒ `conflict`; (ii) colisión de `requested/done/dispatch` entre incidentes distintos; (iii) referencia de guarda inválida (formato) ⇒ estado de alerta consistente con el informe; (iv) intercalado parcial I2 → llega I3 → I1; (v) hold con `sourceId` correcto y época no generacional; (vi) dos desbloqueos parciales concurrentes que comparten hold.
+
+**4. Huecos v1 → v2**
+Cerrados: direccionamiento por filas (resuelve el hold antiguo), alerta mixta, ruta Cuenta. Abiertos: huérfanos sin salida hasta 3.5 (aceptado), y quedan implícitos la deducción de `kind` y la validación del id de alerta. Nuevas secuencias v2: (a), (b), (d), (e).
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Fragmentos mostrados y verificados: `firestoreBackend.ts:622-636` (H1), `billingUnblock.ts:164-168,419-428` (H2), `:404-414,497-514` (H3/H7 clear), `billingPendingReport.ts:64-84` (H4), `firestoreBackend.ts:325-337` (H6), `server/account/backend.ts:303-330` (H8), `billingUnblock.ts:782-858` (fase final). Corregidos respecto a v1: hold antiguo localizable por datos, alerta mixta y aceptación de incidente antiguo en Cuenta.
+NEGATIVOS: (a) `kind` ambiguo sin regla de corrupción; (b) fórmula de alerta descrita sin la validación `guardIncidentId`; (c) semántica de rivales de fase final no fijada (riesgo de borrar la guarda con Video bloqueado); (d) localizador de hold no contrasta época con generación del incidente.
+BLOQUEOS: No puedo cerrar H5/H7/H8 ni (e): faltan `recheck`/`sameVersion`, `nextGuardReview`, la derivación de `requestedRef/doneRef/dispatchRef` y la lógica del barrido de cierre. Sin esos fragmentos no hay evidencia para un PASS; cerrar (a)–(d) y aportar (e) antes de integrar.
+=== FIN RESUMEN ===

@@ -1,0 +1,33 @@
+**1. Hechos de la sección 1**
+Los seis son correctos y están respaldados por las líneas citadas: (1) el `epoch` crece solo si cambia el incidente de ese campo y `createdAtMs` se conserva (632-635, 627); (2) `sameGuard` 167-168 (`intent!==outbox`) e `incidentOf` 419-420 (`intent===outbox→null`) exigen exactamente un campo; `holdId` usa la generación recibida (424), que en `freshRecord` es `current` (507,511) = actual. (3) `unresolvedRows` 404-414 + `freshRecord` 513-514. (4) `sameOpenAlert` 172-173. (5) 820-821 y 840. (6) `unblockVideoBilling` 320-329 (epoch actual, `reviewedCount`, borrado al completar).
+Única imprecisión: Cuenta no recibe un «hold», sino `(incidentId,epoch,createdAtMs,reviewRef)` (304); el término es del diseño, no del código. No hay error demostrado en la sección 1.
+
+**2. Secuencias de fallo**
+Demostradas:
+- a) El diseño solo relaja `sameGuard`, pero `incidentOf` sigue exigiendo que la guarda nombre el incidente (420): un incidente antiguo devuelve `null` y `freshRecord` lanza `conflict` (512). P2/P3 seguirían fallando; el diseño no desbloquea incidentes antiguos.
+- b) `sameGuard` (164-169) no lee filas: no puede comprobar «incidente entre los abiertos». Esa condición debe ir en `incidentOf`/`freshRecord`. Inconsistencia de firma.
+- c) Alerta: el diseño compara con «el incidente que nombra la generación», pero `freshRecord` 505 y `sameOpenAlert` 173 comparan con `clean.incidentKey` (el elegido). Cambiar uno deja inconsistencia; en guarda mixta (I y O) la generación nombra dos incidentes mientras el estado embebe uno → o rechaza un desbloqueo válido o lo acepta con la alerta de otro incidente.
+- d) Orden Cuenta primero: Cuenta es transacción aparte (303-331) y `account` se usa en la final (821). Si Cuenta ya sumó `reviewedCount` y la final aborta (`recheck` 783; rival/estado 791/799), Cuenta queda adelantada sin avanzar las filas de Video; el reintento choca con la generación movida → bloqueo permanente y posible Cuenta abierta con Video bloqueado. Sin compensación.
+- e) Fila huérfana = bloqueo sin salida: el diseño mantiene `conflict` para huérfanos (punto 3); una sola `needs_review` sin incidente (407/409) hace que todo intento dé `conflict` (514) y la cuenta nunca se libere.
+Hipótesis (falta el código de creación):
+- f) Varios holds por incidente entre generaciones (424-429): el diseño no dice cuál leer → un `pending` queda rival para siempre o se aplica dos veces.
+- g) Idempotencia: `auditId`/`doneRef` usan la generación actual (824,837-839); tras un nuevo incidente el reintento da `conflict`, no replay.
+No demostrado: doble movimiento por la ruta normal (los receipts 316-318 lo evitan) ni «Video abierto con Cuenta bloqueada» (`clear` exige `!account.blocked`, 821). Lo inverso sí es posible por (d).
+
+**3. P1-P10**
+Cubren lo básico pero falta la negativa crítica: aborto de la transacción final tras el commit de Cuenta (d). Faltan además: huérfano que apunta a incidente inexistente (e); dos holds del mismo incidente (f); naming de la alerta en guarda mixta (c/Q2); reintento tras cambiar la generación (g). P4 fija el resultado mixto pero no el matching de la alerta.
+
+**4. Preguntas abiertas**
+- Q1: verificable que el hold lleva `epoch`/`createdAtMs` (427) y que el id se deriva de ellos (424); NO verificable cómo localizar el hold sin su id → falta el esquema. BLOQUEANTE (punto 2); INCONCLUYENTE en el lookup.
+- Q2: BLOQUEANTE; el fragmento no muestra qué incidente embebe la alerta en guarda mixta.
+- Q3: BLOQUEANTE si coexisten alertas abiertas; falta la creación/clave de la alerta.
+- Q4: verificable y respondida: 320-324 solo exige `guard.epoch===epoch` y `record.state==='active'`, sin exigir que el incidente sea el último. No bloqueante.
+- Q5: parcialmente verificable (427-428, `legacyHoldId` 424); diferido a límite 5. No bloqueante.
+Falta: código de creación de holds y alertas, y el punto de llamada a Cuenta.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: fragmentos billingUnblock.ts (164-175, 392-455, 497-535, 782-858), firestoreBackend.ts (622-640) y server/account/backend.ts (225-243, 303-333) contrastados con el diseño §1-2. Hechos de §1 correctos; hallazgos a-e demostrados en el código mostrado; f-g hipótesis.
+NEGATIVOS: doble movimiento de saldo por ruta normal no demostrado (receipts 316-318 lo evitan); «Video abierto con Cuenta bloqueada» no demostrado (821 exige !account.blocked); concurrencia real fuera de alcance.
+BLOQUEOS: incidentOf 420 sin relajar; sameGuard sin acceso a filas; dos sitios de matching de alerta (505/173) y naming ambiguo en guarda mixta (Q2); sin compensación Cuenta-first (d); huérfano sin salida (e); faltan creación de holds/alertas y punto de llamada a Cuenta (Q1,Q3).
+=== FIN RESUMEN ===

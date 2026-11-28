@@ -1,0 +1,34 @@
+**Hechos del código**
+- Confirmo 1–3 con los fragmentos de `writeBlockedGuard`, `sameGuard`/`incidentOf` y `freshRecord`.
+- Hecho 4: la regla `outbox ?? intent` y la comparación con el incidente elegido están confirmadas; la creación/vida completa de la alerta no.
+- Hecho 5: no confirmado; el fragmento define la semántica `superseded`, pero no muestra el barrido ejecutándola.
+- Hecho 6: campos del hold y lectura de todos los holds confirmados; no confirmo que todas las rutas de creación los escriban igual.
+- Hecho 7: la condición final es visible; `sameVersion`/`recheck` completos no.
+- Hecho 8: revisión separada, generación y recibo de Cuenta confirmados; la adopción del recibo «por hold» no aparece.
+
+**Fallos y huecos**
+- El v2 quita la desambiguación por guarda, pero no especifica rechazo si la misma clave de incidente existe abierta en `billingReviewIncidents` y `billingOutboxReviewIncidents`. Sin unicidad, `incidentOf` puede ser ambiguo.
+- Falta definir por escrito la relación exacta de cada fila `needs_review`/`pending` con su incidente abierto: intents, outbox, holds, observaciones y admission guards. Sin esto, «rival huérfano» puede clasificar mal.
+- Ruta Cuenta-primero/asimetría: si Cuenta queda desbloqueada o sin guarda mientras Video conserva otro incidente abierto, el diseño no dice cómo procesar ese incidente sin «generación actual de Cuenta». Podría quedar Video bloqueado aunque Cuenta no lo esté.
+- Repetición parcial: tras P1 la fila del incidente elegido ya está revisada; si `incidentOf` exige incidente abierto antes del recibo local, P7 se volvería `conflict`. Falta fijar el orden recibo → adopción → decisión.
+- `createdAtMs`/`epoch` solos no prueban identidad tras recreación; el candado de versión y unicidad de identificadores deben quedar como requisito, no solo como prueba.
+
+**Secuencias**
+- Hold antiguo con generación original y alerta de generación actual: el v2 lo resuelve si el hold es único y válido.
+- Incidente entre lectura y escritura: debería abortar por `recheck`, pero no puedo confirmar el mecanismo completo.
+- Guarda recreada con misma generación: riesgo de colisión/aceptación; P10 lo cubre como caso, pero el diseño debe exigir el invariante.
+- Mover saldo dos veces: el diseño lo evita si la adopción de recibo es por hold y valida incidente/generación; esa adopción no está demostrada.
+
+**Pruebas**
+- Solo P1–P10 no bastan; P11–P16 son necesarias.
+- Faltan negativas para: clave de incidente duplicada entre tipos, hold malformado o con `sourceKind` equivocado, repetición parcial después de revisar la fila, Cuenta ya abierta/sin guarda con incidentes Video abiertos, y drift de relación en outbox/admission tras la lectura auditada.
+
+**Conclusión**
+- El v2 corrige los hallazgos centrales de v1, pero aún no es suficientemente determinable para implementar código que mueve saldo.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Hechos 1–3 y 6 confirmados; 4 y 8 parcialmente confirmados; diseño §2.1–2.7 y fragmentos de `billingUnblock.ts`, `firestoreBackend.ts` y `server/account/backend.ts`.
+NEGATIVOS: No vi implementación v2, ni el barrido completo, ni `sameVersion`/`recheck`, ni la adopción del recibo por hold; no afirmo defectos no demostrables como hechos.
+BLOQUEOS: Definir unicidad/ambigüedad de incidentes, pertenencia de filas, ruta Cuenta-primero/asimétrica, orden de recibo en repetición parcial y pruebas negativas adicionales.
+=== FIN RESUMEN ===

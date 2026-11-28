@@ -1,0 +1,28 @@
+**1. Hechos de la sección 1**
+Los seis hechos son correctos según los fragmentos: (1) `writeBlockedGuard` fusiona un solo campo por llamada, conserva `createdAtMs` e incrementa `epoch` solo si el incidente difiere del ya nombrado en ese campo (`firestoreBackend.ts:632-635`). (2) `sameGuard` exige XOR entre `lastIncidentId` y `lastOutboxIncidentId` (`billingUnblock.ts:167-168`); `incidentOf` repite el XOR (420) y deriva el hold con la generación actual que `freshRecord:511` le pasa, de modo que el hold de un incidente anterior no se encuentra salvo ruta legacy (424-428). (3) `freshRecord` lanza `unresolved` sobre `unresolvedRows` (513-514), que cuenta intents/outbox en `needs_review`, holds `pending|needs_review` e incidentes sin revisar ajenos al `owned` (407-412); con dos incidentes abiertos cada uno es rival del otro. (4) `sameOpenAlert` exige el estado exacto del incidente elegido (173). (5) `clear` en 821; con rivales la guarda viva y `videoBlocked:true` (839-840). (6) Cuenta valida generación actual (321) y usa `nextGuardReview` para `reviewedCount` o borrado (326-329).
+
+**2. Secuencias problemáticas**
+Demostrado contra el código mostrado: P5. En la transacción final, un incidente que llega entre la lectura auditada y la escritura no aborta: las filas planificadas siguen coincidiendo, `unresolvedRows` (820) lo cuenta como rival y la transacción confirma parcial con `videoRivals` (839). «Aborta sin cambios» exigiría lógica nueva que el diseño no especifica en la sección 2.
+
+Bloqueantes no concluidos (hipótesis, material insuficiente):
+- Hold antiguo (2.2): el id del hold es determinista sobre `(kind, incidentKey, epoch, createdAtMs)` (424). Para reconstruir el de I1 hace falta que la fila de incidente o de hold guarde su generación original, o que la fila de hold guarde `incidentKey` para escanear (`accountRows` ya lee todos los holds, 400). Los fragmentos no muestran ese esquema; si no existe, 2.2 no es implementable y I1 queda sin salida (conflict por rival huérfano: seguro, pero bloqueado).
+- Alerta mixta (2.4): la alerta nombra un solo incidente en su estado (173), pero una guarda mixta nombra dos tras dos escrituras con epochs distintos (632-635). «El incidente que esa generación nombra» es ambiguo; sin el código de creación/actualización de alertas no se puede fijar `sameOpenAlert` ni descartar que desbloquear primero el incidente no nombrado por la alerta fracase siempre.
+- Alertas de generaciones anteriores (4.3): si quedan abiertas, la disposición final podría cerrar la equivocada o dejar huérfanas; no verificable con los fragmentos.
+- Guarda recreada en el mismo milisegundo: P10 solo cubre otro `createdAtMs`. Si la guarda se borra al cerrar (834) y se recrea con `epoch=1` y el mismo `createdAtMs`, la generación vieja coincide y los ids de hold y auditoría colisionan con el ciclo previo; una repetición antigua podría clasificarse como repetición del ciclo nuevo. Hipótesis de baja probabilidad, no demostrada.
+- Doble movida de saldo: no encontré vector demostrado. Cada hold transiciona una vez (799-803), las repeticiones no escriben (316-318) y los ids incluyen el incidente. Video tampoco libera con Cuenta bloqueada (821; P9).
+- Cuenta primero: si Cuenta revisa I1 antes que Video, la llamada posterior de Video es recepto idéntico (316-318) y sigue parcial; consistente.
+
+**3. Pruebas**
+P1-P4 y P6-P10 fijan bien direccionamiento, rivales y guarda recreada. Faltan negativas: (a) el resultado real ante crecimiento de rivales en la fase final (aborto vs compromiso parcial, según decida el diseño); (b) incidente nuevo en la guarda de Cuenta entre la lectura de su generación y la llamada: 321 debe conflicar y Video abortar sin escribir; (c) hold antiguo irrecuperable debe conflict sin avanzar filas; (d) recreación de guarda con el mismo `createdAtMs`, no solo otro. P5 debe reescribirse al comportamiento que el diseño elija y justifique contra 820-839.
+
+**4. Preguntas bloqueantes**
+Q1, Q2 y Q3 son bloqueantes: 2.2 y 2.4 dependen de esquemas y del ciclo de vida de alertas que los fragmentos no muestran. Q4 no es bloqueante y queda respondida por el código mostrado: Cuenta acepta cualquier incidente activo con la generación actual de su guarda (320-324), sin ligar el epoch del request al de creación del incidente. Q5 es parcialmente verificable: `writeBlockedGuard` normaliza guardas sin `epoch` a 1 al siguiente incidente (629); falta `generation()` para confirmar el rechazo limpio de guardas heredadas no reescritas.
+
+Veredicto: arquitectura coherente y hechos correctos, pero v1 depende de Q1-Q3 sin resolver y contiene la contradicción P5; no se puede concluir seguridad sin ese material.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Contraste entre el diseño v1 (secciones 1-4) y los fragmentos de billingUnblock.ts (164-175, 392-455, 497-535, 782-858), firestoreBackend.ts (622-640) y server/account/backend.ts (225-243, 303-333). Hechos de sección 1 verificados sin errores; P5 contradice el compromiso parcial de 820-839. Costo: no medido.
+NEGATIVOS: P5 inconsistente con el mecanismo especificado; 2.2 y 2.4 dependen de Q1-Q3 sin resolver; hueco de prueba en recreación de guarda con mismo createdAtMs.
+BLOQUEOS: Faltan el esquema de filas de hold/incidente (Q1), el código de creación y ciclo de vida de alertas (Q2-Q3) y la función generation() (Q5) para concluir.
+=== FIN RESUMEN ===
