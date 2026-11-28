@@ -1,6 +1,6 @@
 # LV-007 · Análisis de archivos grandes, destinos y voz AI
 
-Fecha: 2026-11-11. Estado: estudio de viabilidad solicitado; no autoriza activar proveedores, facturación, cambiar planes ni publicar funciones. Repositorio Robcaze1980/video_transcript, revisión base afe2d4caefd53b8576b066c0f20129095fbcc172 con cambios locales conservados. Conecta LV-003 (cuentas/archivos), LV-004 (calidad por idioma), LV-007 (costes) y editor LV-008–013.
+Fecha: 2026-11-11. Estado: estudio de viabilidad solicitado; no autoriza activar proveedores, facturación, cambiar planes ni publicar funciones. Repositorio Robcaze1980/video_transcript, revisión base afe2d4caefd53b8576b066c0f20129095fbcc172 con cambios locales conservados. Conecta LV-003 (cuentas/archivos), LV-004 (calidad por idioma), LV-007 (costos) y editor LV-008–013.
 
 ## Base y propuestas a distinguir
 
@@ -10,7 +10,7 @@ Propuesta de ensayo: límite objetivo500MB (500.000.000bytes) y10min por archivo
 
 ## Almacenamiento y transferencia
 
-Cuenta con almacenamiento temporal, no archivo permanente. Definir origen del reloj24h, aviso de caducidad, eliminación manual, limpieza de originales/derivados/audios/multipart y tratamiento de trabajos/exportaciones en curso. No eliminar copia externa del usuario al caducar nuestra copia. Aplicar límites por bytes y cuenta:24h por sí solo no controla coste.
+Cuenta con almacenamiento temporal, no archivo permanente. Definir origen del reloj24h, aviso de caducidad, eliminación manual, limpieza de originales/derivados/audios/multipart y tratamiento de trabajos/exportaciones en curso. No eliminar copia externa del usuario al caducar nuestra copia. Aplicar límites por bytes y cuenta:24h por sí solo no controla costo.
 
 [Spaces](https://www.digitalocean.com/pricing/spaces-object-storage):$5/mes incluye250GiB almacenados y1TiB salida; exceso$.02/GiB-mes y$.01/GiB salida. Tarifa consultada, no recurso contratado. No confundir GB decimal con GiB ni capacidad almacenada con tráfico mensual. No sumar prorrateo de cuota y exceso como si todo byte se pagara dos veces. Contar rutas: original→IA, original→navegador, exportación→objeto, reproducción/descarga y copia externa; su precio depende de origen y destino. Resultado no necesariamente pesa igual que entrada; temporales suman picos.
 
@@ -26,9 +26,9 @@ Recomendar Drive primero y Dropbox después por el uso móvil observado, conserv
 2. Narración traducida: voz sintética estándar lee texto revisado; descarga audio y MP4 con mezcla/reemplazo elegidos. No promete misma voz, sincronía labial ni separación perfecta de ambiente.
 3. Doblaje sincronizado: ajuste de frases al tiempo, manejo de voces/ambiente y controles de calidad adicionales. No equivale a TTS y queda fuera del primer ensayo.
 
-Primer ensayo propuesto: una voz estándar por idioma disponible, un hablante, texto traducido revisado antes de generar; reutilizar traducción sin nueva transcripción. Medir pronunciación de nombres/medidas/términos, cobertura de diez idiomas, duración generada vs hueco disponible, clipping/volumen, conservación de imagen y mezcla original. Si no cabe, avisar y ofrecer edición; no acelerar indiscriminadamente ni cortar palabras. Regenerar sólo segmentos cambiados con caché/versiones por texto/voz/modelo. Sin clonación ni lipsync en propuesta inicial. Mantener voz como capacidad/coste separados por idioma y por versión de audio; no heredar verificación lingüística de SRT.
+Primer ensayo propuesto: una voz estándar por idioma disponible, un hablante, texto traducido revisado antes de generar; reutilizar traducción sin nueva transcripción. Medir pronunciación de nombres/medidas/términos, cobertura de diez idiomas, duración generada vs hueco disponible, clipping/volumen, conservación de imagen y mezcla original. Si no cabe, avisar y ofrecer edición; no acelerar indiscriminadamente ni cortar palabras. Regenerar sólo segmentos cambiados con caché/versiones por texto/voz/modelo. Sin clonación ni lipsync en propuesta inicial. Mantener voz como capacidad/costo separados por idioma y por versión de audio; no heredar verificación lingüística de SRT.
 
-## Escenarios de coste, no factura ni margen neto
+## Escenarios de costo, no factura ni margen neto
 
 Supuesto didáctico900caracteres por minuto de voz destino (no válido automáticamente para todos los alfabetos), sin reintentos ni mezcla/render. Precios de [Google Cloud TTS](https://cloud.google.com/text-to-speech/pricing), sin descontar cuotas gratuitas:
 
@@ -41,21 +41,21 @@ Supuesto didáctico900caracteres por minuto de voz destino (no válido automáti
 
 [ElevenLabs API](https://elevenlabs.io/pricing/api) es tarifa TTS, no tarifa de doblaje. Revisar disponibilidad/voz/modelo en cada idioma antes de escoger. Google TTS exige facturación; no habilitada por este estudio. GeminiTTS puede servir como alternativa, pero modelos preview/promociones cambian: la tabla oficial duplica la tarifa anunciada3.8FlashTTS el1enero2027. No basar precio comercial estable en una promoción.
 
-Para10min, reserva Gemini de subtítulos anterior$.15–.23 es provisional, no medición de video500MB. Con Chirp3HD y supuesto9000caracteres, subtotal de IA$.42–.50. Sobre venta$1 y comisión nacional hipotética micropagos$.1399, quedan$.3601–.4401 antes de servidor, almacenamiento, transferencias, reintentos, soporte/impuestos. No es margen neto ni justifica incluir voz en el paquete actual. Medir coste por trabajo exitoso y versiones/regeneraciones, no sólo primera llamada. Precio y consumo de voz requieren decisión comercial posterior.
+Para10min, reserva Gemini de subtítulos anterior$.15–.23 es provisional, no medición de video500MB. Con Chirp3HD y supuesto9000caracteres, subtotal de IA$.42–.50. Sobre venta$1 y comisión nacional hipotética micropagos$.1399, quedan$.3601–.4401 antes de servidor, almacenamiento, transferencias, reintentos, soporte/impuestos. No es margen neto ni justifica incluir voz en el paquete actual. Medir costo por trabajo exitoso y versiones/regeneraciones, no sólo primera llamada. Precio y consumo de voz requieren decisión comercial posterior.
 
 ## Secuencia y evidencia de cierre propuesta
 
-A. Archivos grandes + almacenamiento privado, cuotas/borrado/aislamiento y prueba1/5/10min. B. En paralelo prototipo de voz sin comercializar y evaluación de permisos Drive. C. Drive completo y pruebaPixel; Dropbox tras resolver entrega de artefacto. D. Coste total medido y propuesta de precio voz separado. E. Actualizar catálogo/páginas sólo después de decidir alcance y superar aceptación. Nada de este estudio cierra LV-004 ni cambia publicación. Conservar ventanas orientativas del Gantt.
+A. Archivos grandes + almacenamiento privado, cuotas/borrado/aislamiento y prueba1/5/10min. B. En paralelo prototipo de voz sin comercializar y evaluación de permisos Drive. C. Drive completo y pruebaPixel; Dropbox tras resolver entrega de artefacto. D. Costo total medido y propuesta de precio voz separado. E. Actualizar catálogo/páginas sólo después de decidir alcance y superar aceptación. Nada de este estudio cierra LV-004 ni cambia publicación. Conservar ventanas orientativas del Gantt.
 
 ### Límites del ejemplo económico
 
 La tarifa nacional hipotética PayPal$1→$.1399 requiere aprobación comercial; [micropagos](https://www.paypal.com/us/business/paypal-business-fees#micropayments) internacionales añaden1.50puntos porcentuales antes de conversión aplicable. Con tarifa Checkout nacional3.49%+$.49, la comisión$1 sería$.5249: usando el mismo supuesto de IA con vozChirp quedarían sólo$.0551–.1351 antes de operación. No se ha confirmado la tarifa efectiva de la cuenta y Sandbox no la acredita.
 
-La generación actual en navegador evita parte de CPU del servidor pero no hace gratuita la entrega: puede requerir descargar original y recursosFFmpeg y usa memoria del cliente. El estudio debe comparar render local y worker en servidor con el Droplet real;500MB no equivale a500MB de RAM durante la decodificación. Los costes por carácter dependen del texto destino, no del tamaño del archivo ni de sus minutos nominales; el número de reintentos y destinos también cuenta.
+La generación actual en navegador evita parte de CPU del servidor pero no hace gratuita la entrega: puede requerir descargar original y recursosFFmpeg y usa memoria del cliente. El estudio debe comparar render local y worker en servidor con el Droplet real;500MB no equivale a500MB de RAM durante la decodificación. Los costos por carácter dependen del texto destino, no del tamaño del archivo ni de sus minutos nominales; el número de reintentos y destinos también cuenta.
 
 ## Contraste Codex de la primera revisión
 
-DeepSeek coincide en no escalar buffersPostgreSQL, separar narración/doblaje/lipsync y medir coste por éxito. Propone compartir nativo como alternativa de menor alcance antes de OAuth; conservar como opción cuando el dispositivo lo soporte, sin presentarlo como guardado automático ni persistencia en Drive. Su mapeo tentativo de IDs no se adopta: LV-004 sigue calidad lingüística y LV-005 sigue portada/SEO; almacenamiento/exportación pertenecen a núcleo/editor y LV-007 coordina coste. Un worker servidor no es dependencia obligatoria de cualquier carga grande: se decide con mediciones de exportación/memoria móvil. Lifecycle y backups necesitan políticas verificadas; no prometemos eliminación24h de todas las copias sólo por configurar lifecycle. Cancelar una exportación no debe borrar otros proyectos o entradas reutilizadas.
+DeepSeek coincide en no escalar buffersPostgreSQL, separar narración/doblaje/lipsync y medir costo por éxito. Propone compartir nativo como alternativa de menor alcance antes de OAuth; conservar como opción cuando el dispositivo lo soporte, sin presentarlo como guardado automático ni persistencia en Drive. Su mapeo tentativo de IDs no se adopta: LV-004 sigue calidad lingüística y LV-005 sigue portada/SEO; almacenamiento/exportación pertenecen a núcleo/editor y LV-007 coordina costo. Un worker servidor no es dependencia obligatoria de cualquier carga grande: se decide con mediciones de exportación/memoria móvil. Lifecycle y backups necesitan políticas verificadas; no prometemos eliminación24h de todas las copias sólo por configurar lifecycle. Cancelar una exportación no debe borrar otros proyectos o entradas reutilizadas.
 
 ### Prueba de carga y experiencia propuesta
 
@@ -65,25 +65,25 @@ Un archivo500MB tarda como mínimo400s (6min40s) a10Mbps de subida, u800s (13min
 
 Kimi coincide en separar ingesta/SRT y exportaciónMP4 por perfiles probados; propone audioTTS separado como primer prototipo y cuestiona venderlo todo a$.10/min. Codex adopta esa separación de aceptación, sin retirar MP4 existente ni imponer un worker antes de medir. La aplicación puede reutilizar cuenta/proyectos/saldo/cola, pero el servicio de voz necesita producto/consumo/versiones y calidad propios. No heredar90direcciones de traducción como90direcciones de doblaje.
 
-Hallazgo económico confirmado por aritmética: ElevenLabs v4 a$.08/1000caracteres cuesta$.72 por9000caracteres; más Gemini provisional$.15–.23 =$.87–.95, por encima de$.8601 disponibles tras micropago nacional$1. Incluso sin operación da contribución negativa. Chirp deja$.3601–.4401 antes de costes restantes y regeneración, no ganancia neta. Precio de voz separado o una regla de consumo diferente sólo después de decidir oferta; no modificar saldo actual sin migración/reglas explicadas.
+Hallazgo económico confirmado por aritmética: ElevenLabs v4 a$.08/1000caracteres cuesta$.72 por9000caracteres; más Gemini provisional$.15–.23 =$.87–.95, por encima de$.8601 disponibles tras micropago nacional$1. Incluso sin operación da contribución negativa. Chirp deja$.3601–.4401 antes de costos restantes y regeneración, no ganancia neta. Precio de voz separado o una regla de consumo diferente sólo después de decidir oferta; no modificar saldo actual sin migración/reglas explicadas.
 
 Referencia corregida usando reserva lineal$.015–.023/min y micropago hipotético: contribución después de sóloGemini/PayPal para$5/50min=$3.5105–3.9105 y$10/100min=$7.111–7.911. Son escenarios aritméticos, no sustituyen medición/factura ni otros escenarios históricos.
 
-### Coordinación, vía y costes
+### Coordinación, vía y costos
 
 Se comprobó el diagnóstico pendiente de T3 V2: los permisos full-access/MCP no garantizan revisores sin herramientas. No se modificó T3 global ni se lanzó otra revisión por esa vía. Respaldo explícitamente autorizado OpenRouter de LinguistVision; clave exclusiva externa, contexto técnico sin medios/transcripciones/datos de clientes, herramientas no incluidas y tool_choice:none. Dos consultas paralelas, un intento por modelo, cero herramientas/delegaciones/reintentos. No se afirma que T3 coordinara estas consultas.
 
-| Revisor | Modelo | Generación | Coste devuelto USD |
+| Revisor | Modelo | Generación | Costo devuelto USD |
 |---|---|---|---:|
 | DeepSeek |deepseek/deepseek-v4.1-flash|gen-1794430644-oEQDoFzokc8f2rohFm3A|0.01506035025|
 | Kimi |moonshotai/kimi-k3.1-pro|gen-1794430644-J6KACvYBKc6eOf4hW2O8|0.19145491200|
 |Total|||0.20651526225|
 
-usage.cost devuelto por OpenRouter; factura pendiente de conciliación. GETgenerationDeepSeek confirmó$.01506035 redondeado; KimiGETgeneration recién completado dio404eventual, sin invalidar usage.cost de respuesta. No sumar upstream_inference_cost al coste de usuario. Respuestas completas y contabilidad: `%LOCALAPPDATA%\LinguistVision\t3-review\publicsafe\large-video-voice-20261111\REVIEW-SUMMARY.md`, `deepseek-review.md`, `kimi-review.md` y sus accountingJSON. No se usaron Gemini/TTS ni se habilitó facturación. Fuentes DropboxSaver/Drive resumable se contrastaron porCodex después del despacho, no se atribuyen a una revisión adicional.
+usage.cost devuelto por OpenRouter; factura pendiente de conciliación. GETgenerationDeepSeek confirmó$.01506035 redondeado; KimiGETgeneration recién completado dio404eventual, sin invalidar usage.cost de respuesta. No sumar upstream_inference_cost al costo de usuario. Respuestas completas y contabilidad: `%LOCALAPPDATA%\LinguistVision\t3-review\publicsafe\large-video-voice-20261111\REVIEW-SUMMARY.md`, `deepseek-review.md`, `kimi-review.md` y sus accountingJSON. No se usaron Gemini/TTS ni se habilitó facturación. Fuentes DropboxSaver/Drive resumable se contrastaron porCodex después del despacho, no se atribuyen a una revisión adicional.
 
 ### Resultado y siguiente trabajo preparado
 
-Estudio completo y enlaces verificados. No hay coste extremo-a-extremo de500MB/10min ni nueva capacidad implementada. La siguiente entrega técnica recomendada es especificar e instrumentar carga/retención/cuotas y medir perfilesPC/Pixel; narraciónTTS puede prototiparse en paralelo con audio corto y texto sintético. El propietario decide si incluye voz en lanzamiento, su precio y la promesa comercial; no hace falta decidirlo para preparar diseño técnico y pruebas. No se cambia oferta pública ni se habilitan proveedores por este análisis.
+Estudio completo y enlaces verificados. No hay costo extremo-a-extremo de500MB/10min ni nueva capacidad implementada. La siguiente entrega técnica recomendada es especificar e instrumentar carga/retención/cuotas y medir perfilesPC/Pixel; narraciónTTS puede prototiparse en paralelo con audio corto y texto sintético. El propietario decide si incluye voz en lanzamiento, su precio y la promesa comercial; no hace falta decidirlo para preparar diseño técnico y pruebas. No se cambia oferta pública ni se habilitan proveedores por este análisis.
 
 ## Incremento autorizado · archivos y Drive · 2026-11-11
 
@@ -129,23 +129,23 @@ Todas las rutas de evidencia siguientes están bajo `%LOCALAPPDATA%\LinguistVisi
 - [Transporte Drive](../../server/commercial/web/pilotDrive.test.js):16 pruebas simuladas. [Reanudación cliente](../../server/commercial/web/pilotUpload.test.js):9 pruebas de respuesta perdida, cancelación, otra File/cuenta y expiración del inicio. Files API usa transporte simulado; una regresión comprueba que los clips cortos conservan la alineación anterior.
 - HTTP activo: portada, piloto y módulos200; cuenta sin sesión401; Firebase propio, `noindex` y escucha sólo en127.0.0.1. Registro: `validation/large-files-implementation-20261111/active-http.json`.
 
-### Revisión independiente y coste de esta implementación
+### Revisión independiente y costo de esta implementación
 
 T3 sigue pendiente de resolver el aislamiento de sus revisores. Se utilizó el respaldo OpenRouter exclusivo de LinguistVision, con contexto técnico sin archivos privados ni credenciales, herramientas ausentes y `tool_choice:none`. DeepSeek y Kimi revisaron en paralelo una instantánea previa a las últimas correcciones; no certificaron el código posterior.
 
 Codex contrastó y corrigió la cancelación concurrente con el completado, la caducidad durante una publicación bloqueada, las conexiones anidadas, la retención de Blob y el reintento de un inicio caducado. El borrado físico se pospone hasta confirmar la transacción, con una marca duradera para recuperar fallos. Las regresiones verifican esas correcciones. Se descartaron propuestas no demostradas y el reembolso después de caducar un trabajo ya entregado, que habría cambiado las reglas comerciales.
 
-| Modelo | Generación | Coste devuelto USD |
+| Modelo | Generación | Costo devuelto USD |
 |---|---|---:|
 | deepseek/deepseek-v4.1-flash | gen-1794432398-OkAcTEiK2A09N2Zg5Orw |0.0491382045|
 | moonshotai/kimi-k3.1-pro | gen-1794432398-c88hdEZiPFLXhHCb6o4c |0.2584577160|
 | Total nuevo | |**0.3075959205**|
 
-Un intento por modelo, sin herramientas ni reintentos. Ambos costes se corroboraron con el endpoint de generación; DeepSeek devuelve0.049138204 redondeado. Conciliación con factura pendiente. Respuestas, instantánea y contabilidad: `t3-review/publicsafe/large-files-implementation-20261111/REVIEW-SUMMARY.md`. La ronda de análisis anterior, US$0.20651526225, se registra por separado. No hubo cargos nuevos de Gemini, TTS ni pagos reales.
+Un intento por modelo, sin herramientas ni reintentos. Ambos costos se corroboraron con el endpoint de generación; DeepSeek devuelve0.049138204 redondeado. Conciliación con factura pendiente. Respuestas, instantánea y contabilidad: `t3-review/publicsafe/large-files-implementation-20261111/REVIEW-SUMMARY.md`. La ronda de análisis anterior, US$0.20651526225, se registra por separado. No hubo cargos nuevos de Gemini, TTS ni pagos reales.
 
 ### Pendientes
 
-Confirmar consentimiento y guardar/abrir SRT y MP4 reales en Drive, en PC y Pixel. Probar videos de cámara, códecs y exportación larga representativos. Medir red, servidor DigitalOcean, Spaces y coste total con Gemini antes de anunciar límites comerciales nuevos. La portada conserva las condiciones previas. Voz y Dropbox quedan fuera de este incremento.
+Confirmar consentimiento y guardar/abrir SRT y MP4 reales en Drive, en PC y Pixel. Probar videos de cámara, códecs y exportación larga representativos. Medir red, servidor DigitalOcean, Spaces y costo total con Gemini antes de anunciar límites comerciales nuevos. La portada conserva las condiciones previas. Voz y Dropbox quedan fuera de este incremento.
 
 Para volver a la versión anterior, conservar esquema y medios: esa versión no muestra las entradas privadas nuevas. No borrar la carpeta privada ni la base. Si se deja una versión antigua funcionando, mantener la limpieza desde la versión actual hasta cerrar la operación.
 
@@ -157,6 +157,6 @@ El incidente LV-E31 exigió resolver la ruta privada con `fs/promises.realpath` 
 
 LV-E32: `waitForCloudAuthorization` permite dejar de esperar a Google al cancelar la exportación. La autorización se invoca dentro del gesto original; el editor no continúa la carga tras cancelarse aunque Google responda después. No se afirma cancelar/revocar OAuth. Corrección aplicada a SRT y MP4,160 pruebas sin omisiones, tipos/builds correctos y cancelación real de ambas rutas comprobada en navegador. La causa del popup/consentimiento pendiente no queda resuelta por este cambio; no se declara ningún archivo guardado en Drive.
 
-Respaldo OpenRouter autorizado por aislamiento T3 aún pendiente, sin herramientas ni topes locales. Revisión almacenamiento: DeepSeek FALLA por posible destino canónico arbitrario y Kimi PASS limitado al diseño; Codex añadió allowlist exacta y usó API asíncrona tras reproducción local. No se atribuye esa versión posterior a los revisores. Revisión cancelación: DeepSeek y Kimi PASS estáticos sobre el código de producción; Codex ejecutó pruebas y navegador, y añadió después el caso de rechazo tardío solicitado. Respuestas completas, IDs y costes privados en `t3-review/pc-step1-storage-20261111/` y `t3-review/drive-cancel-20261111/`.
+Respaldo OpenRouter autorizado por aislamiento T3 aún pendiente, sin herramientas ni topes locales. Revisión almacenamiento: DeepSeek FALLA por posible destino canónico arbitrario y Kimi PASS limitado al diseño; Codex añadió allowlist exacta y usó API asíncrona tras reproducción local. No se atribuye esa versión posterior a los revisores. Revisión cancelación: DeepSeek y Kimi PASS estáticos sobre el código de producción; Codex ejecutó pruebas y navegador, y añadió después el caso de rechazo tardío solicitado. Respuestas completas, IDs y costos privados en `t3-review/pc-step1-storage-20261111/` y `t3-review/drive-cancel-20261111/`.
 
 Siguiente: resolver autorización Drive y abrir SRT/MP4 remotos en PC/Pixel; grabaciones de cámara1/5/10min, calidad lingüística y pagos móviles conservan sus gates. No se amplían límites comerciales, publican servicios ni habilitan Gemini/pagos reales.

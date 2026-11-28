@@ -66,7 +66,7 @@ Los insumos y las dos rondas se guardaron en `%LOCALAPPDATA%\LinguistVision\vali
 
 T3 respondió HTTP 401 desde esta sesión. Se usó OpenRouter de LinguistVision. DeepSeek redactó los siete paquetes y Kimi K3.1 Pro revisó las etiquetas de estado, pago, edición y páginas de muestra. Se conservaron las variables de cada mensaje y se integraron las correcciones pertinentes.
 
-| Consulta de OpenRouter | Generación | Coste reportado |
+| Consulta de OpenRouter | Generación | Costo reportado |
 |---|---|---:|
 | DeepSeek, portugués | `gen-1794201583-kAM1IRBD7mQ8UKpxr7y2` | US$0,0092639943 |
 | DeepSeek, francés | `gen-1794201583-jf6RxMZrGTCDgCTTXLts` | US$0,0061758378 |
@@ -156,7 +156,7 @@ El 9 de noviembre se probaron el lector local y el adaptador con respuestas de G
 | Dos pistas, con la segunda como predeterminada | La versión anterior extendió por error un final de 10,58 s a 11,78 s usando la primera pista. La candidata omite el ajuste local y conserva 10,58 s en ambos SRT. Queda comprobar qué pista usa Gemini con archivos nuevos. |
 | Grabación de teléfono | Un clip público grabado con Google Pixel 8 Pro se convirtió a MP4 para caber en el piloto. La inspección y la lectura de audio local funcionaron con 24 s y 562.188 bytes. La muestra se usó para compatibilidad, sin referencia anotada de voz. [Martin Vasco, CC BY-SA 4.0](https://commons.wikimedia.org/wiki/File:Encendido_del_letrero_del_Teatro_de_la_Casa_de_la_Cultura_N%C3%BAcleo_del_Azuay.webm). |
 
-Evidencia local en `%LOCALAPPDATA%\LinguistVision\validation\lv004-audio-matrix-20261109`. Los pares siguen en beta. Queda cotejar clips nativos del teléfono y nuevas muestras con voces superpuestas en ambos sentidos. Coste externo nuevo **US$0**.
+Evidencia local en `%LOCALAPPDATA%\LinguistVision\validation\lv004-audio-matrix-20261109`. Los pares siguen en beta. Queda cotejar clips nativos del teléfono y nuevas muestras con voces superpuestas en ambos sentidos. Costo externo nuevo **US$0**.
 
 ### Segunda lectura con voces superpuestas y selección de pista
 
@@ -206,7 +206,7 @@ Con autorización del propietario, se procesaron las dos copias con Gemini 3.8 F
 
 El clip español pasó con margen. El inglés quedó justo en el límite medido y conviene repetirlo con una pausa final más larga, porque la grabación termina cerca de la última palabra. Los resultados corresponden a las copias con el audio de cámara intacto. La aceptación directa de los originales sigue limitada por el tamaño y ambos pares siguen en beta por la frontera de la mezcla inglesa de carpintería.
 
-Evidencia privada en `%LOCALAPPDATA%\LinguistVision\validation\lv004-native-http-v5eaPK`. Gemini reportó 1.612 tokens de entrada y 508 de salida, incluido razonamiento. Coste Standard estimado **US$0,003114**, factura por confirmar. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+Evidencia privada en `%LOCALAPPDATA%\LinguistVision\validation\lv004-native-http-v5eaPK`. Gemini reportó 1.612 tokens de entrada y 508 de salida, incluido razonamiento. Costo Standard estimado **US$0,003114**, factura por confirmar. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Corrección de una frontera compartida
 
@@ -221,7 +221,7 @@ Se repitió la solicitud nueva guardada con la candidata final para comparar el 
 
 La candidata pasó 72 pruebas con PostgreSQL, tipos y compilación. Completó 16 recorridos HTTP con respuestas guardadas y comprobó texto, tiempos comunes y descargas. Nueve controles conservaron sus intervalos, incluidos los dos clips de cámara. El clip de carpintería sin mezcla también corrigió una frontera de 9,44 a 10,16 s, donde empieza la siguiente frase en la referencia. Descargas en `%LOCALAPPDATA%\LinguistVision\validation\lv004-boundary-http-SFtDER`.
 
-La solicitud nueva reportó 1.675 tokens de entrada y 542 de salida, incluido razonamiento. Coste Standard estimado **US$0,00328875**, factura por confirmar. No se hicieron consultas nuevas a revisores. Evidencia privada de la solicitud en `%LOCALAPPDATA%\LinguistVision\validation\lv004-boundary-live-08wxcs`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+La solicitud nueva reportó 1.675 tokens de entrada y 542 de salida, incluido razonamiento. Costo Standard estimado **US$0,00328875**, factura por confirmar. No se hicieron consultas nuevas a revisores. Evidencia privada de la solicitud en `%LOCALAPPDATA%\LinguistVision\validation\lv004-boundary-live-08wxcs`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Repetición de la mezcla inglesa y terminología de obra
 
@@ -237,7 +237,7 @@ La candidata añade contexto solo a la traducción inglés → español del pilo
 
 Se abrieron los cuatro proyectos, se cotejaron los ocho SRT y sus intervalos coincidieron por pista. Pasaron 72 pruebas con PostgreSQL, tipos y compilación. Se conserva la mejora terminológica en la candidata. El resultado de sincronía varió entre solicitudes y los pares siguen en beta.
 
-DeepSeek V4.1 Flash y Kimi K3.1 Pro revisaron en paralelo por T3 con la instancia OpenRouter de LinguistVision. DeepSeek propuso una indicación contextual y un control con vigas reales. Kimi pidió medir contra el audio independiente y dejar inconcluso un borde cuya incertidumbre cruza el umbral. OpenCode registró **US$0,002295276** y **US$0,068292** respectivamente, total **US$0,070587276**. Las cuatro solicitudes de Gemini reportaron 5.008 tokens de entrada y 1.777 de salida, incluido razonamiento. Coste Standard estimado **US$0,01041975**, facturas por conciliar. Evidencia en `%LOCALAPPDATA%\LinguistVision\validation\lv004-terms-20261109`, `lv004-terms-base-REoh9S` y `lv004-terms-candidate-KO9MFC`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+DeepSeek V4.1 Flash y Kimi K3.1 Pro revisaron en paralelo por T3 con la instancia OpenRouter de LinguistVision. DeepSeek propuso una indicación contextual y un control con vigas reales. Kimi pidió medir contra el audio independiente y dejar inconcluso un borde cuya incertidumbre cruza el umbral. OpenCode registró **US$0,002295276** y **US$0,068292** respectivamente, total **US$0,070587276**. Las cuatro solicitudes de Gemini reportaron 5.008 tokens de entrada y 1.777 de salida, incluido razonamiento. Costo Standard estimado **US$0,01041975**, facturas por conciliar. Evidencia en `%LOCALAPPDATA%\LinguistVision\validation\lv004-terms-20261109`, `lv004-terms-base-REoh9S` y `lv004-terms-candidate-KO9MFC`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Estabilización del último segmento inglés
 
@@ -250,7 +250,7 @@ La candidata conserva la indicación terminológica. Para el último segmento de
 
 Se cotejaron inicios y finales en los dos SRT de cada mezcla. Las respuestas anteriores repetidas también quedaron dentro de 0,50 s. La solicitud nueva conservó «cerchas» en carpintería y «seis pies» en la mezcla inglesa. El control mantuvo «vigas de acero», «cerchas de techo», «punto de anclaje» y «seis pies». Nueve recorridos de descarga con respuestas guardadas comprobaron los tiempos y el texto de ambos SRT. Los controles español → inglés y el control sintético conservaron sus tiempos. En la repetición privada del clip de cámara inglés, el final pasó de 6,10 a 6,667 s, a 0,067 s de la referencia. Pasaron 74 pruebas con PostgreSQL, tipos y compilación. Los dos pares siguen en beta mientras se amplía la muestra. El clip de carpintería quedó justo en el límite por un corte interior.
 
-T3 coordinó la revisión en paralelo con OpenRouter de LinguistVision. DeepSeek propuso separar el umbral de aceptación de la corrección local. Kimi señaló el riesgo de recortar una palabra que el lector local hubiera omitido. Se mantuvo la coincidencia obligatoria y se limitó el recorte. OpenCode registró **US$0,002587434** para DeepSeek V4.1 Flash y **US$0,0944264** para Kimi K3.1 Pro. Las tres solicitudes nuevas a Gemini reportaron 3.866 tokens de entrada y 1.486 de salida, incluido razonamiento. Coste Standard estimado **US$0,008472**. Facturas por conciliar. Evidencia en `%LOCALAPPDATA%\LinguistVision\validation\lv004-tail-20261109`, `lv004-tail-live-tImbQ0` y `lv004-tail-http-XQKVGP`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+T3 coordinó la revisión en paralelo con OpenRouter de LinguistVision. DeepSeek propuso separar el umbral de aceptación de la corrección local. Kimi señaló el riesgo de recortar una palabra que el lector local hubiera omitido. Se mantuvo la coincidencia obligatoria y se limitó el recorte. OpenCode registró **US$0,002587434** para DeepSeek V4.1 Flash y **US$0,0944264** para Kimi K3.1 Pro. Las tres solicitudes nuevas a Gemini reportaron 3.866 tokens de entrada y 1.486 de salida, incluido razonamiento. Costo Standard estimado **US$0,008472**. Facturas por conciliar. Evidencia en `%LOCALAPPDATA%\LinguistVision\validation\lv004-tail-20261109`, `lv004-tail-live-tImbQ0` y `lv004-tail-http-XQKVGP`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Voces nuevas de obra en ambos sentidos
 
@@ -265,7 +265,7 @@ Se fijaron antes de llamar a Gemini las referencias de dos extractos humanos de 
 
 El resultado confirma la terminología y las medidas en los dos controles, con fallos de sincronía en ambas direcciones con voz humana. Los pares siguen en beta. El próximo cotejo debe cubrir bordes interiores alrededor de pausas y finales que sobran más de 0,50 s, preservando los casos alineados. [Voz inglesa de NIOSH](https://commons.wikimedia.org/wiki/File:Fall_protection_allows_his_men_to_go_home_at_the_end_of_the_day.webm) · [Voz española de NIOSH](https://commons.wikimedia.org/wiki/File:Trabajador_de_la_construcci%C3%B3n_se_protege_de_las_ca%C3%ADdas_de_techo.webm).
 
-Cuatro solicitudes nuevas a Gemini 3.8 Flash reportaron 5.833 tokens de entrada y 2.099 de salida, incluido razonamiento. Coste Standard estimado **US$0,012246**, factura por confirmar. No se hicieron consultas nuevas a revisores. Referencias en `%LOCALAPPDATA%\LinguistVision\validation\lv004-newvoices-20261109` y SRT y matriz de cotejo en `lv004-newvoices-http-r0Ah5c`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+Cuatro solicitudes nuevas a Gemini 3.8 Flash reportaron 5.833 tokens de entrada y 2.099 de salida, incluido razonamiento. Costo Standard estimado **US$0,012246**, factura por confirmar. No se hicieron consultas nuevas a revisores. Referencias en `%LOCALAPPDATA%\LinguistVision\validation\lv004-newvoices-20261109` y SRT y matriz de cotejo en `lv004-newvoices-http-r0Ah5c`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Cortes interiores y final tardío
 
@@ -280,7 +280,7 @@ En inglés ↔ español, la candidata puede realinear inicios interiores y acort
 
 En los controles se conservaron la distinción entre cerchas y vigas, 24 pulgadas entre centros, 12 pies y 6 pulgadas, 60 cm y 3,5 m. Pasaron 77 pruebas con PostgreSQL, la comprobación de tipos y la compilación. Los 14 recorridos de descarga con respuestas guardadas comprobaron que se conserva el texto en las dos pistas y que sus intervalos coinciden. Los siete controles anteriores conservaron sus tiempos. Descargas y comparaciones en `%LOCALAPPDATA%\LinguistVision\validation\lv004-interior-replay-YFWVWX`. Los pares siguen en beta.
 
-T3 coordinó las consultas en paralelo con OpenRouter de LinguistVision. Kimi recomendó una segunda evidencia antes de acortar el final y rechazar solapamientos. DeepSeek pidió los fragmentos de código y revisó las salvaguardas en una segunda consulta. OpenCode registró **US$0,002118975** y **US$0,002199774** en las dos consultas a DeepSeek V4.1 Flash y **US$0,1010136** en la consulta a Kimi K3.1 Pro. Las cuatro solicitudes nuevas a Gemini reportaron 5.833 tokens de entrada y 1.878 de salida, incluido razonamiento. Coste Standard estimado **US$0,01141725**. Facturas por conciliar. Evidencia en `%LOCALAPPDATA%\LinguistVision\validation\lv004-interior-20261109` y `lv004-interior-live-KNx44q`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+T3 coordinó las consultas en paralelo con OpenRouter de LinguistVision. Kimi recomendó una segunda evidencia antes de acortar el final y rechazar solapamientos. DeepSeek pidió los fragmentos de código y revisó las salvaguardas en una segunda consulta. OpenCode registró **US$0,002118975** y **US$0,002199774** en las dos consultas a DeepSeek V4.1 Flash y **US$0,1010136** en la consulta a Kimi K3.1 Pro. Las cuatro solicitudes nuevas a Gemini reportaron 5.833 tokens de entrada y 1.878 de salida, incluido razonamiento. Costo Standard estimado **US$0,01141725**. Facturas por conciliar. Evidencia en `%LOCALAPPDATA%\LinguistVision\validation\lv004-interior-20261109` y `lv004-interior-live-KNx44q`. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Prueba fija con voces reservadas
 
@@ -299,11 +299,11 @@ Los dos pares siguen en beta. El clip reservado inglés volvió a fallar con pal
 
 Pasaron 78 pruebas con PostgreSQL, tipos y compilación. Los 14 recorridos con respuestas guardadas conservaron los textos y los intervalos comunes, incluidos los controles anteriores. Referencias en `%LOCALAPPDATA%\LinguistVision\validation\lv004-fixed-20261109`, descargas de repetición en `lv004-fixed-replay-jNT6aP` y resultados reservados en `lv004-fixed-holdout-59FKDK`. [Fuente inglesa de NIOSH](https://commons.wikimedia.org/wiki/File:The_owner_of_a_residential_framing_company_designs_safety_into_each_of_his_job_sites.webm) · [Fuente española de NIOSH](https://commons.wikimedia.org/wiki/File:Las_Ca%C3%ADdas_Cuestan;_La_Historia_de_un_%E2%80%9CSafety_Man%E2%80%9D.webm).
 
-T3 coordinó dos revisiones paralelas con OpenRouter de LinguistVision. OpenCode registró **US$0,003121944** para DeepSeek V4.1 Flash y **US$0,0758004** para Kimi K3.1 Pro. Las dos solicitudes de Gemini reportaron 3.767 tokens de entrada y 1.219 de salida, incluido razonamiento. Coste Standard estimado **US$0,0073965**. Facturas por conciliar. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+T3 coordinó dos revisiones paralelas con OpenRouter de LinguistVision. OpenCode registró **US$0,003121944** para DeepSeek V4.1 Flash y **US$0,0758004** para Kimi K3.1 Pro. Las dos solicitudes de Gemini reportaron 3.767 tokens de entrada y 1.219 de salida, incluido razonamiento. Costo Standard estimado **US$0,0073965**. Facturas por conciliar. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Comparación del prototipo de secuencia completa
 
-El prototipo alinea todas las palabras de los subtítulos con la lectura local en su orden global. Un borde solo puede cambiar si los caminos de coste similar coinciden en una palabra y hay apoyo de palabras vecinas. Los bordes ambiguos, sin evidencia o en conflicto conservan el tiempo de Gemini. Se rechazan los cambios que generen solapamientos. El prototipo vive en `server/commercial/pilotSequenceAlignment.ts` y queda aislado del adaptador del piloto.
+El prototipo alinea todas las palabras de los subtítulos con la lectura local en su orden global. Un borde solo puede cambiar si los caminos de costo similar coinciden en una palabra y hay apoyo de palabras vecinas. Los bordes ambiguos, sin evidencia o en conflicto conservan el tiempo de Gemini. Se rechazan los cambios que generen solapamientos. El prototipo vive en `server/commercial/pilotSequenceAlignment.ts` y queda aislado del adaptador del piloto.
 
 Se compararon los 14 recorridos fijos, dos clips reservados anteriores y un testimonio nuevo de NIOSH. Para cada caso se reutilizó la misma respuesta de Gemini entre ambos métodos. El clip nuevo y la referencia se congelaron antes de la única solicitud nueva. En los 17 casos, el original y la traducción conservaron el texto y compartieron intervalos. Los casos sin referencia fiable en algún borde se registraron como inconclusos, salvo cuando otro borde ya demostraba un fallo.
 
@@ -331,7 +331,7 @@ Se repitieron los mismos 17 casos con las respuestas guardadas y las referencias
 
 El híbrido cambió 15 bordes en siete casos. Evitó los dos fallos adicionales del prototipo global. La mezcla inglesa con segunda voz inglesa quedó en 0,389 s frente a 0,36 s con la candidata. El clip humano español mantuvo el máximo medible de 0,47 s y un borde inconcluso. En el clip reservado inglés, el inicio del segundo segmento quedó en 3,24 s frente a la referencia de 3,78 s. La coincidencia ambigua conservó ese tiempo y ambos SRT siguen 0,54 s adelantados. La transición de energía por sí sola no identifica qué voz pronunció la palabra.
 
-El híbrido queda aislado y ambos pares siguen en beta. El próximo ensayo debe resolver la atribución de voz en el borde inglés y contrastar los bordes inconclusos con referencias independientes. Pasaron 85 pruebas con PostgreSQL, la comprobación de tipos y ambas compilaciones en Node 24.13.0. Scripts, matriz por borde y 34 SRT en `%LOCALAPPDATA%\LinguistVision\validation\lv004-hybrid-20261109`. Cero solicitudes nuevas a Gemini y cero consultas externas. Coste de esta ronda **US$0**.
+El híbrido queda aislado y ambos pares siguen en beta. El próximo ensayo debe resolver la atribución de voz en el borde inglés y contrastar los bordes inconclusos con referencias independientes. Pasaron 85 pruebas con PostgreSQL, la comprobación de tipos y ambas compilaciones en Node 24.13.0. Scripts, matriz por borde y 34 SRT en `%LOCALAPPDATA%\LinguistVision\validation\lv004-hybrid-20261109`. Cero solicitudes nuevas a Gemini y cero consultas externas. Costo de esta ronda **US$0**.
 
 ### Cotejo acústico de los cuatro casos abiertos
 
@@ -343,7 +343,7 @@ Se reabrió el audio guardado de los cuatro casos con una lectura local por vent
 | Español humano y su segunda respuesta | Las lecturas recortadas terminan el nombre entre 1,99 y 2,02 s y discrepan sobre su escritura. La voz periódica se debilita hacia 2,06 s y queda energía aperiódica hasta la siguiente intervención. Los SRT cierran la presentación a 2,44 y 2,75 s. | Se mantiene inconcluso el final en ambas respuestas. El nombre y la atribución del sonido residual se evalúan por separado. |
 | Inglés nuevo | El primer corte dudoso está entre «rig floor» y «bounced once». Las lecturas discrepan al separar esas palabras. En el segundo corte, «so» se alinea alrededor de 12,13–12,37 s, pero la lectura local fusiona el «it» repetido y le asigna un intervalo amplio. | Los cuatro bordes siguen inconclusos. Se conservan los tiempos de ambas pistas. |
 
-La revisión acústica no justificó cambiar el alineador ni los SRT. Se mantiene la matriz anterior de 13 casos dentro de 0,50 s, uno fuera según la referencia fija y tres inconclusos. La repetición completa queda para un ajuste que se pueda justificar con una referencia fonética o una escucha independiente. Scripts y mediciones en `%LOCALAPPDATA%\LinguistVision\validation\lv004-border-audit-20261109`. Coste externo **US$0**.
+La revisión acústica no justificó cambiar el alineador ni los SRT. Se mantiene la matriz anterior de 13 casos dentro de 0,50 s, uno fuera según la referencia fija y tres inconclusos. La repetición completa queda para un ajuste que se pueda justificar con una referencia fonética o una escucha independiente. Scripts y mediciones en `%LOCALAPPDATA%\LinguistVision\validation\lv004-border-audit-20261109`. Costo externo **US$0**.
 
 ### Escucha independiente y matriz de voz humana
 
@@ -364,7 +364,7 @@ La matriz separa la evidencia de voz humana del recorrido básico con voz de pru
 | Mandarín, escritura simplificada | SRT de prueba sintético, 0,243 s. | Voz humana en mandarín y cotejo de caracteres simplificados, números y cortes de frase. |
 | Vietnamita | Dos ejecuciones con voz humana leída dentro del umbral. En habla espontánea, el SRT guardado con ajuste cierra a 16,16 s y el tramo siguiente abre a 16,78 s. | Prioridad. El recorte V permite marcar ambos lados de la pausa y contrastar el texto y los diacríticos con una persona que entienda vietnamita. El uso público de esa muestra sigue pendiente de verificar la licencia. |
 
-Evidencia previa de [los siete paquetes](#siete-paquetes-del-lanzamiento-inicial), [muestras cortas del piloto](LV-009-plan-del-editor.md#muestras-con-voz), [clips nativos](#recepción-de-los-clips-nativos-en-inglés-y-español) y [ajuste vietnamita](#ajuste-local-del-final-de-los-subtítulos). El paso siguiente es recoger las marcas independientes y preparar muestras humanas autorizadas donde solo hay controles de voz de prueba. El código, los SRT y las etiquetas de cobertura conservan su estado mientras llega esa evidencia. Coste externo **US$0**.
+Evidencia previa de [los siete paquetes](#siete-paquetes-del-lanzamiento-inicial), [muestras cortas del piloto](LV-009-plan-del-editor.md#muestras-con-voz), [clips nativos](#recepción-de-los-clips-nativos-en-inglés-y-español) y [ajuste vietnamita](#ajuste-local-del-final-de-los-subtítulos). El paso siguiente es recoger las marcas independientes y preparar muestras humanas autorizadas donde solo hay controles de voz de prueba. El código, los SRT y las etiquetas de cobertura conservan su estado mientras llega esa evidencia. Costo externo **US$0**.
 
 ### Primera devolución de la escucha
 
@@ -377,7 +377,7 @@ Se recibieron las marcas de los cuatro recortes. Ninguna traía una selección d
 | C | 4,671 / 5,171 s y 12,593 / 13,575 s | La marca de 4,671 s queda cerca del corte actual de 4,640 s. La de 5,171 s cae dentro o después de «once» según la ventana de lectura local. En la segunda transición, la lectura ubica «so» hasta 12,34–12,37 s y asigna un intervalo amplio al «it» repetido. Quedan abiertas las dos fronteras. |
 | V | 16,502 / 18,397 s | El final propuesto difiere 0,342 s del SRT ajustado. La segunda marca cae 1,617 s después del inicio de ese subtítulo. Falta confirmar qué palabras corresponden a cada marca con una escucha en vietnamita. |
 
-Las marcas aportan corroboración parcial para A y el primer final de C. Se conservan los tiempos y la matriz de 17 casos hasta resolver la atribución de palabras. Para A, la pregunta que decide el ajuste es si la señal breve previa contiene un primer artículo inteligible. Cero consultas externas y coste **US$0**.
+Las marcas aportan corroboración parcial para A y el primer final de C. Se conservan los tiempos y la matriz de 17 casos hasta resolver la atribución de palabras. Para A, la pregunta que decide el ajuste es si la señal breve previa contiene un primer artículo inteligible. Cero consultas externas y costo **US$0**.
 
 ### Comparación del posible primer artículo
 
@@ -385,7 +385,7 @@ Se aisló la señal temprana de 3,12 a 3,52 s y se comparó con el artículo pos
 
 En ventanas de 40 ms, la señal temprana cerca de 3,24 s fue breve y careció de periodicidad sostenida. La voz posterior muestra una sucesión de ventanas periódicas desde 3,82 s. En los tramos medidos, la señal posterior tuvo aproximadamente 25 dB más de nivel medio. El contraste favorece el comienzo posterior, pero la medición por sí sola deja abierta la identidad del sonido temprano.
 
-Se conservan los tiempos de la candidata hasta distinguir si el sonido temprano contiene un artículo inteligible. Se preparó un comparador local con el contexto, los dos recortes al mismo volumen y una copia amplificada 15 dB del primero. Chrome mostró los cuatro reproductores. La comparación y las mediciones están en `%LOCALAPPDATA%\LinguistVision\validation\lv004-article-20261109`. Cero llamadas a Gemini y coste externo **US$0**.
+Se conservan los tiempos de la candidata hasta distinguir si el sonido temprano contiene un artículo inteligible. Se preparó un comparador local con el contexto, los dos recortes al mismo volumen y una copia amplificada 15 dB del primero. Chrome mostró los cuatro reproductores. La comparación y las mediciones están en `%LOCALAPPDATA%\LinguistVision\validation\lv004-article-20261109`. Cero llamadas a Gemini y costo externo **US$0**.
 
 En el recorte de contexto, la posición marcada visualmente por el usuario cae cerca de 4,04 s del video de prueba. Es una estimación por la posición del control y coincide con su marca anterior de 4,000 s para el artículo posterior. El evento temprano de 3,24 s quedaría unos 0,60 s después del inicio del recorte de contexto. Su identificación sigue pendiente.
 
@@ -400,7 +400,7 @@ Se repitieron los 17 casos con respuestas guardadas y se regeneraron los 34 SRT.
 | Híbrido anterior | 13 | 1 | 3 |
 | Híbrido con ajuste | 13 | 0 | 4 |
 
-Pasaron 86 pruebas con PostgreSQL, tipos y ambas compilaciones con Node 24.13.0. La candidata activa sigue usando su alineador actual. Ambos pares siguen en beta. Los SRT y la matriz por borde están en `%LOCALAPPDATA%\LinguistVision\validation\lv004-article-replay-20261109\comparison`. Cero llamadas nuevas a Gemini y coste externo **US$0**.
+Pasaron 86 pruebas con PostgreSQL, tipos y ambas compilaciones con Node 24.13.0. La candidata activa sigue usando su alineador actual. Ambos pares siguen en beta. Los SRT y la matriz por borde están en `%LOCALAPPDATA%\LinguistVision\validation\lv004-article-replay-20261109\comparison`. Cero llamadas nuevas a Gemini y costo externo **US$0**.
 
 ### Muestras humanas preparadas y revisión del primer inicio inglés
 
@@ -408,7 +408,7 @@ Se preparó una grabación humana con texto de referencia por cada uno de los di
 
 En el clip inglés reservado se midió el primer comienzo, que había quedado con una referencia de 0,43–0,53 s. El original y el recorte muestran voz periódica desde 0,02 s y caída de nivel alrededor de 0,46–0,53 s. Algunas lecturas del recorte atribuyen «and» al bloque temprano, pero al cambiar la ventana la marca se desplaza. La referencia previa puede estar próxima al final de ese bloque. Se conserva el inicio de 0,00 s y se mantiene inconclusa la atribución fonética. Mediciones y recortes en `%LOCALAPPDATA%\LinguistVision\validation\lv004-next-20261109`.
 
-La lectura automática local de FLEURS sirve como comprobación previa y no acredita la salida de LinguistVision. El siguiente paso es pasar los clips congelados por el piloto, descargar y abrir cada SRT y cotejarlo con su referencia. La matriz de 17 casos y las etiquetas comerciales mantienen su estado. No se hicieron solicitudes a Gemini ni revisiones externas. Coste **US$0**.
+La lectura automática local de FLEURS sirve como comprobación previa y no acredita la salida de LinguistVision. El siguiente paso es pasar los clips congelados por el piloto, descargar y abrir cada SRT y cotejarlo con su referencia. La matriz de 17 casos y las etiquetas comerciales mantienen su estado. No se hicieron solicitudes a Gemini ni revisiones externas. Costo **US$0**.
 
 ### Piloto con diez voces humanas de FLEURS
 
@@ -431,7 +431,7 @@ Se comparó la escritura con la referencia de FLEURS, ignorando puntuación, esp
 
 Tres muestras pasan todos los bordes. Tres tienen al menos un desvío medido y cuatro quedan inconclusas. El nombre portugués requiere cotejo independiente aunque sus tiempos pasaron. Las muestras de lectura y sus resultados mantienen el alcance de beta. Sigue pendiente el cotejo de vietnamita espontáneo y los pares de traducción se evalúan por separado.
 
-Gemini reportó 12.254 tokens de entrada, 1.694 de salida y 2.659 de razonamiento en diez solicitudes. Al aplicar la tarifa Standard del modelo vigente al 9 de noviembre de 2026, el coste estimado es **US$0,02551425**. El cargo real queda pendiente de conciliar con la facturación. SRT, matriz por borde y estimación por solicitud en `%LOCALAPPDATA%\LinguistVision\validation\lv004-fleurs-live-BudB6g`. [Tarifa de Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+Gemini reportó 12.254 tokens de entrada, 1.694 de salida y 2.659 de razonamiento en diez solicitudes. Al aplicar la tarifa Standard del modelo vigente al 9 de noviembre de 2026, el costo estimado es **US$0,02551425**. El cargo real queda pendiente de conciliar con la facturación. SRT, matriz por borde y estimación por solicitud en `%LOCALAPPDATA%\LinguistVision\validation\lv004-fleurs-live-BudB6g`. [Tarifa de Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Corroboración acústica y repetición de los diez SRT
 
@@ -446,7 +446,7 @@ El ajuste se aplica a finales monolingües de árabe y vietnamita cuando está h
 | Primer final vietnamita | 5,74 s | 5,04 s | 0,12 s |
 | Último final árabe | 10,50 s | 9,82 s | 0,004 s |
 
-Se repitieron los diez trabajos por HTTP con las respuestas guardadas. Se descargaron y reabrieron los diez SRT y se comprobó que el texto y los proyectos coincidieran. Solo cambiaron los dos finales de la tabla. Con la referencia acústica actualizada hay tres muestras dentro de 0,50 s, cero fuera confirmadas y siete inconclusas. Pasaron 87 pruebas con PostgreSQL, la comprobación de tipos y ambas compilaciones. El ajuste se verificó en una sesión aislada. Cero llamadas a Gemini y coste **US$0**. Mediciones en `%LOCALAPPDATA%\LinguistVision\validation\lv004-monolingual-borders-20261109` y SRT y matriz en `lv004-fleurs-replay-7LUQdA` bajo la misma carpeta de validación.
+Se repitieron los diez trabajos por HTTP con las respuestas guardadas. Se descargaron y reabrieron los diez SRT y se comprobó que el texto y los proyectos coincidieran. Solo cambiaron los dos finales de la tabla. Con la referencia acústica actualizada hay tres muestras dentro de 0,50 s, cero fuera confirmadas y siete inconclusas. Pasaron 87 pruebas con PostgreSQL, la comprobación de tipos y ambas compilaciones. El ajuste se verificó en una sesión aislada. Cero llamadas a Gemini y costo **US$0**. Mediciones en `%LOCALAPPDATA%\LinguistVision\validation\lv004-monolingual-borders-20261109` y SRT y matriz en `lv004-fleurs-replay-7LUQdA` bajo la misma carpeta de validación.
 
 ### Revisión de siete casos y voces reservadas
 
@@ -468,7 +468,7 @@ El ajuste árabe requiere una coincidencia única de la última palabra de la pr
 
 Se repitieron por HTTP los dos trabajos nuevos y los diez guardados sin llamar a Gemini. Se reabrieron los SRT y los proyectos. Los diez SRT del lote guardado coinciden byte a byte con la repetición anterior. Con las referencias mejoradas, cinco quedan dentro de 0,50 s y cinco inconclusos. Pasaron 88 pruebas con PostgreSQL, tipos y ambas compilaciones. El ajuste se verificó en una sesión aislada.
 
-Solo los dos clips nuevos usaron Gemini 3.8 Flash. Registró 2.281 tokens de entrada, 394 de salida y 383 de razonamiento. Coste Standard estimado **US$0,0046245**, con **US$0,0021105** para vietnamita y **US$0,002514** para árabe. Facturación pendiente de conciliación. Evidencia local bajo `%LOCALAPPDATA%\LinguistVision\validation` en `lv004-seven-audit-20261109`, `lv004-heldout-live-Eaumqs`, `lv004-heldout-replay-swws17` y `lv004-fleurs-replay-MXGG1c`. [Corpus FLEURS](https://huggingface.co/datasets/google/fleurs) · [Tarifa Standard](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+Solo los dos clips nuevos usaron Gemini 3.8 Flash. Registró 2.281 tokens de entrada, 394 de salida y 383 de razonamiento. Costo Standard estimado **US$0,0046245**, con **US$0,0021105** para vietnamita y **US$0,002514** para árabe. Facturación pendiente de conciliación. Evidencia local bajo `%LOCALAPPDATA%\LinguistVision\validation` en `lv004-seven-audit-20261109`, `lv004-heldout-live-Eaumqs`, `lv004-heldout-replay-swws17` y `lv004-fleurs-replay-MXGG1c`. [Corpus FLEURS](https://huggingface.co/datasets/google/fleurs) · [Tarifa Standard](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Cotejo con un segundo reconocedor y clips de obra reservados
 
@@ -484,7 +484,7 @@ Se añadieron lecturas locales independientes de Faster Whisper con SenseVoice p
 
 El lote de diez queda en ocho muestras con todos los bordes dentro de 0,50 s y dos inconclusas. En vietnamita espontáneo, Zipformer y Faster Whisper coinciden en el sentido de la indicación de usar una hoja de papel. El segundo lector recupera una interjección cerca de 16,92 s y la voz se reanuda cerca de 16,99 s. El inicio de ese subtítulo a 16,78 s queda dentro del umbral. El final ajustado de 16,16 s también queda dentro del rango respaldado por ambas lecturas y el audio. El cotejo automático detectó discrepancias de grafía y muletillas en otros fragmentos. La fidelidad literal aún requiere cotejo humano.
 
-Se congelaron dos MP4 con sus huellas, marcas locales, intervalos de voz y vocabulario esperado. El clip inglés → español dura 21,25 s y cubre 15 pies, tragaluz y tejas. El clip español → inglés dura 27,42 s y cubre seis pies o más, tejas y componentes de protección contra caídas. Ambos están por debajo de 1 MiB y mantienen completas las frases seleccionadas. Estos clips quedan reservados para la prueba de los dos SRT por dirección. Se guardaron las lecturas, la matriz y el manifiesto en `%LOCALAPPDATA%\LinguistVision\validation\lv004-independent-close-20261109`. Cero llamadas a Gemini, coste externo **US$0**. T3 queda para el cierre. [Material inglés de OSHA](https://www.osha.gov/vtools/construction/skylight-fnl-eng-web-transcript) · [Material español de OSHA](https://obis.osha.gov/dts/vtools/construction/reroofing_fnl_spa_web_transcript.html) · [SenseVoice](https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html) · [Zipformer vietnamita](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/offline-transducer/index.html).
+Se congelaron dos MP4 con sus huellas, marcas locales, intervalos de voz y vocabulario esperado. El clip inglés → español dura 21,25 s y cubre 15 pies, tragaluz y tejas. El clip español → inglés dura 27,42 s y cubre seis pies o más, tejas y componentes de protección contra caídas. Ambos están por debajo de 1 MiB y mantienen completas las frases seleccionadas. Estos clips quedan reservados para la prueba de los dos SRT por dirección. Se guardaron las lecturas, la matriz y el manifiesto en `%LOCALAPPDATA%\LinguistVision\validation\lv004-independent-close-20261109`. Cero llamadas a Gemini, costo externo **US$0**. T3 queda para el cierre. [Material inglés de OSHA](https://www.osha.gov/vtools/construction/skylight-fnl-eng-web-transcript) · [Material español de OSHA](https://obis.osha.gov/dts/vtools/construction/reroofing_fnl_spa_web_transcript.html) · [SenseVoice](https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html) · [Zipformer vietnamita](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/offline-transducer/index.html).
 
 ### Traducción de los dos clips de obra reservados
 
@@ -497,7 +497,7 @@ La candidata de prueba procesó los dos clips reservados de OSHA con Gemini 3.8 
 
 Las marcas de palabra se cotejaron con detección de voz y silencios de FFmpeg a −40, −46 y −50 dB. En los dos inicios ingleses, la marca local puede incluir el silencio previo a la palabra. El comienzo de voz se mantuvo estable a través de los tres niveles y se usó como referencia. Se guardaron las cuatro descargas, las mediciones y la matriz por segmento en `%LOCALAPPDATA%\LinguistVision\validation\lv004-work-live-CpL76L`. Ambos sentidos siguen en beta. Se registraron los fallos para una corrección posterior.
 
-Las dos solicitudes reportaron 4.960 tokens de entrada, 944 de salida y 356 de razonamiento. Coste Standard estimado **US$0,008595**, con **US$0,00345825** para inglés → español y **US$0,00513675** para español → inglés. El cargo facturado queda pendiente de conciliación. [Tarifa oficial de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+Las dos solicitudes reportaron 4.960 tokens de entrada, 944 de salida y 356 de razonamiento. Costo Standard estimado **US$0,008595**, con **US$0,00345825** para inglés → español y **US$0,00513675** para español → inglés. El cargo facturado queda pendiente de conciliación. [Tarifa oficial de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Corrección de medidas e inicios en inglés → español
 
@@ -509,7 +509,7 @@ Se probó una voz nueva de NIOSH, Bill Hayes, con referencia y huella fijadas an
 
 En paralelo se repitieron las mediciones de los dos finales monolingües con un filtro de paso alto y varios niveles de silencio. Las señales débiles al final del inglés y del vietnamita leído siguen dejando rangos que cruzan 0,50 s. Se conservan como inconclusos y sigue pendiente el cotejo literal humano del vietnamita espontáneo.
 
-Pasaron 90 pruebas con PostgreSQL, tipos y ambas compilaciones. El piloto se ensayó de forma aislada y las dos direcciones siguen en beta. Solo hubo una solicitud nueva a Gemini 3.8 Flash, con 2.628 tokens de entrada, 534 de salida y 259 de razonamiento. Coste Standard estimado **US$0,00494475**, pendiente de conciliación. Evidencia bajo `%LOCALAPPDATA%\LinguistVision\validation` en `lv004-work-replay-Qwww5r`, `lv004-work-controls-G3Us4T`, `lv004-fleurs-replay-i2lyqs`, `lv004-work-fix-20261109` y `lv004-work-new-live-vmbwBB`. T3 queda para el cierre. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
+Pasaron 90 pruebas con PostgreSQL, tipos y ambas compilaciones. El piloto se ensayó de forma aislada y las dos direcciones siguen en beta. Solo hubo una solicitud nueva a Gemini 3.8 Flash, con 2.628 tokens de entrada, 534 de salida y 259 de razonamiento. Costo Standard estimado **US$0,00494475**, pendiente de conciliación. Evidencia bajo `%LOCALAPPDATA%\LinguistVision\validation` en `lv004-work-replay-Qwww5r`, `lv004-work-controls-G3Us4T`, `lv004-fleurs-replay-i2lyqs`, `lv004-work-fix-20261109` y `lv004-work-new-live-vmbwBB`. T3 queda para el cierre. [Tarifa de Gemini](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash).
 
 ### Inicio del segmento 6 con ruido de fondo
 
@@ -519,7 +519,7 @@ El ajuste conserva el inicio anterior a la alineación interior cuando el recono
 
 También se repitieron los dos clips de obra, 17 controles bilingües y diez monolingües. Sus 48 SRT fueron idénticos byte a byte a los de la repetición anterior. Evidencia en `lv004-work-replay-YexrIX`, `lv004-work-controls-Nh1DRv` y `lv004-fleurs-replay-FiulXR`.
 
-La repetición y la traza se guardaron en `%LOCALAPPDATA%\LinguistVision\validation\lv004-work-noise-replay-nBbj0k`. Se verificaron 91 pruebas, tipos y ambas compilaciones. Cero llamadas a Gemini y coste **US$0**. El ajuste se probó en una sesión aislada.
+La repetición y la traza se guardaron en `%LOCALAPPDATA%\LinguistVision\validation\lv004-work-noise-replay-nBbj0k`. Se verificaron 91 pruebas, tipos y ambas compilaciones. Cero llamadas a Gemini y costo **US$0**. El ajuste se probó en una sesión aislada.
 
 ### Cotejo de los inicios de los segmentos 2 y 3
 
@@ -529,7 +529,7 @@ El ajuste recupera el inicio anterior a la alineación interior si una marca est
 
 La última palabra del inglés leído y la del vietnamita leído se reconocen en las ventanas completas. Las marcas locales y la señal débil al final todavía dejan intervalos que cruzan el umbral de 0,50 s. Se conservan los finales en 5,980 s y 10,050 s, respectivamente, y ambos casos siguen inconclusos. En vietnamita espontáneo, las lecturas corroboran la indicación de usar una hoja de papel y apoyan la lectura «khoét». Persisten diferencias de grafía, muletillas y literalidad entre las lecturas y el SRT. Hace falta cotejo por una persona que hable vietnamita.
 
-Los 29 controles produjeron 48 SRT idénticos byte a byte. Pasaron 91 pruebas con PostgreSQL, tipos y ambas compilaciones en Node 24.13.0. Hubo cero llamadas a Gemini y cero consultas externas. El coste de esta ronda fue **US$0**.
+Los 29 controles produjeron 48 SRT idénticos byte a byte. Pasaron 91 pruebas con PostgreSQL, tipos y ambas compilaciones en Node 24.13.0. Hubo cero llamadas a Gemini y cero consultas externas. El costo de esta ronda fue **US$0**.
 
 Evidencia privada en `%LOCALAPPDATA%\LinguistVision\validation`, en `lv004-pending-edges-20261109` para las lecturas y `lv004-work-noise-replay-jHPwWo` para los dos SRT y sus 12 bordes. Los controles están en `lv004-work-replay-QZ5OoJ`, `lv004-work-controls-MKfjfA` y `lv004-fleurs-replay-uJlbPA`. La muestra inglesa pasa en la candidata aislada. La promoción comercial sigue en beta y la revisión por T3 queda para el cierre.
 
@@ -553,7 +553,7 @@ Se verificó por huella que cada recorte coincide con el tramo del original. Se 
 | A, inglés leído | 1,980 s | 1,480 s | La señal baja antes del umbral y queda una cola débil cerca de 1,46–1,52 s. La marca aportada de 1,60–1,80 s cae en una zona de señal débil. Falta atribuir la cola al cierre de la palabra o al fondo. Inconcluso. |
 | B, vietnamita leído | 1,850 s | 1,350 s | La energía baja de forma marcada alrededor de 1,28–1,32 s y quedan señales débiles a ambos lados de 1,350 s. Falta distinguir la consonante final del fondo. Inconcluso. |
 
-Se conservaron los SRT en 5,980 s y 10,050 s en el reloj original. Para cerrar, hace falta una marca de escucha fonética sobre cada WAV que sitúe el final de la última palabra por completo a un lado del umbral. La medición, el script y las huellas están en `%LOCALAPPDATA%\LinguistVision\validation\lv004-escucha-final-20261110`. Cero llamadas a Gemini y coste de esta comprobación **US$0**.
+Se conservaron los SRT en 5,980 s y 10,050 s en el reloj original. Para cerrar, hace falta una marca de escucha fonética sobre cada WAV que sitúe el final de la última palabra por completo a un lado del umbral. La medición, el script y las huellas están en `%LOCALAPPDATA%\LinguistVision\validation\lv004-escucha-final-20261110`. Cero llamadas a Gemini y costo de esta comprobación **US$0**.
 
 En esa misma carpeta, `escuchar-finales-ab.html` reúne los dos recortes con volumen normal y amplificación fija de +18 dB sin saturación. En Chrome se comprobó que el salto marca 1,480 s en A y 1,350 s en B, que el cambio de volumen conserva la posición y que se puede avanzar en pasos de 10 ms.
 

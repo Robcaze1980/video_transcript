@@ -77,6 +77,6 @@ DeepSeek V4.1 Flash y Kimi K3.1 Pro revisaron independientemente el núcleo y la
 | moonshotai/kimi-k3.1-pro | gen-1794464370-0NQa2vi9Bwtcs7E7FPdM |43841|0.22578831000|
 | Total ronda | |112087|0.25767780885|
 
-Coste del proveedor observado; factura por conciliar. Codex tokens/coste no medidos. Se conserva la candidata activa y los cambios anteriores de Drive.
+Costo del proveedor observado; factura por conciliar. Codex tokens/costo no medidos. Se conserva la candidata activa y los cambios anteriores de Drive.
 
 Límites: no certifica PayPal remoto/Pixel ni firma y servicio Firebase por sus dobles de pruebas, ni cierra LV-003/LV-007 o autoriza publicación. Seguimientos de revisión: límite global de intentos de login puede afectar disponibilidad de otras cuentas (pendiente reproducir/controlar antes de producción); dependencia interna `inputs.id == private_upload_id` vigente hoy, sin defecto de aislamiento demostrado. No se modifican ambos frentes por una recomendación no validada en este bloque.

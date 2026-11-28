@@ -12,7 +12,7 @@ El [piloto local](LV-003-piloto-web-privado.md) ya verificó el retorno de PayPa
 
 ## Archivos y retención
 
-- **Primera prueba.** El piloto admite 1 MiB por carga, 20 MiB de entradas por cuenta y tres trabajos activos. El worker usa ffprobe con límite de tiempo y entrada por pipe para validar duración y dimensiones antes de Gemini. Si falla, libera la reserva. Antes de ampliar el límite hay que medir memoria, red móvil y coste.
+- **Primera prueba.** El piloto admite 1 MiB por carga, 20 MiB de entradas por cuenta y tres trabajos activos. El worker usa ffprobe con límite de tiempo y entrada por pipe para validar duración y dimensiones antes de Gemini. Si falla, libera la reserva. Antes de ampliar el límite hay que medir memoria, red móvil y costo.
 - **Almacenamiento.** Los bytes de origen y resultado se guardan en PostgreSQL. Una migración permite retirar los bytes conservando las referencias, la deduplicación y el libro de créditos. El MP4 editado se genera en el navegador.
 - **Eliminación.** Los artefactos vencen a las 24 horas desde la carga. Desde ese momento quedan fuera de las descargas y el proceso local limpia los bytes cuando los trabajos asociados son terminales. El propietario también puede borrar desde el historial cuando terminan. Verificar copias, WAL y retención del proveedor antes de comunicar un plazo comercial.
 

@@ -23,11 +23,11 @@ DeepSeek propuso el cambio mínimo en entregables y reutilización. Kimi auditó
 
 La entrega visual futura precede su integración y las pruebas en candidata privada. Localización editorial y catálogo pueden avanzar en paralelo. No cambian las ventanas orientativas ni los gates de publicación, MP4 comercial o límites finales.
 
-## Evidencia de revisión y coste
+## Evidencia de revisión y costo
 
 Una ronda por modelo en paralelo mediante T3 y `linguistvision-openrouter`. Ambos recibieron el prompt original completo y la idea de reutilización; sin herramientas, credenciales, videos ni transcripciones privadas.
 
-| Modelo | Hilo T3 | Sesión OpenCode | Coste registrado USD |
+| Modelo | Hilo T3 | Sesión OpenCode | Costo registrado USD |
 |---|---|---|---:|
 | DeepSeek V4.1 Flash | mcp:834e3702-d1dd-4f32-9412-32c7246c54c0 | ses_e36bc4844ffeg4dRbqdDL22gO7 | 0.002793099 |
 | Kimi K3.1 Pro | mcp:4d39ad52-250a-4cf2-a70e-aba2190fc47d | ses_e36bc47b6ffecsTuHOHn08AyAs | 0.054694800 |

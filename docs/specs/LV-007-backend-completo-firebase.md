@@ -40,8 +40,8 @@ Evidencia: `outputs/vistavo-config-quality/{inventory,backend-remote,backend-inv
 | Archivos y descargas | Archivos privados, Range, TTL y artefactos | Buckets privados, autorización por cuenta, generación, caducidad y eliminación. Probar URLs ajenas/caducadas, escritura tras borrado y limpieza de huérfanos. |
 | Editor y proyectos, LV-008–014 | Borradores, revisión, pistas, estilos, presets e importadores | Guardar/reabrir tras reinicio, conflicto sin pérdida, formatos y fuentes RTL/CJK, PC/Pixel y accesibilidad. |
 | Orquestación, LV-016.A | Cola PostgreSQL, claim/lease/SKIP LOCKED y `PipelineStore` | Activación durable, fencing, heartbeat, recuperación tras crash, cancelación y reconciliación. No depender de timers con escala a cero. |
-| Texto, LV-016.B | Proveedor/servicio de texto, codec y tiempos | Calidad ES→EN, nombres/medidas/silencios y frases que cruzan bloques; timeout, limpieza remota y coste de fallos. |
-| Voz, LV-015/016.C | Proveedor/servicio WAV, Kore y Charon estándar | Escucha humana inglesa, texto y revisiones exactos, chunks/repeticiones, duración/coste y resultado UNKNOWN sin reintento ciego. |
+| Texto, LV-016.B | Proveedor/servicio de texto, codec y tiempos | Calidad ES→EN, nombres/medidas/silencios y frases que cruzan bloques; timeout, limpieza remota y costo de fallos. |
+| Voz, LV-015/016.C | Proveedor/servicio WAV, Kore y Charon estándar | Escucha humana inglesa, texto y revisiones exactos, chunks/repeticiones, duración/costo y resultado UNKNOWN sin reintento ciego. |
 | Render, LV-016.D | FFmpeg y exportación del piloto; contrato de render | Implementar y probar MP4 largo con voz, pistas, encaje, subtítulos, fuentes/códecs y límites de CPU/RAM/tmp. No está cerrado. |
 | Idiomas, R1–R3 | Diez locales y objetivo de 90 direcciones | Disponibilidad por capacidad/par y rúbrica con revisión humana. Una lista de idiomas no demuestra cobertura. |
 | Drive | Autorizador y cargador del navegador | Consentimiento real y guardar/abrir SRT y MP4 en PC/Pixel. Firebase Auth no concede permisos Drive. Dropbox sigue siendo ampliación. |
@@ -49,10 +49,10 @@ Evidencia: `outputs/vistavo-config-quality/{inventory,backend-remote,backend-inv
 | Infraestructura, R6 | Prueba Linux Node/FFmpeg y estimador | Manifiestos reproducibles, digest de imagen, Artifact Registry, usuario no root y límites medidos de instancias/concurrencia/conexiones. |
 | Secretos e IAM | ADC local externo y configuración por entorno | Identidad administrada exclusiva, Secret Manager y permisos mínimos entre servicios; rotación y logs sin credenciales/transcripciones. |
 | Limpieza y retención | Purga local, TTL y tombstones | Ejecución durable autenticada, reintentos idempotentes y reconciliación; retención también en proveedores. |
-| Observabilidad y coste | Estimaciones y evidencia local | Correlation ID, métricas y alertas; coste de IA, cómputo, SQL, storage, egress, logs y reintentos por resultado. Una alerta no es un corte de gasto. |
+| Observabilidad y costo | Estimaciones y evidencia local | Correlation ID, métricas y alertas; costo de IA, cómputo, SQL, storage, egress, logs y reintentos por resultado. Una alerta no es un corte de gasto. |
 | Continuidad | Respaldos/configuración locales | Backups/PITR según diseño, restauración aislada real, rollback compatible y simulacro de interrupción. Definir RPO/RTO antes de aceptar. |
 | Privacidad, soporte y legal | Correo elegido y preview noindex | Verificar recepción/envío de soporte, privacidad/términos, retención/baja y revisión nativa antes de lanzamiento. |
-| Repositorio, CI y T3 | 306 pruebas históricas, tipos y dos builds | Snapshot/hash por fase, controles negativos, implementador y auditor independientes, coste y evidencia completos. El aislamiento global de T3 sigue pendiente. |
+| Repositorio, CI y T3 | 306 pruebas históricas, tipos y dos builds | Snapshot/hash por fase, controles negativos, implementador y auditor independientes, costo y evidencia completos. El aislamiento global de T3 sigue pendiente. |
 
 Se conserva el piloto PostgreSQL como referencia. El backend cloud adapta cuentas, saldo, proyectos y cola a Firestore, reutilizando los contratos, editor y proveedores que superen sus gates; render largo y aceptación real siguen pendientes.
 
@@ -62,11 +62,11 @@ Se conserva el piloto PostgreSQL como referencia. El backend cloud adapta cuenta
 2. **B1: infraestructura privada reproducible.** Preparar manifiestos, IAM/red, tamaños y estimación con precios oficiales vigentes al provisionar. Definir límites de instancias, tareas, conexiones y backups. Crear exclusivamente recursos de Vistavo dentro del alcance autorizado, sin abrir tráfico funcional por anticipado.
 3. **B2: datos y archivos durables.** Migraciones versionadas, ledger, adaptador GCS, carga/commit/generación/cupo, proyectos, artefactos y TTL. Probar dos cuentas, acuse perdido, carga incompleta, escritura tras borrado, borrado parcial y doble reserva/cobro. Restaurar antes de importar datos.
 4. **B3: identidad y API.** Entrypoint de producción, identidad administrada y proxy/limitador adecuados. Cerrar la matriz de acceso con PC/Pixel y correos reales; no tratar dominios autorizados como una prueba E2E.
-5. **B4: workers y procesamiento.** Activación durable, fencing/leases, cancelación, drenaje, UNKNOWN y limpieza. Integrar texto ES→EN, voz inglesa y render LV-016.D. Medir memoria/tmp, duración y coste antes de fijar concurrencia.
+5. **B4: workers y procesamiento.** Activación durable, fencing/leases, cancelación, drenaje, UNKNOWN y limpieza. Integrar texto ES→EN, voz inglesa y render LV-016.D. Medir memoria/tmp, duración y costo antes de fijar concurrencia.
 6. **B5: calidad de producto.** Videos sintéticos de 120/180 segundos, luego ensayos de 1/5/10 minutos según límites aprobados. Rúbrica bilingüe, escucha, Sandbox en Pixel, saldo entre videos y reapertura. Mantener Drive y cobertura lingüística como gates explícitos.
-7. **B6: candidata y lanzamiento.** Tipos, suite pertinente sin omisiones, dos builds, HTTPS/headers, backup/restore, rollback, alertas, costes y recorrido completo. Rob decide oferta/publicación; retirar preview/noindex únicamente cuando corresponda a funciones demostradas.
+7. **B6: candidata y lanzamiento.** Tipos, suite pertinente sin omisiones, dos builds, HTTPS/headers, backup/restore, rollback, alertas, costos y recorrido completo. Rob decide oferta/publicación; retirar preview/noindex únicamente cuando corresponda a funciones demostradas.
 
-Los pasos de implementación B1–B6 y Q2–Q6 no están aceptados funcionalmente por este documento. No se promete una fecha o coste mensual total sin carga y mediciones reales.
+Los pasos de implementación B1–B6 y Q2–Q6 no están aceptados funcionalmente por este documento. No se promete una fecha o costo mensual total sin carga y mediciones reales.
 
 ## Hallazgos contrastados y controles negativos
 

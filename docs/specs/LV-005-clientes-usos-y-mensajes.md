@@ -4,7 +4,7 @@ Fecha: 2026-11-10. Estado: propuesta editorial analizada por T3 y contrastada po
 
 ## Decisión de mensaje
 
-Claude Design preparará una base de diseño compartida, con recorrido completo en español y pruebas representativas de expansión, RTL y escrituras. T3 revisó el prompt íntegro; [dictamen y costes](LV-005-claude-design-revision.md) · [prompt actualizado](LV-005-claude-design-prompt.md). No se duplican diez diseños ni se sustituye la revisión por idioma.
+Claude Design preparará una base de diseño compartida, con recorrido completo en español y pruebas representativas de expansión, RTL y escrituras. T3 revisó el prompt íntegro; [dictamen y costos](LV-005-claude-design-revision.md) · [prompt actualizado](LV-005-claude-design-prompt.md). No se duplican diez diseños ni se sustituye la revisión por idioma.
 
 Mantener «Habla en tu idioma. Haz que tu cliente te entienda.» para el recorrido de traducción. Dar espacio también a dos necesidades diferentes: hacer legible un video sin sonido y corregir subtítulos existentes sin volver a transcribir. La portada debe ayudar al visitante a reconocerse en una situación, en vez de mostrar solo nombres de sectores.
 
@@ -84,11 +84,11 @@ Preguntas esenciales: ¿cambia la voz?, ¿quién revisa la traducción?, ¿qué 
 - Proponer identificadores de uso anónimos (p. ej. inspection, repair, training, silent_video, existing_srt) para comparar visita → demo → alta → compra acreditada → primer trabajo válido → repetición. Las mediciones por segmento están propuestas, no implementadas. Mantener pruebas separadas de compras reales y deduplicar confirmaciones.
 - Revisar qué tres casos ayudan más a elegir el servicio antes de añadir rutas. Las entrevistas son una opción, sin cuota obligatoria ni supuesto significado estadístico.
 
-## Revisión T3 y costes
+## Revisión T3 y costos
 
 Una ronda en paralelo por `linguistvision-openrouter`, con texto vigente y contexto técnico mínimo saneado. Cero herramientas o lecturas de archivos para ambos revisores; sin nombre de empresa, claves o medios privados.
 
-| Modelo | Hilo T3 | Sesión OpenCode | Coste registrado USD |
+| Modelo | Hilo T3 | Sesión OpenCode | Costo registrado USD |
 |---|---|---|---:|
 | DeepSeek V4.1 Flash | mcp:3dec2817-1084-4b28-a8ca-e468ef878fea | ses_e36decc38ffe0Po3t93Gq0Gyon | 0.003237816 |
 | Kimi K3.1 Pro | mcp:b336bbdd-b267-4a90-9d4c-f24bba408e29 | ses_e36debb2affexHK7UzzFybiG65 | 0.091004000 |

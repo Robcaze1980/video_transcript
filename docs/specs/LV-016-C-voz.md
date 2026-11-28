@@ -4,7 +4,7 @@ Implementar audio estándar Kore femenina y Charon masculina, exclusivamente del
 
 Reutilizar PipelineStore con etapa narration y modelo gemini-3.8-flash-tts; idempotencia, lease, cancelación, unknown sin retry, publicación metadata+referencia en transacción. WAV fuera de PostgreSQL en PrivateFileStore propio, con cuotas/retención/borrado y limpieza recuperable de huérfanos. Texto y voz fijados por snapshot/configuración de servidor, allowlist Kore/Charon. Misma autenticación/Origin/no-store que B. Feature privada con pagos simulados, rutas de estado/audio/cancel y UI sobre editor.
 
-Cierre: pruebas de aislamiento, revisión/edición, doble solicitud, cancelación, TTL/borrado, recuperación y WAV inválido; ambas voces inglesas reales con texto sintético, medición duración/uso/coste y entrega para escucha humana. Tipos, tests PostgreSQL sin omisiones y ambas compilaciones; revisores independientes. Encaje por segmentos con video y MP4 queda D; no prometer sincronía por igualar duración total. Revisión humana inglesa pendiente hasta escucha del propietario.
+Cierre: pruebas de aislamiento, revisión/edición, doble solicitud, cancelación, TTL/borrado, recuperación y WAV inválido; ambas voces inglesas reales con texto sintético, medición duración/uso/costo y entrega para escucha humana. Tipos, tests PostgreSQL sin omisiones y ambas compilaciones; revisores independientes. Encaje por segmentos con video y MP4 queda D; no prometer sincronía por igualar duración total. Revisión humana inglesa pendiente hasta escucha del propietario.
 
 ## Contrato operativo implementado
 

@@ -25,4 +25,4 @@ Propuesta de tiempos propia, no medición exacta del original: entrada 0–0,4 s
 
 Avance automático con control visible Pausar/Reanudar; interacción manual pausa, no mueve foco; pausa con foco/hover, video en reproducción, pestaña del navegador oculta o escenario fuera de vista. Con movimiento reducido: estático y selección manual. En teléfono cuatro opciones en dos filas y recorrido vertical. No esconder el contenido SEO detrás de una reproducción ni imponer desplazamiento horizontal.
 
-Mantener HTML útil, H1, metadatos, alternancias, cobertura real y objetivo de nueve destinos por origen. No modificar backend, precios, resto del sitio ni instalar Shadcn. El coste de esta inspección local no incluye consultas pagadas nuevas. La grabación de precios se analizará aparte.
+Mantener HTML útil, H1, metadatos, alternancias, cobertura real y objetivo de nueve destinos por origen. No modificar backend, precios, resto del sitio ni instalar Shadcn. El costo de esta inspección local no incluye consultas pagadas nuevas. La grabación de precios se analizará aparte.

@@ -5,7 +5,7 @@
 **Depende de:** autorización del propietario, Gemini propio y FFmpeg local; independiente de Drive.  
 **Revisión base:** c435068 con cambios locales anteriores preservados.
 
-Fecha:12 de noviembre de2026. Estado: implementación del ensayo privado autorizada por el propietario. Base main c435068, repositorio Robcaze1980/video_transcript y cambios locales anteriores preservados. Complementa LV-007 costes/editor y no amplía la oferta comercial.
+Fecha:12 de noviembre de2026. Estado: implementación del ensayo privado autorizada por el propietario. Base main c435068, repositorio Robcaze1980/video_transcript y cambios locales anteriores preservados. Complementa LV-007 costos/editor y no amplía la oferta comercial.
 
 ## Alcance y aceptación
 
@@ -14,7 +14,7 @@ Ampliación autorizada el12noviembre: el propietario aprueba por escucha la mues
 1. Texto sintético en español, un hablante y voz estándar; objetivo20–30segundos. Sin clonación, muestras personales, lipsync ni promesa de doblaje sincronizado.
 2. Generar audio mediante la clave Gemini propia ya configurada; no activar facturación, crear cuentas ni contratar recursos. Modelo comprobado en listado de API:gemini-3.8-flash-tts. Voz predefinida Kore. REST evita actualizar el SDK del producto.
 3. Verificar nombres, medidas y términos. Entregar audio para escucha y contrastar una transcripción del audio sin suministrar el texto esperado al reconocedor; distinguir evaluación automática de aprobación humana. Si falta escucha verificable, registrarlo sin inventarla.
-4. Medir duración, latencia, formato, niveles/clipping y uso de tokens. Estimar coste con tarifa oficial y conservar respuesta/uso por intento; factura real permanece pendiente si API no informa cargo. Contabilizar revisiones aparte.
+4. Medir duración, latencia, formato, niveles/clipping y uso de tokens. Estimar costo con tarifa oficial y conservar respuesta/uso por intento; factura real permanece pendiente si API no informa cargo. Contabilizar revisiones aparte.
 5. Incorporar la narración a un video sintético corto, como pista de reemplazo sin música ni voces originales; comprobar imagen preservada, duración, pista de audio y reproducción/decodificación. Sin recortar palabras ni alterar velocidad para forzar duración. Audio descargable y MP4 de demostración son artefactos de ensayo, no integración en la web.
 
 ## Texto de prueba
@@ -42,16 +42,16 @@ Entregables locales (outputs excluido de Git): `outputs/voice-prototype-20261112
 
 Muestras/frames/duraciones están medidas; la bandera inicial `noSpeedChangeOrTruncation` del JSON de render era declarativa, no prueba independiente. El informe final incorpora comparación de muestras y duración; comandos no aplican filtros temporales y se conservan originales/hashesSHA256. Tolerancia contenedor:1frame video+1frameAAC≈0.08267s; diferencia observada0s. No se acelera, trunca ni rellena voz para cumplir duración.
 
-## Costes observados y estimados
+## Costos observados y estimados
 
-| Operación | Uso devuelto | Coste USD |
+| Operación | Uso devuelto | Costo USD |
 |---|---|---:|
 | TTS, BNb1atblLeKRjrEP9KnWoAY |75tokens texto entrada/520audio salida|0.0047175 estimado|
 | QA, Hdb1ape2H7yd9MoPzPrwyQM |579entrada(59texto+520audio),145salida+252razonamiento|0.001923 estimado|
 | Total generación+QA |1llamada de cada tipo|0.0066405 estimado|
 | Revisiones OpenRouter |4respuestas,67589tokens|0.30533371605 usage.cost devuelto|
 
-La tarifa Standard vigente de Gemini3.8Flash anunciaUS$0.75/Mentrada yUS$3.75/Msalida incluido razonamiento; se aplica al QA multimodal según la página oficial consultada. No inferir tarifa de otro modelo. API no devuelve cargo de factura: estimación y factura separadas, tampoco equivale a margen/precio del servicio. CPU/render locales no medidos monetariamente. Codex tokens/coste no medidos. No se activó facturación ni se creó servicio nuevo.
+La tarifa Standard vigente de Gemini3.8Flash anunciaUS$0.75/Mentrada yUS$3.75/Msalida incluido razonamiento; se aplica al QA multimodal según la página oficial consultada. No inferir tarifa de otro modelo. API no devuelve cargo de factura: estimación y factura separadas, tampoco equivale a margen/precio del servicio. CPU/render locales no medidos monetariamente. Codex tokens/costo no medidos. No se activó facturación ni se creó servicio nuevo.
 
 ## Revisores y límites de cierre
 
@@ -68,7 +68,7 @@ Revisión final: DeepSeek y Kimi PASS técnico documental; ambos informes comple
 
 Respuestas/contextos/contabilidad privados en `%LOCALAPPDATA%/LinguistVision/t3-review/voice-prototype-20261112/`. Geminirequest/response sanitizados (sin clave/base64), modelos/uso/IDs en `%LOCALAPPDATA%/LinguistVision/validation/voice-prototype-20261112/`. WAV original/copia/video y hashes en outputs. Clave exclusiva externa, no impresa. Datos enviados a Google son sintéticos; privado no significa procesamiento exclusivamente local.
 
-Comprobaciones pertinentes: `node --check`, ejecución real generate/render/qa/report, ffprobe, métricas PCM, hashes de frames, decodificación y poster visual. No cambiaron dependencias ni código de la aplicación: no se reatribuyen168tests/builds de la fase anterior a este script. No hubo compras/saldo usuario, Drive, migración, publicación ni modificación de candidata3001. Próximo paso: escuchar la muestra; después decidir idiomas/variantes e integración como fase separada, con calidad y coste propios.
+Comprobaciones pertinentes: `node --check`, ejecución real generate/render/qa/report, ffprobe, métricas PCM, hashes de frames, decodificación y poster visual. No cambiaron dependencias ni código de la aplicación: no se reatribuyen168tests/builds de la fase anterior a este script. No hubo compras/saldo usuario, Drive, migración, publicación ni modificación de candidata3001. Próximo paso: escuchar la muestra; después decidir idiomas/variantes e integración como fase separada, con calidad y costo propios.
 
 ## Comparación masculina con el mismo texto
 
@@ -90,7 +90,7 @@ La muestra seleccionada está en `outputs/voice-prototype-20261112-male-r2/narra
 
 Controles:20.24s,WAV24kHzmono,485760muestras; videoH264/AAC506frames preservados; hashes y decodificación correctos, sin clipping. Se conservan nombre/materiales/5cm/6pies y demás términos según ASR, inteligibilidad5/5 automática. No hay aprobación humana masculina todavía. El resultado sólo es un prototipo español sin integración, Drive, nuevas cuentas ni activación de facturación.
 
-Revisión comparativa por respaldo autorizado: DeepSeek y Kimi INCONCLUYENTE para aceptación perceptual final y factura real; ambos documentos completos leídos. No se reclasifican como PASS. Sus snapshots no incluían `voice-comparison-20261112.json`, el hash femenino, la confirmación posterior `escucha-propietario.json`, ni coste de QA femenina; Codex contrasta estos artefactos locales y las tarifas ya documentadas. El subtotalUS$0.01514325 indicado por ellos excluyeUS$0.001923 de QA femenina, por lo que no se adopta como total de todo el ensayo: total generación+QA de ambos sexos y descarteUS$0.01706625. Se mantiene escucha masculina pendiente, sin afirmar comparación controlada por velocidad ni calidad universal de20idiomas (objetivo real:2opciones en10idiomas).
+Revisión comparativa por respaldo autorizado: DeepSeek y Kimi INCONCLUYENTE para aceptación perceptual final y factura real; ambos documentos completos leídos. No se reclasifican como PASS. Sus snapshots no incluían `voice-comparison-20261112.json`, el hash femenino, la confirmación posterior `escucha-propietario.json`, ni costo de QA femenina; Codex contrasta estos artefactos locales y las tarifas ya documentadas. El subtotalUS$0.01514325 indicado por ellos excluyeUS$0.001923 de QA femenina, por lo que no se adopta como total de todo el ensayo: total generación+QA de ambos sexos y descarteUS$0.01706625. Se mantiene escucha masculina pendiente, sin afirmar comparación controlada por velocidad ni calidad universal de20idiomas (objetivo real:2opciones en10idiomas).
 
 | Revisor comparativo | Generación | Tokens | usage.cost USD |
 |---|---|---:|---:|
@@ -100,7 +100,9 @@ Revisión comparativa por respaldo autorizado: DeepSeek y Kimi INCONCLUYENTE par
 
 Revisiones de ambas fases juntasUS$0.45765831375 usage.cost, siempre aparte de la estimación de audio/QA. Factura pendiente y CPU/Codex no medidos. Contexto/respuestas/accounting: `%LOCALAPPDATA%/LinguistVision/t3-review/voice-male-20261112/`; evidencia Gemini masculina en `validation/voice-prototype-20261112-male/` y `validation/voice-prototype-20261112-male-r2/`. No hubo nuevas llamadas de generación para completar documentación.
 
-## Aprobación y proyección de costes
+<a id="aprobación-y-proyección-de-costes"></a>
+
+## Aprobación y proyección de costos
 
 El propietario aprueba ambas muestras españolas. Se conserva su confirmación en los archivos `escucha-propietario.json` de cada carpeta de salida. No acredita otras lenguas ni autoriza publicación o precio comercial.
 

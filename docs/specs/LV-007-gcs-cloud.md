@@ -26,7 +26,7 @@ La prueba hospedada usa archivos y dos identidades sintéticas claramente etique
 
 ## Cierre
 
-T3 propone/audita de forma independiente; Codex integra y ejecuta negativos. Gemini batch revisa la candidata final y evidencia exactas. Instalación, tipos, regresión completa y ambas builds; verificar GCS/Firestore y ejecución real en cloud, dos cuentas, reinicio y borrado tardío. Guardar costes observables por intento, desconocidos como no medido. Si un gate falla, conservar el fallo y corregirlo; no repetir hasta verde ni cambiar de modelo silenciosamente.
+T3 propone/audita de forma independiente; Codex integra y ejecuta negativos. Gemini batch revisa la candidata final y evidencia exactas. Instalación, tipos, regresión completa y ambas builds; verificar GCS/Firestore y ejecución real en cloud, dos cuentas, reinicio y borrado tardío. Guardar costos observables por intento, desconocidos como no medido. Si un gate falla, conservar el fallo y corregirlo; no repetir hasta verde ni cambiar de modelo silenciosamente.
 
 Referencias: [compose](https://docs.cloud.google.com/storage/docs/composing-objects), [precondiciones](https://docs.cloud.google.com/storage/docs/request-preconditions), [red privada Cloud Run](https://docs.cloud.google.com/run/docs/securing/private-networking).
 

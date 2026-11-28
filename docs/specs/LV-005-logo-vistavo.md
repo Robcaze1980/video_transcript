@@ -6,7 +6,7 @@ Base: Vistavo, una palabra, vistavo.app. Web actual blanca/verde, Inter, tono cl
 
 Direcciones iniciales para contraste: A monograma V con gesto de encuadre; B dos líneas de subtítulo dentro de una forma propia; C dos piezas que se encuentran para expresar cambio de idioma. Son hipótesis de diseño, no marca registrada ni opciones aceptadas. No se acredita exclusividad legal ni revisión de marcas con una consulta de modelos.
 
-Cierre de esta fase: archivos reales, comparación visual de las tres opciones y tamaños, revisión independiente leída/contrastada, criterio de recomendación y elección del propietario pendiente. Ningún despliegue por elegir una propuesta creativa. Registrar modelos/uso/coste observables y conservar informes completos privados.
+Cierre de esta fase: archivos reales, comparación visual de las tres opciones y tamaños, revisión independiente leída/contrastada, criterio de recomendación y elección del propietario pendiente. Ningún despliegue por elegir una propuesta creativa. Registrar modelos/uso/costo observables y conservar informes completos privados.
 
 
 ## Resultado de exploración

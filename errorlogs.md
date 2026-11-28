@@ -256,7 +256,7 @@ Incidente T3 pendiente de endurecimiento: pese al propósito sin herramientas, e
 
 ## 2026-11-11 · Seguimiento T3 · Estudio de voz y archivos grandes
 
-Se mantiene abierto el aislamiento de revisoresT3V2 documentado en auditoríaZIP2. Se evitó repetir la vía con permisosfull-access/MCP; se usóOpenRouterdirecto autorizadoLinguistVision con herramientas ausentes/tool_choice:none. Dos respuestas completadas y cero herramientas, sin incidencia nueva de delegación. Costos/IDs/limitaciones en [estudioLV-007](docs/specs/LV-007-archivos-destinos-voz.md#coordinación-vía-y-costes). No se declara resueltoT3 ni se modifica su instalación global.
+Se mantiene abierto el aislamiento de revisoresT3V2 documentado en auditoríaZIP2. Se evitó repetir la vía con permisosfull-access/MCP; se usóOpenRouterdirecto autorizadoLinguistVision con herramientas ausentes/tool_choice:none. Dos respuestas completadas y cero herramientas, sin incidencia nueva de delegación. Costos/IDs/limitaciones en [estudioLV-007](docs/specs/LV-007-archivos-destinos-voz.md#coordinación-vía-y-costos). No se declara resueltoT3 ni se modifica su instalación global.
 
 ## 2026-11-11 · LV-003/LV-007 · Reanudación, vencimiento y borrado
 

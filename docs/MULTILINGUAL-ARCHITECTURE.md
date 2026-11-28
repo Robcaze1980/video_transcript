@@ -98,7 +98,7 @@ La integración vigente usa Firebase Authentication propio de LinguistVision. Go
 
 ## Revisión externa
 
-T3 recibió la misión de coordinación en Robcaze1980/video_transcript, revisión afe2d4c, tarea mcp:25d4b9b9-5213-4c50-9a41-f57168df9183. El proveedor de coordinación falló por el límite de uso compartido de ChatGPT. T3 no reportó coste. DeepSeek y Kimi no devolvieron revisiones y no se hicieron consultas directas. La propuesta es de Codex y queda pendiente de ambas revisiones.
+T3 recibió la misión de coordinación en Robcaze1980/video_transcript, revisión afe2d4c, tarea mcp:25d4b9b9-5213-4c50-9a41-f57168df9183. El proveedor de coordinación falló por el límite de uso compartido de ChatGPT. T3 no reportó costo. DeepSeek y Kimi no devolvieron revisiones y no se hicieron consultas directas. La propuesta es de Codex y queda pendiente de ambas revisiones.
 
 Segundo intento de coordinación, tarea mcp:5c945077-1806-4110-a99c-441c9e63d816: T3 devolvió HTTP 401, token de autenticación vencido. OpenRouter fue autorizado como canal directo. La comprobación de la credencial del perfil de Windows devolvió HTTP 401. No se enviaron solicitudes de generación a DeepSeek ni a Kimi y no hay cargos de inferencia confirmados. Quedan preparadas las dos consultas independientes, a la espera de una clave vigente para LinguistVision.
 
@@ -119,7 +119,7 @@ OpenRouter aceptó la clave propia de LinguistVision. Las consultas iniciales se
 - **SEO y GEO.** Automatizar el rastreo de las 30 variantes públicas y verificar respuestas HTTP, canónicas, reciprocidad de hreflang y concordancia con el sitemap. Separar idioma, mercado y región comercial. Publicar ejemplos sintéticos y cobertura medible, y distinguir visitas observadas de asistentes de auditorías de citas. Google no exige llms.txt ni marcado especial para su búsqueda con IA.
 - **Privacidad y costo.** Verificar que una cuenta no pueda leer archivos o trabajos de otra, que se borren entradas y salidas según su retención y que se conozca la retención de cada proveedor. Medir costo por trabajo exitoso, par y minuto, incluyendo reintentos y almacenamiento. Para esta fase, no incorporar blockchain ni infraestructura dedicada por empresa sin una necesidad demostrada.
 
-Para futuras revisiones de LinguistVision no se impone un máximo local de tokens por petición ni un tope local de gasto acumulado. Se conserva el registro de costes por intento. La API de OpenRouter confirmó que la clave del proyecto no tiene límite de gasto por clave. Siguen aplicando las restricciones propias de cada modelo y proveedor y el saldo disponible en OpenRouter.
+Para futuras revisiones de LinguistVision no se impone un máximo local de tokens por petición ni un tope local de gasto acumulado. Se conserva el registro de costos por intento. La API de OpenRouter confirmó que la clave del proyecto no tiene límite de gasto por clave. Siguen aplicando las restricciones propias de cada modelo y proveedor y el saldo disponible en OpenRouter.
 
 ### Rediseño comercial por problemas y compradores · LV-005
 
@@ -159,4 +159,4 @@ Los importes provienen de OpenCode; conciliación con factura pendiente. DeepSee
 
 La nueva [matriz de ocho segmentos](specs/LV-005-clientes-usos-y-mensajes.md) distingue quién compra, graba/edita y recibe, con dos mensajes por segmento y consultas de búsqueda propuestas sin volumen medido. Inspecciones y talleres son prioridades compartidas de T3; Codex prioriza formación como tercer caso por el recorrido inglés→español. Inmobiliario permanece como hipótesis. Se añaden usos sin traducción (lectura sin sonido y edición de SRT existente), inferidos por Codex desde el editor. Se mantienen diez páginas localizadas y se propone ampliar rutas solo con evidencia y contenido propios.
 
-Esta ronda fue de análisis y planificación, no cambió las páginas servidas. Costes registrados: DeepSeek US$0.003237816 y Kimi K3.1 Pro US$0.091004; total US$0.094241816, factura por conciliar. Las fuentes oficiales y las sesiones están enlazadas en la matriz.
+Esta ronda fue de análisis y planificación, no cambió las páginas servidas. Costos registrados: DeepSeek US$0.003237816 y Kimi K3.1 Pro US$0.091004; total US$0.094241816, factura por conciliar. Las fuentes oficiales y las sesiones están enlazadas en la matriz.

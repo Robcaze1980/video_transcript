@@ -22,4 +22,4 @@ La implementación futura debe conservar comportamiento de CTA preview y aclarar
 
 outputs/vistavo-hero-voice/{hero-a3.png,kit-proof.json,asset-check.json,accounting.json,vistavo-logo-a3.zip}. Firma SVG de distribución con contornos; editable con Inter600/OFL. Exportaciones16/24/32/48/128/256/512 e ICO16/32/48 verificadas. No se repiten pruebas de backend por preparación gráfica/documental sin cambios en producto.
 
-Revisiones completas privadas: LOCALAPPDATA/LinguistVision/t3-review/vistavo-hero-voice-20261113.2llamadas/14269tokens/US$0.078268531275 usage.cost, factura pendiente. Codex tokens/coste no medidos; selección/esfuerzo no controlables. DeepSeek/Kimi PASS sólo para propuesta revisable, no publicación/disponibilidad. No se usa el PASS de modelos como decisión del propietario.
+Revisiones completas privadas: LOCALAPPDATA/LinguistVision/t3-review/vistavo-hero-voice-20261113.2llamadas/14269tokens/US$0.078268531275 usage.cost, factura pendiente. Codex tokens/costo no medidos; selección/esfuerzo no controlables. DeepSeek/Kimi PASS sólo para propuesta revisable, no publicación/disponibilidad. No se usa el PASS de modelos como decisión del propietario.

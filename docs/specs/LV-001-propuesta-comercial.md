@@ -25,7 +25,7 @@ Las señales de video respaldan explorar Brasil, Japón y la UE. La Ciudad de Sa
 
 Hindi es una prioridad de expansión si encontramos un canal de ventas y cobro para esa audiencia. YouTube documenta una gran actividad en India, con creadores en varios idiomas. Cantonés y filipino son candidatos a ganar prioridad si la prospección local produce muestras reales y compras repetidas. [YouTube India](https://blog.google/intl/en-in/products/platforms/youtubes-india-bet-inr-21000-crore-paid-out-to-indian-creators-commits-inr-850-crores-to-power-indias-creator-nation/)
 
-Preparar interfaz y transcripción por idioma. Publicar cada dirección de traducción tras verificarla. Empezar con inglés ↔ español y ordenar las otras direcciones según solicitudes. Medir por idioma empresas contactadas, trabajos de prueba, primera compra, segunda compra e ingreso neto de costes de proceso, pagos y soporte. Usar estos datos para decidir la siguiente ampliación.
+Preparar interfaz y transcripción por idioma. Publicar cada dirección de traducción tras verificarla. Empezar con inglés ↔ español y ordenar las otras direcciones según solicitudes. Medir por idioma empresas contactadas, trabajos de prueba, primera compra, segunda compra e ingreso neto de costos de proceso, pagos y soporte. Usar estos datos para decidir la siguiente ampliación.
 
 ### Revisión de la selección de diez
 

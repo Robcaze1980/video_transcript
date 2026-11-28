@@ -44,11 +44,11 @@ Instalación limpia con dev, Node 24.13.0, cero vulnerabilidades npm, tipos, **9
 
 Límites de evidencia: la prueba automatizada móvil es Chromium con viewport/escala, no un Pixel físico ni una prueba con lector de pantalla. El comportamiento del teclado real, Google móvil y descarga del Pixel se confirman después. Textos nuevos de otros idiomas son borradores sin revisión nativa.
 
-## Revisión T3 y coste
+## Revisión T3 y costo
 
 Una ronda en paralelo vía `linguistvision-openrouter`, sobre instrucciones/inventario y contratos saneados. DeepSeek propuso integración mínima y pruebas; Kimi auditó datos, estados y seguridad. No revisaron el código final. Codex integró y contrastó; una revisión local adicional reprodujo los fallos de conexión y pérdida de cambios que luego se corrigieron y probaron.
 
-| Modelo | Hilo T3 | Sesión OpenCode | Coste registrado USD |
+| Modelo | Hilo T3 | Sesión OpenCode | Costo registrado USD |
 |---|---|---|---:|
 | DeepSeek V4.1 Flash | mcp:fbb58bf1-f408-4221-aeaa-4b1d9cf8c83f | ses_e349d6a2bffeoovS1SpilZ1f23 | 0.002713386 |
 | Kimi K3.1 Pro | mcp:f1b59646-253e-497a-b836-5fb5ccfe1eac | ses_e349d730effeVPRg8jSpH7IKov | 0.077938000 |

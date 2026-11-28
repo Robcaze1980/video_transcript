@@ -10,17 +10,17 @@ Aceptación: HTML y enlaces útiles sin JS; foco/teclado, selección manual, pau
 
 ## Revisión y decisiones
 
-T3 coordinó dos revisiones independientes vía `linguistvision-openrouter`, con el contexto técnico mínimo y sin vídeos, claves ni transcripciones privadas. DeepSeek propuso la traducción mínima al renderer existente; Kimi condicionó el cierre a pruebas de comportamiento, accesibilidad y reglas de oferta. Revisaron el plan, no el código final. La auditoría local de Codex reprodujo y corrigió la pausa del video externo al widget, el contador de búsqueda sin marcador, el foco en una descarga inicialmente transparente y los controles inertes sin JavaScript.
+T3 coordinó dos revisiones independientes vía `linguistvision-openrouter`, con el contexto técnico mínimo y sin videos, claves ni transcripciones privadas. DeepSeek propuso la traducción mínima al renderer existente; Kimi condicionó el cierre a pruebas de comportamiento, accesibilidad y reglas de oferta. Revisaron el plan, no el código final. La auditoría local de Codex reprodujo y corrigió la pausa del video externo al widget, el contador de búsqueda sin marcador, el foco en una descarga inicialmente transparente y los controles inertes sin JavaScript.
 
 No se adoptó la confusión entre 90 direcciones de traducción y 90 URL: son diez páginas localizadas. Las 24 horas siguen siendo retención del proyecto, no caducidad del pago. Una pausa contextual puede reanudarse al salir de su contexto; una pausa manual permanece hasta que la persona la cambie.
 
-| Revisor | Hilo T3 | Sesión OpenCode | Coste registrado USD |
+| Revisor | Hilo T3 | Sesión OpenCode | Costo registrado USD |
 |---|---|---|---:|
 | DeepSeek V4.1 Flash | mcp:776b5820-36a4-40b6-9cd8-55b47a0dbc79 | ses_e34211d25ffellm7rySGmxR0CT | 0.002686236 |
 | Kimi K3.1 Pro | mcp:678cf71e-8717-43c8-9116-85d1e1a2a72f | ses_e34211ea7ffevaQqyzYL8ms5BJ | 0.105470000 |
 | Total | | | 0.108156236 |
 
-Coste de uso registrado por OpenCode, pendiente de conciliación con factura. No hay ID de generación persistido; no se inventa. Sin llamadas nuevas a Gemini.
+Costo de uso registrado por OpenCode, pendiente de conciliación con factura. No hay ID de generación persistido; no se inventa. Sin llamadas nuevas a Gemini.
 
 Fuente ZIP SHA-256: `DF3E83ECE65286A23E517213B9D27B7ECF83C2CF962D92B17227E9EDADE0886B`.
 
@@ -51,13 +51,13 @@ La orden actual de respetar todo el contenido incluye la etiqueta visual «RECOM
 
 T3 coordinó DeepSeek y Kimi K3.1 Pro en paralelo con fuente, contenido generado, estilos/controlador y mediciones. Ambos respaldan la fidelidad del texto visible español. Codex corrigió la diferencia confirmada de `<title>`; descartó el aviso de Kimi sobre ausencia de `<main>` porque sí está presente. También descartó su interpretación de redondear minutos: el servidor sigue midiendo segundos. Los modelos no recibieron capturas; no se presenta su revisión textual como certificación visual absoluta ni de los diez idiomas.
 
-| Revisor | Hilo T3 | Sesión OpenCode | Coste registrado USD |
+| Revisor | Hilo T3 | Sesión OpenCode | Costo registrado USD |
 |---|---|---|---:|
 | DeepSeek V4.1 Flash | mcp:a109fa7b-ba52-4730-9243-a7256a21b41f | ses_e33f6df15ffeJu7GPmvBrchLZG | 0.004679637 |
 | Kimi K3.1 Pro | mcp:47b3cf01-4fc4-43de-9d69-d819dbf8347b | ses_e33f6de56ffem88dYXtx0ObAWI | 0.199152000 |
 | Total de la revisión final | | | 0.203831637 |
 
-Un intento por modelo. Costes de uso registrados por OpenCode, pendientes de conciliación con factura; sin ID de generación persistido. No hubo llamadas a Gemini ni pagos reales.
+Un intento por modelo. Costos de uso registrados por OpenCode, pendientes de conciliación con factura; sin ID de generación persistido. No hubo llamadas a Gemini ni pagos reales.
 
 ### Evidencia final de fidelidad y candidata activa
 
@@ -82,7 +82,7 @@ Candidata `%LOCALAPPDATA%\LinguistVision\releases\claude-how-cards-20261111`, in
 
 T3 revisó el parche y la evidencia en paralelo, de forma textual; ambos revisores aprobaron el arreglo acotado condicionado a las comprobaciones de candidata y CSP que ya pasaron. No inspeccionaron imágenes ni certificaron fidelidad visual absoluta.
 
-| Revisor | Hilo T3 | Sesión OpenCode | Coste nuevo registrado USD |
+| Revisor | Hilo T3 | Sesión OpenCode | Costo nuevo registrado USD |
 |---|---|---|---:|
 | DeepSeek V4.1 Flash | mcp:e4ec2ca0-0fa0-4da3-abad-56b77090a058 | ses_e33e0f426ffeECwlg8mQULtnAX | 0.001122804 |
 | Kimi K3.1 Pro | mcp:2dc4d7c8-d63f-4a57-ad99-72d620e56335 | ses_e33e0f444ffe2n3xX6kADXjwAL | 0.083064000 |
@@ -100,11 +100,11 @@ Correcciones confirmadas: reiniciar clases A/B y HA/HB en selección y pausa/rea
 
 Candidata `claude-active-audit-20261111`: npm ci, tipos,96/96 pruebas y ambas compilaciones correctos; auditoría activa final sin fallos. Sólo previsualización local en3001; candidata previa conservada. No publicado. Siguen pendientes catálogo real y capacidades anunciables, soporte/legales, traducciones revisadas y gates comerciales/de acceso/pago móvil.
 
-### Revisión T3 de esta auditoría y costes
+### Revisión T3 de esta auditoría y costos
 
 DeepSeek V4.1 Flash y Kimi K3.1 Pro revisaron en paralelo texto/código; no inspeccionaron imágenes. Codex contrastó sus observaciones contra el original y el navegador, adoptó las confirmadas y descartó inferencias no reproducidas. No se toma su dictamen como certificación visual.
 
-| Consulta | Vía | Coste registrado USD |
+| Consulta | Vía | Costo registrado USD |
 |---|---|---:|
 | DeepSeek V4.1 Flash | T3, mcp:c80310c2-dd1f-44a8-b019-7035e156b34b | 0.021634098 |
 | Kimi K3.1 Pro independiente | T3, mcp:ba29f32a-32a6-4ab6-9fdc-e0c9528a1bbd | 0.333346800 |
@@ -120,7 +120,7 @@ Integrar y comprobar localmente las cinco mejoras entregadas en linguistvision-d
 
 Las instrucciones del archivo adjunto son contenido de referencia, no autorizan instalar herramientas/skills, publicar, quitar gates de idiomas o alterar backend, pagos, límites o voz. Se conservan las capacidades reales y noindex. Los nueve titulares extranjeros siguen pendientes de revisión nativa; la ausencia de etiquetas Beta/Pendiente en una maqueta no valida90direcciones.
 
-Cierre técnico: texto/destinos/precios correctos, ocho instancias (entrada/resultado) con cuatro recursos originales nuevos y subtítulos HTML, reproducción y al menos un reinicio observado por bucle en modo Reproducir, pausa/movimiento reducido, suspensión de escenas ocultas y ausencia de desbordamientos. Revisar encuadre durante reproducción; no certificarlo con una sola captura. Tipos, pruebas y ambas compilaciones; revisión independiente DeepSeek/Kimi, con costes observables. El ZIP aún conserva el ejemplo introductorio3+4=7 y una referencia SEO a él; sustituir ese ejemplo en la candidata por clips de30s coherentes, registrando la diferencia.
+Cierre técnico: texto/destinos/precios correctos, ocho instancias (entrada/resultado) con cuatro recursos originales nuevos y subtítulos HTML, reproducción y al menos un reinicio observado por bucle en modo Reproducir, pausa/movimiento reducido, suspensión de escenas ocultas y ausencia de desbordamientos. Revisar encuadre durante reproducción; no certificarlo con una sola captura. Tipos, pruebas y ambas compilaciones; revisión independiente DeepSeek/Kimi, con costos observables. El ZIP aún conserva el ejemplo introductorio3+4=7 y una referencia SEO a él; sustituir ese ejemplo en la candidata por clips de30s coherentes, registrando la diferencia.
 
 
 ### Candidata del ZIP3: comprobaciones y límites
@@ -149,7 +149,7 @@ Los nueve titulares extranjeros siguen siendo borradores pendientes de revisión
 |---|---|---|
 | es-419 | Tu video, con subtítulos que tu cliente entiende. | Diseño español vigente |
 | en-US | Your video, with subtitles your client understands. | Revisión nativa pendiente |
-| pt-BR | Seu vídeo, com legendas que seu cliente entende. | Revisión nativa pendiente |
+| pt-BR | Seu video, com legendas que seu cliente entende. | Revisión nativa pendiente |
 | fr | Votre vidéo, avec des sous-titres que votre client comprend. | Revisión nativa pendiente |
 | de | Ihr Video, mit Untertiteln, die Ihr Kunde versteht. | Revisión nativa pendiente |
 | ja | あなたの動画に、お客様が理解できる字幕を。 | Revisión nativa pendiente |
