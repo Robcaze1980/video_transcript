@@ -1,0 +1,23 @@
+Revisé el paquete estático (extractos del test 11, transporte sintético, `blockedAccount`, fragmento de `billingUnblock.ts` y los dos pins) sin ejecutar nada.
+
+**Hallazgos**
+- El test sí demuestra el punto central. `unblockPosts()` filtra por igualdad exacta la ruta mutante `/api/internal/video/billing-holds/unblock` y `receiptReads()` la ruta de lectura `/api/internal/video/billing-holds/unblock-receipt`. Se fija `unblockPosts()==1` tras el primer intento, y al reanudar se exige que siga en `1` y que `receiptReads()` haya aumentado.
+- La causalidad está respaldada por el código: en `billingUnblock.ts` la rama `receipt?.state==='confirmed'` fija `account={replayed:true,...}` sin llamar a `deps.accountBilling.unblock`, y solo la rama `pending` (con claim fresco) ejecuta el POST mutante. Test + rama evidencian que la recuperación consulta el recibo y no reenvía `/unblock`.
+- El contador registra todas las llamadas pertinentes dentro de lo que muestra el paquete: `LocalAccountTransport.request` empuja `{pathname,data}` antes de procesar cada petición. `pathname===` es igualdad exacta, así que `/unblock` (evaluado antes) no captura `/unblock-receipt`; las rutas y sus handlers (`store.unblockVideoBilling` vs `store.videoBillingUnblockReceipt`) son distintos. El baseline `unblockPosts()==0` descarta envíos del montaje `blockedAccount`.
+- El fallo ocurre tras la confirmación: el mock envuelve `c.accountBilling.unblock` y pone `confirmed=true` al resolver el original; el `c.db.runTransaction` envuelto lanza en la siguiente transacción, y `assert.rejects(...,/synthetic Video crash/)` lo verifica. La restauración `c.accountBilling.unblock=originalUnblock; c.db.runTransaction=originalRun;` devuelve las funciones reales antes de reanudar, manteniendo válido el caso y sin tocar los contadores.
+- Aserciones previas conservadas: los hunks son aditivos; siguen las comprobaciones de guard en `accountRoot`, `blocked===true`, outbox `needs_review`, auditoría 1/`unblock_requested`, y en la reanudación `replayed:false`, `accountBlocked:false`, guard ausente, outbox `retry_wait`, auditoría 2.
+- Pins: ambos hunks solo cambian el literal de base a `ac6f0730bc4f7d116f591951c61057f76e1b29a0`, coincidente con la base de esta revisión; no tocan otra línea.
+
+**No pude comprobar**
+- No ejecuté la batería (la de 10 está en curso); no hay evidencia de ejecución del caso 11.
+- El paquete no incluye `deps(c)`, la fase `open`/claim ni la definición de `c.transport`; infiero, pero no verifico, que `deps(c).accountBilling` y `c.db` son los mismos objetos instrumentados y que la reanudación toma la ruta de claim (no `fresh`). Si `fresh` estuviera presente, la rama confirmada lanzaría `conflict`.
+- `receiptReads()>receiptReadsBeforeResume` prueba existencia (≥1 lectura extra), no un conteo exacto; la causalidad se apoya en el fragmento `.ts`.
+- Pins: si `$system.base` reside dentro del manifiesto hasheado por `$ExpectedSystemManifestSha256`, cambiar la base exigiría actualizar también esa constante (y el manifiesto). El diff no los muestra y no puedo verificar esa consistencia de congelamiento con el extracto.
+- Fuera de alcance: IAM, HTTP real, producción, otras cuentas y la batería financiera completa.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: caso 11 en `server/commercial/billingUnblock.emulator.mjs` (contadores `unblockPosts`/`receiptReads` con `pathname===`, baseline 0, `==1` tras el primer intento, `==1` tras reanudar, `receiptReads` creciente, restauración de mocks y aserciones previas conservadas); transporte `LocalAccountTransport` con rutas mutante `/api/internal/video/billing-holds/unblock` y lectura `/unblock-receipt` distintas; fragmento `server/commercial/billingUnblock.ts` que ramifica por `receipt.state` sin reenviar en `confirmed`; pins en `scripts/prepareUnblockFocusIsolation.mjs` y `scripts/runUnblockFocusIsolated.ps1`.
+NEGATIVOS: no ejecuté la batería (caso 11 en curso); no verificable el wiring `deps(c)`/`c.transport`/fase `open` desde el extracto; la lectura del recibo se comprueba por existencia (`>`), no por conteo exacto; no verifiqué que las constantes SHA congeladas del arnés sigan siendo válidas para la nueva base (los pins solo cambian el literal de base); sin alcance sobre IAM, HTTP real, producción, otras cuentas ni batería financiera completa.
+BLOQUEOS: ninguno; tokens y costo no medidos (no visibles en el paquete).
+=== FIN RESUMEN ===

@@ -1,0 +1,29 @@
+Revisión estática enfocada: no identifico bypass del control de pertenencia por relación en el diff.
+
+- `planned.some` no basta solo, pero es suficiente en conjunción con la relectura: sólo habilita una guarda que apunte a una observación ya auditada para entregar, y esa observación también debe pasar existencia, estado, `accountId` e `intentId` en la misma transacción.
+- Una observación con `intentId` cambiado o una guarda con `incidentId` cambiado tras la lectura auditada provoca `conflict` antes de escribir. No acepta relaciones descubiertas después de la lectura auditada.
+- Las contrapruebas comprueban orden, una sola orden a Cuenta, confirmación de Cuenta antes del rechazo de Video, guarda/alerta/filas sin cerrar y ausencia de registro final. Los positivos cubren relación directa y guarda→observación del mismo incidente.
+- El arnés de 15 casos y los pines visibles son coherentes; no interpreto eso como ejecución exitosa.
+- No aparecen datos de clientes ni secretos en el material entregado.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA:
+- `server/commercial/billingUnblock.ts:473` revalida `intentId` de observaciones en fase 3.
+- `server/commercial/billingUnblock.ts:474` revalida `incidentId` de la guarda de admisión y su relación indirecta auditada.
+- `server/commercial/billingUnblock.ts:445` mantiene lectura previa a escritura y aborto sin escribir en la transacción.
+- `server/commercial/billingUnblock.emulator.mjs:930` contiene las dos contrapruebas de drift y el positivo con observación entregada.
+- `scripts/runUnblockFocusEmulator.mjs:22` fija los 15 casos y excluye el resto.
+- `scripts/prepareUnblockFocusIsolation.mjs:8` y `scripts/runUnblockFocusIsolated.ps1:43` actualizan el pin de base.
+- Evidencia entregada: sintético previo con 2 FAIL negativos, 2 PASS positivos, limpieza 4/4 e inventarios 22 vacíos; TAP con 12 negativos y tipos sin errores.
+
+NEGATIVOS:
+- No se observó la corrida de 15 casos en curso ni su resultado final.
+- No se demuestra integridad total, IAM, despliegue en producción ni reconciliación externa.
+- No se ampliaron aquí otras rutas uOmisiones fuera del drift de relación en fase 3.
+
+BLOQUEOS:
+- Gate financiero global y conciliación siguen abiertos.
+- Falta la segunda revisión independiente exigida para saldo.
+- Uso y costo del revisor: no medidos.
+=== FIN RESUMEN ===

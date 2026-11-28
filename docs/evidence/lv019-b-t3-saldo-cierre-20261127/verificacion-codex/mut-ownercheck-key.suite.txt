@@ -1,0 +1,62 @@
+✖ successor: swapping identity A to account B after the last receipt rejects, keeps Video blocked and leaves B untouched (7764.7503ms)
+Synthetic unblock-1.4b cleanup total: 2/2
+✖ successor: an identity already pointing at another account rejects before any write (6161.137ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 16675.4207
+
+✖ failing tests:
+
+test at server\commercial\billingUnblock.emulator.mjs:2865:1
+✖ successor: swapping identity A to account B after the last receipt rejects, keeps Video blocked and leaves B untouched (7764.7503ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2906:3)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2924:1
+✖ successor: an identity already pointing at another account rejects before any write (6161.137ms)
+  AssertionError [ERR_ASSERTION]: The validation function is expected to return "true". Received false
+  
+  Caught error:
+  
+  Error: unresolved
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2935:3)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: unresolved
+        at successorCall (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.ts:344:69)
+        at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+        at async unblockBillingAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.ts:636:33)
+        ... 3 lines matching cause stack trace ...
+        at async Test.run (node:internal/test_runner/test:1113:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+      [cause]: Error: unavailable
+          at AccountBillingClient.post (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\accountBillingClient.ts:50:10)
+          at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+          at async AccountBillingClient.unblockReceipt (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\accountBillingClient.ts:87:15)
+          at async Object.receipt (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:346:19)
+          at async successorCall (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.ts:340:14)
+          at async unblockBillingAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.ts:636:33)
+          at async waitForActual (node:assert:646:5)
+          at async strict.rejects (node:assert:769:25)
+          at async TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2935:3)
+          at async Test.run (node:internal/test_runner/test:1113:7)
+    },
+    operator: 'rejects',
+    diff: 'simple'
+  }

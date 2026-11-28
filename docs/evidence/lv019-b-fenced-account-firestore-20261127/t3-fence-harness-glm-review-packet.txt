@@ -1,0 +1,173 @@
+Seguimiento breve sin herramientas ni ejecuciones. Revisa mecánicamente el arnés enfocado derivado del de 17 casos; abajo va su diff completo. La fixture selecciona solo los 3 nombres indicados, tiene inputs/sistema hashados y ejecutó 3/3, sin omisiones, 22 raíces vacías, guard de red activo, inputs y Node sin cambios, puertos ajenos iguales. En el cierre, el emulador propio recibió stop por nonce pero no salió en 6,5 s y se terminó por su handle (exit -1); no afirmar parada limpia por nonce. VerifyOnly verifica ejecutables/manifiestos; Codex comprobó aparte los 70 hashes antes de arrancar; el hijo los vuelve a comprobar antes de ejecutar la fixture. No hay snapshot inmutable ni firewall de sistema. Evalúa si los diffs alteran seguridad, selección, limpieza o interpretación. Además, tu posible hallazgo de epoch: antes de permitir reconcile, runtime ya exige `guard.epoch===request.epoch`; confirma si tu preocupación aparece cuando la guardia CAMBIA DESPUÉS de permitirse el sucesor, lo que conserva conflicto y está cubierto en memoria, o si existe otro caso. No declares producción ni integración. Respuesta breve y bloque final exacto.
+
+--- scripts/prepareUnblockFocusIsolation.mjs -> scripts/prepareUnblockFenceIsolation.mjs ---
+--- 
++++ 
+@@ -6,9 +6,9 @@
+ import {fileURLToPath} from 'node:url';
+ 
+-const base='e4ed64dc87122352d68ac68763b653308a377787';
++const base='61e64070c2ac6245caaee8eaad620feb68d9e246';
+ const repo=realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'));
+ const [candidateArg,jdkArg,jarArg]=process.argv.slice(2);
+ if(process.argv.length!==5||process.platform!=='win32'||!/^v24\./.test(process.version)||process.env.NODE_OPTIONS||!candidateArg||!jdkArg||!jarArg)
+-  throw Error('Use Windows Node 24: prepareUnblockFocusIsolation.mjs <candidate-manifest> <jdk> <jar>');
++  throw Error('Use Windows Node 24: prepareUnblockFenceIsolation.mjs <candidate-manifest> <jdk> <jar>');
+ const sha=file=>createHash('sha256').update(readFileSync(file)).digest('hex');
+ const ordinary=file=>{const entry=lstatSync(file),real=realpathSync(file);if(!entry.isFile()||entry.isSymbolicLink()||real.toLowerCase()!==path.resolve(file).toLowerCase())throw Error('Unexpected file or link');return real;};
+@@ -16,8 +16,8 @@
+ const head=execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+ if(head!==base)throw Error('Unexpected base revision');
+-const candidate=ordinary(path.resolve(candidateArg)),manifestDir=realpathSync(path.join(repo,'outputs','lv019-b-unblock-focus-manifests'));
++const candidate=ordinary(path.resolve(candidateArg)),manifestDir=realpathSync(path.join(repo,'outputs','lv019-b-unblock-fence-manifests'));
+ if(path.dirname(candidate).toLowerCase()!==manifestDir.toLowerCase())throw Error('Candidate manifest is outside its task directory');
+ const snapshot=JSON.parse(readFileSync(candidate,'utf8'));
+-if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==17||!snapshot.files)
++if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==3||!snapshot.files)
+   throw Error('Unexpected candidate manifest');
+ const node=ordinary(process.execPath),nodeSha=sha(node);
+@@ -40,5 +40,5 @@
+ const jar=ordinary(path.resolve(jarArg)),jarSha=sha(jar);
+ if(jarSha!=='c3d3680a89d946a90a027365ea14c26c6472a162bcf37f099bbb1ebd66d25e8e')throw Error('Unexpected emulator JAR');
+-const output=path.join(repo,'outputs','lv019-b-unblock-focus-isolation-manifests');
++const output=path.join(repo,'outputs','lv019-b-unblock-fence-isolation-manifests');
+ if(!existsSync(output))mkdirSync(output);
+ if(lstatSync(output).isSymbolicLink()||!inside(repo,realpathSync(output)))throw Error('Unsafe manifest directory');
+--- scripts/runUnblockFocusEmulator.mjs -> scripts/runUnblockFenceEmulator.mjs ---
+--- 
++++ 
+@@ -4,6 +4,6 @@
+ //
+ // Run using Node 24, only after the parent has frozen and reviewed the inputs:
+-//   node scripts/runUnblockFocusEmulator.mjs --prepare
+-//   node scripts/runUnblockFocusEmulator.mjs --run <generated-manifest>
++//   node scripts/runUnblockFenceEmulator.mjs --prepare
++//   node scripts/runUnblockFenceEmulator.mjs --run <generated-manifest>
+ // --prepare writes only a manifest of hashes; --run creates a new isolated
+ // profile/log directory and starts the fixture. No directory is deleted here.
+@@ -20,23 +20,9 @@
+ const project = 'demo-vistavo-financial';
+ const host = '127.0.0.1:8198';
+-// The focus runs exactly these seventeen synthetic cases. All other cases are excluded, not passed.
++// The focus runs exactly these three synthetic cases. All other cases are excluded, not passed.
+ const selectedNames = [
+-  'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',
+-  'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',
+-  'a missing writer cut cannot authorize an Account unblock',
+-  'a modified writer cut cannot authorize an Account unblock',
+-  'a recreated writer cut cannot authorize an Account unblock',
+-  '11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock',
+-  '11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock',
+-  '11 negative: a second incident arriving between the read and the write aborts and is never overwritten',
+-  '11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch',
+-  '11 negative: a failed Account phase leaves Video blocked and its rows untouched',
+-  '11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it',
+-  '11 negative: an observation incident that now names another intent in phase 3 aborts the release and the guard survives',
+-  '11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives',
+-  '11 an INTENT unblock completes when the admission guard names an observation incident of the same incident',
+-  '11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back',
+-  '11 resume: a pending claim on the SAME guard generation, operator and payload keeps the Video block and never sends twice',
+-  'retry generation missing: a claim left by an uncertain POST still refuses a later call after the guard document is gone',
++  'Fenced predecessor before reconciliation',
++  'Fenced reconciliation before late predecessor',
++  'Fenced simultaneous predecessor and reconciliation',
+ ];
+ if(selectedNames.some(name=>!/^[A-Za-z0-9:, _]+$/.test(name)))throw Error('Unsafe focus name');
+@@ -45,5 +31,5 @@
+ const guardFile = 'scripts/financialEmulatorNetworkGuard.cjs';
+ const inventoryFile = 'scripts/inspectFinancialSyntheticRoots.mjs';
+-const fixtureFiles = ['server/commercial/billingUnblock.emulator.mjs'];
++const fixtureFiles = ['server/account/unblockFence.emulator.mjs'];
+ const tracked = Object.freeze([
+   'server/commercial/firestoreBackend.ts',
+@@ -101,7 +87,7 @@
+   'scripts/financialEmulatorNetworkGuard.windows.cjs',
+   'scripts/runFinancialRegressionEmulator.mjs',
+-  'scripts/runUnblockFocusEmulator.mjs',
+-  'scripts/runUnblockFocusIsolated.ps1',
+-  'scripts/prepareUnblockFocusIsolation.mjs',
++  'scripts/runUnblockFenceEmulator.mjs',
++  'scripts/runUnblockFenceIsolated.ps1',
++  'scripts/prepareUnblockFenceIsolation.mjs',
+   'package.json',
+   'package-lock.json',
+@@ -235,8 +221,8 @@
+ const scriptPath = realpathSync(fileURLToPath(import.meta.url));
+ const workspace = realpathSync(path.resolve(path.dirname(scriptPath), '..'));
+-if (scriptPath !== repositoryFile(workspace, 'scripts/runUnblockFocusEmulator.mjs')) fail('Unexpected launcher location');
++if (scriptPath !== repositoryFile(workspace, 'scripts/runUnblockFenceEmulator.mjs')) fail('Unexpected launcher location');
+ const outputRoot = checkedDirectory(workspace, 'outputs');
+-const manifests = checkedDirectory(outputRoot, 'lv019-b-unblock-focus-manifests', true);
+-const runs = checkedDirectory(outputRoot, 'lv019-b-unblock-focus-runs', true);
++const manifests = checkedDirectory(outputRoot, 'lv019-b-unblock-fence-manifests', true);
++const runs = checkedDirectory(outputRoot, 'lv019-b-unblock-fence-runs', true);
+ const node = nodeIdentity();
+ const args = process.argv.slice(2);
+--- scripts/runUnblockFocusIsolated.ps1 -> scripts/runUnblockFenceIsolated.ps1 ---
+--- 
++++ 
+@@ -41,5 +41,5 @@
+   if ((Sha256 $systemManifestPath) -cne $ExpectedSystemManifestSha256 -or
+       (Sha256 $manifestPath) -cne $ExpectedManifestSha256 -or
+-      $system.version -ne 1 -or $system.base -cne 'e4ed64dc87122352d68ac68763b653308a377787' -or
++      $system.version -ne 1 -or $system.base -cne '61e64070c2ac6245caaee8eaad620feb68d9e246' -or
+       $system.project -cne 'demo-vistavo-financial' -or $system.host -cne '127.0.0.1:8198' -or
+       (($system.fixedPorts -join ',') -cne '8198,9198,9298') -or
+@@ -65,5 +65,5 @@
+ $fixedPorts = @(8198,9198,9298)
+ $sharedPorts = @(8185,8186,8187,8194,9194,9294,8195,9195,9295,8197,9197,9297)
+-$fixture = Join-Path $PSScriptRoot 'runUnblockFocusEmulator.mjs'
++$fixture = Join-Path $PSScriptRoot 'runUnblockFenceEmulator.mjs'
+ $javaSource = Join-Path $PSScriptRoot 'InspectFinancialRegressionFirestore.java'
+ $guardSource = Join-Path $repo 'scripts/financialEmulatorNetworkGuard.cjs'
+@@ -89,5 +89,5 @@
+   throw 'Output root is not a real directory inside this worktree'
+ }
+-$runBase = Join-Path $outputBase 'lv019-b-unblock-focus-isolation-20261126'
++$runBase = Join-Path $outputBase 'lv019-b-unblock-fence-isolation-20261126'
+ if (!(Test-Path -LiteralPath $runBase)) { New-Item -ItemType Directory -Path $runBase | Out-Null }
+ if (((Get-Item -LiteralPath $runBase -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+--- TEST GUARD CHANGE ---
+175: it('requires fresh approval after a generation conflict and leaves a sibling incident open',async()=>{
+176:  const f=fixture(),{a}=f;a.enroll();a.authorize();
+177:  const money=f.economic();
+178:  await f.store().blockVideoBilling(a.identityKey,rivalId);
+179:  const before=f.copy();
+180:  await expect(f.confirm()).rejects.toMatchObject({code:'conflict'});
+181:  await expect(f.reconcile()).rejects.toMatchObject({code:'conflict'});
+182:  const unapproved={...a.change,epoch:2};
+183:  await expect(f.store().reconcileVideoBillingUnblockAttempt(a.identityKey,unapproved)).rejects.toMatchObject({code:'conflict'});
+184:  expect(f.copy()).toEqual(before);
+185:  const oldGrant=a.grant();
+186:  a.authorize(2);
+187:  expect(a.grant()).not.toBe(oldGrant);
+188:  expect(f.rows.get(oldGrant)).toEqual(before.get(oldGrant));
+189:  expect(await f.reconcile()).toMatchObject({state:'permitted',epoch:2});
+190:  await expect(f.confirm()).rejects.toMatchObject({code:'conflict'});
+191:  expect(await f.confirm(a,a.successor)).toMatchObject({state:'confirmed',epoch:2,blocked:true,replayed:false});
+192:  expect(await f.store().videoBillingHold(a.identityKey,rivalId)).toEqual({blocked:true,recorded:true});
+193:  expect(f.at(a.guard)).toMatchObject({incidentCount:2,reviewedCount:1,epoch:2});
+194:  expect(f.writes.filter(path=>path===a.receipt)).toHaveLength(1);
+195:  expect(f.economic()).toEqual(money);
+196: });
+197: 
+198: it('keeps a permitted successor in review if its generation moves again',async()=>{
+199:  const f=fixture(),{a}=f;a.enroll();a.authorize();
+200:  await f.reconcile();
+201:  await f.store().blockVideoBilling(a.identityKey,rivalId);
+202:  const before=f.copy();
+203:  await expect(f.reconcile()).rejects.toMatchObject({code:'conflict'});
+204:  await expect(f.confirm(a,a.successor)).rejects.toMatchObject({code:'conflict'});
+205:  await expect(f.store().reconcileVideoBillingUnblockAttempt(a.identityKey,{...a.change,
+206:   attemptId:randomUUID(),epoch:2,reconcileId:randomUUID()})).rejects.toMatchObject({code:'conflict'});
+207:  expect(f.copy()).toEqual(before);
+208:  expect(f.rows.has(a.receipt)).toBe(false);
+209: });
+210: 
+211: it('rejects a grant edited and restored in place without consuming the still-valid predecessor',async()=>{
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: ...
+NEGATIVOS: ...
+BLOQUEOS: ...
+=== FIN RESUMEN ===

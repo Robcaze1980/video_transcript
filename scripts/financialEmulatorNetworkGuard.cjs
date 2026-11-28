@@ -15,9 +15,9 @@ const path = require('node:path');
 const { syncBuiltinESMExports } = require('node:module');
 
 if (process.env.NODE_ENV !== 'test' || process.env.LV_REVIEW_CONTRACT !== '1' || process.env.LV_FINANCIAL_REGRESSION !== '1' ||
-    process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8185' ||
+    process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8198' ||
     process.env.METADATA_SERVER_DETECTION !== 'none' ||
-    process.env.GOOGLE_CLOUD_PROJECT !== 'demo-vistavo-ledger') {
+    process.env.GOOGLE_CLOUD_PROJECT !== 'demo-vistavo-financial') {
   throw Error('Synthetic review network guard requires the fixed demo environment');
 }
 
@@ -50,7 +50,7 @@ net.Server.prototype.listen = function (...args) {
 function address(host, port) {
   const numericPort = Number(port), owner = ownedPorts.get(numericPort), endpoint = owner?.address();
   const owned = !!owner && owner.listening === true && endpoint && typeof endpoint === 'object' && endpoint.address === '127.0.0.1' && endpoint.port === numericPort;
-  if (host !== '127.0.0.1' || (String(port) !== '8185' && !owned)) denied(host === '127.0.0.1' ? 'loopback-other-port' : 'other-address');
+  if (host !== '127.0.0.1' || (String(port) !== '8198' && !owned)) denied(host === '127.0.0.1' ? 'loopback-other-port' : 'other-address');
 }
 function connectArgs(args) {
   let first = args[0];
@@ -105,7 +105,7 @@ function checkHttp(args) {
     urlTarget(first);
     if (options.host !== undefined || options.hostname !== undefined || options.port !== undefined || options.protocol !== undefined) {
       if (options.protocol && options.protocol !== 'http:') denied();
-      address(options.hostname ?? options.host ?? '127.0.0.1', options.port ?? '8185');
+      address(options.hostname ?? options.host ?? '127.0.0.1', options.port ?? '8198');
     }
   } else {
     if (options.protocol && options.protocol !== 'http:') denied();
@@ -128,7 +128,7 @@ http2.connect = function (authority, options, listener) {
     options = { ...options, createConnection(...args) {
       const socket = connect.apply(this, args);
       if (!(socket instanceof net.Socket) || socket.connecting || socket.destroyed ||
-          socket.remoteAddress !== '127.0.0.1' || socket.remotePort !== 8185) {
+          socket.remoteAddress !== '127.0.0.1' || socket.remotePort !== 8198) {
         if (socket instanceof net.Socket) socket.destroy();
         denied('http2-other-socket');
       }
@@ -178,13 +178,13 @@ globalThis.fetch = function (input, init) {
 syncBuiltinESMExports();
 
 // Verify rejection before any attempt to open a socket. The positive helper
-// checks syntax only; the fixture itself verifies that 8185 is reachable.
+// checks syntax only; the fixture itself verifies that 8198 is reachable.
 function assertBlocked(action) {
   try { action(); } catch (error) { if (error?.code === 'LV_REVIEW_NETWORK_DENIED') return; throw error; }
   throw Error('Synthetic review network guard self-check failed');
 }
-address('127.0.0.1', 8185);
-urlTarget('http://127.0.0.1:8185/');
+address('127.0.0.1', 8198);
+urlTarget('http://127.0.0.1:8198/');
 assertBlocked(() => net.connect({ host: '127.0.0.1', port: 3001 }));
 assertBlocked(() => net.connect({ host: '127.0.0.1', port: 3003 }));
 assertBlocked(() => net.connect({ host: '203.0.113.1', port: 443 }));
@@ -192,7 +192,7 @@ assertBlocked(() => http2.connect('http://127.0.0.1:3000'));
 assertBlocked(() => https.request('https://example.invalid/'));
 assertBlocked(() => dns.lookup('example.invalid', () => {}));
 assertBlocked(() => new dns.promises.Resolver().resolve4('example.invalid'));
-assertBlocked(() => http2.connect('http://127.0.0.1:8185', { createConnection: () => new net.Socket() }));
+assertBlocked(() => http2.connect('http://127.0.0.1:8198', { createConnection: () => new net.Socket() }));
 assertBlocked(() => globalThis.fetch('http://127.0.0.1:3003/'));
 checking = false;
 process.stderr.write('VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS\n');

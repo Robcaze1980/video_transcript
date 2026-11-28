@@ -1,0 +1,163 @@
+
+ RUN  v5.0.5 C:/Users/rob62/Documents/Codex/2026-11-11/vistavo-account-fence-integration-20261127
+
+ ✓ server/account/http.test.ts > account transport trust boundary > reads an unblock receipt only for the settlement caller and exact decision 479ms
+ ✓ server/account/http.test.ts > account transport trust boundary > permits the read-only resolution receipt only to the settlement identity 167ms
+ ✓ server/account/http.test.ts > account transport trust boundary > rejects missing, revoked, disabled, expired and foreign identity before any storecall 65ms
+ ✓ server/account/http.test.ts > account transport trust boundary > rejects unverified, foreign origin, unknown query/body authority without provisioning 63ms
+ ✓ server/account/http.test.ts > account transport trust boundary > verified read stays readonly, POST provisions explicitly, no CORS and private cache 66ms
+ ✓ server/account/http.test.ts > account transport trust boundary > financial/provider/upload paths and wrong methods cannot call account or private code 75ms
+ ✓ server/account/http.test.ts > account transport trust boundary > oversize body and duplicate cursor rejected before writes 64ms
+ ✓ server/account/http.test.ts > account transport trust boundary > rejects malformed UTF8 before corrupting a stored draft 16ms
+ ✓ server/account/http.test.ts > account transport trust boundary > internal balance writes require exact Google service identity and accept only reserve/capture/release shapes 118ms
+ ✓ server/account/http.test.ts > account transport trust boundary > limits holds, admission and sealing to trusted services and requires the exact capture tuple 176ms
+ ✓ server/account/http.test.ts > account transport trust boundary > opens the audited unblock only to the settlement caller with an exact body (LV-019.B 1.4b) 145ms
+ ✓ server/account/http.test.ts > account transport trust boundary > accepts a partial capture and a release after admission only with exact fields and complete pairs (LV-019.B C2a) 258ms
+ ✓ server/account/http.test.ts > account transport trust boundary > maps the too_early refusal to its own 409 error and keeps conflict distinct 42ms
+ ✓ server/account/http.test.ts > account transport trust boundary > rejects a verified service identity outside the internal allowlist before reading a hold 19ms
+ ✓ server/account/http.test.ts > account transport trust boundary > fails closed for inherited emulator/credential or wrong production DB before SDK init 49ms
+ ✓ server/account/http.test.ts > account transport trust boundary > pins OIDC audience to this Cloud Run service and rejects non-service token claims 7ms
+ ✓ server/account/http.test.ts > account transport trust boundary > requires actual permission denial, never accepts candidate read or transient failure as isolation 6ms
+ ✓ server/commercial/alertContractReview.test.mjs > an unknown kind with a matching hash must not pass the shared operator identity check 24ms
+ ✓ server/commercial/alertContractReview.test.mjs > an unknown kind is marked corrupt; new disposition rejects and writes nothing 16ms
+ ✓ server/commercial/alertContractReview.test.mjs > a closed source must not clear an alert with an unknown reason 1ms
+ ✓ server/commercial/alertContractReview.test.mjs > a human resolve must not certify an unknown reason for an otherwise known kind 4ms
+ ✓ server/commercial/alertContractReview.test.mjs > normal report marks non-UUID guard malformed and creates an ownerless alert 9ms
+ ✓ server/commercial/alertContractReview.test.mjs > a pre-existing guard alert with matching non-UUID row and non-null hint must not present an owner 1ms
+ ✓ server/commercial/alertContractReview.test.mjs > identical incident references look normal to the report but block the transaction before Account 10ms
+ ✓ server/commercial/alertContractReview.test.mjs > damaged companions in either incident field stop before request audit or Account 4ms
+ ✓ server/commercial/alertContractReview.test.mjs > a normal guard with equivalent evidence reaches the same Account precondition 7ms
+ ✓ server/commercial/alertContractReview.test.mjs > a stale reported sighting can reopen a confirmed terminal alert; the next fresh clear closes it 3ms
+ ✓ server/commercial/alertContractReview.test.mjs > a currently pending healthy row without a successor supplies no terminal proof 2ms
+ ✓ server/commercial/alertContractReview.test.mjs > valid distinct merged references in outbox first order preserve the outbox alert and reach Account 6ms
+ ✓ server/commercial/alertContractReview.test.mjs > valid distinct merged references in intent first order preserve the outbox alert and reach Account 4ms
+ ✓ server/commercial/alertContractReview.test.mjs > damage after the request was recorded stops resume before consulting or mutating Account 5ms
+ ✓ server/commercial/alertContractReview.test.mjs > damage during the Account call keeps the Video guard and request receipt for reconciliation 10ms
+ ✓ server/commercial/alertContractReview.test.mjs > a repaired source allows the still-open historical warning and an exactly completed replay 7ms
+ ✓ server/commercial/alertContractReview.test.mjs > valid legacy named generation with missing epoch remains addressable as epoch one 3ms
+ ✓ server/commercial/alertContractReview.test.mjs > a fabricated report with an unknown kind or reason cannot create an alert 1ms
+ ✓ server/commercial/alertContractReview.test.mjs > pending receipt rejects guard companion damage before a new conditional mutation 5ms
+ ✓ server/commercial/alertContractReview.test.mjs > pending receipt rejects requested audit replacement before a new conditional mutation 4ms
+ ✓ server/commercial/alertContractReview.test.mjs > pending receipt rejects identical requested audit rewrite before a new conditional mutation 3ms
+ ✓ server/commercial/alertContractReview.test.mjs > pending receipt rejects closed alert before a new conditional mutation 3ms
+ ✓ server/commercial/alertContractReview.test.mjs > explicit pending receipt cannot use a new Account generation to repeat a claimed dispatch 4ms
+ ✓ server/commercial/alertContractReview.test.mjs > partial confirmed receipt with rival checks live authority, changed=false 6ms
+ ✓ server/commercial/alertContractReview.test.mjs > partial confirmed receipt with rival checks live authority, changed=true 4ms
+ ✓ server/commercial/alertContractReview.test.mjs > late pending response cannot send after another coordinator finishes from a confirmed receipt 5ms
+ ✓ server/commercial/alertContractReview.test.mjs > read failure on fresh local authority after a pending receipt cannot call the mutating port 2ms
+ ✓ server/commercial/alertContractReview.test.mjs > partial receipt cannot certify a historical request that already names a different hold 6ms
+ ✓ server/commercial/alertContractReview.test.mjs > confirmed nonpartial receipt checks the request at final commit: different evidence 7ms
+ ✓ server/commercial/alertContractReview.test.mjs > confirmed nonpartial receipt checks the request at final commit: restored evidence 5ms
+ ✓ server/commercial/alertContractReview.test.mjs > confirmed nonpartial receipt checks the request at final commit: intact 7ms
+ ✓ server/commercial/alertContractReview.test.mjs > direct unblock ACK checks the audited request for initial: different evidence 18ms
+ ✓ server/commercial/alertContractReview.test.mjs > direct unblock ACK checks the audited request for initial: restored evidence 7ms
+ ✓ server/commercial/alertContractReview.test.mjs > direct unblock ACK checks the audited request for initial: intact 5ms
+ ✓ server/commercial/alertContractReview.test.mjs > first direct unblock POST requires the recently created audit: different plan 5ms
+ ✓ server/commercial/alertContractReview.test.mjs > first direct unblock POST requires the recently created audit: restored evidence 4ms
+ ✓ server/commercial/alertContractReview.test.mjs > an intact audit recovers a committed Account decision by receipt after ACK delivery fails 10ms
+ ✓ server/account/unblockFence.test.ts > recovers a predecessor commit with lost ACK before granting any successor 36ms
+ ✓ server/account/unblockFence.test.ts > recovers the same fence after its ACK is lost and rejects the predecessor even if its POST was already in flight 15ms
+ ✓ server/account/unblockFence.test.ts > fences a prepared predecessor with no prior POST and gives concurrent conciliators the same permit 7ms
+ ✓ server/account/unblockFence.test.ts > keeps the first reconciliation when another protected grant names a different successor 10ms
+ ✓ server/account/unblockFence.test.ts > requires fresh approval after a generation conflict and leaves a sibling incident open 21ms
+ ✓ server/account/unblockFence.test.ts > keeps a permitted successor in review if its generation moves again 7ms
+ ✓ server/account/unblockFence.test.ts > rejects a grant edited and restored in place without consuming the still-valid predecessor 11ms
+ ✓ server/account/unblockFence.test.ts > keeps a successor receipt in review when its authorization grant is missing 6ms
+ ✓ server/account/unblockFence.test.ts > recovers the old receipt and reports the new guard still blocked even when epoch and wall time repeat 22ms
+ ✓ server/account/unblockFence.test.ts > accepts an incident with a valid creation time different from the guard creation time 5ms
+ ✓ server/account/unblockFence.test.ts > rejects a malformed incident creation time before applying or reconciling 6ms
+ ✓ server/account/unblockFence.test.ts > rejects a nonpositive incident count before nextGuardReview can authorize an action 5ms
+ ✓ server/account/unblockFence.test.ts > fails closed without changing either account (anchor missing) 9ms
+ ✓ server/account/unblockFence.test.ts > fails closed without changing either account (grant missing) 3ms
+ ✓ server/account/unblockFence.test.ts > fails closed without changing either account (guard recreated) 4ms
+ ✓ server/account/unblockFence.test.ts > fails closed without changing either account (incident recreated) 4ms
+ ✓ server/account/unblockFence.test.ts > fails closed without changing either account (identity restored) 4ms
+ ✓ server/account/unblockFence.test.ts > fails closed without changing either account (grant from another owner) 6ms
+ ✓ server/account/unblockFence.test.ts > preserves the legacy path and never converts its receipts into fenced permits 8ms
+ ✓ server/account/unblockFence.test.ts > documents the trust boundary when a privileged fixture writer recreates an identical receipt 4ms
+ ✓ server/account/unblockFence.test.ts > leaves the three new entry points closed outside tests 4ms
+stdout | server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: unchanged
+audit synthetic unchanged {"result":"closed","calls":["receipt","POST","receipt"],"guard":false,"reviewed":true,"alert":"dispositioned"}
+
+stdout | server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: edited and restored
+audit synthetic edited and restored {"result":"conflict","calls":["receipt","POST","receipt"],"guard":true,"reviewed":false,"alert":"open"}
+
+stdout | server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: missing
+audit synthetic missing {"result":"conflict","calls":["receipt","POST"],"guard":true,"reviewed":false,"alert":"open"}
+
+stdout | server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: identical recreation
+audit synthetic identical recreation {"result":"conflict","calls":["receipt","POST","receipt"],"guard":true,"reviewed":false,"alert":"open"}
+
+stdout | server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: recreated witness
+audit synthetic recreated witness {"result":"conflict","calls":["receipt","POST","receipt"],"guard":true,"reviewed":false,"alert":"open"}
+
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: unchanged 70ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: edited and restored 9ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: missing 7ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: identical recreation 8ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: recreated witness 7ms
+stdout | server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: recreated dispatch
+audit synthetic recreated dispatch {"result":"conflict","calls":["receipt","POST","receipt"],"guard":true,"reviewed":false,"alert":"open"}
+
+stdout | server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: missing pair
+audit synthetic missing pair {"result":"conflict","calls":["receipt","POST"],"guard":true,"reviewed":false,"alert":"open"}
+
+stdout | server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: missing all local proof
+audit synthetic missing all local proof {"result":"conflict","calls":["receipt","POST","receipt"],"guard":true,"reviewed":false,"alert":"open"}
+
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: recreated dispatch 6ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: missing pair 4ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > lost direct ACK then independent retry: missing all local proof 7ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > another coordinator legitimately closes by receipt before the first ACK arrives 11ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > a legitimate hold-outbox delivery while waiting for the direct ACK allows Video to finish 11ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > an applied hold belonging to another account cannot authorize Video to finish after the ACK 11ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > pending before the first POST reaches Account does not authorize a second coordinator 12ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > a real Account conflict stays in reconciliation even when a later read says pending 16ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > a guard without a prior verified writer cut can query Account but cannot start: missing 5ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > a guard without a prior verified writer cut can query Account but cannot start: created after guard 2ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > a guard without a prior verified writer cut can query Account but cannot start: recreated after guard 3ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > an unfinished legacy request without a witness remains in review after a pending lookup 5ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > an unfinished legacy request without a witness remains in review after a confirmed lookup 8ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > a completed legacy audit remains a local replay after continuity records are unavailable 6ms
+ ✓ server/commercial/unblockContinuityIndependent.test.mjs > retained dispatch blocks a stale pending lookup even after the request and witness are lost 6ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > me performs its authorized read in one transaction 9ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > me cannot return earlier data after identity removed 5ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > me cannot return earlier data after identity reassigned 2ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > me cannot return earlier data after identity changed-uid 1ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > read performs its authorized read in one transaction 2ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > read cannot return earlier data after identity removed 1ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > read cannot return earlier data after identity reassigned 2ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > read cannot return earlier data after identity changed-uid 1ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > list performs its authorized read in one transaction 3ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > list cannot return earlier data after identity removed 4ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > list cannot return earlier data after identity reassigned 2ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > list cannot return earlier data after identity changed-uid 2ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > ledger performs its authorized read in one transaction 1ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > ledger cannot return earlier data after identity removed 1ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > ledger cannot return earlier data after identity reassigned 1ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > ledger cannot return earlier data after identity changed-uid 1ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > project and ledger pagination keep ordering and owner-bound cursors 12ms
+ ✓ server/account/accountReadIdentity.test.ts > Account public reads revalidate identity with the data they return > a coherent reassignment cannot reveal the earlier account project or lists 4ms
+ ✓ server/account/videoReservationIdentity.test.ts > Account video reservation identity and record consistency > reads an authorized reservation coherently without moving funds 16ms
+ ✓ server/account/videoReservationIdentity.test.ts > Account video reservation identity and record consistency > does not return the old reservation after identity is removed 5ms
+ ✓ server/account/videoReservationIdentity.test.ts > Account video reservation identity and record consistency > does not return the old reservation after identity is other-account 2ms
+ ✓ server/account/videoReservationIdentity.test.ts > Account video reservation identity and record consistency > does not return the old reservation after identity is changed-uid 1ms
+ ✓ server/account/videoReservationIdentity.test.ts > Account video reservation identity and record consistency > never returns the earlier reservation after a coherent reassignment 2ms
+ ✓ server/account/videoReservationIdentity.test.ts > Account video reservation identity and record consistency > rejects an identity or reservation already absent and never provisions a replacement 4ms
+ ✓ server/account/videoReservationIdentity.test.ts > Account video reservation identity and record consistency > rejects malformed, foreign or inconsistent reservation evidence 6ms
+ ✓ server/account/videoBalanceIdentity.test.ts > Account video balance identity and account consistency > reads an authorized balance coherently without changing it 11ms
+ ✓ server/account/videoBalanceIdentity.test.ts > Account video balance identity and account consistency > does not return the old account after identity is removed between reads 4ms
+ ✓ server/account/videoBalanceIdentity.test.ts > Account video balance identity and account consistency > does not return the old account after identity is other-account between reads 1ms
+ ✓ server/account/videoBalanceIdentity.test.ts > Account video balance identity and account consistency > does not return the old account after identity is changed-uid between reads 1ms
+ ✓ server/account/videoBalanceIdentity.test.ts > Account video balance identity and account consistency > does not return the old balance if the identity moves to a coherent replacement account 1ms
+ ✓ server/account/videoBalanceIdentity.test.ts > Account video balance identity and account consistency > rejects an identity absent before the read without fabricating an account 2ms
+ ✓ server/account/videoBalanceIdentity.test.ts > Account video balance identity and account consistency > rejects a mismatched identity key and malformed balance 2ms
+
+ Test Files  7 passed (7)
+      Tests  127 passed (127)
+   Start at  13:06:55
+   Duration  45.71s (import 86%, tests 7%, transform 7%, worker 1%)
+
+    Isolate  7 workers spawned · ~844ms startup each (spawn + environment, per file)
+             at least ~5.06s faster with isolate: false — reuses workers across files instead of one per file
+

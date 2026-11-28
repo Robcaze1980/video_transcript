@@ -35,7 +35,7 @@ function childMain() {
 
   // Prove that the counter would catch a destination passing the guard; the
   // sentinel throws before Node's actual connection implementation can run.
-  assert.throws(() => net.connect({ host: '127.0.0.1', port: 8185 }), error => error === sentinel);
+  assert.throws(() => net.connect({ host: '127.0.0.1', port: 8198 }), error => error === sentinel);
   assert.equal(realConnectCalls, 1);
   realConnectCalls = 0;
 
@@ -81,12 +81,15 @@ function childMain() {
       () => net.connect(pipe, () => {}, {}),
       () => new net.Socket().connect(pipe, () => {}),
       () => net.connect({ host: '127.0.0.1', port: 3001 }),
+      () => net.connect({ host: '127.0.0.1', port: 8185 }),
+      () => net.connect({ host: '127.0.0.1', port: 8186 }),
+      () => net.connect({ host: '127.0.0.1', port: 8187 }),
       () => net.connect(443, '203.0.113.1'),
       () => globalThis.fetch('http://127.0.0.1:3003/'),
       () => dns.lookup('example.invalid', () => {}),
       () => https.request('https://example.invalid/'),
       () => dgram.createSocket('udp4'),
-      () => http2.connect('http://127.0.0.1:8185', { createConnection: () => new net.Socket() }),
+      () => http2.connect('http://127.0.0.1:8198', { createConnection: () => new net.Socket() }),
       () => new dns.Resolver(),
       () => net.connect({ host: '127.0.0.1', port: 43210 }),
       () => new net.Server().listen(3001, '127.0.0.1'),
@@ -118,18 +121,18 @@ function parentMain() {
     const env = {
       SystemRoot: systemRoot, WINDIR: systemRoot, PATH: path.join(systemRoot, 'System32'),
       APPDATA: profile, USERPROFILE: profile, LOCALAPPDATA: profile, TEMP: temp, TMP: temp,
-      NODE_ENV: 'test', FIRESTORE_EMULATOR_HOST: '127.0.0.1:8185', GOOGLE_CLOUD_PROJECT: 'demo-vistavo-ledger',
-      GCLOUD_PROJECT: 'demo-vistavo-ledger', METADATA_SERVER_DETECTION: 'none', LV_REVIEW_CONTRACT: '1',
+      NODE_ENV: 'test', FIRESTORE_EMULATOR_HOST: '127.0.0.1:8198', GOOGLE_CLOUD_PROJECT: 'demo-vistavo-financial',
+      GCLOUD_PROJECT: 'demo-vistavo-financial', METADATA_SERVER_DETECTION: 'none', LV_REVIEW_CONTRACT: '1',
       LV_REVIEW_GUARD_TEST_CHILD: '1', LV_FINANCIAL_REGRESSION: '1',
     };
     const child = spawnSync(process.execPath, [__filename], { cwd: path.resolve(__dirname, '..'), env, encoding: 'utf8', timeout: 20_000, windowsHide: true, maxBuffer: 1_000_000 });
     assert.equal(child.error, undefined, 'Child process failed');
     assert.equal(child.status, 0, 'Child assertions failed');
     const summary = JSON.parse(child.stdout.trim());
-    assert.deepEqual(summary, { result: 'PASS', syntheticErrors: 2, negativeCases: 18, realConnectCalls: 0, positiveControl: true, ownedListener: true });
+    assert.deepEqual(summary, { result: 'PASS', syntheticErrors: 2, negativeCases: 21, realConnectCalls: 0, positiveControl: true, ownedListener: true });
     assert(child.stderr.includes('VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS'));
     assert.equal((child.stderr.match(/^VISTAVO_REVIEW_TSX_IPC_SYNTHETIC\s*$/gm) || []).length, 2);
-    assert.equal((child.stderr.match(/^VISTAVO_REVIEW_NETWORK_DENIED /gm) || []).length, 18);
+    assert.equal((child.stderr.match(/^VISTAVO_REVIEW_NETWORK_DENIED /gm) || []).length, 21);
     console.log(JSON.stringify(summary));
   } finally {
     // Preserve the unique marked output directory as synthetic evidence. No

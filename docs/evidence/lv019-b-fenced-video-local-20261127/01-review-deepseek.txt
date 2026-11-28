@@ -1,0 +1,28 @@
+Auditoría de solo lectura, sin ejecutar. Contrasté el test nuevo (`billingUnblock.emulator.mjs` ~1571+) con el TAP/resumen y los fragmentos de contrato.
+
+**Lo que la evidencia sí demuestra (alcance acotado)**
+- Confirmación primero: la 1ª invocación hace probe de recibo→`pending`, escribe el reclamo por el código real y llama a `confirmFenced…` (commit en Account) con `epoch`/`createdAtMs` vigentes; luego el adaptador lanza "ACK perdido" (`posts===1`).
+- ACK perdido: `posts===1`, un solo recibo `videoBillingUnblocks`, guard Video sigue `blocked:true`, balance del dueño idéntico a `ownerBefore` (`40/34/6/0/3`) → fase 3 no corrió.
+- Recuperación por recibo: 2ª invocación `receipts===2` (2ª lectura encuentra `confirmed`), `posts===1` (nunca reenvía), `videoBlocked:false`, un único audit `unblocked`, guard Video borrado, Account conserva 1 recibo.
+- Dos reservas: cada release aparece **1 vez** en transporte, `state:'released'`, outbox `settled`; balance final `38/0/2/0/0` ⇒ devolución de las 2 reservas exactamente una vez, sin doble cargo.
+- Aislamiento otra cuenta: `foreign` balance/reserva/ledger sin cambios.
+- Identidad del hold: el confirm/receipt buscan el incidente por `incidentId`; como el pase exige que `req.incidentId`(=holdId de Video) coincida con `record/anchor.incidentId` sembrado con `blocked.hold`, el test transitivamente exige `videoHoldId(...)===accountHoldId(...)`. No es una igualdad trivial.
+- Limpieza/conteos/runner: `cleanup 1/1`, `guardInstances:3`, `tests:true,totalTests:4,passCount:4,failCount:0,selectedNamesMatch:true`; los 4 seleccionados corrieron.
+
+**Negativos / falsa confianza a exponer**
+- El adaptador `billing` **puentea `AccountBillingClient`/`LocalAccountTransport`**: el mapeo `confirmed→{state,epoch,createdAtMs,blocked}` y `pending→{state:'pending'}` está *asumido*, no verificado contra el cliente real. `posts` cuenta invocaciones del adaptador, no POSTs HTTP reales.
+- `epoch`/`createdAtMs` presentados == aceptados (cuerpo idéntico, guard no movido), así que este test **no distingue** "usó el epoch del recibo" vs "usó el presentado" (eso queda en test 11).
+- `fenced_v1` en incidente y el anchor se siembran por `update`/`set` directos: es hipótesis de test; no prueba instalación de cerca ni desactivación del writer antiguo.
+- No se afirma `recovered.replayed`; ni que la 1ª invocación dejara exactamente un reclamo durable (requested/witness/dispatch), solo el audit final.
+- Sin variante negativa de doble envío más allá del camino feliz (retry A/B quedan fuera).
+- No se re-audita `billingHoldIdentity.ts`, por lo que `accountHoldId`≡`videoHoldId` se infiere del pase, no del código.
+
+**Fuera de alcance (bloqueos)**
+- Nada de sucesor, IAM, autorizador real, corte real de escritores, reglas de producción ni despliegue. No hay secretos ni datos de cliente.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `server/commercial/billingUnblock.emulator.mjs` (test nuevo ~1571–1668: `seedFencedHypothesis` + adaptador en memoria `confirmFencedVideoBillingUnblockAttempt`/`fencedVideoBillingUnblockReceipt`); fragmentos `server/commercial/billingUnblock.ts:340-505` (probe→claim→closure, `accepted=receipt.epoch`), `server/account/backend.ts:280-416` (contrato fenced), fixture 1-122; runner `runUnblockFenceEmulator.mjs` (4 nombres, patrón escapado, `fixtureFiles` ×2) y `prepareUnblockFenceIsolation.mjs`/`runUnblockFenceIsolated.ps1` (base `a0f1cc42…`, `expectedSelected:4`). TAP: 4/4 ok; resumen `complete:true,pass:true,passCount:4,failCount:0,selectedNamesMatch:true,guardDenied:false,cleanups:true,mismatchAfter:[]`. Modelo servido y costo: no medido.
+NEGATIVOS: adaptador puentea el cliente/transporte real (shapes asumidos; `posts`=llamadas al adaptador); epoch presentado==aceptado (no cubre divergencia); `fenced_v1`/anchor sembrados como hipótesis; sin aserción de `replayed` ni de reclamo durable único; sin variante negativa de reenvío adicional; identidad de hold inferida del pase, sin `billingHoldIdentity.ts`.
+BLOQUEOS: no certifica sucesor, corte real de escritores, autorizador/IAM real, reglas de producción ni despliegue; emulador aislado y procesos locales únicamente. Falta `billingHoldIdentity.ts` y `accountBillingClient.ts` para cerrar binding de hold y mapeo de shapes del cliente real.
+=== FIN RESUMEN ===

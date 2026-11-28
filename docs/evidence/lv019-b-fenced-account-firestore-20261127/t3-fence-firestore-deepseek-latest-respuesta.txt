@@ -1,0 +1,18 @@
+Reviso solo el runtime `runFencedUnblock` y la fixture aportada, sin ejecutar nada.
+
+**Coherencia autor/runtime.** El contrato es consistente: `checkedUnblockCommand`/`checkedReconcileUnblock` restringen forma y tipos, y las comprobaciones de versión (`createTime` para incidente/anchor/grant, `updateTime` solo para `identity`) se mantienen estables ante la actualización de revisión. Los tests 1 y 2 cubren de forma determinista ambos órdenes; el test 3 solo exige el invariante.
+
+**Propiedad de mutación única.** El `anchor` actúa como punto serializado; la transacción de Firestore fuerza conflicto sobre lecturas concurrentes. El test 3 verifica recibo XOR fence, nunca ambos. Correcto.
+
+**Rechazo tardío / recibo único.** Predecesor tardío → `conflict` porque `active.attemptId` pasa a sucesor (test 2). Recibo con id determinista y `tx.create`; replays devuelven `confirmed` sin escribir (`signature` idéntico). Correcto.
+
+**Impacto de los chequeos incondicionales.** La ruta legada añade un `throw conflict` si `unblockProtocol` existe, más una lectura extra: cambia comportamiento en producción, fail-closed pero **no inerte**. El propósito (evitar clobber entre protocolos) es razonable, pero no está probado por la fixture.
+
+**Gaps.** `aislamiento de otra cuenta` solo se comprueba de forma pasiva (documentos rivales sin cambio), no se rechaza un intento cruzado identidad B/incidente A. El gate `NODE_ENV` no se testea. `nextGuardReview` se calcula en la rama reconcile y podría lanzar `invariant` espurio. No hay test del efecto legado.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: Runtime y fixture coherentes; tests 1–2 cubren serialización en ambos órdenes, test 3 el invariante concurrente. Fence único en `anchor`, recibo determinista, replays sin escritura (`signature` igual), predecesor tardío rechazado con `conflict`, estado económico rival sin cambio. Estado `confirmed`/`permitted`/`pending` consistente con hashes y versiones.
+NEGATIVOS: Aislamiento de otra cuenta solo pasivo (sin intento cruzado rechazado); gate NODE_ENV>test no verificado; chequeos incondicionales de ruta legada cambian producción y no están testeados; `identity` fijado por `updateTime` frágil; `nextGuardReview` puede lanzar `invariant` en reconcile; test 3 no determinista respecto a la rama cubierta; costo no medido.
+BLOQUEOS: Falta ejecución bajo Node 24; sin autoridad real/IAM, corte de versiones, migración, restauración ni integración de Video. Por datos faltantes, veredicto INCONCLUYENTE, no certifica producción ni arnés.
+=== FIN RESUMEN ===

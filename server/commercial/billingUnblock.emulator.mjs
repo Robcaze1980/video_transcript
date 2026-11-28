@@ -1,8 +1,9 @@
-﻿// LV-019.B step 1.4b piece 2: the audited, Video-side unblock against a REAL AccountStore.
+// LV-019.B step 1.4b piece 2: the audited, Video-side unblock against a REAL AccountStore.
 // Contract: docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md v2 (decisions 4, 5, 8; 3.3; 3.4; 3.6; tests 11, 12, 12b, 13)
 // and docs/evidence/lv019-b-t3-codificacion-1-4b-20261123/RECIBO-pieza-1.md.
 // Synthetic only: the fixed loopback emulator and Account running in this process. No cloud, no credentials, no deploy.
 import assert from 'node:assert/strict';
+import {prepareFinancialOwnedRoot,assertFinancialOwnedRoot,deleteFinancialOwnedRoot} from './financialOwnedRootGuard.mjs';
 import {after,afterEach,before,test} from 'node:test';
 import {createHash,randomUUID} from 'node:crypto';
 import {Readable} from 'node:stream';
@@ -11,15 +12,16 @@ import {FirestoreBackend,LedgerFault,validClearIntentAdmissionGuard} from './fir
 import {FirestoreAi} from './firestoreAi.ts';
 import {ObjectFault} from './gcsObjects.ts';
 import {AccountBillingClient,accountIdentityKey} from './accountBillingClient.ts';
-import {AccountStore} from '../account/backend.ts';
+import {AccountFault,AccountStore} from '../account/backend.ts';
 import {privateBucket} from './privateObjectPlan.ts';
 import {ALERT_COLLECTION,alertKey,raisePendingAlerts} from './billingPendingAlerts.ts';
 import {readPendingReport} from './billingPendingReport.ts';
 import {acquireDrainLease,DRAIN_LEASE_COLLECTION,DRAIN_LEASE_DOC_ID} from './billingDrainLease.ts';
-import {blockedState,unblockBillingAccount,UnblockFault,UNBLOCK_AUDIT_COLLECTION,unblockAuditId} from './billingUnblock.ts';
+import {blockedState,unblockBillingAccount,UnblockFault,UNBLOCK_AUDIT_COLLECTION,UNBLOCK_CONTINUITY_COLLECTION,UNBLOCK_WRITER_CUT_ID,unblockAuditId} from './billingUnblock.ts';
 import {accountHoldId} from './billingHoldIdentity.ts';
+import {attestLocalEmulatorPair,attestLocalEmulatorPairWithAccountRoot,UNBLOCK_SUCCESSOR_COLLECTION} from './billingUnblock.ts';
 
-const project='demo-vistavo-ledger',host='127.0.0.1:8185';
+const project='demo-vistavo-financial',host='127.0.0.1:8198';
 const videoCollection='vistavo_unblock_video_synthetic',accountCollection='vistavo_unblock_ledger_synthetic';
 const sha=value=>createHash('sha256').update(String(value)).digest('hex');
 const ref=(root,collection,id)=>root.collection(collection).doc(id);
@@ -38,14 +40,14 @@ function assertSafeClient(c){
   assertSafeEnvironment();
   assert.match(c.root.path,new RegExp(`^${videoCollection}/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$`));
   assert.match(c.accountRoot.path,new RegExp(`^${accountCollection}/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$`));
-  const settings=c.db._settings;assert.equal(settings?.servicePath,'127.0.0.1');assert.equal(settings?.port,8185);assert.equal(settings?.ssl,false);assert.equal(settings?.preferRest,false);
+  const settings=c.db._settings;assert.equal(settings?.servicePath,'127.0.0.1');assert.equal(settings?.port,8198);assert.equal(settings?.ssl,false);assert.equal(settings?.preferRest,false);
 }
 async function descendants(document,found=[]){for(const group of await document.listCollections())for(const child of await group.listDocuments()){found.push(child);await descendants(child,found);}return found;}
 before(async()=>{assertSafeEnvironment();assert.equal((await fetch(`http://${host}/`,{signal:AbortSignal.timeout(5000)})).status,200);});
 afterEach(async()=>{
   for(const c of contexts.splice(0)){
     try{
-      for(const entry of c.roots){const known=await descendants(entry.root);await c.db.recursiveDelete(entry.root);assert.equal((await entry.root.get()).exists,false);for(const doc of known)assert.equal((await doc.get()).exists,false);}
+      for(const entry of c.roots){await assertFinancialOwnedRoot(c.db,entry.root,entry.marker);const known=await descendants(entry.root);await deleteFinancialOwnedRoot(c.db,entry.root,entry.marker);assert.equal((await entry.root.get()).exists,false);for(const doc of known)assert.equal((await doc.get()).exists,false);}
       cleaned++;
     }finally{await c.db.terminate();}
   }
@@ -54,15 +56,21 @@ after(()=>{console.log(`Synthetic unblock-1.4b cleanup total: ${cleaned}/${creat
 
 const accountStatus={invalid:400,not_found:404,account_not_provisioned:404,conflict:409,deleted:410,quota:429,insufficient:402,invariant:503,too_early:409,forbidden:403};
 class LocalAccountTransport{
-  bodies=[];
+  bodies=[];fenced=null;lastFenced=null;
   constructor(store){this.store=store;}
   async request(request){
     const pathname=new URL(request.url).pathname,body=request.data??{};this.bodies.push({pathname,data:copy(body)});
     const parts=pathname.split('/'),reservationId=parts.at(-2);
     const httpFault=(status,code)=>Object.assign(Error('Synthetic Account refusal'),{response:{status,data:{error:code}}});
     const guard=async action=>{try{return {data:await action()};}catch(error){if(error?.response)throw error;throw httpFault(accountStatus[error?.code]??503,error?.code??'invariant');}};
-    if(pathname==='/api/internal/video/billing-holds/unblock')return guard(()=>this.store.unblockVideoBilling(body.identityKey,{incidentId:body.incidentId,epoch:body.epoch,createdAtMs:body.createdAtMs,reviewRef:body.reviewRef}));
-    if(pathname==='/api/internal/video/billing-holds/unblock-receipt')return guard(()=>this.store.videoBillingUnblockReceipt(body.identityKey,body.incidentId,body.reviewRef));
+    if(pathname==='/api/internal/video/billing-holds/unblock'){
+      if(this.fenced&&body.incidentId===this.fenced.incidentId)return guard(()=>this.fencedConfirm(body));
+      return guard(()=>this.store.unblockVideoBilling(body.identityKey,{incidentId:body.incidentId,epoch:body.epoch,createdAtMs:body.createdAtMs,reviewRef:body.reviewRef}));
+    }
+    if(pathname==='/api/internal/video/billing-holds/unblock-receipt'){
+      if(this.fenced&&body.incidentId===this.fenced.incidentId)return guard(()=>this.fencedReceipt(body));
+      return guard(()=>this.store.videoBillingUnblockReceipt(body.identityKey,body.incidentId,body.reviewRef));
+    }
     if(pathname==='/api/internal/video/billing-holds/status')return guard(()=>this.store.videoBillingHold(body.identityKey,body.incidentId));
     if(pathname==='/api/internal/video/billing-holds')return guard(()=>this.store.blockVideoBilling(body.identityKey,body.incidentId));
     if(pathname==='/api/internal/video/reservations')return guard(async()=>({...await this.store.reserveVideo(body.identityKey,body.reservationId,body.seconds),reservationId:body.reservationId}));
@@ -78,6 +86,26 @@ class LocalAccountTransport{
       return guard(async()=>({...await this.store.settleVideo(body.identityKey,reservationId,action,body.seconds,admission,options),reservationId}));
     }
     throw httpFault(404,'not_found');
+  }
+  async fencedConfirm(body){
+    const f=this.fenced;
+    const attemptId=body.epoch===f.successorEpoch&&body.epoch!==f.previousEpoch?f.successorAttemptId:
+      body.epoch===f.previousEpoch&&body.epoch!==f.successorEpoch?f.previousAttemptId:null;
+    if(!attemptId)throw Object.assign(new Error('ambiguous fenced confirm epoch'),{code:'conflict'});
+    const result=await this.store.confirmFencedVideoBillingUnblockAttempt(body.identityKey,{
+      incidentId:body.incidentId,attemptId,epoch:body.epoch,createdAtMs:body.createdAtMs,
+      reviewRef:body.reviewRef,authorizationSha256:f.authorizationSha256});
+    if(result.state!=='confirmed'||result.attemptId!==attemptId||result.epoch!==body.epoch)
+      throw Object.assign(new Error('unexpected fenced confirm'),{code:'conflict'});
+    return {unblocked:true,replayed:result.replayed,blocked:result.blocked};
+  }
+  async fencedReceipt(body){
+    const result=await fencedReceiptProbe(this.store,this.fenced,{
+      identityKey:body.identityKey,incidentId:body.incidentId,reviewRef:body.reviewRef});
+    this.lastFenced=result;
+    if(result.state==='pending')return {state:'pending',incidentId:body.incidentId,reviewRef:body.reviewRef};
+    return {state:'confirmed',incidentId:body.incidentId,reviewRef:body.reviewRef,
+      epoch:result.epoch,createdAtMs:result.createdAtMs,blocked:result.blocked};
   }
 }
 class MemoryObjects{
@@ -97,7 +125,14 @@ async function fixture(scope){
   const root=db.collection(videoCollection).doc(randomUUID()),accountRoot=db.collection(accountCollection).doc(randomUUID());
   const c={scope,db,root,accountRoot,roots:[root,accountRoot].map(document=>({root:document,marker:{project,purpose:'unblock-1.4b-synthetic-v1',nonce:randomUUID()}}))};
   contexts.push(c);created++;assertSafeClient(c);
-  for(const entry of c.roots)await entry.root.create(entry.marker);
+  for(const entry of c.roots)await prepareFinancialOwnedRoot(c.db,entry.root,entry.marker);
+  // Test-only: the isolated root has no older writers; install the immutable cut before creating guards.
+  await assertFinancialOwnedRoot(c.db,c.root,c.roots[0].marker);
+  c.writerCut=ref(c.root,UNBLOCK_CONTINUITY_COLLECTION,UNBLOCK_WRITER_CUT_ID);
+  await c.writerCut.create({v:1,purpose:'unblock-writer-cut'});
+  const cut=await c.writerCut.get();
+  assert.deepEqual(cut.data(),{v:1,purpose:'unblock-writer-cut'});
+  assert.ok(cut.createTime&&cut.updateTime&&cut.createTime.isEqual(cut.updateTime),'the writer cut is immutable');
   c.backend=new FirestoreBackend(db,root);c.store=new AccountStore(db,accountRoot);
   c.uid='synthetic-unblock-owner-'+randomUUID();c.account=await c.backend.accountForUid(c.uid);
   await ref(root,'accounts',c.account).update({aiPilot:true,simulationOnly:true});
@@ -155,6 +190,14 @@ const versionOf=async(c,id)=>{const s=await outbox(c,id).get();return s.updateTi
  * incident, the hold and the guard through the REAL writer, and then Account is blocked through the real drainer path
  * (the hold id IS Account's incident id). Returns the guard generation the operator must name.
  */
+async function fixtureGuardAfterWriterCut(c){
+  const [guard,cut]=await Promise.all([guardOf(c).get(),c.writerCut.get()]);
+  assert.deepEqual(cut.data(),{v:1,purpose:'unblock-writer-cut'});
+  assert.ok(cut.createTime&&cut.updateTime&&cut.createTime.isEqual(cut.updateTime));
+  const a=guard.createTime,b=cut.createTime;
+  assert.ok(a&&b&&(a.seconds>b.seconds||a.seconds===b.seconds&&a.nanoseconds>b.nanoseconds),'the guard must be created strictly after the synthetic cut');
+  return guard.data();
+}
 async function blockedAccount(scope,options={}){
   const c=await fixture(scope),job=await captureJob(c);
   // Extra captured jobs are prepared BEFORE the block: a blocked account refuses new work, which is the point of the guard.
@@ -163,7 +206,7 @@ async function blockedAccount(scope,options={}){
   const {expected,snapshot}=await expectedAndSnapshot(c,job.id),version=await versionOf(c,job.id);
   const outcome=await c.backend.quarantineExternalBillingOutbox(job.id,{phase:'after_ack',snapshotVersion:version,expected,ack:{reservationId:randomUUID(),seconds:expected.seconds,state:'released'},settlementSnapshot:snapshot});
   assert.equal(outcome.state,'needs_review');assert.equal(outcome.ownerBlocked,true);
-  const guard=(await guardOf(c).get()).data();
+  const guard=await fixtureGuardAfterWriterCut(c);
   const holds=await c.root.collection('billingHoldOutbox').where('state','==','pending').get();
   assert.equal(holds.size,1,'the real writer leaves exactly one pending hold');
   const hold=holds.docs[0].get('id');
@@ -185,7 +228,7 @@ async function blockedIntentAccount(scope){
   const c=await fixture(scope),requestKey=randomUUID(),reservationId=randomUUID(),data={provider:'account_seconds',identityKey:c.identity,reservationId,seconds:2};
   await c.backend.beginExternalBillingIntent(c.account,c.input,requestKey,'translation:en',1,data);
   await c.backend.recordExternalBillingReview(c.account,requestKey,data,{reservationId,state:'captured',seconds:2});
-  const guard=(await guardOf(c).get()).data();
+  const guard=await fixtureGuardAfterWriterCut(c);
   const holds=await c.root.collection('billingHoldOutbox').where('state','==','pending').get();
   assert.equal(holds.size,1,'the real writer leaves exactly one pending hold');
   const hold=holds.docs[0].get('id');
@@ -223,6 +266,118 @@ async function request(c,blocked,overrides={}){
   };
 }
 const deps=c=>({db:c.db,root:c.root,accountBilling:c.accountBilling});
+const hashJson=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+// Account's EXACT version shape (server/account/backend.ts:52): seconds + ':' + nanoseconds, NO padding.
+const stampNoPad=(doc,field)=>{const s=doc[field];
+  return s&&Number.isSafeInteger(s.seconds)&&Number.isSafeInteger(s.nanoseconds)&&s.nanoseconds<1_000_000_000?
+    s.seconds+':'+s.nanoseconds:null;};
+
+/**
+ * Uses the REAL AccountStore.fencedVideoBillingUnblockReceipt. The anchor chooses the ACTIVE attempt:
+ * unfenced -> previous; fenced -> successor. The first probe is authoritative; a conflict means the other
+ * attempt is active. No Firestore document is read or interpreted here.
+ */
+async function fencedReceiptProbe(store,seeded,input){
+  const base={incidentId:input.incidentId,createdAtMs:seeded.accountCreatedAtMs,
+    reviewRef:input.reviewRef,authorizationSha256:seeded.authorizationSha256};
+  try{
+    return await store.fencedVideoBillingUnblockReceipt(input.identityKey,
+      {...base,attemptId:seeded.previousAttemptId,epoch:seeded.previousEpoch});
+  }catch(error){
+    if(error?.code!=='conflict')throw error;
+    return store.fencedVideoBillingUnblockReceipt(input.identityKey,
+      {...base,attemptId:seeded.successorAttemptId,epoch:seeded.successorEpoch});
+  }
+}
+async function seedFencedSuccessor(c,blocked,options={}){
+  const accountId=c.accountOwner;
+  const incidentId=options.anchorIncidentId??blocked.hold;
+  const identityKey=options.identityKey??c.identity;
+  const reviewRef=options.reviewRef??'ticket-LV-019B-unblock-01';
+  const guardDoc=ref(c.accountRoot,'videoBillingGuards',accountId),guard=await guardDoc.get();
+  assert.equal(guard.exists,true,'the real Account guard is required');
+  const liveEpoch=guard.get('epoch'),accountCreatedAtMs=guard.get('createdAtMs');
+  assert.ok(Number.isSafeInteger(liveEpoch)&&liveEpoch>=1);assert.ok(Number.isSafeInteger(accountCreatedAtMs));
+  const incidentDoc=ref(c.accountRoot,'videoBillingIncidents',hashJson([accountId,incidentId]));
+  const existing=await incidentDoc.get();assert.equal(existing.exists,true,'the real Account incident is required');
+  if(existing.get('unblockProtocol')===undefined)await incidentDoc.update({unblockProtocol:'fenced_v1'});
+  const incident=await incidentDoc.get(),identity=await ref(c.accountRoot,'identities',identityKey).get();
+  assert.equal(identity.exists,true,'the real Account identity is required');
+  const original={ownerAccountId:accountId,identityKey,incidentId,unblockProtocol:'fenced_v1',
+    createdAtMs:accountCreatedAtMs,reviewRef,
+    authorizationSha256:options.authorizationSha256??hashJson(['synthetic-grant',identityKey,incidentId]),
+    identityVersion:stampNoPad(identity,'updateTime'),
+    incidentVersion:stampNoPad(incident,'createTime'),
+    guardVersion:stampNoPad(guard,'createTime')};
+  assert.ok(original.identityVersion&&original.incidentVersion&&original.guardVersion,'real versions are required');
+  assert.equal(original.guardVersion,guard.createTime.seconds+':'+guard.createTime.nanoseconds,'unpadded guard version');
+  assert.equal(original.incidentVersion,incident.createTime.seconds+':'+incident.createTime.nanoseconds,'unpadded incident version');
+  const previousAttemptId=options.previousAttemptId??randomUUID();
+  const successorAttemptId=options.successorAttemptId??randomUUID();
+  const reconcileId=options.reconcileId??randomUUID();
+  const previousEpoch=options.previousEpoch??liveEpoch;
+  const successorEpoch=options.successorEpoch??liveEpoch;
+  assert.notEqual(previousAttemptId,successorAttemptId);
+  const anchor=ref(c.accountRoot,'videoBillingUnblockAttempts',hashJson([accountId,incidentId]));
+  await anchor.create({...original,initialAttemptId:previousAttemptId,initialEpoch:previousEpoch});
+  const grant=options.grant===false?null:ref(c.accountRoot,'videoBillingUnblockReconciliationGrants',
+    hashJson([accountId,incidentId,reconcileId]));
+  if(grant)await grant.create({...original,previousAttemptId,previousEpoch,reconcileId,
+    attemptId:successorAttemptId,epoch:successorEpoch});
+  const seededAnchor=await anchor.get();
+  assert.ok(seededAnchor.createTime.isEqual(seededAnchor.updateTime),'the seeded anchor is immutable');
+  if(grant){const g=await grant.get();assert.ok(g.createTime.isEqual(g.updateTime),'the seeded grant is immutable');}
+  c.transport.fenced={accountRoot:c.accountRoot,accountId,identityKey:c.identity,incidentId,
+    previousAttemptId,previousEpoch,successorAttemptId,successorEpoch,
+    accountCreatedAtMs,authorizationSha256:original.authorizationSha256};
+  return {accountId,incidentId,identityKey:c.identity,reviewRef,accountCreatedAtMs,liveEpoch,original,
+    previousAttemptId,previousEpoch,successorAttemptId,successorEpoch,reconcileId,
+    authorizationSha256:original.authorizationSha256,anchor,grant};
+}
+function fencedDeps(c,seeded){
+  const attestation=attestLocalEmulatorPairWithAccountRoot(c.db,c.db,c.accountRoot);
+  const seam={
+    attestation,
+    attempt:{previousAttemptId:seeded.previousAttemptId,previousEpoch:seeded.previousEpoch,
+      reconcileId:seeded.reconcileId,attemptId:seeded.successorAttemptId,epoch:seeded.successorEpoch,
+      authorizationSha256:seeded.authorizationSha256},
+    accountCreatedAtMs:seeded.accountCreatedAtMs,
+    async receipt(input){
+      const value=await c.accountBilling.unblockReceipt(input.identityKey,input.incidentId,input.reviewRef);
+      const fenced=c.transport.lastFenced;
+      if(!fenced)throw new UnblockFault('corrupt');
+      if(value.state==='pending'){
+        if(fenced.state!=='pending')throw new UnblockFault('corrupt');
+        return {state:'pending',attemptId:fenced.attemptId,epoch:fenced.epoch,createdAtMs:fenced.createdAtMs};
+      }
+      if(value.state!=='confirmed'||fenced.state!=='confirmed')throw new UnblockFault('corrupt');
+      return {state:'confirmed',attemptId:fenced.attemptId,epoch:value.epoch,createdAtMs:value.createdAtMs,
+        blocked:value.blocked,replayed:true};
+    },
+    async reconcile({identityKey,incidentId,reviewRef}){
+      return c.store.reconcileVideoBillingUnblockAttempt(identityKey,{
+        incidentId,attemptId:seeded.successorAttemptId,epoch:seeded.successorEpoch,
+        createdAtMs:seeded.accountCreatedAtMs,reviewRef,authorizationSha256:seeded.authorizationSha256,
+        previousAttemptId:seeded.previousAttemptId,previousEpoch:seeded.previousEpoch,
+        reconcileId:seeded.reconcileId});
+    },
+    async confirm({identityKey,incidentId,reviewRef,attempt}){
+      const tuple=attempt==='previous'?
+        {attemptId:seeded.previousAttemptId,epoch:seeded.previousEpoch}:
+        {attemptId:seeded.successorAttemptId,epoch:seeded.successorEpoch};
+      if(seeded.previousEpoch===seeded.successorEpoch)
+        return c.store.confirmFencedVideoBillingUnblockAttempt(identityKey,{
+          incidentId,attemptId:tuple.attemptId,epoch:tuple.epoch,createdAtMs:seeded.accountCreatedAtMs,
+          reviewRef,authorizationSha256:seeded.authorizationSha256});
+      const value=await c.accountBilling.unblock(identityKey,{
+        incidentId,epoch:tuple.epoch,createdAtMs:seeded.accountCreatedAtMs,reviewRef});
+      return {state:'confirmed',attemptId:tuple.attemptId,epoch:tuple.epoch,
+        createdAtMs:seeded.accountCreatedAtMs,blocked:value.blocked,replayed:value.replayed};
+    },
+  };
+  return {db:c.db,root:c.root,accountBilling:c.accountBilling,successor:seam,localAccountRoot:c.accountRoot};
+}
+
 async function signatures(root){
   const out={};
   for(const name of await root.listCollections()){
@@ -678,10 +833,6 @@ test('11 partial then repeat: once Account has no other incident, the identical 
   assert.equal(alert.get('dispositionedBy'),'operator-ana');assert.equal(alert.get('dispositionAuditId'),unblockAuditId(blocked.incident,'video_released',blocked.guard.epoch,blocked.guard.createdAtMs));
   const releasedRecord=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'video_released',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
   assert.equal(releasedRecord.get('accountEpoch'),requestBody.accountEpoch,'the release record names the Account generation of the confirmed call');assert.equal(releasedRecord.get('accountCreatedAtMs'),requestBody.accountCreatedAtMs);
-  // The release of the Video guard also marks the account for the reopening sweep, with the audit id of this release.
-  const reopening=await ref(c.root,'billingReleaseReopenings',c.account).get();
-  assert.equal(reopening.exists,true,'the partial release marks the account for the reopening sweep');
-  assert.equal(reopening.get('auditId'),unblockAuditId(blocked.incident,'video_released',blocked.guard.epoch,blocked.guard.createdAtMs));
   await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-bob',9_000_009_000),error=>error instanceof UnblockFault&&error.code==='conflict');
   await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,evidenceRef:'ticket-other'},'operator-ana',9_000_009_000),error=>error instanceof UnblockFault&&error.code==='conflict');
   assert.deepEqual(await signatures(c.root),before.video);
@@ -736,15 +887,27 @@ for(const between of ['applied','needs_review']){
     const blocked=await blockedAccount('unblock_hold_between_'+between),c=blocked.c;
     await ref(c.root,'billingHoldOutbox',blocked.hold).update({state:'pending',nextAttemptAt:Date.now()});
     const requestBody=await request(c,blocked);
-    const failing={db:c.db,root:c.root,accountBilling:{unblock:async()=>{throw Object.assign(new Error('synthetic'),{code:'not_found'});}}};
-    await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+    // Account receives exactly one real unblock on the local double: it commits, then the reply is lost before Video learns the outcome.
+    let posts=0,receipts=0;
+    const billing={
+      unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+      unblock:async(...args)=>{posts++;const result=await c.accountBilling.unblock(...args);if(posts===1)throw new Error('synthetic lost reply after Account commit');return result;},
+    };
+    const isolated={db:c.db,root:c.root,accountBilling:billing};
+    await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+    assert.equal(posts,1,'the lost-reply path sends exactly one POST to Account');
+    assert.equal(receipts,1,'the first attempt reads the receipt once');
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'Account committed exactly one unblock receipt');
     const requested=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
     assert.equal(requested.exists,true,'the audited request stays visible');
     assert.equal(requested.get('planned').find(row=>row.collection==='billingHoldOutbox')?.state,'pending','the hold was pending when audited');
-    // The drainer (or the authorizer) moves the hold after the audit.
+    // The drainer (or the authorizer) moves the hold after the audit; recovery must go through the receipt and never resend the POST.
     await ref(c.root,'billingHoldOutbox',blocked.hold).update(between==='applied'?{state:'applied',appliedAtMs:Date.now()}:{state:'needs_review'});
-    const result=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_005_000);
+    const result=await unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_005_000);
     assert.equal(result.unblocked,true);assert.equal(result.videoBlocked,false,'the repeat completes the release');
+    assert.equal(posts,1,'recovery uses the receipt and never resends the POST');
+    assert.equal(receipts,2,'recovery reads the receipt exactly twice in total');
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'recovery writes no second Account receipt');
     assert.equal((await guardOf(c).get()).exists,false);
     assert.equal((await ref(c.root,'billingHoldOutbox',blocked.hold).get()).get('state'),'applied','the hold ends applied');
     const alert=await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get();assert.equal(alert.get('status'),'dispositioned');
@@ -774,28 +937,67 @@ test('11 negative: every kind of unresolved row of the account stops the unblock
   assert.equal(result.unblocked,true);assert.equal(result.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
   assert.equal((await ref(c.root,'billingOutbox',sha('foreign|billingOutbox|'+JSON.stringify({state:'needs_review'}))).get()).get('state'),'needs_review','a foreign row is never advanced');
 });
-test('11 resume: an audited request only resumes on the SAME guard generation, operator and payload',{timeout:90000},async()=>{
-  const blocked=await blockedAccount('unblock_resume_drift'),c=blocked.c,requestBody=await request(c,blocked);let calls=0;
-  const fail=async()=>{calls++;throw Object.assign(new Error('synthetic'),{code:'unavailable'});};
-  const failing={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
+test('11 resume: a pending claim on the SAME guard generation, operator and payload keeps the Video block and never sends twice',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_resume_drift'),c=blocked.c,requestBody=await request(c,blocked);
+  let unblockCalls=0,receiptReads=0;
+  const client=c.accountBilling;
+  const failing={...deps(c),accountBilling:{
+    unblock:async()=>{unblockCalls++;throw Object.assign(new Error('synthetic uncertain POST'),{code:'unavailable'});},
+    unblockReceipt:async(...args)=>{receiptReads++;return client.unblockReceipt(...args);}}};
+  const balanceBefore=await c.store.videoBalance(c.identity);
   await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
-  assert.equal(calls,1);const before=withoutGuard(c,await signatures(c.root));
-  for(const [name,body,who] of [['another operator',requestBody,'operator-bob'],['another evidence',{...requestBody,evidenceRef:'ticket-other'},'operator-ana'],['another note',{...requestBody,note:'another note'},'operator-ana']])
+  assert.equal(unblockCalls,1,'the first attempt is the only POST to Account');
+  assert.ok(receiptReads>=1,'the write is preceded by a receipt read');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the pending claim keeps the Video block');
+  const requested=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(requested.size,1,'the audited request is durable after the uncertain POST');
+  assert.equal(requested.docs[0].get('action'),'unblock_requested');
+  const before=withoutGuard(c,await signatures(c.root));
+  for(const [name,body,who] of [['another operator',requestBody,'operator-bob'],['another evidence',{...requestBody,evidenceRef:'ticket-other'},'operator-ana'],['another note',{...requestBody,note:'another note'},'operator-ana']]){
     await assert.rejects(unblockBillingAccount(failing,c.account,body,who,9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
+  }
+  assert.equal(unblockCalls,1,'operator and payload drift are refused without a new mutation to Account');
   const original=(await guardOf(c).get()).data();
-  await guardOf(c).delete();
-  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_002_000),error=>error instanceof UnblockFault&&error.code==='conflict');
-  await guardOf(c).set(original);
-  for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}],
-    // Codex mutation round 7 (integrated line): a guard that is no longer blocked, or that names the incident through BOTH fields, is not the audited guard.
-    ['not blocked',{blocked:false}],['both incident fields',{lastIncidentId:original.lastOutboxIncidentId}]]){
+  for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}]]){
     await guardOf(c).update(change);
     await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_002_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
     await guardOf(c).set(original);
   }
-  assert.equal(calls,1,'a refused repeat never reaches Account');assert.deepEqual(withoutGuard(c,await signatures(c.root)),before,'a refused repeat writes nothing');
-  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_003_000);
-  assert.equal(resumed.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
+  assert.equal(unblockCalls,1,'guard field drift is refused without a new mutation to Account');
+  assert.deepEqual((await guardOf(c).get()).data(),original,'the same guard document is restored to its original fields');
+  const readsBeforeRepeat=receiptReads;
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_003_000),error=>error instanceof UnblockFault&&error.code==='conflict','an identical repeat over a pending claim is refused too');
+  assert.equal(unblockCalls,1,'a refused repeat never sends another POST to Account');
+  assert.ok(receiptReads>readsBeforeRepeat,'the identical repeat consults the receipt');
+  assert.deepEqual(withoutGuard(c,await signatures(c.root)),before,'a refused repeat writes nothing');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'pending conserves the Video block');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no completion while the claim stays pending');
+  assert.deepEqual(await c.store.videoBalance(c.identity),balanceBefore,'the balance is untouched');
+});
+test('retry generation missing: a claim left by an uncertain POST still refuses a later call after the guard document is gone',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_missing_guard_claim'),c=blocked.c,requestBody=await request(c,blocked);
+  let unblockCalls=0;
+  const client=c.accountBilling;
+  const failing={...deps(c),accountBilling:{
+    unblock:async()=>{unblockCalls++;throw Object.assign(new Error('synthetic uncertain POST'),{code:'unavailable'});},
+    unblockReceipt:async(...args)=>client.unblockReceipt(...args)}};
+  const balanceBefore=await c.store.videoBalance(c.identity);
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(unblockCalls,1,'the claim is left by the only POST, which fails uncertainly');
+  const requested=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(requested.size,1,'the audited request is durable after the uncertain POST');
+  assert.equal(requested.docs[0].get('action'),'unblock_requested');
+  await guardOf(c).delete();
+  const before=await signatures(c.root);
+  assert.equal((await guardOf(c).get()).exists,false,'the guard document is gone for this fixture');
+  // The refusal below is the guard check over a claim already on disk; it does NOT prove
+  // that the claim alone refuses, and no generation continuity is asserted for the deleted guard.
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict','a missing guard does not resurrect the send');
+  assert.equal(unblockCalls,1,'no second POST to Account');
+  assert.equal((await guardOf(c).get()).exists,false,'the refused call does not recreate the guard');
+  assert.deepEqual(await signatures(c.root),before,'the refused call writes nothing');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no completion is written');
+  assert.deepEqual(await c.store.videoBalance(c.identity),balanceBefore,'the balance is untouched');
 });
 test('11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted',{timeout:90000},async()=>{
   const blocked=await blockedAccount('unblock_partial_drift'),c=blocked.c;
@@ -806,9 +1008,7 @@ test('11 partial: the repeat only resumes on the SAME guard generation and never
   let calls=0;const fail=async()=>{calls++;throw new Error('unexpected Account request');};
   const counting={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
   const before=withoutGuard(c,await signatures(c.root)),original=(await guardOf(c).get()).data();
-  for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}],
-    // (A guard that is no longer `blocked:true` is not a live block: the completion record then answers as a pure replay, which the resume test above and phase 3 pin separately.)
-    ['both incident fields',{lastIncidentId:original.lastOutboxIncidentId}]]){
+  for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}]]){
     await guardOf(c).update(change);
     await assert.rejects(unblockBillingAccount(counting,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
     await guardOf(c).set(original);
@@ -879,18 +1079,94 @@ for(const [name,tamper] of [
 // Same review, finding 1: the Account generation the operator tool supplied is NOT part of the compared payload (Account's own guard
 // moves legitimately between retries), so the record of what was actually USED must carry it, or the audit trail could not tell which
 // Account generation the confirmed call named.
-test('11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt',{timeout:60000},async()=>{
-  const blocked=await blockedAccount('unblock_account_generation_trace'),c=blocked.c,requestBody=await request(c,blocked);
-  const failing={db:c.db,root:c.root,accountBilling:{unblock:async()=>{throw Object.assign(new Error('synthetic'),{code:'unavailable'});}}};
-  const first={...requestBody,accountEpoch:requestBody.accountEpoch+7,accountCreatedAtMs:requestBody.accountCreatedAtMs+7};
-  await assert.rejects(unblockBillingAccount(failing,c.account,first,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
-  const requested=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
-  assert.equal(requested.get('accountEpoch'),first.accountEpoch,'the first attempt is recorded as the operator supplied it');
-  const done=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000);
+test('11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('unblock_account_generation_trace'),c=blocked.c;
+  const oldBody=await request(c,blocked);
+  const g0={epoch:oldBody.accountEpoch,createdAtMs:oldBody.accountCreatedAtMs};
+  // A REAL previous generation: add a second Account incident, review it while the original stays open.
+  const support=accountHoldId('outbox',randomUUID(),1,1);
+  assert.equal((await c.accountBilling.block(c.identity,support)).created,true);
+  const g1=await accountGuard(c);assert.equal(g1.epoch,g0.epoch+1);
+  const supportReview=await c.accountBilling.unblock(c.identity,{incidentId:support,...g1,reviewRef:'synthetic review of the supporting hold'});
+  assert.equal(supportReview.blocked,true,'the original hold still blocks Account');
+  const g1After=await accountGuard(c);assert.equal(g1After.epoch,g1.epoch);assert.equal(g1After.createdAtMs,g1.createdAtMs);
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).get('reviewedCount'),1);
+  // First attempt records epoch 1 and fails BEFORE Account commits.
+  let failedDeliveries=0;
+  const failing={db:c.db,root:c.root,accountBilling:{
+    unblock:async()=>{failedDeliveries++;throw Object.assign(new Error('synthetic delivery failure'),{code:'unavailable'});},
+    unblockReceipt:async()=>({state:'pending'})}};
+  await assert.rejects(unblockBillingAccount(failing,c.account,oldBody,'operator-ana',9_000_000_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(failedDeliveries,1);
+  const requestedRef=ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs));
+  const requested=await requestedRef.get();
+  assert.equal(requested.get('accountEpoch'),g0.epoch,'the first attempt is recorded as the operator supplied it');
+  assert.equal(requested.get('accountCreatedAtMs'),g0.createdAtMs);
+  const requestVersion=stampNoPad(requested,'updateTime');assert.ok(requestVersion);
+  // TEST-ONLY anchor/grant: previous=1, successor=2.
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:g0.epoch,successorEpoch:g1.epoch});
+  const base=fencedDeps(c,seeded);
+  let successorSends=0,receiptCalls=0;
+  const fenced={...base,successor:{...base.successor,
+    async receipt(input){receiptCalls++;return base.successor.receipt(input);},
+    async confirm(input){if(input.attempt==='successor')successorSends++;return base.successor.confirm(input);}}};
+  // A second, foreign identity is blocked too; neither attempt may touch it.
+  const foreignUid='synthetic-trace-foreign-'+randomUUID(),foreign=await c.store.bootstrap(foreignUid),foreignIdentity=accountIdentityKey(foreignUid);
+  assert.equal((await c.accountBilling.block(foreignIdentity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+  const foreignGuardBefore=(await ref(c.accountRoot,'videoBillingGuards',foreign.account.id).get()).data();
+  const postsBefore=c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
+  const retryBody={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
+  const done=await unblockBillingAccount(fenced,c.account,retryBody,'operator-ana',9_000_001_000);
   assert.equal(done.videoBlocked,false);
+  assert.equal(successorSends,1,'one successor dispatch');
+  assert.equal(receiptCalls,2,'one snapshot receipt and one pre-release revalidation');
+  assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,postsBefore+1,'one new mutation');
+  assert.equal(stampNoPad(await requestedRef.get(),'updateTime'),requestVersion,'the original request is unchanged');
+  assert.equal((await requestedRef.get()).get('accountEpoch'),g0.epoch,'the durable request keeps the FIRST Account generation');
   const record=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblocked',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
-  assert.equal(record.get('accountEpoch'),requestBody.accountEpoch,'the completion record carries the Account epoch the confirmed call used');
-  assert.equal(record.get('accountCreatedAtMs'),requestBody.accountCreatedAtMs);
+  assert.equal(record.get('accountEpoch'),retryBody.accountEpoch,'the completion record carries the Account epoch the confirmed call used');
+  assert.equal(record.get('accountCreatedAtMs'),retryBody.accountCreatedAtMs);
+  const doneRows=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(doneRows.size,2,'one request and one completion');
+  assert.equal(doneRows.docs.filter(doc=>doc.get('action')==='unblock_requested').length,1);
+  assert.equal(doneRows.docs.filter(doc=>doc.get('action')==='unblocked').length,1);
+  const receipts=await c.accountRoot.collection('videoBillingUnblocks').get();
+  assert.equal(receipts.size,2,'one receipt for the supporting hold and one for the original incident');
+  const originalReceipts=receipts.docs.filter(doc=>doc.get('incidentId')===blocked.hold);
+  assert.equal(originalReceipts.length,1);
+  assert.equal(originalReceipts[0].get('epoch'),g1.epoch);
+  assert.equal(originalReceipts[0].get('createdAtMs'),g1.createdAtMs);
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,1);
+  assert.deepEqual((await ref(c.accountRoot,'videoBillingGuards',foreign.account.id).get()).data(),foreignGuardBefore,'another account is untouched');
+});
+
+test('11 the completion records the Account generation the confirmed call actually used, not a different one presented on resume',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_account_generation_trace_lost_ack'),c=blocked.c,requestBody=await request(c,blocked);
+  assert.equal(typeof c.accountBilling.unblockReceipt,'function','the receipt route must exist');
+  const accepted={epoch:requestBody.accountEpoch,createdAtMs:requestBody.accountCreatedAtMs};
+  const posts=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
+  const postsBefore=posts();
+  const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling);
+  c.accountBilling.unblock=async(...args)=>{await originalUnblock(...args);throw new Error('synthetic lost response after Account committed');};
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  c.accountBilling.unblock=originalUnblock;
+  assert.equal(posts(),postsBefore+1,'exactly one mutation left Video');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video stays blocked after the lost ACK');
+  const receipts=await c.accountRoot.collection('videoBillingUnblocks').get();
+  assert.equal(receipts.size,1,'Account committed exactly one receipt');
+  assert.equal(receipts.docs[0].get('epoch'),accepted.epoch);
+  assert.equal(receipts.docs[0].get('createdAtMs'),accepted.createdAtMs);
+  const requestedRef2=ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs));
+  assert.equal((await requestedRef2.get()).get('accountEpoch'),accepted.epoch,'the durable request names the mutation generation');
+  const wrong={...requestBody,accountEpoch:requestBody.accountEpoch+7,accountCreatedAtMs:requestBody.accountCreatedAtMs+7};
+  const done=await unblockBillingAccount(deps(c),c.account,wrong,'operator-ana',9_000_001_000);
+  assert.equal(done.videoBlocked,false);
+  assert.equal(posts(),postsBefore+1,'the resume never re-sends');
+  const record=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblocked',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
+  assert.equal(record.get('accountEpoch'),accepted.epoch,'the completion carries the Account ACCEPTED epoch, not the one presented on resume');
+  assert.equal(record.get('accountCreatedAtMs'),accepted.createdAtMs);
 });
 test('11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock',{timeout:60000},async()=>{
   const blocked=await blockedAccount('unblock_alert_owner'),c=blocked.c,requestBody=await request(c,blocked);
@@ -907,125 +1183,73 @@ test('11 negative: an alert of another kind or account, and an ambiguous owner i
   assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,0,'Account was never asked');
   assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
 });
-// ---------------------------------------------------------------------------
-// Codex mutation round 7 (certification of the integrated line, 27 nov 2026): behavior of the line's own code that its mutants showed was not pinned.
-// ---------------------------------------------------------------------------
-test('11 negative: a guard that stops being blocked, or names the incident through both fields, in phase 3 aborts the release',{timeout:90000},async()=>{
-  const blocked=await blockedAccount('unblock_phase3_guard_shape'),c=blocked.c,requestBody=await request(c,blocked),row=outbox(c,blocked.job.id);
-  const original=(await guardOf(c).get()).data(),real=c.accountBilling.unblock.bind(c.accountBilling),readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
-  for(const [name,change] of [['the guard is no longer blocked',{blocked:false}],['the guard names the incident through both fields',{lastIncidentId:original.lastOutboxIncidentId}]]){
-    // The first attempt reaches Account through `unblock`; Account has confirmed by the second one, which then reads the receipt instead.
-    c.accountBilling.unblock=async(...args)=>{await guardOf(c).update(change);return real(...args);};
-    c.accountBilling.unblockReceipt=async(...args)=>{const receipt=await readReceipt(...args);await guardOf(c).update(change);return receipt;};
-    await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
-    c.accountBilling.unblock=real;c.accountBilling.unblockReceipt=readReceipt;
-    assert.equal((await guardOf(c).get()).exists,true,name+': the guard is not deleted');assert.equal((await row.get()).get('state'),'needs_review',name+': nothing was advanced');
-    assert.equal((await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).get('status'),'open',name+': the alert stays open');
-    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,name+': no completion record');
-    await guardOf(c).set(original);
-  }
-  const done=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000);
-  assert.equal(done.videoBlocked,false);assert.equal((await row.get()).get('state'),'retry_wait');
-});
-test('11 negative: an alert that is no longer open stops a resume before it reaches Account',{timeout:90000},async()=>{
-  const blocked=await blockedAccount('unblock_resume_alert_closed'),c=blocked.c,requestBody=await request(c,blocked),alertRef=ref(c.root,ALERT_COLLECTION,blocked.alertKey);let calls=0;
-  const fail=async()=>{calls++;throw Object.assign(new Error('synthetic'),{code:'unavailable'});};
-  const failing={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
-  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
-  assert.equal(calls,1);
-  await alertRef.update({status:'superseded'});
-  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
-  assert.equal(calls,1,'a resume over a closed alert never reaches Account');
-  await alertRef.update({status:'open'});
-  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_002_000);
-  assert.equal(resumed.videoBlocked,false);
-});
-test('11 negative: an alert that is no longer open stops a partial repeat before it reaches Account',{timeout:90000},async()=>{
-  const blocked=await blockedAccount('unblock_partial_alert_closed'),c=blocked.c,alertRef=ref(c.root,ALERT_COLLECTION,blocked.alertKey);
-  await addAccountIncident(c);
-  const requestBody=await request(c,blocked);
-  assert.equal((await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000)).videoBlocked,true);
-  let calls=0;const fail=async()=>{calls++;throw new Error('unexpected Account request');};
-  const counting={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
-  await alertRef.update({status:'superseded'});
-  await assert.rejects(unblockBillingAccount(counting,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
-  assert.equal(calls,0,'a partial repeat over a closed alert never reaches Account');
-  assert.equal((await guardOf(c).get()).get('blocked'),true);
-});
-test('11 negative: an alert that closes during the partial repeat keeps the Video guard and writes no release',{timeout:90000},async()=>{
-  const blocked=await blockedAccount('unblock_partial_alert_closes'),c=blocked.c,other=await addAccountIncident(c),requestBody=await request(c,blocked),alertRef=ref(c.root,ALERT_COLLECTION,blocked.alertKey);
-  assert.equal((await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000)).videoBlocked,true);
-  await reviewOtherAccountIncident(c,other);
-  const readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
-  c.accountBilling.unblockReceipt=async(...args)=>{const receipt=await readReceipt(...args);await alertRef.update({status:'superseded'});return receipt;};
-  await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_005_000),error=>error instanceof UnblockFault&&error.code==='conflict');
-  c.accountBilling.unblockReceipt=readReceipt;
-  assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is not released over a closed alert');
-  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0,'no release record');
-  assert.equal((await alertRef.get()).get('status'),'superseded','the alert is left as the other writer set it');
-  assert.equal((await ref(c.root,'billingReleaseReopenings',c.account).get()).exists,false,'no reopening mark');
-});
-test('11 partial: a receipt that is not confirmed, or that names another Account generation than the completion record, never releases and never asks Account again',{timeout:90000},async()=>{
-  const blocked=await blockedAccount('unblock_partial_receipt_shape'),c=blocked.c,other=await addAccountIncident(c),requestBody=await request(c,blocked);
-  assert.equal((await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000)).videoBlocked,true);
-  await reviewOtherAccountIncident(c,other);
-  const readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);let unblockCalls=0;
-  const withReceipt=receipt=>({db:c.db,root:c.root,accountBilling:{unblockReceipt:receipt,unblock:async()=>{unblockCalls++;throw new Error('a partial repeat must not resend the unblock');}}});
-  for(const [name,receipt] of [
-    ['a pending receipt',async()=>({state:'pending'})],
-    ['another Account epoch',async(...args)=>({...await readReceipt(...args),epoch:requestBody.accountEpoch+1})],
-    ['another Account createdAtMs',async(...args)=>({...await readReceipt(...args),createdAtMs:requestBody.accountCreatedAtMs+1})],
-  ]){
-    await assert.rejects(unblockBillingAccount(withReceipt(receipt),c.account,requestBody,'operator-ana',9_000_005_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
-    assert.equal(unblockCalls,0,name+': Account is never asked to unblock again');
-    assert.equal((await guardOf(c).get()).get('blocked'),true,name+': the Video guard stays');
-    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0,name+': no release record');
-  }
-  const released=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_006_000);
-  assert.equal(released.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
-});
-// Phase 0 is the only gate BEFORE Account is asked. If it accepted an alert of another generation, or a guard that names another account, Account would be
-// unblocked first and phase 3 (which checks the same things again) would then refuse forever: Account open, Video blocked, no way out.
-test('11 negative: phase 0 refuses an open alert of another generation, or a guard that names another account, before Account is ever asked',{timeout:90000},async()=>{
-  const blocked=await blockedAccount('unblock_phase0_gate'),c=blocked.c,requestBody=await request(c,blocked);
-  const accountAsked=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
-  const alert=(await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).data();
-  const otherState='blocked:'+(requestBody.epoch+1)+':'+requestBody.createdAtMs+':'+blocked.incident,fields={...alert,state:otherState},key=alertKey(fields.kind,fields.rowId,fields.state,fields.reason);
-  await ref(c.root,ALERT_COLLECTION,key).create({...fields,alertKey:key});
-  await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,alertKey:key},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict','an open alert of another generation');
-  assert.equal(accountAsked(),0,'Account is never asked for an alert of another generation');
-  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0,'no audit record');
-  const original=(await guardOf(c).get()).data();
-  await guardOf(c).update({accountId:randomUUID()});
-  await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict','a guard that names another account');
-  assert.equal(accountAsked(),0,'Account is never asked for a guard of another account');
-  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0,'no audit record');
-  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true,'Account stays blocked');
-  await guardOf(c).set(original);
-  const done=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_002_000);
-  assert.equal(done.videoBlocked,false);
-});
-// GLM review of the integrated line (27 nov 2026), finding 3: phase 3 re-reads state and owner of every audited row, but the RELATION that made a
-// row belong to this incident (an observation incident's `intentId`, an admission guard's `incidentId`) must still hold at release time.
-for(const [name,tamper] of [
-  ['an observation incident that now names another intent',(c,blocked,obs)=>obs.update({intentId:sha('another intent')})],
-  ['an admission guard that now names another incident',(c,blocked)=>ref(c.root,'billingIntentAdmissionGuards',blocked.incident).update({incidentId:sha('another incident')})],
+// The existing positive case covers an admission guard that names the incident directly. Phase 3 re-reads state and
+// owner of every audited row, but the RELATION that made a row belong to this incident (an observation incident's
+// `intentId`, an admission guard's `incidentId`) can drift while Account is being asked. Each synthetic test below is
+// self-contained: it uses the real `blockedIntentAccount` writer, changes ONLY the relation in the window between the
+// audited read and phase 3, and checks the guard, the alert, the rows and the absence of a completion record. Nothing
+// here asserts full production integrity; the negatives prove the drift aborts an otherwise confirmed release, and the
+// third positive proves the legitimate 'guard names an observation of the same incident' relation is still accepted.
+for(const [name,row,field,drifted,tamper] of [
+  ['an observation incident that now names another intent',(c,blocked,obs)=>obs,'intentId',sha('another intent'),(c,blocked,obs)=>obs.update({intentId:sha('another intent')})],
+  ['an admission guard that now names another incident',(c,blocked)=>ref(c.root,'billingIntentAdmissionGuards',blocked.incident),'incidentId',sha('another incident'),(c,blocked)=>ref(c.root,'billingIntentAdmissionGuards',blocked.incident).update({incidentId:sha('another incident')})],
 ]){
   test('11 negative: '+name+' in phase 3 aborts the release and the guard survives',{timeout:90000},async()=>{
     const blocked=await blockedIntentAccount('unblock_relation_drift_'+name.replace(/[^a-z]+/g,'_')),c=blocked.c;
     const obs=ref(c.root,'billingIntentObservationIncidents',sha('observation|'+blocked.incident));
     await obs.create({accountId:c.account,intentId:blocked.incident,state:'needs_review'});
+    const admissionRef=ref(c.root,'billingIntentAdmissionGuards',blocked.incident);
+    assert.equal((await obs.get()).get('intentId'),blocked.incident,'the observation names this incident before');
+    assert.equal((await admissionRef.get()).get('incidentId'),blocked.incident,'the admission guard names this incident before');
     const requestBody=await request(c,blocked),real=c.accountBilling.unblock.bind(c.accountBilling);
-    c.accountBilling.unblock=async(...args)=>{await tamper(c,blocked,obs);return real(...args);};
-    await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
-    c.accountBilling.unblock=real;
+    let tamperCount=0,accountConfirmed=false;const order=[];
+    c.accountBilling.unblock=async(...args)=>{
+      order.push('account:request');
+      tamperCount+=1;await tamper(c,blocked,obs);order.push('relation:changed');
+      const confirmation=await real(...args);accountConfirmed=true;order.push('account:confirmed');
+      return confirmation;
+    };
+    let fault=null;
+    try{await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000);}catch(error){fault=error;}
+    c.accountBilling.unblock=real;order.push('video:rejected');
+    assert.ok(fault instanceof UnblockFault&&fault.code==='conflict',name);
+    assert.equal(tamperCount,1,'the relation was changed exactly once, inside the audited window');
+    assert.equal(order.filter(event=>event==='account:request').length,1,'the synthetic AccountStore was asked exactly once');
+    assert.equal(accountConfirmed,true,'the synthetic AccountStore confirmed the order before Video rejected it');
+    assert.ok(order.indexOf('account:confirmed')<order.indexOf('video:rejected'),'Account confirmed before Video rejects: the drift is only seen in phase 3');
+    assert.ok(order.indexOf('relation:changed')<order.indexOf('account:confirmed'),'the relation drifted before Account confirmed, so the conflict is not a pre-account one');
+    assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,1,'exactly one unblock order reached Account');
     assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard survives');
     assert.equal((await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).get('status'),'open','the alert stays open');
     assert.equal((await obs.get()).get('state'),'needs_review','the observation incident is not marked reviewed');
-    assert.equal((await ref(c.root,'billingIntentAdmissionGuards',blocked.incident).get()).get('state'),'needs_review','the admission guard is not reopened');
+    assert.equal((await admissionRef.get()).get('state'),'needs_review','the admission guard is not reopened');
+    assert.equal((await row(c,blocked,obs).get()).get(field),drifted,'the drifted relation is left exactly as it was, unclosed');
+    assert.equal((await row(c,blocked,obs).get()).get('reviewedAtMs'),undefined,'the drifted row is not closed');
+    assert.equal((await ref(c.root,'billingReviewIncidents',blocked.incident).get()).get('reviewedAtMs'),undefined,'the review row is not closed');
+    assert.equal((await ref(c.root,'billingIntents',blocked.incident).get()).get('state'),'needs_review','the intent is not handed back');
     assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no completion record');
   });
 }
+// Positive: an admission guard whose `incidentId` names an observation incident of THIS incident is still a legitimate
+// owner at release time. The unblock must complete and hand back BOTH the observation and the guard.
+test('11 an INTENT unblock completes when the admission guard names an observation incident of the same incident',{timeout:90000},async()=>{
+  const blocked=await blockedIntentAccount('unblock_intent_admission_names_observation'),c=blocked.c,intentRef=ref(c.root,'billingIntents',blocked.incident);
+  const obs=ref(c.root,'billingIntentObservationIncidents',sha('observation|'+blocked.incident));
+  await obs.create({accountId:c.account,intentId:blocked.incident,state:'needs_review'});
+  const admissionRef=ref(c.root,'billingIntentAdmissionGuards',blocked.incident);
+  await admissionRef.update({incidentId:obs.id});
+  assert.equal((await admissionRef.get()).get('state'),'needs_review','the admission guard is closed');
+  assert.equal((await admissionRef.get()).get('incidentId'),obs.id,'the admission guard names the observation of the same incident');
+  assert.equal((await obs.get()).get('intentId'),blocked.incident,'the observation belongs to this incident');
+  const result=await unblockBillingAccount(deps(c),c.account,await request(c,blocked),'operator-ana',9_000_000_000);
+  assert.equal(result.unblocked,true);assert.equal(result.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false,'the video guard is released');
+  const observation=await obs.get();assert.equal(observation.get('state'),'reviewed');assert.equal(observation.get('reviewedAtMs'),9_000_000_000);assert.equal(observation.get('unblockAuditId'),unblockAuditId(blocked.incident,'unblocked',blocked.guard.epoch,blocked.guard.createdAtMs));
+  assert.equal(validClearIntentAdmissionGuard(await admissionRef.get(),blocked.incident),true,'the guard that named the observation is back to the exact clear shape');
+  assert.ok(result.advanced.includes('billingIntentAdmissionGuards/'+blocked.incident),'the admission guard is advanced');
+  assert.ok(result.advanced.includes('billingIntentObservationIncidents/'+obs.id),'the observation incident is advanced');
+  assert.equal((await intentRef.get()).get('state'),'reserve_pending','the intent resumes its reservation');
+});
+// --> the existing positive INTENT test ('11 an INTENT incident is unblocked too...') follows at this insertion point.
 test('11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back',{timeout:60000},async()=>{
   const blocked=await blockedIntentAccount('unblock_intent_kind'),c=blocked.c,intentRef=ref(c.root,'billingIntents',blocked.incident);
   const obs=ref(c.root,'billingIntentObservationIncidents',sha('observation|'+blocked.incident));
@@ -1062,19 +1286,104 @@ for(const variant of ['names another incident','is already clear']){
 // DeepSeek (final review 3 of piece 2): the emulator cannot inject a write between a read and its commit, so the contract that serializes
 // the unblock against a rival row is pinned structurally: the six account collections are read THROUGH the transaction of phase 0 and of
 // phase 3 (12 query reads), never with a plain `.get()` that a concurrent writer could slip past.
-test('the rows of the account are read through the transaction in phase 0 and in phase 3, never outside it',{timeout:60000},async()=>{
+test('the rows of the account are read through each required transaction and never through a direct read',{timeout:120000},async()=>{
   const blocked=await blockedAccount('unblock_tx_reads'),c=blocked.c,requestBody=await request(c,blocked);
-  const originalRun=c.db.runTransaction.bind(c.db);let queryReads=0;
-  c.db.runTransaction=(fn,...rest)=>originalRun(tx=>fn(new Proxy(tx,{get(target,prop){
-    const value=Reflect.get(target,prop);
-    if(typeof value!=='function')return value;
-    if(prop==='get')return (arg,...more)=>{if(arg&&typeof arg.where==='function')queryReads++;return value.call(target,arg,...more);};
-    return value.bind(target);
-  }})),...rest);
-  const result=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000);
-  c.db.runTransaction=originalRun;
+  const SIX=['billingIntents','billingOutbox','billingHoldOutbox','billingReviewIncidents','billingOutboxReviewIncidents','billingIntentObservationIncidents'];
+  const TAG=Symbol('collection');
+  const direct={query:[],collection:[],document:[]};
+  const originalRootCollection=c.root.collection.bind(c.root);
+  const tag=(obj,name,kind)=>{Object.defineProperty(obj,TAG,{value:{name,kind},configurable:true});};
+  const instrumentQuery=(query,name)=>{
+    tag(query,name,'query');
+    const originalGet=query.get.bind(query);
+    query.get=(...a)=>{direct.query.push(name);return originalGet(...a);};
+    return query;
+  };
+  const instrumentDocument=(doc,name)=>{
+    tag(doc,name,'document');
+    const originalGet=doc.get.bind(doc);
+    doc.get=(...a)=>{direct.document.push(name);return originalGet(...a);};
+    return doc;
+  };
+  const instrumentCollection=(ref,name)=>{
+    tag(ref,name,'collection');
+    const originalGet=ref.get.bind(ref);
+    ref.get=(...a)=>{direct.collection.push(name);return originalGet(...a);};
+    const originalWhere=ref.where.bind(ref);
+    ref.where=(...args)=>instrumentQuery(originalWhere(...args),name);
+    const originalDoc=ref.doc.bind(ref);
+    ref.doc=(...args)=>instrumentDocument(originalDoc(...args),name);
+    return ref;
+  };
+  c.root.collection=(name,...rest)=>{
+    const ref=originalRootCollection(name,...rest);
+    return SIX.includes(name)?instrumentCollection(ref,name):ref;
+  };
+  // Fases distintas por transición observable: fin de unblockReceipt (probe->claim) y fin de unblock (claim->closure).
+  let phase='probe';
+  const originalUnblockReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
+  const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling);
+  c.accountBilling.unblockReceipt=async(...a)=>{try{return await originalUnblockReceipt(...a);}finally{phase='claim';}};
+  c.accountBilling.unblock=async(...a)=>{try{return await originalUnblock(...a);}finally{phase='closure';}};
+  const originalRun=c.db.runTransaction.bind(c.db),perRun=[];
+  c.db.runTransaction=(fn,...rest)=>originalRun(async tx=>{
+    const runPhase=phase,seen=new Map();
+    const record=arg=>{const t=arg?.[TAG];if(t&&SIX.includes(t.name)&&t.kind!=='document')seen.set(t.name,(seen.get(t.name)??0)+1);};
+    const proxy=new Proxy(tx,{get(target,prop){
+      const value=Reflect.get(target,prop);
+      if(typeof value!=='function')return value;
+      if(prop==='get')return (arg,...more)=>{record(arg);return value.call(target,arg,...more);};
+      if(prop==='getAll')return (...args)=>{for(const arg of args)record(arg);return value.call(target,...args);};
+      return value.bind(target);
+    }});
+    try{return await fn(proxy);}finally{perRun.push({phase:runPhase,seen:[...seen.entries()]});}
+  },...rest);
+  let result;
+  try{
+    // (A) Calibración real: si un tx.get de query/collection/documento dispara los `.get()` públicos, el detector no es fiable.
+    direct.query.length=0;direct.collection.length=0;direct.document.length=0;
+    await originalRun(async tx=>{
+      await tx.get(instrumentQuery(originalRootCollection('billingIntents').where('accountId','==',c.account),'billingIntents'));
+      await tx.get(instrumentCollection(originalRootCollection('billingOutbox'),'billingOutbox'));
+      await tx.get(instrumentDocument(originalRootCollection('billingHoldOutbox').doc('synthetic-calibration'),'billingHoldOutbox'));
+    });
+    const reliable=direct.query.length===0&&direct.collection.length===0&&direct.document.length===0;
+    direct.query.length=0;direct.collection.length=0;direct.document.length=0;
+    // (B) Controles negativos directos: cada forma debe registrarse y no escribe nada.
+    const cleanBefore=await signatures(c.root);
+    await instrumentCollection(originalRootCollection('billingIntents'),'billingIntents').get();
+    await instrumentQuery(originalRootCollection('billingOutbox').where('accountId','==',c.account),'billingOutbox').get();
+    await instrumentDocument(originalRootCollection('billingHoldOutbox').doc('synthetic-negative'),'billingHoldOutbox').get();
+    assert.ok(direct.collection.includes('billingIntents'),'direct collection.get is recorded');
+    assert.ok(direct.query.includes('billingOutbox'),'direct query.get is recorded');
+    assert.ok(direct.document.includes('billingHoldOutbox'),'direct document.get is recorded');
+    assert.deepEqual(await signatures(c.root),cleanBefore,'the direct-read controls write nothing');
+    direct.query.length=0;direct.collection.length=0;direct.document.length=0;
+    // (C) Si el detector no distingue, FALLA: no se aprueba cobertura ausente.
+    assert.ok(reliable,'detector limit: a transactional get invokes the public .get(), so direct reads cannot be distinguished');
+    result=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000);
+  }finally{
+    c.db.runTransaction=originalRun;
+    c.root.collection=originalRootCollection;
+    c.accountBilling.unblockReceipt=originalUnblockReceipt;
+    c.accountBilling.unblock=originalUnblock;
+  }
   assert.equal(result.videoBlocked,false);
-  assert.equal(queryReads,12,'six collections in phase 0 and six in phase 3, all through the transaction');
+  assert.deepEqual(direct.query,[],'no direct query reads of the six account collections');
+  assert.deepEqual(direct.collection,[],'no direct collection reads of the six account collections');
+  assert.deepEqual(direct.document,[],'no direct document reads of the six account collections');
+  // Fases distintas; los reintentos de una fase no sustituyen a otra fase.
+  for(const name of ['probe','claim','closure']){
+    const runs=perRun.filter(run=>run.phase===name);
+    assert.ok(runs.length>=1,`phase ${name} must run at least one transaction`);
+    const readers=runs.filter(run=>run.seen.length>0);
+    assert.ok(readers.length>=1,`phase ${name} must read the account rows through a transaction`);
+    for(const run of readers){
+      const counts=Object.fromEntries(run.seen);
+      assert.deepEqual(Object.keys(counts).sort(),[...SIX].sort(),`phase ${name}: a transaction that reads the account rows reads all six`);
+      for(const collection of SIX)assert.equal(counts[collection],1,`phase ${name}: ${collection} is read exactly once through the transaction`);
+    }
+  }
 });
 // DeepSeek (final review 2 of piece 2): the hold row is written with `...hold` and then `createdAtMs:now`, which overwrote the guard
 // creation mark that the hold id names. For the first incident `now` IS the mark; for a SECOND incident on a live guard it is not, so the
@@ -1152,21 +1461,40 @@ for(const [exitState,prepared] of [['release_pending',true],['reserve_pending',f
     assert.equal(intent.get('state'),exitState);assert.equal(intent.get('reviewReason'),undefined);assert.equal(intent.get('reviewOutboxIncidentId'),undefined);
   });
 }
-test('11 negative: a failed Account phase leaves Video blocked and its rows untouched',{timeout:30000},async()=>{
+test('11 negative: a failed Account phase leaves Video blocked and its rows untouched',{timeout:120000},async()=>{
   const blocked=await blockedAccount('unblock_account_fails'),c=blocked.c,requestBody=await request(c,blocked);
-  const failing={db:c.db,root:c.root,accountBilling:{unblock:async()=>{throw Object.assign(new Error('synthetic'),{code:'unavailable'});}}};
-  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000));
+  const ownerBefore=await c.store.videoBalance(c.identity);
+  let posts=0,receipts=0;
+  const billing={
+    unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+    // Delivery is unknown to Video: Account records no receipt, so the durable claim is the only evidence.
+    unblock:async(...args)=>{posts++;throw new Error('synthetic uncertain delivery before Account mutation');},
+  };
+  const isolated={db:c.db,root:c.root,accountBilling:billing};
+  await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(posts,1);assert.equal(receipts,1);
   // Account is asked BEFORE any Video row is advanced: the only Video record is the audited request of phase 1.
   const audits=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
   assert.equal(audits.size,1);assert.equal(audits.docs[0].get('action'),'unblock_requested');
   assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is untouched');
   const guardData=(await guardOf(c).get()).data();
   assert.equal(guardData.epoch,requestBody.epoch);assert.equal(guardData.updatedAtMs,requestBody.updatedAtMs);
-  assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
+  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
   assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
-  // The pending request is visible for a retry, and the retry completes it.
-  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000);
-  assert.equal(resumed.replayed,false);assert.equal((await guardOf(c).get()).exists,false);assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'retry_wait');
+  const videoAfterFirst=await signatures(c.root),accountAfterFirst=await signatures(c.accountRoot);
+  // The receipt stays pending, so the existing claim never authorizes a second POST: the resume is rejected.
+  await assert.rejects(unblockBillingAccount(isolated,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(posts,1,'pending receipt does not authorize another POST');assert.equal(receipts,2);
+  assert.deepEqual(await signatures(c.root),videoAfterFirst);assert.deepEqual(await signatures(c.accountRoot),accountAfterFirst);
+  const auditsAfter=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+  assert.equal(auditsAfter.size,1,'a single audited request is kept');
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is still untouched');
+  const guardDataAfter=(await guardOf(c).get()).data();
+  assert.equal(guardDataAfter.epoch,requestBody.epoch);assert.equal(guardDataAfter.updatedAtMs,requestBody.updatedAtMs);
+  assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'needs_review');
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
 });
 test('11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it',{timeout:40000},async()=>{
   const blocked=await blockedAccount('unblock_video_fails'),c=blocked.c,requestBody=await request(c,blocked);
@@ -1174,7 +1502,14 @@ test('11 negative: a Video failure after Account confirmed leaves Video blocked,
   const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling),originalRun=c.db.runTransaction.bind(c.db);let confirmed=false;
   c.accountBilling.unblock=async(...args)=>{const receipt=await originalUnblock(...args);confirmed=true;return receipt;};
   c.db.runTransaction=async function(fn){if(confirmed){confirmed=false;throw new Error('synthetic Video crash after the Account confirmation');}return originalRun(fn);};
+  // The transport records every request before processing it: /api/internal/video/billing-holds/unblock is the only mutating route,
+  // and /api/internal/video/billing-holds/unblock-receipt is a distinct read route that must never stand in for it.
+  const unblockPosts=()=>c.transport.bodies.filter(entry=>entry.pathname==='/api/internal/video/billing-holds/unblock').length;
+  const receiptReads=()=>c.transport.bodies.filter(entry=>entry.pathname==='/api/internal/video/billing-holds/unblock-receipt').length;
+  assert.equal(unblockPosts(),0,'no Video unblock request exists before the first attempt');
   await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),/synthetic Video crash/);
+  assert.equal(unblockPosts(),1,'the first attempt sent exactly one Video unblock request');
+  const receiptReadsBeforeResume=receiptReads();
   c.accountBilling.unblock=originalUnblock;c.db.runTransaction=originalRun;
   // Account already deleted its guard; Video is the conservative side and is still blocked.
   assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,false);
@@ -1186,21 +1521,61 @@ test('11 negative: a Video failure after Account confirmed leaves Video blocked,
   assert.equal(resumed.replayed,false);assert.equal(resumed.accountBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
   assert.equal((await outbox(c,blocked.job.id).get()).get('state'),'retry_wait');
   assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,2);
+  // The recovery must read the receipt route instead of re-sending the mutating unblock route.
+  assert.equal(unblockPosts(),1,'the Video unblock request count is still exactly one after resuming');
+  assert.ok(receiptReads()>receiptReadsBeforeResume,'resuming the unblock reads the distinct /api/internal/video/billing-holds/unblock-receipt route');
 });
 // ---------------------------------------------------------------------------
 // 12. Stale generation refused; the current one applies. 12b. One alert per account and epoch.
 // ---------------------------------------------------------------------------
-test('12 a stale epoch or createdAtMs is refused and the current generation applies',{timeout:40000},async()=>{
+test('12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any send, and the current generation applies',{timeout:60000},async()=>{
   const blocked=await blockedAccount('unblock_stale'),c=blocked.c,requestBody=await request(c,blocked);
-  // Epoch 0 is not a generation at all: it is rejected by validation (`invalid`) before anything is read or written.
+  const posts=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
+  const postsBefore=posts();
   await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,epoch:0},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&(error.code==='invalid'||error.code==='conflict'),'epoch 0 is not a generation');
-  const changes=[{epoch:requestBody.epoch+1},...(requestBody.epoch>1?[{epoch:requestBody.epoch-1}]:[]),{createdAtMs:requestBody.createdAtMs+1},{createdAtMs:requestBody.createdAtMs-1},{updatedAtMs:requestBody.updatedAtMs+1},{updatedAtMs:requestBody.updatedAtMs-1},{accountEpoch:requestBody.accountEpoch+1},{accountCreatedAtMs:requestBody.accountCreatedAtMs+1}];
-  for(const change of changes){
+  const videoChanges=[{epoch:requestBody.epoch+1},...(requestBody.epoch>1?[{epoch:requestBody.epoch-1}]:[]),{createdAtMs:requestBody.createdAtMs+1},{createdAtMs:requestBody.createdAtMs-1},{updatedAtMs:requestBody.updatedAtMs+1},{updatedAtMs:requestBody.updatedAtMs-1}];
+  for(const change of videoChanges){
     await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,...change},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict',JSON.stringify(change));
   }
+  assert.equal(posts(),postsBefore,'a stale Video generation never sends');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0,'a stale Video generation writes no audit');
   assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
   const applied=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_001);
   assert.equal(applied.unblocked,true);assert.equal((await guardOf(c).get()).exists,false);
+  assert.equal(posts(),postsBefore+1,'exactly one mutation, from the valid application');
+});
+
+test('12 a wrong Account generation is refused per variation: one claim, one refused POST, guard retained, never re-sent',{timeout:120000},async()=>{
+  const variations=[
+    {name:'accountEpoch',mutate:body=>{body.accountEpoch=body.accountEpoch+1;}},
+    {name:'accountCreatedAtMs',mutate:body=>{body.accountCreatedAtMs=body.accountCreatedAtMs+1;}},
+  ];
+  for(const variation of variations){
+    // Fixture propia por variación: nunca se reutiliza un reclamo incierto de otro caso.
+    const blocked=await blockedAccount('unblock_stale_account_'+variation.name),c=blocked.c,requestBody=await request(c,blocked);
+    variation.mutate(requestBody);
+    const posts=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
+    const postsBefore=posts();
+    // La variación errónea pasa fase 0 fresh, crea el reclamo y efectúa UN POST que Cuenta rechaza.
+    await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),
+      error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account',variation.name);
+    assert.equal(posts(),postsBefore+1,`${variation.name}: the claim posts to Account exactly once`);
+    const requestedRows=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
+    assert.equal(requestedRows.size,1,`${variation.name}: exactly one durable request`);
+    assert.equal(requestedRows.docs[0].get('action'),'unblock_requested');
+    assert.equal(requestedRows.docs[0].get('accountEpoch'),requestBody.accountEpoch,`${variation.name}: the audit stores the supplied Account epoch`);
+    assert.equal(requestedRows.docs[0].get('accountCreatedAtMs'),requestBody.accountCreatedAtMs,`${variation.name}: the audit stores the supplied Account creation mark`);
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,0,`${variation.name}: a refused generation leaves NO Account receipt`);
+    assert.equal((await guardOf(c).get()).get('blocked'),true,`${variation.name}: Video stays blocked`);
+    assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true,`${variation.name}: the Account guard is retained`);
+    // Repetir la misma solicitud pinada no reenvía: el reclamo incierto no confiere un segundo envío.
+    await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000),
+      error=>error instanceof UnblockFault&&error.code==='conflict',`${variation.name}: repeat`);
+    assert.equal(posts(),postsBefore+1,`${variation.name}: the pinned request is never re-sent`);
+    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,1,`${variation.name}: one durable request, kept for a safe recovery`);
+    assert.equal((await guardOf(c).get()).get('blocked'),true,`${variation.name}: still blocked after the repeat`);
+    assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true,`${variation.name}: Account guard still retained after the repeat`);
+  }
 });
 test('12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone',{timeout:40000},async()=>{
   const blocked=await blockedAccount('unblock_epoch_reset'),c=blocked.c,firstBody=await request(c,blocked);
@@ -1317,14 +1692,21 @@ test('retry-generation A: an Account generation that moved refuses the old reque
   // A SECOND Account incident on the same owner moves the Account guard generation (real route: blockVideoBilling).
   assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
   const g1=await accountGuard(c);assert.equal(g1.epoch,g0.epoch+1,'the second Account incident grows the Account guard epoch');
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:g0.epoch,successorEpoch:g1.epoch});
+  const base=fencedDeps(c,seeded),seen=[];
+  const depsA={...base,successor:{...base.successor,receipt:async input=>{
+    const result=await base.successor.receipt(input);seen.push(result);return result;}}};
   // A second, FOREIGN identity is blocked too, to prove neither attempt touches another account.
   const foreignUid='synthetic-retry-generation-foreign-'+randomUUID(),foreignBoot=await c.store.bootstrap(foreignUid);
   assert.equal((await c.accountBilling.block(accountIdentityKey(foreignUid),accountHoldId('outbox',randomUUID(),1,1))).created,true);
   const foreignGuardBefore=(await ref(c.accountRoot,'videoBillingGuards',foreignBoot.account.id).get()).data();
   // (1) Account refuses the OLD generation EXPLICITLY: no Account receipt and no Video closure record are created
   // (this attempt's `unblock_requested` WAS already written by phase 0 -- the ONLY Video write so far).
-  await assert.rejects(unblockBillingAccount(deps(c),c.account,oldBody,'operator-ana',9_000_000_000),
+  await assert.rejects(unblockBillingAccount(depsA,c.account,oldBody,'operator-ana',9_000_000_000),
     error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(seen[0]?.state,'pending','the REAL fenced receipt observes pending despite live g1');
+  assert.equal(seen[0].attemptId,seeded.previousAttemptId);
+  assert.equal(seen[0].epoch,g0.epoch);
   assert.equal((await guardOf(c).get()).get('blocked'),true,'Video stays blocked: Account refused the stale generation');
   assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).get('epoch'),g1.epoch,'the refusal does not move the Account guard');
   const requestedRows=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get();
@@ -1334,7 +1716,7 @@ test('retry-generation A: an Account generation that moved refuses the old reque
   // (2) The LEGITIMATE retry names the NEW Account generation. Account confirms the incident; because the second Account
   // incident is still unreviewed, Account keeps its guard and Video keeps its own (partial result).
   const retryBody={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
-  const retry=await unblockBillingAccount(deps(c),c.account,retryBody,'operator-ana',9_000_010_000);
+  const retry=await unblockBillingAccount(depsA,c.account,retryBody,'operator-ana',9_000_010_000);
   assert.equal(retry.unblocked,true);assert.equal(retry.replayed,false);
   assert.equal(retry.accountBlocked,true,'the account still holds the other unreviewed incident');
   assert.equal(retry.videoBlocked,true);assert.equal((await guardOf(c).get()).get('blocked'),true);
@@ -1358,14 +1740,16 @@ test('retry-generation B: a lost confirmation is recovered from its receipt whil
   const g0={epoch:oldBody.accountEpoch,createdAtMs:oldBody.accountCreatedAtMs};
   assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
   const g1=await accountGuard(c);assert.equal(g1.epoch,g0.epoch+1);
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:g0.epoch,successorEpoch:g1.epoch});
+  const fenced=fencedDeps(c,seeded);
   // A: the OLD generation is refused; this attempt's `unblock_requested` (accountEpoch = g0) stays durable in Video.
-  await assert.rejects(unblockBillingAccount(deps(c),c.account,oldBody,'operator-ana',9_000_000_000),
+  await assert.rejects(unblockBillingAccount(fenced,c.account,oldBody,'operator-ana',9_000_000_000),
     error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
   // B: Account commits the g1 receipt, but the response never reaches Video.
   const retryBody={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
   const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling);
   c.accountBilling.unblock=async(...args)=>{await originalUnblock(...args);throw new Error('synthetic lost response after Account committed');};
-  await assert.rejects(unblockBillingAccount(deps(c),c.account,retryBody,'operator-ana',9_000_010_000),
+  await assert.rejects(unblockBillingAccount(fenced,c.account,retryBody,'operator-ana',9_000_010_000),
     error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
   c.accountBilling.unblock=originalUnblock;
   // Account committed: ONE accepted receipt (epoch g1), the incident is reviewed, and the guard survives the other incident.
@@ -1400,14 +1784,14 @@ test('retry-generation B: a lost confirmation is recovered from its receipt whil
   await assert.rejects(c.accountBilling.unblockReceipt(c.identity,blocked.hold,'another evidence reference'),error=>error?.code==='conflict');
   const readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
   c.accountBilling.unblockReceipt=async()=>{throw Object.assign(new Error('synthetic unavailable receipt route'),{code:'not_found'});};
-  await assert.rejects(unblockBillingAccount(deps(c),c.account,oldBody,'operator-ana',9_000_035_000),
+  await assert.rejects(unblockBillingAccount(fenced,c.account,oldBody,'operator-ana',9_000_035_000),
     error=>error instanceof UnblockFault&&error.stage==='account');
   c.accountBilling.unblockReceipt=readReceipt;
   assert.deepEqual(await signatures(c.root),videoBefore,'an unavailable receipt writes nothing in Video');
   assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length,postsBefore+2,'an unavailable receipt never triggers a mutation');
   // Video recovers g1 from the original g0 request and keeps its guard because the other Account incidents are open.
   const readsBefore=c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock-receipt')).length;
-  const recovered=await unblockBillingAccount(deps(c),c.account,oldBody,'operator-ana',9_000_040_000);
+  const recovered=await unblockBillingAccount(fenced,c.account,oldBody,'operator-ana',9_000_040_000);
   assert.equal(recovered.unblocked,true);assert.equal(recovered.replayed,false);
   assert.equal(recovered.accountBlocked,true);assert.equal(recovered.videoBlocked,true);
   assert.equal((await guardOf(c).get()).get('blocked'),true,'Account still holds the other incident, so Video stays blocked');
@@ -1422,7 +1806,7 @@ test('retry-generation B: a lost confirmation is recovered from its receipt whil
   assert.equal(c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock-receipt')).length,readsBefore+1,'recovery makes one receipt read');
   // A further identical call adds no second completion or receipt and still keeps the block.
   const doneCount=doneAfterRecovery.size,receiptCount=(await c.accountRoot.collection('videoBillingUnblocks').get()).size;
-  const repeat=await unblockBillingAccount(deps(c),c.account,oldBody,'operator-ana',9_000_050_000);
+  const repeat=await unblockBillingAccount(fenced,c.account,oldBody,'operator-ana',9_000_050_000);
   assert.equal(repeat.unblocked,true);assert.equal(repeat.replayed,true);assert.equal(repeat.videoBlocked,true);
   assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,doneCount,'never a second completion record');
   assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,receiptCount,'never a second Account receipt');
@@ -1434,4 +1818,1123 @@ test('retry-generation B: a lost confirmation is recovered from its receipt whil
   assert.equal(requested.get('accountEpoch'),g0.epoch,'the Video durable request records the FIRST Account generation, never the accepted one');
   assert.equal(requested.get('accountCreatedAtMs'),g0.createdAtMs);
   assert.equal(receiptBefore.epoch,g1.epoch,'Account IS the durable authority for the generation the accepted receipt used');
+});
+
+test('retry-generation C: a lost confirmation is recovered from its receipt while a newer Account block survives',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('retry_generation_lost_ack_recovery'),c=blocked.c;
+  const postCount=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
+  const receiptReadCount=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock-receipt')).length;
+  // Incidente de sostenimiento ANTES de la mutación: el guard de Cuenta sobrevive la revisión del incidente revisado.
+  assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+  const body=await request(c,blocked); // nombra la generación Account vigente (incluye el incidente de sostenimiento)
+  const accepted={epoch:body.accountEpoch,createdAtMs:body.accountCreatedAtMs};
+  const requestRef=ref(c.root,UNBLOCK_AUDIT_COLLECTION,unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs));
+  // (1) La PRIMERA y ÚNICA mutación usa la generación vigente; Cuenta confirma y la ACK se pierde.
+  const postsBefore=postCount();
+  const originalUnblock=c.accountBilling.unblock.bind(c.accountBilling);
+  c.accountBilling.unblock=async(...args)=>{await originalUnblock(...args);throw new Error('synthetic lost response after Account committed');};
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,body,'operator-ana',9_000_000_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  c.accountBilling.unblock=originalUnblock;
+  assert.equal(postCount(),postsBefore+1,'exactly one initial mutation POST');
+  const postsAfterMutation=postCount();
+  // La solicitud original durable conserva sus valores y su versión.
+  const requestedAfterMutation=await requestRef.get();
+  assert.equal(requestedAfterMutation.get('accountEpoch'),accepted.epoch);
+  assert.equal(requestedAfterMutation.get('accountCreatedAtMs'),accepted.createdAtMs);
+  const requestVersion=`${requestedAfterMutation.updateTime.seconds}:${String(requestedAfterMutation.updateTime.nanoseconds).padStart(9,'0')}`;
+  // Un único recibo aceptado, con la generación aceptada y el incidente correcto.
+  const receiptBefore=(await c.accountRoot.collection('videoBillingUnblocks').get()).docs;
+  assert.equal(receiptBefore.length,1);assert.equal(receiptBefore[0].get('epoch'),accepted.epoch);assert.equal(receiptBefore[0].get('incidentId'),blocked.hold);
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video lost the response and stays blocked');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no completion yet');
+  // (2) Un bloqueo MÁS NUEVO mueve el guard de Cuenta por encima de la generación aceptada.
+  assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+  const newer=await accountGuard(c);assert.ok(newer.epoch>accepted.epoch,'the Account guard moved to a newer generation');
+  const receiptSnapshot=(await c.accountRoot.collection('videoBillingUnblocks').get()).docs[0].data();
+  const incidentsBefore=(await c.accountRoot.collection('videoBillingIncidents').get()).docs.map(d=>[d.id,d.get('state'),d.get('reviewedAtMs')]);
+  const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot);
+  // (3) DOS controles NEGATIVOS manuales, contados aparte: ni la aceptada ni la nueva reproducen la mutación.
+  const postsBeforeNegatives=postCount();
+  for(const generation of [{epoch:accepted.epoch-1,createdAtMs:accepted.createdAtMs},{epoch:newer.epoch,createdAtMs:newer.createdAtMs}]){
+    await assert.rejects(c.accountBilling.unblock(c.identity,{incidentId:blocked.hold,...generation,reviewRef:body.evidenceRef}),error=>error?.code==='conflict');
+  }
+  assert.equal(postCount(),postsBeforeNegatives+2,'the two manual refusals ask Account exactly twice');
+  const postsAfterRefusals=postCount();
+  assert.equal(postsAfterRefusals,postsAfterMutation+2,'nothing else was sent to Account beyond the two refusals');
+  assert.deepEqual(await signatures(c.root),videoBefore,'a refused retry writes nothing in Video');
+  assert.deepEqual(await signatures(c.accountRoot),accountBefore,'a refused retry writes nothing in Account');
+  // (4) Lectura de recibo no disponible: no escribe nada y nunca muta.
+  await assert.rejects(c.accountBilling.unblockReceipt(c.identity,blocked.hold,'another evidence reference'),error=>error?.code==='conflict');
+  const readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
+  c.accountBilling.unblockReceipt=async()=>{throw Object.assign(new Error('synthetic unavailable receipt route'),{code:'not_found'});};
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,body,'operator-ana',9_000_035_000),error=>error instanceof UnblockFault&&error.stage==='account');
+  c.accountBilling.unblockReceipt=readReceipt;
+  assert.deepEqual(await signatures(c.root),videoBefore,'an unavailable receipt writes nothing in Video');
+  assert.equal(postCount(),postsAfterRefusals,'an unavailable receipt never triggers a mutation');
+  // (5) Recuperación por recibo pese a la nueva generación, sin segundo envío desde Video.
+  const readsBefore=receiptReadCount();
+  const recovered=await unblockBillingAccount(deps(c),c.account,body,'operator-ana',9_000_040_000);
+  assert.equal(recovered.unblocked,true);assert.equal(recovered.replayed,false);
+  assert.equal(recovered.accountBlocked,true);assert.equal(recovered.videoBlocked,true);
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Account still holds the newer incident, so Video stays blocked');
+  // La solicitud original conserva valores Y versión tras la recuperación.
+  const requestedAfterRecovery=await requestRef.get();
+  assert.equal(requestedAfterRecovery.get('accountEpoch'),accepted.epoch,'the durable request keeps its original Account epoch');
+  assert.equal(requestedAfterRecovery.get('accountCreatedAtMs'),accepted.createdAtMs);
+  assert.equal(`${requestedAfterRecovery.updateTime.seconds}:${String(requestedAfterRecovery.updateTime.nanoseconds).padStart(9,'0')}`,requestVersion,'the durable request version is unchanged by recovery');
+  // El guard de Cuenta sigue en la generación NUEVA tras la recuperación.
+  const guardAfterRecovery=await accountGuard(c);
+  assert.equal(guardAfterRecovery.epoch,newer.epoch,'the Account guard stays at the newer generation after recovery');
+  assert.equal(guardAfterRecovery.createdAtMs,newer.createdAtMs);
+  // Un único cierre, con la generación ACEPTADA; el recibo se recupera, nunca se duplica.
+  const doneAfterRecovery=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get();
+  assert.equal(doneAfterRecovery.size,1,'the pending phase 3 is completed ONCE');
+  assert.equal(doneAfterRecovery.docs[0].get('accountReplayed'),true);
+  assert.equal(doneAfterRecovery.docs[0].get('accountEpoch'),accepted.epoch,'the closure carries the ACCEPTED generation, not the newer one');
+  assert.equal(doneAfterRecovery.docs[0].get('accountCreatedAtMs'),accepted.createdAtMs);
+  assert.equal(doneAfterRecovery.docs[0].get('accountBlocked'),true);assert.equal(doneAfterRecovery.docs[0].get('videoBlocked'),true);
+  assert.deepEqual((await c.accountRoot.collection('videoBillingUnblocks').get()).docs[0].data(),receiptSnapshot,'the receipt is recovered, never duplicated');
+  assert.equal(postCount(),postsAfterRefusals,'recovery never sends a mutation');
+  assert.equal(receiptReadCount(),readsBefore+1,'recovery makes one receipt read');
+  // Una llamada idéntica adicional no añade un segundo cierre ni un segundo recibo y mantiene el bloqueo.
+  const doneCount=doneAfterRecovery.size,receiptCount=(await c.accountRoot.collection('videoBillingUnblocks').get()).size;
+  const repeat=await unblockBillingAccount(deps(c),c.account,body,'operator-ana',9_000_050_000);
+  assert.equal(repeat.unblocked,true);assert.equal(repeat.replayed,true);assert.equal(repeat.videoBlocked,true);
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,doneCount,'never a second completion record');
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,receiptCount,'never a second receipt');
+  assert.deepEqual((await c.accountRoot.collection('videoBillingIncidents').get()).docs.map(d=>[d.id,d.get('state'),d.get('reviewedAtMs')]),incidentsBefore,'the other incidents are untouched');
+  assert.deepEqual(await signatures(c.accountRoot),accountBefore,'receipt recovery does not change anything in Account');
+});
+
+// Isolated regression candidates: the Account mutation is never resent after an uncertain reply.
+// These cases use only the fresh synthetic roots and the in-process AccountStore above.
+test('an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('uncertain_unblock_no_receipt',{extraReleases:2}),{c,releases}=blocked;
+  for(const job of releases)await outbox(c,job.id).update({state:'pending',nextAttemptAt:0});
+  const foreignUid='synthetic-foreign-'+randomUUID(),foreign=await c.store.bootstrap(foreignUid),foreignIdentity=accountIdentityKey(foreignUid);
+  await ref(c.accountRoot,'accounts',foreign.account.id).update({credited:10,available:10});
+  await c.store.reserveVideo(foreignIdentity,randomUUID(),3);
+  const ownerBefore=await c.store.videoBalance(c.identity),foreignBefore=await c.store.videoBalance(foreignIdentity);
+  assert.deepEqual(ownerBefore,{unit:'video_seconds',credited:40,available:34,reserved:6,consumed:0,active:3});
+  const releaseBefore=await Promise.all(releases.map(job=>outbox(c,job.id).get()));
+  let posts=0,receipts=0;
+  const billing={
+    unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+    // Simulate delivery that is unknown to Video: Account has not recorded a receipt.
+    unblock:async(...args)=>{posts++;if(posts===1)throw new Error('synthetic uncertain delivery before Account mutation');return c.accountBilling.unblock(...args);},
+  };
+  const body=await request(c,blocked),isolated={db:c.db,root:c.root,accountBilling:billing};
+  await assert.rejects(unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(posts,1);assert.equal(receipts,1);
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+  const videoAfterFirst=await signatures(c.root),accountAfterFirst=await signatures(c.accountRoot);
+  await assert.rejects(unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(posts,1,'pending receipt does not authorize another POST');assert.equal(receipts,2);
+  assert.deepEqual(await signatures(c.root),videoAfterFirst);assert.deepEqual(await signatures(c.accountRoot),accountAfterFirst);
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  const releaseAfter=await Promise.all(releases.map(job=>outbox(c,job.id).get()));
+  for(let i=0;i<releases.length;i++){assert.deepEqual(releaseAfter[i].data(),releaseBefore[i].data());assert.equal(releaseAfter[i].updateTime.isEqual(releaseBefore[i].updateTime),true);}
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBefore);
+  await c.store.reserveVideo(foreignIdentity,randomUUID(),2);
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),{unit:'video_seconds',credited:10,available:5,reserved:5,consumed:0,active:2});
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore,'a different account can reserve without changing the blocked owner');
+});
+
+test('a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('uncertain_unblock_confirmed_receipt',{extraReleases:2}),{c,releases}=blocked;
+  for(const job of releases)await outbox(c,job.id).update({state:'pending',nextAttemptAt:0});
+  const foreignUid='synthetic-foreign-'+randomUUID(),foreign=await c.store.bootstrap(foreignUid),foreignIdentity=accountIdentityKey(foreignUid);
+  await ref(c.accountRoot,'accounts',foreign.account.id).update({credited:10,available:10});
+  await c.store.reserveVideo(foreignIdentity,randomUUID(),3);
+  const ownerBefore=await c.store.videoBalance(c.identity),foreignBefore=await c.store.videoBalance(foreignIdentity);
+  assert.deepEqual(ownerBefore,{unit:'video_seconds',credited:40,available:34,reserved:6,consumed:0,active:3});
+  let posts=0,receipts=0;
+  const billing={
+    unblockReceipt:async(...args)=>{receipts++;return c.accountBilling.unblockReceipt(...args);},
+    unblock:async(...args)=>{posts++;const result=await c.accountBilling.unblock(...args);if(posts===1)throw new Error('synthetic lost reply after Account commit');return result;},
+  };
+  const body=await request(c,blocked),isolated={db:c.db,root:c.root,accountBilling:billing};
+  await assert.rejects(unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(posts,1);assert.equal(receipts,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'Account has one confirmed receipt');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video remains blocked while the reply is unknown');
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+  const recovered=await unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_001_000);
+  assert.equal(recovered.videoBlocked,false);assert.equal(posts,1,'recovery uses the receipt and never resends the POST');assert.equal(receipts,2);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  const start=c.transport.bodies.length;
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  for(const job of releases){
+    assert.equal(c.transport.bodies.slice(start).filter(call=>call.pathname.endsWith('/release')&&call.pathname.includes(job.reservationId)).length,1);
+    assert.equal((await c.store.videoReservation(c.identity,job.reservationId)).state,'released');
+    assert.equal((await outbox(c,job.id).get()).get('state'),'settled');
+  }
+  assert.deepEqual(await c.store.videoBalance(c.identity),{unit:'video_seconds',credited:40,available:38,reserved:0,consumed:2,active:0});
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBefore,'the other account is unchanged');
+});
+
+for(const cutState of ['missing','modified','recreated']){
+  test(`a ${cutState} writer cut cannot authorize an Account unblock`,{timeout:60000},async()=>{
+    const blocked=await blockedAccount('negative_writer_cut_'+cutState),c=blocked.c;
+    const ownerBefore=await c.store.videoBalance(c.identity);
+    // Every deletion is preceded by the exact marker check for this fresh synthetic root.
+    if(cutState==='missing'||cutState==='recreated'){
+      await assertFinancialOwnedRoot(c.db,c.root,c.roots[0].marker);
+      await c.writerCut.delete();
+    }
+    if(cutState==='modified')await c.writerCut.update({purpose:'synthetic-invalid-cut'});
+    if(cutState==='recreated'){
+      await c.writerCut.create({v:1,purpose:'unblock-writer-cut'});
+      const [guard,cut]=await Promise.all([guardOf(c).get(),c.writerCut.get()]),a=guard.createTime,b=cut.createTime;
+      assert.ok(a&&b&&(b.seconds>a.seconds||b.seconds===a.seconds&&b.nanoseconds>a.nanoseconds),'the recreated cut must be newer than the guard');
+    }
+    const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot),body=await request(c,blocked);
+    let posts=0;const states=[];
+    const billing={
+      unblockReceipt:async(...args)=>{const receipt=await c.accountBilling.unblockReceipt(...args);states.push(receipt.state);return receipt;},
+      unblock:async(...args)=>{posts++;return c.accountBilling.unblock(...args);},
+    };
+    await assert.rejects(unblockBillingAccount({db:c.db,root:c.root,accountBilling:billing},c.account,body,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+    assert.deepEqual(states,['pending']);assert.equal(posts,0);
+    assert.deepEqual(await signatures(c.root),videoBefore);assert.deepEqual(await signatures(c.accountRoot),accountBefore);
+    assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+    assert.equal((await guardOf(c).get()).get('blocked'),true);
+  });
+}
+
+// LV-019.B: isolated, test-only integration of the REAL Video unblock (`unblockBillingAccount`) with the REAL
+// fenced AccountStore methods (`confirmFencedVideoBillingUnblockAttempt` / `fencedVideoBillingUnblockReceipt`),
+// both on the fixed loopback emulator, THROUGH the real `AccountBillingClient` over a fictitious transport.
+// Scope: CONFIRMATION-FIRST ONLY. It does NOT exercise a successor, does NOT install a real writer cut, does NOT
+// prove authority, and does NOT disable the older `unblockVideoBilling` writer. The seeded `fenced_v1` anchor and
+// the incident protocol mark are a TEST HYPOTHESIS over the emulator, not a production guarantee. The real
+// fenced/IAM/writer-cut route does not exist here and this test does not accredit it. No real API is changed and
+// no production safety is claimed.
+
+const docVersion=(doc,field)=>{const s=doc[field];return s&&Number.isSafeInteger(s.seconds)&&Number.isSafeInteger(s.nanoseconds)&&s.nanoseconds<1_000_000_000?s.seconds+':'+s.nanoseconds:null;};
+
+async function seedFencedHypothesis(c,blocked,reviewRef,authorizationSha256){
+  const accountId=c.accountOwner,incidentId=blocked.hold;
+  const accountGuard=await ref(c.accountRoot,'videoBillingGuards',accountId).get();
+  assert.equal(accountGuard.exists,true,'the real Account guard exists');
+  const epoch=accountGuard.get('epoch'),createdAtMs=accountGuard.get('createdAtMs');
+  assert.ok(Number.isSafeInteger(epoch)&&epoch>=1,'the Account guard epoch is an integer >= 1');
+  assert.ok(Number.isSafeInteger(createdAtMs),'the Account guard createdAtMs is an integer');
+  const identity=await ref(c.accountRoot,'identities',c.identity).get();
+  assert.equal(identity.exists,true,'the real Account identity exists');
+  const identityVersion=docVersion(identity,'updateTime'),guardVersion=docVersion(accountGuard,'createTime');
+  assert.ok(identityVersion&&guardVersion,'real Firestore versions are required');
+  const incidentRef=ref(c.accountRoot,'videoBillingIncidents',hashJson([accountId,incidentId]));
+  assert.equal((await incidentRef.get()).exists,true,'the real Account incident exists');
+  // TEST HYPOTHESIS ONLY: mark the real incident with the fenced protocol and seed the anchor.
+  await incidentRef.update({unblockProtocol:'fenced_v1'});
+  const incident=await incidentRef.get(),incidentVersion=docVersion(incident,'createTime');
+  assert.ok(incidentVersion,'the real incident createTime is required');
+  const attemptId=randomUUID();
+  const original={ownerAccountId:accountId,identityKey:c.identity,incidentId,unblockProtocol:'fenced_v1',
+    createdAtMs,reviewRef,authorizationSha256,identityVersion,incidentVersion,guardVersion};
+  await ref(c.accountRoot,'videoBillingUnblockAttempts',hashJson([accountId,incidentId]))
+    .set({...original,initialAttemptId:attemptId,initialEpoch:epoch});
+  return {attemptId,epoch,createdAtMs,authorizationSha256,reviewRef,incidentId};
+}
+
+/**
+ * A fictitious transport for the REAL `AccountBillingClient`. It maps the two client paths to the REAL fenced
+ * AccountStore methods and counts LOCAL transport invocations (not real HTTP). The client does not send
+ * `attemptId`/`authorizationSha256`; the transport injects them from the test anchor, standing in for the
+ * server-side anchor lookup the real endpoint would perform. The response echoes `incidentId`/`reviewRef`
+ * because the real client validates them.
+ */
+function fencedTransport(c,anchor,counters){
+  return {
+    async request(call){
+      const pathname=new URL(call.url).pathname,body=call.data??{};
+      if(pathname==='/api/internal/video/billing-holds/unblock'){
+        counters.unblock++;
+        assert.deepEqual(Object.keys(body).sort(),['createdAtMs','epoch','identityKey','incidentId','reviewRef'],'the client sends the exact unblock body');
+        assert.equal(body.incidentId,anchor.incidentId,'the client preserves the holdId');
+        assert.equal(body.reviewRef,anchor.reviewRef);
+        assert.equal(body.epoch,anchor.epoch);
+        assert.equal(body.createdAtMs,anchor.createdAtMs);
+        const result=await c.store.confirmFencedVideoBillingUnblockAttempt(body.identityKey,{
+          incidentId:body.incidentId,attemptId:anchor.attemptId,epoch:body.epoch,createdAtMs:body.createdAtMs,
+          reviewRef:body.reviewRef,authorizationSha256:anchor.authorizationSha256});
+        if(result.state!=='confirmed')throw Object.assign(new Error('unexpected fenced confirm state: '+result.state),{response:{status:409,data:{error:'conflict'}}});
+        // Lose the ACK AFTER the Account commit: the receipt is durable, the caller never sees it.
+        if(counters.unblock===1)throw Object.assign(new Error('synthetic lost reply after Account fence commit'),{response:{status:503,data:{error:'unavailable'}}});
+        return {data:{unblocked:true,replayed:result.replayed,blocked:result.blocked}};
+      }
+      if(pathname==='/api/internal/video/billing-holds/unblock-receipt'){
+        counters.receipt++;
+        assert.deepEqual(Object.keys(body).sort(),['identityKey','incidentId','reviewRef'],'the client sends the exact receipt body');
+        assert.equal(body.incidentId,anchor.incidentId,'the client preserves the holdId');
+        assert.equal(body.reviewRef,anchor.reviewRef);
+        const result=await c.store.fencedVideoBillingUnblockReceipt(body.identityKey,{
+          incidentId:body.incidentId,attemptId:anchor.attemptId,epoch:anchor.epoch,createdAtMs:anchor.createdAtMs,
+          reviewRef:body.reviewRef,authorizationSha256:anchor.authorizationSha256});
+        if(result.state==='confirmed')return {data:{state:'confirmed',incidentId:body.incidentId,reviewRef:body.reviewRef,epoch:result.epoch,createdAtMs:result.createdAtMs,blocked:result.blocked}};
+        if(result.state==='pending')return {data:{state:'pending',incidentId:body.incidentId,reviewRef:body.reviewRef}};
+        throw Object.assign(new Error('unexpected fenced receipt state: '+result.state),{response:{status:409,data:{error:'conflict'}}});
+      }
+      throw Object.assign(new Error('unexpected path '+pathname),{response:{status:404,data:{error:'not_found'}}});
+    },
+  };
+}
+
+test('a fenced confirmation-first unblock recovers by receipt and returns both reservations exactly once',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('fenced_confirmation_first',{extraReleases:2}),{c,guard,releases}=blocked;
+  assert.equal(blocked.hold,accountHoldId('outbox',blocked.incident,guard.epoch,guard.createdAtMs),'the hold id is derived by videoHoldId');
+  for(const job of releases)await outbox(c,job.id).update({state:'pending',nextAttemptAt:0});
+  const foreignUid='synthetic-foreign-'+randomUUID(),foreign=await c.store.bootstrap(foreignUid),foreignIdentity=accountIdentityKey(foreignUid);
+  await ref(c.accountRoot,'accounts',foreign.account.id).update({credited:10,available:10});
+  const foreignReservationId=randomUUID();
+  await c.store.reserveVideo(foreignIdentity,foreignReservationId,3);
+  const foreignReservationRef=ref(c.accountRoot,'videoReservations',hashJson([foreign.account.id,foreignReservationId]));
+  const foreignReservationBefore=(await foreignReservationRef.get()).data();
+  const foreignLedger=()=>c.accountRoot.collection('ledgerEntries').where('ownerAccountId','==',foreign.account.id).get().then(page=>page.docs.map(doc=>[doc.ref.path,doc.data()]).sort((x,y)=>x[0]<y[0]?-1:1));
+  const foreignLedgerBefore=await foreignLedger();
+  const ownerBefore=await c.store.videoBalance(c.identity),foreignBefore=await c.store.videoBalance(foreignIdentity);
+  assert.deepEqual(ownerBefore,{unit:'video_seconds',credited:40,available:34,reserved:6,consumed:0,active:3});
+  const body=await request(c,blocked);
+  const authorizationSha256=sha(['fenced-hypothesis',blocked.hold]);
+  const anchor=await seedFencedHypothesis(c,blocked,body.evidenceRef,authorizationSha256);
+  const counters={unblock:0,receipt:0};
+  const client=new AccountBillingClient(undefined,fencedTransport(c,anchor,counters));
+  const isolated={db:c.db,root:c.root,accountBilling:client};
+  await assert.rejects(unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(counters.unblock,1,'exactly one local transport mutation was sent');
+  assert.equal(counters.receipt,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'Account has one confirmed receipt');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video remains blocked while the reply is unknown');
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+  // The lost ACK still left exactly one durable claim: requested + witness + dispatch.
+  const requestedId=unblockAuditId(blocked.incident,'unblock_requested',body.epoch,body.createdAtMs);
+  const requestedRef=ref(c.root,UNBLOCK_AUDIT_COLLECTION,requestedId);
+  const witnessRef=ref(c.root,UNBLOCK_CONTINUITY_COLLECTION,requestedId);
+  const dispatchRef=ref(c.root,UNBLOCK_CONTINUITY_COLLECTION,'dispatch-'+requestedId);
+  const requestedBefore=await requestedRef.get(),witnessBefore=await witnessRef.get(),dispatchBefore=await dispatchRef.get();
+  assert.equal(requestedBefore.exists,true,'exactly one unblock_requested claim');
+  assert.equal(witnessBefore.exists,true,'its witness is durable');
+  assert.equal(dispatchBefore.exists,true,'its dispatch is durable');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblock_requested').get()).size,1);
+  assert.ok(requestedBefore.createTime.isEqual(requestedBefore.updateTime),'the claim is immutable');
+  const claimVersions=[docVersion(requestedBefore,'updateTime'),docVersion(witnessBefore,'updateTime'),docVersion(dispatchBefore,'updateTime')];
+  assert.ok(claimVersions.every(Boolean));
+  const recovered=await unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_001_000);
+  assert.equal(recovered.replayed,false,'the recovery is a first closure, not a replay');
+  assert.equal(recovered.videoBlocked,false,'Video is closed after the receipt');
+  assert.equal(recovered.accountBlocked,false);
+  assert.equal(counters.unblock,1,'recovery uses the receipt and never resends the mutation');
+  assert.equal(counters.receipt,2);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,1,'Video writes exactly one unblocked audit');
+  assert.equal((await guardOf(c).get()).exists,false,'the Video guard is released');
+  // The durable claim and its continuity records survive the recovery unchanged.
+  assert.deepEqual([docVersion(await requestedRef.get(),'updateTime'),docVersion(await witnessRef.get(),'updateTime'),docVersion(await dispatchRef.get(),'updateTime')],claimVersions,'the claim versions are preserved after recovery');
+  const repeated=await unblockBillingAccount(isolated,c.account,body,'operator-ana',9_000_002_000);
+  assert.equal(repeated.replayed,true,'a final repetition is a replay');
+  assert.equal(repeated.videoBlocked,false);
+  assert.equal(counters.unblock,1,'the replay sends no mutation');
+  assert.equal(counters.receipt,2,'the replay reads no second receipt');
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  const start=c.transport.bodies.length;
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  for(const job of releases){
+    assert.equal(c.transport.bodies.slice(start).filter(call=>call.pathname.endsWith('/release')&&call.pathname.includes(job.reservationId)).length,1);
+    assert.equal((await c.store.videoReservation(c.identity,job.reservationId)).state,'released');
+    assert.equal((await outbox(c,job.id).get()).get('state'),'settled');
+  }
+  assert.deepEqual(await c.store.videoBalance(c.identity),{unit:'video_seconds',credited:40,available:38,reserved:0,consumed:2,active:0});
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBefore,'the other account balance is unchanged');
+  assert.deepEqual((await foreignReservationRef.get()).data(),foreignReservationBefore,'the other account reservation is unchanged');
+  assert.deepEqual(await foreignLedger(),foreignLedgerBefore,'the other account ledger is unchanged');
+});
+
+test('a fenced receipt naming a different incident is refused without writes',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('fenced_receipt_negative'),{c}=blocked;
+  const body=await request(c,blocked);
+  const anchor=await seedFencedHypothesis(c,blocked,body.evidenceRef,sha(['fenced-negative',blocked.hold]));
+  const before=await signatures(c.accountRoot);
+  const foreignIncident=accountHoldId('outbox',randomUUID(),1,1);
+  const transport={async request(call){
+    const pathname=new URL(call.url).pathname;
+    if(pathname==='/api/internal/video/billing-holds/unblock-receipt')
+      return {data:{state:'confirmed',incidentId:foreignIncident,reviewRef:call.data.reviewRef,epoch:anchor.epoch,createdAtMs:anchor.createdAtMs,blocked:false}};
+    throw Object.assign(new Error('unexpected path '+pathname),{response:{status:404,data:{error:'not_found'}}});
+  }};
+  const client=new AccountBillingClient(undefined,transport);
+  await assert.rejects(client.unblockReceipt(c.identity,anchor.incidentId,body.evidenceRef),error=>error?.code==='unavailable');
+  assert.deepEqual(await signatures(c.accountRoot),before,'a mismatched receipt writes nothing');
+});
+
+test('successor real receipt: g0->g1 observes pending, closes by ONE successor claim, drains once and leaves the other account intact',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_real_receipt',{extraReleases:2}),{c,guard,releases}=blocked;
+  assert.equal(blocked.hold,accountHoldId('outbox',blocked.incident,guard.epoch,guard.createdAtMs));
+  for(const job of releases)await outbox(c,job.id).update({state:'pending',nextAttemptAt:0});
+  const oldBody=await request(c,blocked); // names g0, BEFORE the supporting incident
+  assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+  const g1=await accountGuard(c);assert.equal(g1.epoch,oldBody.accountEpoch+1);
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:oldBody.accountEpoch,successorEpoch:g1.epoch});
+  const base=fencedDeps(c,seeded),seen=[];
+  const deps={...base,successor:{...base.successor,receipt:async input=>{
+    const result=await base.successor.receipt(input);seen.push(result);return result;}}};
+  // Foreign account: real reservation and ledger.
+  const foreignUid='synthetic-successor-foreign-'+randomUUID(),foreign=await c.store.bootstrap(foreignUid),foreignIdentity=accountIdentityKey(foreignUid);
+  await ref(c.accountRoot,'accounts',foreign.account.id).update({credited:10,available:10});
+  const foreignReservationId=randomUUID();await c.store.reserveVideo(foreignIdentity,foreignReservationId,3);
+  const foreignReservationRef=ref(c.accountRoot,'videoReservations',hashJson([foreign.account.id,foreignReservationId]));
+  const foreignReservationBefore=(await foreignReservationRef.get()).data();
+  const foreignLedger=()=>c.accountRoot.collection('ledgerEntries').where('ownerAccountId','==',foreign.account.id).get()
+    .then(page=>page.docs.map(doc=>[doc.ref.path,doc.data()]).sort((x,y)=>x[0]<y[0]?-1:1));
+  const foreignLedgerBefore=await foreignLedger(),foreignBalanceBefore=await c.store.videoBalance(foreignIdentity);
+  const ownerBefore=await c.store.videoBalance(c.identity);
+  assert.deepEqual(ownerBefore,{unit:'video_seconds',credited:40,available:34,reserved:6,consumed:0,active:3});
+  // (1) Fresh attempt names g0 while the live Account guard is g1: real fenced receipt returns pending; Account refuses the old generation.
+  await assert.rejects(unblockBillingAccount(deps,c.account,oldBody,'operator-ana',9_300_000_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(seen[0]?.state,'pending','the REAL fenced receipt returned pending');
+  assert.equal(seen[0].attemptId,seeded.previousAttemptId);assert.equal(seen[0].epoch,oldBody.accountEpoch);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,0);
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore);
+  // (2) Successor closes the incident; the supporting Account incident keeps both guards blocked.
+  const retryBody={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
+  const partial=await unblockBillingAccount(deps,c.account,retryBody,'operator-ana',9_300_001_000);
+  assert.equal(partial.accountBlocked,true);assert.equal(partial.videoBlocked,true);
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+  const claims=await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get();
+  assert.equal(claims.size,1);assert.equal(claims.docs[0].get('holdId'),blocked.hold,'the claim names the holdId');
+  assert.equal(claims.docs[0].get('previousAttemptId'),seeded.previousAttemptId);
+  assert.equal(claims.docs[0].get('attemptId'),seeded.successorAttemptId);
+  assert.ok(claims.docs[0].createTime.isEqual(claims.docs[0].updateTime),'the claim is immutable');
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  assert.deepEqual(await c.store.videoBalance(c.identity),ownerBefore,'no balance moved while Video remains blocked');
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBalanceBefore);
+  assert.deepEqual((await foreignReservationRef.get()).data(),foreignReservationBefore);
+  assert.deepEqual(await foreignLedger(),foreignLedgerBefore);
+  // (3) The other Account incident is reviewed; the partial close resumes and releases only the audited rows.
+  const other=(await c.accountRoot.collection('videoBillingIncidents').get()).docs
+    .find(doc=>doc.get('incidentId')!==blocked.hold&&doc.get('state')==='active');
+  assert.ok(other,'the supporting incident exists');
+  await reviewOtherAccountIncident(c,other.get('incidentId'));
+  const released=await unblockBillingAccount(deps,c.account,retryBody,'operator-ana',9_300_002_000);
+  assert.equal(released.replayed,false);assert.equal(released.accountBlocked,false);assert.equal(released.videoBlocked,false);
+  assert.equal((await guardOf(c).get()).exists,false);
+  const start=c.transport.bodies.length;
+  await c.ai.drainExternalBilling();await c.ai.drainExternalBilling();
+  for(const job of releases){
+    assert.equal(c.transport.bodies.slice(start).filter(call=>call.pathname.endsWith('/release')&&call.pathname.includes(job.reservationId)).length,1);
+    assert.equal((await c.store.videoReservation(c.identity,job.reservationId)).state,'released');
+    assert.equal((await outbox(c,job.id).get()).get('state'),'settled');
+  }
+  assert.deepEqual(await c.store.videoBalance(c.identity),{unit:'video_seconds',credited:40,available:38,reserved:0,consumed:2,active:0});
+  assert.deepEqual(await c.store.videoBalance(foreignIdentity),foreignBalanceBefore,'the other account balance is unchanged');
+  assert.deepEqual((await foreignReservationRef.get()).data(),foreignReservationBefore);
+  assert.deepEqual(await foreignLedger(),foreignLedgerBefore);
+});
+
+test('successor parallel: two recoverers create ONE claim and dispatch once',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_parallel'),c=blocked.c,oldBody=await request(c,blocked);
+  assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+  const g1=await accountGuard(c);
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:oldBody.accountEpoch,successorEpoch:g1.epoch});
+  const base=fencedDeps(c,seeded);
+  await assert.rejects(unblockBillingAccount(base,c.account,oldBody,'operator-ana',9_310_000_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  const before=await c.store.videoBalance(c.identity);
+  let arrived=0,release;const gate=new Promise(resolve=>{release=resolve;});
+  let confirms=0;
+  const racing={...base,successor:{...base.successor,
+    async reconcile(input){if(++arrived===2)release();await gate;return base.successor.reconcile(input);},
+    async confirm(input){confirms++;return base.successor.confirm(input);}}};
+  const body={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
+  const results=await Promise.allSettled([
+    unblockBillingAccount(racing,c.account,body,'operator-ana',9_310_001_000),
+    unblockBillingAccount(racing,c.account,body,'operator-ana',9_310_001_001),
+  ]);
+  assert.equal(arrived,2);assert.equal(confirms,1,'only the claim creator dispatched');
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,1);
+  assert.ok(results.filter(result=>result.status==='fulfilled').length>=1);
+  for(const result of results.filter(result=>result.status==='rejected'))
+    assert.ok(['unresolved','conflict'].includes(result.reason?.code),'the loser fails closed');
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+  assert.deepEqual(await c.store.videoBalance(c.identity),before);
+});
+
+test('successor lost reconcile ACK: same tuple, ONE claim and ONE send',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_lost_reconcile'),c=blocked.c,oldBody=await request(c,blocked);
+  assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+  const g1=await accountGuard(c);
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:oldBody.accountEpoch,successorEpoch:g1.epoch});
+  const base=fencedDeps(c,seeded);
+  await assert.rejects(unblockBillingAccount(base,c.account,oldBody,'operator-ana',9_320_000_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  const before=await c.store.videoBalance(c.identity);
+  let reconciles=0,confirms=0;
+  const deps={...base,successor:{...base.successor,
+    async reconcile(input){const answer=await base.successor.reconcile(input);
+      if(++reconciles===1)throw Object.assign(new Error('synthetic lost reconcile reply'),{code:'unavailable'});
+      return answer;},
+    async confirm(input){confirms++;return base.successor.confirm(input);}}};
+  const body={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
+  await assert.rejects(unblockBillingAccount(deps,c.account,body,'operator-ana',9_320_001_000),
+    error=>error instanceof UnblockFault&&error.code==='unresolved'&&error.stage==='account');
+  assert.equal(confirms,0,'no send without an observed permitted answer');
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,0);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,0);
+  assert.deepEqual(await c.store.videoBalance(c.identity),before);
+  const anchor=await seeded.anchor.get();assert.equal(anchor.get('successorAttemptId'),seeded.successorAttemptId,'Account fence is durable');
+  const recovered=await unblockBillingAccount(deps,c.account,body,'operator-ana',9_320_002_000);
+  assert.equal(reconciles,2);assert.equal(confirms,1);
+  assert.equal(recovered.accountBlocked,true);assert.equal(recovered.videoBlocked,true);
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,1);
+  assert.deepEqual(await c.store.videoBalance(c.identity),before);
+});
+
+test('successor lost confirm ACK: recover the active receipt, never resend',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_lost_confirm'),c=blocked.c,oldBody=await request(c,blocked);
+  assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+  const g1=await accountGuard(c);
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:oldBody.accountEpoch,successorEpoch:g1.epoch});
+  const base=fencedDeps(c,seeded);
+  await assert.rejects(unblockBillingAccount(base,c.account,oldBody,'operator-ana',9_330_000_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  const before=await c.store.videoBalance(c.identity);
+  let confirms=0;
+  const deps={...base,successor:{...base.successor,confirm:async input=>{
+    const answer=await base.successor.confirm(input);
+    if(input.attempt==='successor'&&++confirms===1)
+      throw Object.assign(new Error('synthetic lost confirm reply'),{code:'unavailable'});
+    return answer;}}};
+  const body={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
+  await assert.rejects(unblockBillingAccount(deps,c.account,body,'operator-ana',9_330_001_000),
+    error=>error instanceof UnblockFault&&error.code==='unresolved');
+  assert.equal(confirms,1,'one dispatch left Video');
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0);
+  assert.deepEqual(await c.store.videoBalance(c.identity),before);
+  const recovered=await unblockBillingAccount(deps,c.account,body,'operator-ana',9_330_002_000);
+  assert.equal(confirms,1,'recovery never resends');
+  assert.equal(recovered.accountBlocked,true);assert.equal(recovered.videoBlocked,true);
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  assert.deepEqual(await c.store.videoBalance(c.identity),before);
+});
+
+test('successor claim missing/tampered: the confirmed successor receipt cannot close',{timeout:240000},async()=>{
+  for(const mode of ['missing','tampered']){
+    const blocked=await blockedAccount('successor_claim_'+mode),c=blocked.c,oldBody=await request(c,blocked);
+    assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+    const g1=await accountGuard(c);
+    const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:oldBody.accountEpoch,successorEpoch:g1.epoch});
+    const base=fencedDeps(c,seeded);
+    await assert.rejects(unblockBillingAccount(base,c.account,oldBody,'operator-ana',9_340_000_000),
+      error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+    const before=await c.store.videoBalance(c.identity);
+    let confirms=0;
+    const deps={...base,successor:{...base.successor,confirm:async input=>{
+      const answer=await base.successor.confirm(input);
+      if(input.attempt==='successor'&&++confirms===1)
+        throw Object.assign(new Error('synthetic lost confirm reply'),{code:'unavailable'});
+      return answer;}}};
+    const body={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
+    await assert.rejects(unblockBillingAccount(deps,c.account,body,'operator-ana',9_340_001_000));
+    const claims=await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get();
+    assert.equal(claims.size,1);
+    if(mode==='missing')await claims.docs[0].ref.delete();
+    else await claims.docs[0].ref.update({authorizationSha256:hashJson('tampered-authority')});
+    const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot);
+    const doneBefore=(await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size;
+    await assert.rejects(unblockBillingAccount(deps,c.account,body,'operator-ana',9_340_002_000),
+      error=>error instanceof UnblockFault&&error.code==='conflict');
+    assert.equal(confirms,1,'no second dispatch');
+    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,doneBefore);
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+    assert.equal((await guardOf(c).get()).get('blocked'),true);
+    assert.deepEqual(await c.store.videoBalance(c.identity),before);
+    assert.deepEqual(await signatures(c.root),videoBefore);
+    assert.deepEqual(await signatures(c.accountRoot),accountBefore);
+  }
+});
+
+test('successor invalid authority: missing cut/grant, wrong tuple and wrong identity write nothing',{timeout:240000},async()=>{
+  { // cut absent
+    const blocked=await blockedAccount('successor_no_cut'),c=blocked.c,body=await request(c,blocked);
+    const seeded=await seedFencedSuccessor(c,blocked),deps=fencedDeps(c,seeded);
+    await c.writerCut.delete();
+    const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot);
+    await assert.rejects(unblockBillingAccount(deps,c.account,body,'operator-ana',9_350_000_000),
+      error=>error instanceof UnblockFault&&error.code==='conflict');
+    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0);
+    assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,0);
+    assert.deepEqual(await signatures(c.root),videoBefore);
+    assert.deepEqual(await signatures(c.accountRoot),accountBefore);
+  }
+  { // grant absent, uncertain attempt
+    const blocked=await blockedAccount('successor_no_grant'),c=blocked.c,body=await request(c,blocked);
+    const seeded=await seedFencedSuccessor(c,blocked,{grant:false}),base=fencedDeps(c,seeded);
+    let attempts=0;
+    const lost={...base,successor:{...base.successor,confirm:async()=>{
+      attempts++;throw Object.assign(new Error('lost before Account'),{code:'unavailable'});}}};
+    await assert.rejects(unblockBillingAccount(lost,c.account,body,'operator-ana',9_350_100_000),
+      error=>error instanceof UnblockFault&&error.code==='unresolved'&&error.stage==='account');
+    assert.equal(attempts,1);
+    const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot);
+    await assert.rejects(unblockBillingAccount(base,c.account,body,'operator-ana',9_350_101_000),
+      error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+    assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,0);
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,0);
+    assert.deepEqual(await signatures(c.root),videoBefore);
+    assert.deepEqual(await signatures(c.accountRoot),accountBefore);
+  }
+  { // wrong tuple: grant does not name the presented successor epoch
+    const blocked=await blockedAccount('successor_wrong_tuple'),c=blocked.c,body=await request(c,blocked);
+    assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+    const g1=await accountGuard(c);
+    const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:body.accountEpoch,successorEpoch:g1.epoch});
+    const base=fencedDeps(c,seeded);
+    const wrong={...base,successor:{...base.successor,
+      attempt:{...base.successor.attempt,epoch:g1.epoch+5},
+      reconcile:({identityKey,incidentId,reviewRef})=>c.store.reconcileVideoBillingUnblockAttempt(identityKey,{
+        incidentId,attemptId:seeded.successorAttemptId,epoch:g1.epoch+5,createdAtMs:seeded.accountCreatedAtMs,
+        reviewRef,authorizationSha256:seeded.authorizationSha256,previousAttemptId:seeded.previousAttemptId,
+        previousEpoch:seeded.previousEpoch,reconcileId:seeded.reconcileId})}};
+    const accountBefore=await signatures(c.accountRoot);
+    await assert.rejects(unblockBillingAccount(wrong,c.account,body,'operator-ana',9_350_200_000),
+      error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+    assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,0);
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,0);
+    assert.deepEqual(await signatures(c.accountRoot),accountBefore);
+  }
+  { // wrong identity in the anchor: a REAL identity owned by a different account
+    const blocked=await blockedAccount('successor_wrong_identity'),c=blocked.c,body=await request(c,blocked);
+    const otherUid='synthetic-wrong-identity-'+randomUUID();
+    const otherAccount=await c.store.bootstrap(otherUid),otherIdentity=accountIdentityKey(otherUid);
+    assert.notEqual(otherIdentity,c.identity,'the anchor identity must differ from the request identity');
+    assert.notEqual(otherAccount.account.id,c.accountOwner,'the anchor identity must belong to another account');
+    const seeded=await seedFencedSuccessor(c,blocked,{identityKey:otherIdentity});
+    const deps=fencedDeps(c,seeded),videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot);
+    await assert.rejects(unblockBillingAccount(deps,c.account,body,'operator-ana',9_350_300_000),
+      error=>error instanceof UnblockFault&&error.code==='conflict');
+    assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,0);
+    assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,0,
+      'a wrong anchor identity must not write an Account unblock');
+    assert.deepEqual(await signatures(c.root),videoBefore);
+    assert.deepEqual(await signatures(c.accountRoot),accountBefore);
+  }
+});
+
+test('successor partial resume uses the DONE accepted epoch and the original durable request for the claim',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_partial'),c=blocked.c,oldBody=await request(c,blocked);
+  const other=await addAccountIncident(c),g1=await accountGuard(c);
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:oldBody.accountEpoch,successorEpoch:g1.epoch});
+  const deps=fencedDeps(c,seeded);
+  await assert.rejects(unblockBillingAccount(deps,c.account,oldBody,'operator-ana',9_360_000_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  const retryBody={...oldBody,accountEpoch:g1.epoch,accountCreatedAtMs:g1.createdAtMs};
+  const partial=await unblockBillingAccount(deps,c.account,retryBody,'operator-ana',9_360_001_000);
+  assert.equal(partial.accountBlocked,true);assert.equal(partial.videoBlocked,true);
+  const claim=await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get();
+  assert.equal(claim.size,1);
+  const claimData=claim.docs[0].data(),claimVersion=stampNoPad(claim.docs[0],'updateTime');
+  assert.equal(claimData.recordedAtMs,(await ref(c.root,UNBLOCK_AUDIT_COLLECTION,
+    unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs)).get()).get('recordedAtMs'),
+    'the claim carries the REQUEST time, not the done close time');
+  // Resuming with the OLD body (g0) must compare the DONE epoch (g1) with the receipt (g1), not with the request.
+  const replay=await unblockBillingAccount(deps,c.account,oldBody,'operator-ana',9_360_002_000);
+  assert.equal(replay.replayed,true);assert.equal(replay.videoBlocked,true);
+  assert.equal(stampNoPad(claim.docs[0],'updateTime'),claimVersion,'the claim is unchanged by the partial replay');
+  await reviewOtherAccountIncident(c,other);
+  const released=await unblockBillingAccount(deps,c.account,oldBody,'operator-ana',9_360_003_000);
+  assert.equal(released.replayed,false);assert.equal(released.videoBlocked,false);
+  assert.equal((await guardOf(c).get()).exists,false);
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,1,'the same claim, never a second');
+});
+
+async function seedEqualEpoch(c,blocked,body){
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:body.accountEpoch,successorEpoch:body.accountEpoch});
+  const base=fencedDeps(c,seeded);
+  let attempts=0;
+  const lost={...base,successor:{...base.successor,confirm:async()=>{
+    attempts++;throw Object.assign(new Error('lost before Account'),{code:'unavailable'});}}};
+  await assert.rejects(unblockBillingAccount(lost,c.account,body,'operator-ana',9_370_000_000),
+    error=>error instanceof UnblockFault&&error.code==='unresolved'&&error.stage==='account');
+  assert.equal(attempts,1);
+  return {seeded,base};
+}
+
+test('successor race order A: previous confirms between receipt and reconcile; close by receipt, no claim/send',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_race_previous'),c=blocked.c,body=await request(c,blocked);
+  const {seeded,base}=await seedEqualEpoch(c,blocked,body);
+  const before=await c.store.videoBalance(c.identity);
+  let pendingSeenResolve,previousCommittedResolve;
+  const pendingSeen=new Promise(r=>pendingSeenResolve=r),previousCommitted=new Promise(r=>previousCommittedResolve=r);
+  let confirms=0;
+  const deps={...base,successor:{...base.successor,
+    async receipt(input){const result=await base.successor.receipt(input);
+      if(result.state==='pending'){pendingSeenResolve();await previousCommitted;}return result;},
+    async confirm(input){confirms++;return base.successor.confirm(input);}}};
+  const call=unblockBillingAccount(deps,c.account,body,'operator-ana',9_370_100_000);
+  await pendingSeen;
+  const previous=await c.store.confirmFencedVideoBillingUnblockAttempt(c.identity,{
+    incidentId:seeded.incidentId,attemptId:seeded.previousAttemptId,epoch:seeded.previousEpoch,
+    createdAtMs:seeded.accountCreatedAtMs,reviewRef:seeded.reviewRef,authorizationSha256:seeded.authorizationSha256});
+  assert.equal(previous.state,'confirmed');assert.equal(previous.replayed,false);
+  previousCommittedResolve();
+  const result=await call;
+  assert.equal(result.videoBlocked,false);assert.equal(result.accountBlocked,false);
+  assert.equal(confirms,0,'no successor dispatch');
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,0,'no claim');
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1,'ONE receipt');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,1);
+  assert.deepEqual(await c.store.videoBalance(c.identity),before);
+});
+
+test('successor race order B: reconcile fences first; previous is refused and the successor dispatches once',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_race_successor'),c=blocked.c,body=await request(c,blocked);
+  const {seeded,base}=await seedEqualEpoch(c,blocked,body);
+  const before=await c.store.videoBalance(c.identity);
+  let permittedResolve,externalTriedResolve;
+  const permitted=new Promise(r=>permittedResolve=r),externalTried=new Promise(r=>externalTriedResolve=r);
+  let confirms=0,externalError=null;
+  const deps={...base,successor:{...base.successor,
+    async reconcile(input){const decision=await base.successor.reconcile(input);
+      assert.equal(decision.state,'permitted');permittedResolve();await externalTried;return decision;},
+    async confirm(input){confirms++;return base.successor.confirm(input);}}};
+  const call=unblockBillingAccount(deps,c.account,body,'operator-ana',9_370_200_000);
+  await permitted;
+  try{
+    await c.store.confirmFencedVideoBillingUnblockAttempt(c.identity,{
+      incidentId:seeded.incidentId,attemptId:seeded.previousAttemptId,epoch:seeded.previousEpoch,
+      createdAtMs:seeded.accountCreatedAtMs,reviewRef:seeded.reviewRef,authorizationSha256:seeded.authorizationSha256});
+    assert.fail('the previous attempt must be refused after the fence');
+  }catch(error){externalError=error;}
+  externalTriedResolve();
+  const result=await call;
+  assert.equal(externalError?.code,'conflict');
+  assert.equal(confirms,1,'only the successor dispatched');
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,1);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,1);
+  assert.equal(result.videoBlocked,false);
+  assert.deepEqual(await c.store.videoBalance(c.identity),before);
+});
+
+test('successor environment gate: non-emulator settings and a forged attestation write nothing',{timeout:60000},async()=>{
+  const fake={_settings:{projectId:'real-project',servicePath:'firestore.googleapis.com',port:443,ssl:true,preferRest:false}};
+  assert.throws(()=>attestLocalEmulatorPair(fake,fake),error=>error instanceof UnblockFault&&error.code==='invalid');
+  const blocked=await blockedAccount('successor_forged_attestation'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked),base=fencedDeps(c,seeded);
+  assert.ok(base.successor.attestation,'the real local pair is attested');
+  const forged={...base,successor:{...base.successor,attestation:{kind:'lv019b-local-emulator-pair'}}};
+  const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot);
+  await assert.rejects(unblockBillingAccount(forged,c.account,body,'operator-ana',9_380_000_000),
+    error=>error instanceof UnblockFault&&error.code==='invalid');
+  assert.deepEqual(await signatures(c.root),videoBefore);
+  assert.deepEqual(await signatures(c.accountRoot),accountBefore);
+});
+
+test('successor pending is not permission: no grant path never dispatches',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('successor_pending_only'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked,{grant:false}),base=fencedDeps(c,seeded);
+  let confirms=0;
+  const lost={...base,successor:{...base.successor,confirm:async()=>{
+    confirms++;throw Object.assign(new Error('lost before Account'),{code:'unavailable'});}}};
+  await assert.rejects(unblockBillingAccount(lost,c.account,body,'operator-ana',9_390_000_000),
+    error=>error instanceof UnblockFault&&error.code==='unresolved'&&error.stage==='account');
+  const before=await c.store.videoBalance(c.identity);
+  await assert.rejects(unblockBillingAccount(base,c.account,body,'operator-ana',9_390_001_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  assert.equal(confirms,1,'only the first, uncertain dispatch was attempted');
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,0);
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,0);
+  assert.deepEqual(await c.store.videoBalance(c.identity),before);
+});
+
+test('guard corruption: an invalid reviewedCount fails the fenced receipt before pending and writes nothing',{timeout:120000},async()=>{
+  const blocked=await blockedAccount('fenced_corrupt_reviewed_count'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const guardRef=ref(c.accountRoot,'videoBillingGuards',c.accountOwner);
+  await guardRef.update({reviewedCount:-1});
+  const input={incidentId:blocked.hold,attemptId:seeded.previousAttemptId,
+    epoch:seeded.previousEpoch,createdAtMs:seeded.accountCreatedAtMs,reviewRef:body.evidenceRef,
+    authorizationSha256:seeded.authorizationSha256};
+  let receiptRejected=false,receiptError,receiptValue;
+  try{receiptValue=await c.store.fencedVideoBillingUnblockReceipt(c.identity,input);}
+  catch(error){receiptRejected=true;receiptError=error;}
+  console.log(receiptRejected
+    ?'DIAG fenced receipt rejected: '+JSON.stringify({name:receiptError?.name??null,
+      constructor:receiptError?.constructor?.name??null,code:receiptError?.code??null,
+      isAccountFault:receiptError instanceof AccountFault})
+    :'DIAG fenced receipt RESOLVED without error: state='+String(receiptValue?.state??null));
+  assert.equal(receiptRejected,true,'a corrupt reviewedCount must not be masked by pending');
+  assert.ok(receiptError instanceof AccountFault,
+    'the refusal must be an AccountFault, saw '+(receiptError?.constructor?.name??String(receiptError)));
+  assert.ok(receiptError.code==='invariant'||receiptError.code==='conflict',
+    'the AccountFault code must be invariant or conflict, saw '+String(receiptError.code));
+  const fenced=fencedDeps(c,seeded);
+  const videoBefore=await signatures(c.root),accountBefore=await signatures(c.accountRoot);
+  await assert.rejects(unblockBillingAccount(fenced,c.account,body,'operator-ana',9_400_000_000),
+    error=>error instanceof UnblockFault&&(error.code==='unresolved'||error.code==='corrupt'||error.code==='conflict'));
+  assert.deepEqual(await signatures(c.root),videoBefore,'no Video write on a corrupt guard');
+  assert.deepEqual(await signatures(c.accountRoot),accountBefore,'no Account write on a corrupt guard');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0);
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,0);
+});
+
+test('successor partial resume derives the claim from the durable request, not from the done close',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_partial_request'),c=blocked.c;
+  const oldBody=await request(c,blocked);
+  const support=accountHoldId('outbox',randomUUID(),1,1);
+  assert.equal((await c.accountBilling.block(c.identity,support)).created,true);
+  const g1=await accountGuard(c);
+  const failing={db:c.db,root:c.root,accountBilling:{
+    unblock:async()=>{throw Object.assign(new Error('synthetic delivery failure'),{code:'unavailable'});},
+    unblockReceipt:async()=>({state:'pending'})}};
+  await assert.rejects(unblockBillingAccount(failing,c.account,oldBody,'operator-ana',9_600_000_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict'&&error.stage==='account');
+  const requestedRef=ref(c.root,UNBLOCK_AUDIT_COLLECTION,
+    unblockAuditId(blocked.incident,'unblock_requested',blocked.guard.epoch,blocked.guard.createdAtMs));
+  const requested=await requestedRef.get(),requestRecordedAt=requested.get('recordedAtMs');
+  const seeded=await seedFencedSuccessor(c,blocked,{previousEpoch:oldBody.accountEpoch,successorEpoch:g1.epoch});
+  const deps=fencedDeps(c,seeded);
+  const partial=await unblockBillingAccount(deps,c.account,oldBody,'operator-ana',9_600_001_000);
+  assert.equal(partial.accountBlocked,true);assert.equal(partial.videoBlocked,true);
+  const claims=await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get();
+  assert.equal(claims.size,1);
+  const claim=claims.docs[0],claimData=claim.data(),claimVersion=stampNoPad(claim,'updateTime');
+  assert.equal(claimData.requestId,requested.id);
+  assert.equal(claimData.recordedAtMs,requestRecordedAt,'the claim carries the REQUEST time, not the done close time');
+  const doneRecord=await ref(c.root,UNBLOCK_AUDIT_COLLECTION,
+    unblockAuditId(blocked.incident,'unblocked',blocked.guard.epoch,blocked.guard.createdAtMs)).get();
+  assert.notEqual(claimData.recordedAtMs,doneRecord.get('recordedAtMs'));
+  const replay=await unblockBillingAccount(deps,c.account,oldBody,'operator-ana',9_600_002_000);
+  assert.equal(replay.replayed,true);assert.equal(replay.videoBlocked,true);
+  assert.equal(stampNoPad(claims.docs[0],'updateTime'),claimVersion,'the claim is untouched by the replay');
+  const supportReview=await c.accountBilling.unblock(c.identity,{incidentId:support,...await accountGuard(c),reviewRef:'synthetic review of the supporting hold'});
+  assert.equal(supportReview.blocked,false);
+  const released=await unblockBillingAccount(deps,c.account,oldBody,'operator-ana',9_600_003_000);
+  assert.equal(released.replayed,false);assert.equal(released.videoBlocked,false);
+  assert.equal((await guardOf(c).get()).exists,false);
+  assert.equal((await c.root.collection(UNBLOCK_SUCCESSOR_COLLECTION).get()).size,1,'the same claim, never a second');
+});
+
+test('successor stale Account clear: a newer incident between receipt and release keeps the Video guard',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_stale_clear'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+  let confirms=0;
+  const lossy={...base,successor:{...base.successor,confirm:async input=>{
+    const value=await base.successor.confirm(input);
+    if(input.attempt==='previous'&&++confirms===1)
+      throw Object.assign(new Error('lost ACK after Account commit'),{code:'unavailable'});
+    return value;}}};
+  await assert.rejects(unblockBillingAccount(lossy,c.account,body,'operator-ana',9_500_000_000),
+    error=>error instanceof UnblockFault&&error.code==='unresolved');
+  assert.equal(confirms,1,'the first confirmation committed in Account');
+  assert.equal((await c.accountRoot.collection('videoBillingUnblocks').get()).size,1);
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video lost the ACK and stays blocked');
+  const before=await c.store.videoBalance(c.identity);
+  let receiptCalls=0;
+  const stale={...base,successor:{...base.successor,async receipt(input){
+    const value=await base.successor.receipt(input);receiptCalls++;
+    if(value.state==='confirmed'&&receiptCalls===1){
+      // A NEW Account incident lands after the snapshot said blocked:false.
+      assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+    }
+    return value;
+  }}};
+  const result=await unblockBillingAccount(stale,c.account,body,'operator-ana',9_500_001_000);
+  assert.equal(receiptCalls,2,'one snapshot and one pre-release revalidation');
+  assert.equal(result.videoBlocked,true,'the stale clear never releases Video');
+  assert.equal(result.accountBlocked,true);
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the Video guard survives');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0);
+  const done=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get();
+  assert.equal(done.size,1);assert.equal(done.docs[0].get('videoBlocked'),true);
+  assert.deepEqual(await c.store.videoBalance(c.identity),before,'no balance moved');
+});
+
+test('successor: an incident AFTER the last receipt and BEFORE the release keeps the Video guard',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_post_read_clear'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+  let receiptCalls=0,confirms=0;
+  const stale={...base,successor:{...base.successor,
+    async receipt(input){
+      const value=await base.successor.receipt(input);receiptCalls++;
+      if(receiptCalls===2)
+        assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+      return value;
+    },
+    async confirm(input){confirms++;return base.successor.confirm(input);}}};
+  const before=await c.store.videoBalance(c.identity);
+  const result=await unblockBillingAccount(stale,c.account,body,'operator-ana',9_500_002_000);
+  assert.equal(receiptCalls,2,'one snapshot and one pre-release revalidation');
+  assert.equal(confirms,1,'exactly one confirm is sent');
+  assert.equal(result.videoBlocked,true,'the post-read incident never releases Video');
+  assert.equal(result.accountBlocked,true,'the result must not claim the account is clear');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the Video guard survives');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0);
+  const done=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get();
+  assert.equal(done.size,1);
+  assert.equal(done.docs[0].get('videoBlocked'),true);
+  assert.equal(done.docs[0].get('accountBlocked'),true,'the audit is coherent');
+  assert.deepEqual(await c.store.videoBalance(c.identity),before,'no balance moved');
+});
+
+async function rootSignature(root,names){
+  const out={};
+  for(const name of names){
+    const snap=await root.collection(name).get();
+    out[name]=snap.docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+  }
+  return out;
+}
+const VIDEO_ROOT_COLLECTIONS=['billingGuards',UNBLOCK_AUDIT_COLLECTION,'billingReleaseReopenings'];
+const ACCOUNT_ROOT_COLLECTIONS=['videoBillingGuards','videoBillingIncidents','videoBillingUnblocks','identities','videoBillingUnblockAttempts','videoBillingUnblockReconciliationGrants'];
+
+test('successor partial replay: a real partial closure, rival review, then a post-read incident keeps Video closed',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_partial_post_read'),c=blocked.c;
+  const rivalIncidentId=await addAccountIncident(c);
+  const body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+
+  const first=await unblockBillingAccount(base,c.account,body,'operator-ana',9_500_003_000);
+  assert.equal(first.videoBlocked,true,'partial: Video stays closed while the rival is active');
+  assert.equal(first.accountBlocked,true,'the first confirmation uses the live generation');
+  const doneSnap=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get();
+  assert.equal(doneSnap.size,1);
+  const doneBefore=doneSnap.docs[0].data();
+  assert.equal(doneBefore.videoBlocked,true);
+  assert.equal(doneBefore.accountBlocked,true);
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the Video guard survives the partial closure');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0);
+
+  await reviewOtherAccountIncident(c,rivalIncidentId);
+
+  let receiptCalls=0;
+  const stale={...base,successor:{...base.successor,async receipt(input){
+    const value=await base.successor.receipt(input);receiptCalls++;
+    if(receiptCalls===2)
+      assert.equal((await c.accountBilling.block(c.identity,accountHoldId('outbox',randomUUID(),1,1))).created,true);
+    return value;
+  }}};
+  const before=await c.store.videoBalance(c.identity);
+  const result=await unblockBillingAccount(stale,c.account,body,'operator-ana',9_500_003_500);
+  assert.equal(receiptCalls,2,'one snapshot and one pre-release revalidation');
+  assert.equal(result.replayed,true);
+  assert.equal(result.videoBlocked,true,'the post-read incident never releases Video on replay');
+  assert.equal(result.accountBlocked,true,'the result must not claim the account is clear');
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0);
+  const doneAfterSnap=await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get();
+  assert.equal(doneAfterSnap.size,1);
+  assert.deepEqual(doneAfterSnap.docs[0].data(),doneBefore,'the historical done is never mutated on replay');
+  assert.deepEqual(await c.store.videoBalance(c.identity),before,'no balance moved');
+});
+
+test('successor: a lost ACK alone creates no done',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_lost_ack_only'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+  let confirms=0;
+  const lossy={...base,successor:{...base.successor,confirm:async input=>{
+    const value=await base.successor.confirm(input);
+    if(input.attempt==='previous'&&++confirms===1)
+      throw Object.assign(new Error('lost ACK after Account commit'),{code:'unavailable'});
+    return value;}}};
+  await assert.rejects(unblockBillingAccount(lossy,c.account,body,'operator-ana',9_500_009_000),
+    error=>error instanceof UnblockFault&&error.code==='unresolved');
+  assert.equal(confirms,1,'the first confirmation committed in Account');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,'no done from a lost ACK alone');
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+});
+
+test('successor: a mutated Account identity rejects without writes',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_wrong_identity'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+  await c.accountRoot.collection('identities').doc(c.identity).update({uid:'uid-of-another-account'});
+  const videoBefore=await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS);
+  const accountBefore=await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS);
+    const allVideoBefore=await signatures(c.root),allAccountBefore=await signatures(c.accountRoot);
+  await assert.rejects(unblockBillingAccount(base,c.account,body,'operator-ana',9_500_004_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.deepEqual(await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS),videoBefore,'no Video write');
+  assert.deepEqual(await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS),accountBefore,'no Account write');
+    assert.deepEqual(await signatures(c.root),allVideoBefore,'no Video root writes');
+    assert.deepEqual(await signatures(c.accountRoot),allAccountBefore,'no Account root writes');
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+});
+
+test('successor: an empty or oversized Video uid rejects without writes',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_bad_uid'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+  const videoIdentity=(await c.root.collection('identities').where('accountId','==',c.account).limit(2).get()).docs[0];
+  for(const badUid of ['','x'.repeat(129)]){
+    await videoIdentity.ref.update({uid:badUid});
+    const videoBefore=await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS);
+    const accountBefore=await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS);
+    const allVideoBefore=await signatures(c.root),allAccountBefore=await signatures(c.accountRoot);
+    await assert.rejects(unblockBillingAccount(base,c.account,body,'operator-ana',9_500_004_500),
+      error=>error instanceof UnblockFault&&error.code==='conflict');
+    assert.deepEqual(await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS),videoBefore,'no Video write');
+    assert.deepEqual(await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS),accountBefore,'no Account write');
+    assert.deepEqual(await signatures(c.root),allVideoBefore,'no Video root writes');
+    assert.deepEqual(await signatures(c.accountRoot),allAccountBefore,'no Account root writes');
+  }
+});
+
+test('successor: a substituted Account root rejects without writes',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_wrong_root'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+  const wrong={...base,localAccountRoot:c.root};
+  const videoBefore=await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS);
+  const accountBefore=await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS);
+    const allVideoBefore=await signatures(c.root),allAccountBefore=await signatures(c.accountRoot);
+  await assert.rejects(unblockBillingAccount(wrong,c.account,body,'operator-ana',9_500_005_000),
+    error=>error instanceof UnblockFault&&error.code==='invalid');
+  assert.deepEqual(await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS),videoBefore,'no Video write');
+  assert.deepEqual(await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS),accountBefore,'no Account write');
+    assert.deepEqual(await signatures(c.root),allVideoBefore,'no Video root writes');
+    assert.deepEqual(await signatures(c.accountRoot),allAccountBefore,'no Account root writes');
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+});
+
+test('successor: a missing accredited root fails closed before any write',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_unaccredited'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const {localAccountRoot,...unaccredited}=fencedDeps(c,seeded);
+  const videoBefore=await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS);
+  const accountBefore=await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS);
+    const allVideoBefore=await signatures(c.root),allAccountBefore=await signatures(c.accountRoot);
+  await assert.rejects(unblockBillingAccount(unaccredited,c.account,body,'operator-ana',9_500_006_000),
+    error=>error instanceof UnblockFault&&error.code==='unresolved');
+  assert.deepEqual(await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS),videoBefore,'no Video write');
+  assert.deepEqual(await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS),accountBefore,'no Account write');
+    assert.deepEqual(await signatures(c.root),allVideoBefore,'no Video root writes');
+    assert.deepEqual(await signatures(c.accountRoot),allAccountBefore,'no Account root writes');
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+});
+
+test('successor: an unblock of account A writes nothing to account B in the same AccountStore and B keeps operating',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_isolation_a'),c=blocked.c;
+  const uidOtro='synthetic-other-uid';
+  const boot=await c.store.bootstrap(uidOtro);
+  const accountIdOtro=boot.account.id;
+  const identityKeyOtro=accountIdentityKey(uidOtro);
+  await ref(c.accountRoot,'accounts',accountIdOtro).update({credited:120,available:120});
+
+  const reservationOtro=await c.store.reserveVideo(identityKeyOtro,randomUUID(),60);
+  assert.ok(reservationOtro,'B reserves 60s before A acts');
+
+  const bBalanceBefore=await c.store.videoBalance(identityKeyOtro);
+  const bReservationsBefore=(await c.accountRoot.collection('videoReservations').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+  const bLedgerBefore=(await c.accountRoot.collection('ledgerEntries').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+  assert.ok(bReservationsBefore.length>=1,'B has its reservation');
+  assert.ok(bLedgerBefore.length>=1,'B has its ledger entry');
+
+  const aSeeded=await seedFencedSuccessor(c,blocked),aBase=fencedDeps(c,aSeeded);
+  const aBody=await request(c,blocked);
+  const aResult=await unblockBillingAccount(aBase,c.account,aBody,'operator-ana',9_500_007_000);
+  assert.equal(aResult.videoBlocked,false,'account A releases normally');
+
+  assert.deepEqual(await c.store.videoBalance(identityKeyOtro),bBalanceBefore,'B balance untouched by A');
+  assert.deepEqual((await c.accountRoot.collection('videoReservations').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0),bReservationsBefore,'B reservations untouched by A');
+  assert.deepEqual((await c.accountRoot.collection('ledgerEntries').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0),bLedgerBefore,'B ledger untouched by A');
+
+  const reservationOtro2=await c.store.reserveVideo(identityKeyOtro,randomUUID(),30);
+  assert.ok(reservationOtro2,'B can create another 30s reservation after A was processed');
+});
+
+test('successor: swapping identity A to account B after the last receipt rejects, keeps Video blocked and leaves B untouched',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_account_swap'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+
+  // B lives in the SAME AccountStore.
+  const uidOtro='synthetic-swap-other-uid';
+  const boot=await c.store.bootstrap(uidOtro);
+  const accountIdOtro=boot.account.id;
+  await ref(c.accountRoot,'accounts',accountIdOtro).update({credited:120,available:120});
+  const identityKeyOtro=accountIdentityKey(uidOtro);
+  const reservationOtro=await c.store.reserveVideo(identityKeyOtro,randomUUID(),60);
+  assert.ok(reservationOtro,'B reserves 60s before the sabotage');
+
+  const bBalanceBefore=await c.store.videoBalance(identityKeyOtro);
+  const bReservationsBefore=(await c.accountRoot.collection('videoReservations').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+  const bLedgerBefore=(await c.accountRoot.collection('ledgerEntries').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+
+  let receiptCalls=0,confirms=0,videoAtSabotage=null;
+  const swap={...base,successor:{...base.successor,
+    async receipt(input){
+      const value=await base.successor.receipt(input);receiptCalls++;
+      if(receiptCalls===2){
+        // Baseline at the sabotage point: the Phase 0 audit/dispatch writes and the Account confirmation already
+        // happened BEFORE this read, so they belong to the legitimate prior state, not to the release.
+        videoAtSabotage=await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS);
+        // Sabotage AFTER the last receipt and BEFORE the Video transaction: point identity A at account B, keeping A's uid.
+        await c.accountRoot.collection('identities').doc(c.identity).update({accountId:accountIdOtro});
+      }
+      return value;
+    },
+    async confirm(input){confirms++;return base.successor.confirm(input);}}};
+
+  // Mutations of A that already happened BEFORE the sabotage (documented, not asserted as unchanged):
+  //   - Phase 0 may have created the `unblock_requested` audit and continuity rows;
+  //   - the Account receipt/confirm path may have advanced Account A's incident/guard bookkeeping.
+  // Only the outcome AFTER the sabotage is asserted.
+  const videoGuardBefore=await guardOf(c).get();
+
+  await assert.rejects(unblockBillingAccount(swap,c.account,body,'operator-ana',9_500_010_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict');
+
+  assert.ok(videoAtSabotage,'the sabotage ran during the pre-release revalidation');
+  assert.equal(receiptCalls,2,'one snapshot and one pre-release revalidation');
+  assert.equal(confirms,1,'no second confirm is sent');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video A stays blocked');
+  assert.equal((await guardOf(c).get()).get('blocked'),videoGuardBefore.get('blocked'));
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0,'no release');
+  assert.deepEqual(await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS),videoAtSabotage,'no Video write after the sabotage');
+
+  assert.deepEqual(await c.store.videoBalance(identityKeyOtro),bBalanceBefore,'B balance untouched');
+  assert.deepEqual((await c.accountRoot.collection('videoReservations').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0),bReservationsBefore,'B reservations untouched');
+  assert.deepEqual((await c.accountRoot.collection('ledgerEntries').where('ownerAccountId','==',accountIdOtro).get())
+    .docs.map(d=>[d.id,d.data()]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0),bLedgerBefore,'B ledger untouched');
+});
+
+test('successor: an identity already pointing at another account rejects before any write',{timeout:180000},async()=>{
+  const blocked=await blockedAccount('successor_pre_swap'),c=blocked.c,body=await request(c,blocked);
+  const seeded=await seedFencedSuccessor(c,blocked);
+  const base=fencedDeps(c,seeded);
+  const uidOtro='synthetic-pre-swap-other-uid';
+  const boot=await c.store.bootstrap(uidOtro);
+  await ref(c.accountRoot,'accounts',boot.account.id).update({credited:120,available:120});
+  // Alter identity A BEFORE the call: it now points at account B while keeping A's uid.
+  await c.accountRoot.collection('identities').doc(c.identity).update({accountId:boot.account.id});
+  const videoBefore=await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS);
+  const accountBefore=await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS);
+  await assert.rejects(unblockBillingAccount(base,c.account,body,'operator-ana',9_500_011_000),
+    error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.deepEqual(await rootSignature(c.root,VIDEO_ROOT_COLLECTIONS),videoBefore,'no Video write');
+  assert.deepEqual(await rootSignature(c.accountRoot,ACCOUNT_ROOT_COLLECTIONS),accountBefore,'no Account write');
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'Video stays blocked');
 });

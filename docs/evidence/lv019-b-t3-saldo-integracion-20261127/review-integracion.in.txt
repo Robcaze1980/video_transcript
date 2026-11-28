@@ -1,0 +1,545 @@
+Revisor T3 independiente de Vistavo LV-019.B. SIN herramientas, sin modificar archivos, UNA sola respuesta, maximo 700 palabras, sin repetirte. Todo el paquete es codigo y pruebas sinteticas; no hay claves ni datos de clientes.
+
+QUE REVISAS: una DECISION DE INTEGRACION, no codigo nuevo. Dos lineas de trabajo del desbloqueo auditado de Video (`server/commercial/billingUnblock.ts`) divergieron desde un ancestro comun:
+- Linea principal (L): endurecimiento con 61 pruebas de emulador (`billingUnblockPiece2.emulator.mjs`, contra el emulador 8185 y una Cuenta real), con mutaciones verificadas; contrato SIN «corte de escritores».
+- Linea del cerco (C): candidata certificada de saldo (91 pruebas, `billingUnblock.emulator.mjs`, emulador aislado 8198 con guardas de raiz financiera), que ademas exige un «corte de escritores» (`guardBornAfterWriterCut`) antes de desbloquear, y valida en la transaccion final la guarda de la Cuenta (`resolveAccountGuard`/`readAccountGuard`, con `owner-check`).
+
+HECHOS COMPROBADOS POR CODEX: (1) Solo DOS archivos cambiaron en ambas lineas: `billingUnblock.ts` y `billingUnblock.emulator.mjs`. (2) La fusion de `billingUnblock.ts` fue casi automatica; el unico choque era un comentario sobre las mismas dos comprobaciones de relacion de fase 3 (misma logica en ambas lineas). Tras resolverlo, el archivo de produccion integrado es IDENTICO byte a byte al de la linea del cerco certificada (mismo hash); es decir, todo el codigo de produccion de L ya estaba contenido en C. (3) El archivo de pruebas integrado es tambien el de C (91 pruebas). (4) `tsc --noEmit` limpio en el arbol integrado; la suite de C corre 91/91 en el arbol integrado (cleanup 99/99). (5) La suite de L (61 pruebas) NO sirve con el codigo integrado: 87 comprobaciones fallan con `conflict` en `billingUnblock.ts:664` (`guardBornAfterWriterCut`), porque esas pruebas no preparan el corte de escritores del contrato nuevo. No es un defecto de produccion: es un cambio de contrato. (6) La regresion financiera oficial y la de Cuenta protegida pasaron sobre C (559/554/0/5 y 38/38) y se repiten sobre el arbol integrado; GLM y DeepSeek ya dieron PASS al cambio de C. (7) 9 pruebas literales de L (mas casos extra dentro de dos bucles de deriva) cubren comportamientos que descubrimos con mutaciones sobre L: puerta de fase 0 (alerta de otra generacion o guarda de otra cuenta), reanudacion/reintento parcial con alerta cerrada, recibo no confirmado o de otra generacion, guardas que dejan de estar bloqueadas, generacion exacta de reanudacion y lectura de filas dentro de la transaccion. NO sabemos si la suite de C las cubre con otros nombres.
+
+QUE QUEREMOS DE TI (sobre todo con base en los fragmentos):
+A) ¿El razonamiento (2)-(4) justifica fusionar C como linea activa y archivar la suite de L, sin riesgo de regresion en produccion? Indica cualquier secuencia concreta en que la ausencia de las pruebas de L deje pasar un defecto que L si detectaba.
+B) Para CADA una de las 9 pruebas de L adjuntas: ¿su comportamiento esta cubierto por algun nombre de la lista de pruebas de C, o por la lectura del codigo de produccion adjunto? Responde «cubierta por X», «parcialmente» o «sin cobertura aparente», y di si recomiendas portarla ANTES de fusionar o DESPUES (como tarea inmediata), con el criterio.
+C) Riesgos de fusionar la rama ahora y dejar el porte como tarea siguiente (sin publicar nada; todo local).
+Si falta informacion para concluir, INCONCLUYENTE y di que falta. No inventes resultados de pruebas. Distingue errores demostrados de hipotesis.
+
+FORMATO OBLIGATORIO: termina con exactamente este bloque (sin cambiar las etiquetas):
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: ...
+NEGATIVOS: ...
+BLOQUEOS: ...
+=== FIN RESUMEN ===
+
+=== MATERIAL ===
+
+--- Nombres de las pruebas de la suite de C (91 en total; literales unicos listados) ---
+- 11 a corrupt pending hold whose stored 
+- 11 a hold that needed review when audited is handed back as applied, and a clear row is never touched twice
+- 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back
+- 11 an INTENT that diverges AGAIN after its unblock can be unblocked again: audit records are per occurrence
+- 11 an INTENT unblock completes when the admission guard names an observation incident of the same incident
+- 11 an INTENT unblock leaves alone an admission guard that 
+- 11 an intent with no work of its own exits to 
+- 11 full unblock leaves a Video audit, deletes Account guard, clears the Video guard and revives Account
+- 11 negative: 
+- 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it
+- 11 negative: a failed Account phase leaves Video blocked and its rows untouched
+- 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch
+- 11 negative: a missing, empty or control-character evidenceRef is invalid and writes nothing
+- 11 negative: a rival row that lands between phase 0 and phase 3 keeps the Video guard blocked
+- 11 negative: a row that is re-blocked during the partial repeat is refused and the newer guard survives
+- 11 negative: a second incident arriving between the read and the write aborts and is never overwritten
+- 11 negative: after a partial release, the old request cannot replay as success over a NEWER block
+- 11 negative: an absent alert or one that is not open never unblocks
+- 11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock
+- 11 negative: an unresolved needs_review row that this incident did not name stops the unblock
+- 11 negative: every kind of unresolved row of the account stops the unblock, and rows of OTHER accounts never do
+- 11 negative: the audited rows and the alert are re-read in phase 3, and any drift aborts without advancing anything
+- 11 partial then repeat: once Account has no other incident, the identical repeat releases the Video guard and the alert
+- 11 partial: Account keeps its guard because other incidents remain, so Video keeps its own but advances this incident
+- 11 partial: a repeat while Account still holds the owner, or while Video has a rival row, writes nothing and keeps the guard
+- 11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted
+- 11 replay: an identical repeat is replayed without a single write; a different payload is a conflict
+- 11 resume: a hold that moved to 
+- 11 resume: a pending claim on the SAME guard generation, operator and payload keeps the Video block and never sends twice
+- 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt
+- 11 the completion records the Account generation the confirmed call actually used, not a different one presented on resume
+- 12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any send, and the current generation applies
+- 12 a wrong Account generation is refused per variation: one claim, one refused POST, guard retained, never re-sent
+- 12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone
+- 12b a SECOND incident on a live guard stores its hold with the guard generation, so the drainer authorizes it and Account records it
+- 12b a re-block after an unblock is a NEW guard epoch, a new alert, and the sweep never duplicates either
+- 12b the alert state carries the REAL epoch, so a second incident on a live block is a new alert
+- 13 the unblock works while another holder owns billingDrainLease/current and never takes it
+- a ${cutState} writer cut cannot authorize an Account unblock
+- a block during reserve keeps the Account confirmation without creating or capturing work
+- a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock
+- a capture already authorized by Video reaches Account before a concurrent hold propagates
+- a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once
+- a fenced confirmation-first unblock recovers by receipt and returns both reservations exactly once
+- a fenced receipt naming a different incident is refused without writes
+- an aged refund with missing ${missing} goes to review despite the account guard
+- an uncertain Account unblock with no receipt preserves reservations and never sends a second POST
+- guard accounting: a legacy guard without createdAtMs is refused, and a missing epoch is read as 1 only when the mark exists
+- guard accounting: the guard predicate still tolerates blocked:false and refuses to invent a value for a missing flag
+- guard accounting: the real outbox writer creates epoch 1 with createdAtMs and a re-block grows the epoch
+- guard corruption: an invalid reviewedCount fails the fenced receipt before pending and writes nothing
+- re-block after unblock: the same row diverges again with a NEW Account incident id, the old id is never resent, and it unblocks again
+- retry generation missing: a claim left by an uncertain POST still refuses a later call after the guard document is gone
+- retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once
+- retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives
+- retry-generation C: a lost confirmation is recovered from its receipt while a newer Account block survives
+- successor claim missing/tampered: the confirmed successor receipt cannot close
+- successor environment gate: non-emulator settings and a forged attestation write nothing
+- successor invalid authority: missing cut/grant, wrong tuple and wrong identity write nothing
+- successor lost confirm ACK: recover the active receipt, never resend
+- successor lost reconcile ACK: same tuple, ONE claim and ONE send
+- successor parallel: two recoverers create ONE claim and dispatch once
+- successor partial replay: a real partial closure, rival review, then a post-read incident keeps Video closed
+- successor partial resume derives the claim from the durable request, not from the done close
+- successor partial resume uses the DONE accepted epoch and the original durable request for the claim
+- successor pending is not permission: no grant path never dispatches
+- successor race order A: previous confirms between receipt and reconcile; close by receipt, no claim/send
+- successor race order B: reconcile fences first; previous is refused and the successor dispatches once
+- successor real receipt: g0->g1 observes pending, closes by ONE successor claim, drains once and leaves the other account intact
+- successor stale Account clear: a newer incident between receipt and release keeps the Video guard
+- successor: a lost ACK alone creates no done
+- successor: a missing accredited root fails closed before any write
+- successor: a mutated Account identity rejects without writes
+- successor: a substituted Account root rejects without writes
+- successor: an empty or oversized Video uid rejects without writes
+- successor: an identity already pointing at another account rejects before any write
+- successor: an incident AFTER the last receipt and BEFORE the release keeps the Video guard
+- successor: an unblock of account A writes nothing to account B in the same AccountStore and B keeps operating
+- successor: swapping identity A to account B after the last receipt rejects, keeps Video blocked and leaves B untouched
+- the rows of the account are read through each required transaction and never through a direct read
+
+--- Las 9 pruebas literales de L (codigo, de `billingUnblockPiece2.emulator.mjs`; usan helpers de ese archivo: blockedAccount, request, fixture del emulador 8185) ---
+test('11 negative: a guard that stops being blocked, or names the incident through both fields, in phase 3 aborts the release',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_phase3_guard_shape'),c=blocked.c,requestBody=await request(c,blocked),row=outbox(c,blocked.job.id);
+  const original=(await guardOf(c).get()).data(),real=c.accountBilling.unblock.bind(c.accountBilling),readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
+  for(const [name,change] of [['the guard is no longer blocked',{blocked:false}],['the guard names the incident through both fields',{lastIncidentId:original.lastOutboxIncidentId}]]){
+    // The first attempt reaches Account through `unblock`; Account has confirmed by the second one, which then reads the receipt instead.
+    c.accountBilling.unblock=async(...args)=>{await guardOf(c).update(change);return real(...args);};
+    c.accountBilling.unblockReceipt=async(...args)=>{const receipt=await readReceipt(...args);await guardOf(c).update(change);return receipt;};
+    await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
+    c.accountBilling.unblock=real;c.accountBilling.unblockReceipt=readReceipt;
+    assert.equal((await guardOf(c).get()).exists,true,name+': the guard is not deleted');assert.equal((await row.get()).get('state'),'needs_review',name+': nothing was advanced');
+    assert.equal((await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).get('status'),'open',name+': the alert stays open');
+    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','unblocked').get()).size,0,name+': no completion record');
+    await guardOf(c).set(original);
+  }
+  const done=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000);
+  assert.equal(done.videoBlocked,false);assert.equal((await row.get()).get('state'),'retry_wait');
+});
+
+test('11 negative: an alert that closes during the partial repeat keeps the Video guard and writes no release',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_partial_alert_closes'),c=blocked.c,other=await addAccountIncident(c),requestBody=await request(c,blocked),alertRef=ref(c.root,ALERT_COLLECTION,blocked.alertKey);
+  assert.equal((await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000)).videoBlocked,true);
+  await reviewOtherAccountIncident(c,other);
+  const readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);
+  c.accountBilling.unblockReceipt=async(...args)=>{const receipt=await readReceipt(...args);await alertRef.update({status:'superseded'});return receipt;};
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_005_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  c.accountBilling.unblockReceipt=readReceipt;
+  assert.equal((await guardOf(c).get()).get('blocked'),true,'the guard is not released over a closed alert');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0,'no release record');
+  assert.equal((await alertRef.get()).get('status'),'superseded','the alert is left as the other writer set it');
+  assert.equal((await ref(c.root,'billingReleaseReopenings',c.account).get()).exists,false,'no reopening mark');
+});
+
+test('11 negative: an alert that is no longer open stops a partial repeat before it reaches Account',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_partial_alert_closed'),c=blocked.c,alertRef=ref(c.root,ALERT_COLLECTION,blocked.alertKey);
+  await addAccountIncident(c);
+  const requestBody=await request(c,blocked);
+  assert.equal((await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000)).videoBlocked,true);
+  let calls=0;const fail=async()=>{calls++;throw new Error('unexpected Account request');};
+  const counting={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
+  await alertRef.update({status:'superseded'});
+  await assert.rejects(unblockBillingAccount(counting,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(calls,0,'a partial repeat over a closed alert never reaches Account');
+  assert.equal((await guardOf(c).get()).get('blocked'),true);
+});
+
+test('11 negative: an alert that is no longer open stops a resume before it reaches Account',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_resume_alert_closed'),c=blocked.c,requestBody=await request(c,blocked),alertRef=ref(c.root,ALERT_COLLECTION,blocked.alertKey);let calls=0;
+  const fail=async()=>{calls++;throw Object.assign(new Error('synthetic'),{code:'unavailable'});};
+  const failing={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(calls,1);
+  await alertRef.update({status:'superseded'});
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(calls,1,'a resume over a closed alert never reaches Account');
+  await alertRef.update({status:'open'});
+  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_002_000);
+  assert.equal(resumed.videoBlocked,false);
+});
+
+test('11 negative: phase 0 refuses an open alert of another generation, or a guard that names another account, before Account is ever asked',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_phase0_gate'),c=blocked.c,requestBody=await request(c,blocked);
+  const accountAsked=()=>c.transport.bodies.filter(body=>body.pathname.endsWith('/unblock')).length;
+  const alert=(await ref(c.root,ALERT_COLLECTION,blocked.alertKey).get()).data();
+  const otherState='blocked:'+(requestBody.epoch+1)+':'+requestBody.createdAtMs+':'+blocked.incident,fields={...alert,state:otherState},key=alertKey(fields.kind,fields.rowId,fields.state,fields.reason);
+  await ref(c.root,ALERT_COLLECTION,key).create({...fields,alertKey:key});
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,alertKey:key},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict','an open alert of another generation');
+  assert.equal(accountAsked(),0,'Account is never asked for an alert of another generation');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0,'no audit record');
+  const original=(await guardOf(c).get()).data();
+  await guardOf(c).update({accountId:randomUUID()});
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict','a guard that names another account');
+  assert.equal(accountAsked(),0,'Account is never asked for a guard of another account');
+  assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).get()).size,0,'no audit record');
+  assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true,'Account stays blocked');
+  await guardOf(c).set(original);
+  const done=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_002_000);
+  assert.equal(done.videoBlocked,false);
+});
+
+test('11 partial: a receipt that is not confirmed, or that names another Account generation than the completion record, never releases and never asks Account again',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_partial_receipt_shape'),c=blocked.c,other=await addAccountIncident(c),requestBody=await request(c,blocked);
+  assert.equal((await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000)).videoBlocked,true);
+  await reviewOtherAccountIncident(c,other);
+  const readReceipt=c.accountBilling.unblockReceipt.bind(c.accountBilling);let unblockCalls=0;
+  const withReceipt=receipt=>({db:c.db,root:c.root,accountBilling:{unblockReceipt:receipt,unblock:async()=>{unblockCalls++;throw new Error('a partial repeat must not resend the unblock');}}});
+  for(const [name,receipt] of [
+    ['a pending receipt',async()=>({state:'pending'})],
+    ['another Account epoch',async(...args)=>({...await readReceipt(...args),epoch:requestBody.accountEpoch+1})],
+    ['another Account createdAtMs',async(...args)=>({...await readReceipt(...args),createdAtMs:requestBody.accountCreatedAtMs+1})],
+  ]){
+    await assert.rejects(unblockBillingAccount(withReceipt(receipt),c.account,requestBody,'operator-ana',9_000_005_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
+    assert.equal(unblockCalls,0,name+': Account is never asked to unblock again');
+    assert.equal((await guardOf(c).get()).get('blocked'),true,name+': the Video guard stays');
+    assert.equal((await c.root.collection(UNBLOCK_AUDIT_COLLECTION).where('action','==','video_released').get()).size,0,name+': no release record');
+  }
+  const released=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_006_000);
+  assert.equal(released.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
+});
+
+test('11 resume: an audited request only resumes on the SAME guard generation, operator and payload',{timeout:90000},async()=>{
+  const blocked=await blockedAccount('unblock_resume_drift'),c=blocked.c,requestBody=await request(c,blocked);let calls=0;
+  const fail=async()=>{calls++;throw Object.assign(new Error('synthetic'),{code:'unavailable'});};
+  const failing={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  assert.equal(calls,1);const before=withoutGuard(c,await signatures(c.root));
+  for(const [name,body,who] of [['another operator',requestBody,'operator-bob'],['another evidence',{...requestBody,evidenceRef:'ticket-other'},'operator-ana'],['another note',{...requestBody,note:'another note'},'operator-ana']])
+    await assert.rejects(unblockBillingAccount(failing,c.account,body,who,9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
+  const original=(await guardOf(c).get()).data();
+  await guardOf(c).delete();
+  await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_002_000),error=>error instanceof UnblockFault&&error.code==='conflict');
+  await guardOf(c).set(original);
+  for(const [name,change] of [['epoch',{epoch:original.epoch+1}],['createdAtMs',{createdAtMs:original.createdAtMs+1}],['incident',{lastOutboxIncidentId:sha('another incident')}],['account',{accountId:randomUUID()}],
+    // Codex mutation round 7 (integrated line): a guard that is no longer blocked, or that names the incident through BOTH fields, is not the audited guard.
+    ['not blocked',{blocked:false}],['both incident fields',{lastIncidentId:original.lastOutboxIncidentId}]]){
+    await guardOf(c).update(change);
+    await assert.rejects(unblockBillingAccount(failing,c.account,requestBody,'operator-ana',9_000_002_000),error=>error instanceof UnblockFault&&error.code==='conflict',name);
+    await guardOf(c).set(original);
+  }
+  assert.equal(calls,1,'a refused repeat never reaches Account');assert.deepEqual(withoutGuard(c,await signatures(c.root)),before,'a refused repeat writes nothing');
+  const resumed=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_003_000);
+  assert.equal(resumed.videoBlocked,false);assert.equal((await guardOf(c).get()).exists,false);
+});
+
+test('12 a stale epoch or createdAtMs is refused and the current generation applies',{timeout:40000},async()=>{
+  const blocked=await blockedAccount('unblock_stale'),c=blocked.c,requestBody=await request(c,blocked);
+  // Epoch 0 is not a generation at all: it is rejected by validation (`invalid`) before anything is read or written.
+  await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,epoch:0},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&(error.code==='invalid'||error.code==='conflict'),'epoch 0 is not a generation');
+  const changes=[{epoch:requestBody.epoch+1},...(requestBody.epoch>1?[{epoch:requestBody.epoch-1}]:[]),{createdAtMs:requestBody.createdAtMs+1},{createdAtMs:requestBody.createdAtMs-1},{updatedAtMs:requestBody.updatedAtMs+1},{updatedAtMs:requestBody.updatedAtMs-1},{accountEpoch:requestBody.accountEpoch+1},{accountCreatedAtMs:requestBody.accountCreatedAtMs+1}];
+  for(const change of changes){
+    await assert.rejects(unblockBillingAccount(deps(c),c.account,{...requestBody,...change},'operator-ana',9_000_000_000),error=>error instanceof UnblockFault&&error.code==='conflict',JSON.stringify(change));
+  }
+  assert.equal((await guardOf(c).get()).get('blocked'),true);assert.equal((await ref(c.accountRoot,'videoBillingGuards',c.accountOwner).get()).exists,true);
+  const applied=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_001);
+  assert.equal(applied.unblocked,true);assert.equal((await guardOf(c).get()).exists,false);
+});
+
+test('the rows of the account are read through the transaction in phase 0 and in phase 3, never outside it',{timeout:60000},async()=>{
+  const blocked=await blockedAccount('unblock_tx_reads'),c=blocked.c,requestBody=await request(c,blocked);
+  const originalRun=c.db.runTransaction.bind(c.db);let queryReads=0;
+  c.db.runTransaction=(fn,...rest)=>originalRun(tx=>fn(new Proxy(tx,{get(target,prop){
+    const value=Reflect.get(target,prop);
+    if(typeof value!=='function')return value;
+    if(prop==='get')return (arg,...more)=>{if(arg&&typeof arg.where==='function')queryReads++;return value.call(target,arg,...more);};
+    return value.bind(target);
+  }})),...rest);
+  const result=await unblockBillingAccount(deps(c),c.account,requestBody,'operator-ana',9_000_000_000);
+  c.db.runTransaction=originalRun;
+  assert.equal(result.videoBlocked,false);
+  assert.equal(queryReads,12,'six collections in phase 0 and six in phase 3, all through the transaction');
+});
+
+
+--- Produccion integrada (identica a C): puerta de fase 0, reanudacion y fase 3 de `billingUnblock.ts`, con numeros de linea ---
+528:   // prove the same state again when the audit and the dispatch claim are created.
+529:   const seam=successorOf(deps);
+530:   if(seam)await db.runTransaction(async tx=>{
+531:     await readAccountGuard(tx,await resolveAccountGuard(tx,deps,accountId));
+532:   });
+533: 
+534:   const opened=await db.runTransaction(async tx=>{
+535:     const [guard,alert,requested,done,released,witness,dispatch,cut]=await tx.getAll(guardRef,alertRef,requestedRef,doneRef,releasedRef,witnessRef,dispatchRef,cutRef);
+536:     const observed={guard,requested,done,witness,dispatch,cut};
+537:     // The caller is authenticated BEFORE this module: `authorizedBy` is its verified identity, not payload. Re-using an
+538:     // audited unblock with a different principal is not a replay of the same request, so it is a conflict (an argument
+539:     // mismatch), not a second operator's write; the same principal repeating the call is the replay.
+540:     // An audited record only answers while it still describes the CURRENT guard: the epoch restarts at 1 when the guard
+541:     // is deleted, so a record of another generation must not replay as success over a newer block.
+542:     // The generation alone is not enough: the epoch restarts at 1 when the guard is deleted, and the creation mark can
+543:     // repeat in the same millisecond, so a record also has to name the SAME incident the live guard names.
+544:     // A partial release already finished (Account had no other incident and Video released): a pure replay, checked
+545:     // BEFORE any Account call so a third identical request writes nothing and never asks Account again.
+546:     if(released.exists){
+547:       const data=released.data() as Record<string,unknown>|undefined;
+548:       if(!samePayload(data)||!sameOperator(data))throw new UnblockFault('conflict');
+549:       // `video_released` was created in the same transaction that deleted the guard, so a live BLOCKED guard is a NEWER
+550:       // block (another incident on the same row) and never the generation this record released. Answering `replayed`
+551:       // here would tell the operator the account is open while another incident blocks it.
+552:       if(guard.exists&&guard.get('blocked')===true)throw new UnblockFault('conflict');
+553:       return {replayed:true as const,record:data!,videoReleased:true as const};
+554:     }
+555:     if(done.exists){
+556:       const data=done.data() as Record<string,unknown>|undefined;
+557:       if(!samePayload(data)||!sameOperator(data))throw new UnblockFault('conflict');
+558:       if(guard.exists&&guard.get('blocked')===true){
+559:         // `unblocked` is created in the SAME transaction that deletes the guard, so a live guard here is the PARTIAL
+560:         // result: Account still had other incidents and the Video guard survived. It is not a newer block unless the
+561:         // generation moved; the epoch restarts at 1 after a delete, so the creation mark is what distinguishes them.
+562:         if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
+563:         // Same occurrence: the repeat can read Account's receipt and may finish the release.
+564:         return {replayed:false as const,record:data!,partial:true as const,observed};
+565:       }
+566:       return {replayed:true as const,record:data!};
+567:     }
+568:     // Surviving evidence of an earlier dispatch cannot authorize a replacement request.
+569:     if(!requested.exists&&(witness.exists||dispatch.exists))throw new UnblockFault('conflict');
+570:     if(requested.exists){
+571:       const data=requested.data() as Record<string,unknown>|undefined;
+572:       if(!samePayload(data))throw new UnblockFault('conflict');
+573:       if(authorizedBy!==data.authorizedBy)throw new UnblockFault('conflict');
+574:       if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
+575:       return {replayed:false as const,record:data!,observed};
+576:     }
+577:     const record=await freshRecord(tx,guard,alert);
+578:     return {replayed:false as const,record,fresh:true as const,observed};
+579:   });
+580:   if(opened.replayed)return {unblocked:true,replayed:true,accountBlocked:Boolean(opened.record.accountBlocked),
+581:     videoBlocked:'videoReleased' in opened?false:Boolean(opened.record.videoBlocked),
+582:     advanced:Array.isArray(opened.record.advanced)?opened.record.advanced.map(String):[],auditId:String(opened.record.auditId)};
+583: 
+584:   const record=opened.record,planned=record.planned as PlannedRow[];
+585:   const kind=opened.observed.guard.get('lastIncidentId')===clean.incidentKey?'intent':'outbox';
+586:   const holdId=videoHoldId(kind,clean.incidentKey,clean.epoch,clean.createdAtMs);
+587:   if(record.kind!==kind||record.holdId!==holdId)throw new UnblockFault('conflict');
+588: 
+589:   async function recheck(tx:Transaction,observed:UnblockObservation,
+590:     pin?:{ref:DocumentReference;data:Record<string,unknown>}){
+591:     const [guard,alert,requested,done,released,witness,dispatch,cut]=await tx.getAll(guardRef,alertRef,requestedRef,doneRef,releasedRef,witnessRef,dispatchRef,cutRef);
+592:     const requestData=requested.data();
+593:     if(!sameGuard(guard,accountId,clean)||!sameOpenAlert(alert,accountId,clean))throw new UnblockFault('conflict');
+594:     const guardKind=guard.get('lastIncidentId')===clean.incidentKey?'intent':'outbox';
+595:     const sameRequest=observed.requested.exists?sameVersion(observed.requested,requested):isDeepStrictEqual(requestData,record);
+596:     const sameContinuity=observed.requested.exists?
+597:       sameVersion(observed.witness,witness)&&sameVersion(observed.dispatch,dispatch):
+598:       sameVersion(observed.cut,cut)&&guardBornAfterWriterCut(guard,cut);
+599:     if(!samePayload(requestData)||!sameOperator(requestData)||requestData?.auditId!==requestedRef.id||
+600:       requestData.action!=='unblock_requested'||requestData.kind!==guardKind||kind!==guardKind||
+601:       requestData.holdId!==holdId||holdId!==videoHoldId(guardKind,clean.incidentKey,clean.epoch,clean.createdAtMs)||
+602:       !sameVersion(observed.guard,guard)||!sameRequest||!sameContinuity||!continuousRequest(requested,witness,dispatch)||released.exists||
+603:       (observed.done.exists?!sameVersion(observed.done,done):done.exists))throw new UnblockFault('conflict');
+604:     // Read before any write of this transaction: a missing/changed claim aborts the whole advance.
+605:     if(pin&&!sameSuccessorClaim(await tx.get(pin.ref),pin.data))throw new UnblockFault('conflict');
+606:     return {guard,requested,done,witness,dispatch,cut};
+607:   }
+608: 
+609:   let observed=opened.observed;
+610:   let accepted={epoch:clean.accountEpoch,createdAtMs:clean.accountCreatedAtMs};
+611:     let acceptedAttemptId:string|null=null;
+612:   let account:{replayed:boolean;blocked:boolean};
+613:   const identityKey=await accountPhase(()=>identityKeyOf(root,accountId));
+614:   const granted=seam?.attempt??null;
+615:   const claimRef=seam&&granted?root.collection(UNBLOCK_SUCCESSOR_COLLECTION)
+616:     .doc(successorClaimId(accountId,requestedRef.id,granted)):null;
+617:   let cachedClaim:Record<string,unknown>|null=null;
+618:   const claimRecord=()=>{
+619:     if(!seam||!granted||!claimRef)throw new UnblockFault('conflict');
+620:     if(!observed.requested.exists)throw new UnblockFault('conflict');
+621:     cachedClaim??=successorClaimFromRequest(observed.requested,accountId,holdId,granted,seam.accountCreatedAtMs);
+622:     return cachedClaim;
+623:   };
+624:   let pin:{ref:DocumentReference;data:Record<string,unknown>}|null=null;
+625:   const requireClaim=async()=>{
+626:     if(!claimRef)throw new UnblockFault('conflict');
+627:     const data=claimRecord(),snap=await claimRef.get();
+628:     if(!sameSuccessorClaim(snap,data))throw new UnblockFault('conflict');
+629:     pin={ref:claimRef,data};
+630:   };
+631:   const activeTuple=(state:{attemptId:string;epoch:number})=>!!granted&&
+632:     ((state.attemptId===granted.previousAttemptId&&state.epoch===granted.previousEpoch)||
+633:      (state.attemptId===granted.attemptId&&state.epoch===granted.epoch));
+634: 
+635:   let receipt:AccountReceipt;
+636:   if(seam){
+637:     const value=decisionReceipt(await successorCall('account',()=>seam.receipt({identityKey,incidentId:holdId,reviewRef:clean.evidenceRef})));
+638:     if(value.createdAtMs!==seam.accountCreatedAtMs||!activeTuple(value))throw new UnblockFault('conflict');
+639:     receipt=value;
+640:   }else{
+641:     const raw=await accountPhase(()=>deps.accountBilling.unblockReceipt(identityKey,holdId,clean.evidenceRef));
+642:     if(raw?.state==='pending')receipt={state:'pending',attemptId:null,epoch:null,createdAtMs:null};
+643:     else if(raw?.state==='confirmed'&&whole(raw.epoch,1)&&whole(raw.createdAtMs)&&typeof raw.blocked==='boolean')
+644:       receipt={state:'confirmed',attemptId:null,epoch:raw.epoch,createdAtMs:raw.createdAtMs,blocked:raw.blocked,replayed:true};
+645:     else throw new UnblockFault('conflict');
+646:   }
+647: 
+648:   if(receipt.state==='confirmed'){
+649:     if('fresh' in opened)throw new UnblockFault('conflict');
+650:     if(seam){
+651:       if(!granted||!receipt.attemptId)throw new UnblockFault('corrupt');
+652:       if(receipt.createdAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('corrupt');
+653:       if(receipt.attemptId===granted.previousAttemptId){
+654:         if(receipt.epoch!==granted.previousEpoch)throw new UnblockFault('corrupt');
+655:       }else if(receipt.attemptId===granted.attemptId){
+656:         if(receipt.epoch!==granted.epoch)throw new UnblockFault('corrupt');
+657:         await requireClaim();
+658:       }else throw new UnblockFault('corrupt');
+659:     }
+660:     accepted={epoch:receipt.epoch,createdAtMs:receipt.createdAtMs};
+661:     acceptedAttemptId=receipt.attemptId;
+662:     account={replayed:receipt.replayed,blocked:receipt.blocked};
+663:   }else if('fresh' in opened){
+664:     if(!guardBornAfterWriterCut(observed.guard,observed.cut))throw new UnblockFault('conflict');
+665:     if(seam){
+666:       if(!granted||receipt.attemptId!==granted.previousAttemptId||receipt.epoch!==granted.previousEpoch||
+667:         clean.accountEpoch!==granted.previousEpoch||clean.accountCreatedAtMs!==seam.accountCreatedAtMs)
+668:         throw Object.assign(new UnblockFault('conflict'),{stage:'initial_tuple'});
+669:     }
+670:     await db.runTransaction(async tx=>{
+671:       const [guard,alert,requested,done,released,witness,dispatch,cut]=await tx.getAll(
+672:         guardRef,alertRef,requestedRef,doneRef,releasedRef,witnessRef,dispatchRef,cutRef);
+673:       if(requested.exists||done.exists||released.exists||witness.exists||dispatch.exists||
+674:         !sameVersion(observed.guard,guard)||!sameVersion(observed.cut,cut)||!guardBornAfterWriterCut(guard,cut)||
+675:         !isDeepStrictEqual(await freshRecord(tx,guard,alert),record))throw new UnblockFault('conflict');
+676:       tx.create(requestedRef,record);
+677:       tx.create(witnessRef,continuityRecord(requestedRef.id,record,'request'));
+678:       tx.create(dispatchRef,continuityRecord(requestedRef.id,record,'dispatch'));
+679:     });
+680:     observed=await db.runTransaction(tx=>recheck(tx,observed));
+681:     if(seam){
+682:       const result=confirmedResult(await successorCall('account',()=>seam.confirm({identityKey,incidentId:holdId,reviewRef:clean.evidenceRef,attempt:'previous'})));
+683:       if(!granted||result.attemptId!==granted.previousAttemptId||result.epoch!==granted.previousEpoch||
+684:         result.createdAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('conflict');
+685:       accepted={epoch:result.epoch,createdAtMs:result.createdAtMs};
+686:       acceptedAttemptId=granted.previousAttemptId;
+687:       account={replayed:result.replayed,blocked:result.blocked};
+688:     }else{
+689:       account=await accountPhase(()=>deps.accountBilling.unblock(identityKey,{incidentId:holdId,...accepted,reviewRef:clean.evidenceRef}));
+690:     }
+691:   }else if(seam&&!('partial' in opened)){
+692:     if(!granted||clean.accountCreatedAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('conflict');
+693:     // BEFORE Account: verify Video authorization and the trusted cut.
+694:     await db.runTransaction(tx=>recheck(tx,observed));
+695:     const decision=successorDecision(await successorCall('account',()=>seam.reconcile({identityKey,incidentId:holdId,reviewRef:clean.evidenceRef})));
+696:     if(decision.createdAtMs!==seam.accountCreatedAtMs)throw new UnblockFault('corrupt');
+697:     if(decision.state==='confirmed'){
+698:       if(decision.attemptId===granted.previousAttemptId){
+699:         if(decision.epoch!==granted.previousEpoch)throw new UnblockFault('corrupt');
+700:         // Previous attempt won the race: close by receipt; no claim, no send.
+...
+748:     // Deliberate revalidation of the Account decision immediately before Video may clear its guard. The first
+749:     // receipt is a snapshot; a newer Account incident can land after it. This narrows the cross-database window.
+750:     // Without a real versioned Account endpoint it cannot eliminate a change after this second read.
+751:     const fresh=decisionReceipt(await successorCall('account',()=>seam.receipt({
+752:       identityKey,incidentId:holdId,reviewRef:clean.evidenceRef})));
+753:     if(fresh.state!=='confirmed'||fresh.attemptId!==acceptedAttemptId||fresh.epoch!==accepted.epoch||
+754:       fresh.createdAtMs!==accepted.createdAtMs)
+755:       throw Object.assign(new UnblockFault('unresolved'),{stage:'stale_account_decision'});
+756:     if(fresh.blocked)account={...account,blocked:true};
+757:   }
+758: 
+759:   if('partial' in opened){
+760:     if(record.accountEpoch!==accepted.epoch||record.accountCreatedAtMs!==accepted.createdAtMs)throw new UnblockFault('conflict');
+761:     const releasePin=pin;
+762:     return db.runTransaction(async tx=>{
+763:       await recheck(tx,observed,releasePin??undefined);
+764:       const resolution=await resolveAccountGuard(tx,deps,accountId);
+765:       const localAccountBlocked=await readAccountGuard(tx,resolution);
+766:       if(account.blocked||localAccountBlocked)return {unblocked:true as const,replayed:true as const,accountBlocked:true,videoBlocked:true,
+767:         advanced:Array.isArray(record.advanced)?record.advanced.map(String):[],auditId:String(record.auditId)};
+768:       const rivals=unresolvedRows(await accountRows(tx,root,accountId),new Set());
+769:       if(rivals.length)return {unblocked:true as const,replayed:true as const,accountBlocked:false,videoBlocked:true as const,
+770:         advanced:Array.isArray(record.advanced)?record.advanced.map(String):[],auditId:String(record.auditId)};
+771:       tx.delete(guardRef);
+772:       tx.update(alertRef,{status:'dispositioned',dispositionedAtMs:nowMs,dispositionedBy:authorizedBy,dispositionAuditId:unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs)});
+773:       const releasedId=unblockAuditId(clean.incidentKey,'video_released',clean.epoch,clean.createdAtMs);
+774:       tx.set(root.collection('billingReleaseReopenings').doc(accountId),{accountId,auditId:releasedId});
+775:       tx.create(releasedRef,{auditId:releasedId,action:'video_released',...payload,kind,accountId,holdId,
+776:         accountEpoch:accepted.epoch,accountCreatedAtMs:accepted.createdAtMs,
+777:         advanced:[],accountBlocked:false,videoRivals:rivals,recordedAtMs:nowMs});
+778:       return {unblocked:true as const,replayed:false as const,accountBlocked:false,videoBlocked:false as const,advanced:[],auditId:releasedId};
+779:     });
+780:   }
+781: 
+782:   return db.runTransaction(async tx=>{
+783:     await recheck(tx,observed,pin??undefined);
+784:     const resolution=await resolveAccountGuard(tx,deps,accountId);
+785:     const localAccountBlocked=await readAccountGuard(tx,resolution);
+786:     const rows:Array<{planned:PlannedRow;snap:DocumentSnapshot;exit?:string}>=[];
+787:     for(const row of planned){
+788:       const snap=await tx.get(root.collection(row.collection).doc(row.id));
+789:       // A planned row that vanished between the audited read and this release is not silently skipped: the
+790:       // audited tuple no longer describes the account, so the whole transaction aborts without writing.
+791:       if(!snap.exists)throw new UnblockFault('conflict');
+792:       const data=snap.data() as Record<string,unknown>;
+793:       // Only a row whose reread still matches the audited tuple is advanced; anything else aborts untouched.
+794:       // A hold is not owned by this unblock the way an outbox row is: the drainer may deliver it (`applied`) or the
+795:       // authorizer may send it to `needs_review` after the audited read, and none of those settle the guard. Accepting
+796:       // those two extra states keeps a retry from being stranded forever on a frozen `planned` tuple; anything else is
+797:       // still a conflict.
+798:       const holdSettled=row.collection==='billingHoldOutbox';
+799:       if(row.state!==null&&data.state!==row.state&&!(holdSettled&&(data.state==='applied'||data.state==='needs_review')))throw new UnblockFault('conflict');
+800:       // Even an already-applied row must still belong to the account in this decision.
+801:       // Only the admission guard has no `accountId`.
+802:       if(row.collection!=='billingIntentAdmissionGuards'&&data.accountId!==accountId)throw new UnblockFault('conflict');
+803:       if(holdSettled&&data.state==='applied')continue;
+804:       if(row.reviewField&&data[row.reviewField]!==clean.incidentKey)throw new UnblockFault('conflict');
+805:       // Phase 3 re-reads state and owner of every audited row, but the RELATION that made a row belong to this incident
+806:       // can drift too: an observation incident's `intentId` or an admission guard's `incidentId` can be re-pointed while
+807:       // Account is being asked. An observation incident must still name this incident as its intent; an admission guard
+808:       // must still name this incident or an observation incident this same unblock hands back. A relation that no longer
+809:       // holds aborts the whole transaction without writing.
+810:       if(row.collection==='billingIntentObservationIncidents'&&data.intentId!==clean.incidentKey)throw new UnblockFault('conflict');
+811:       if(row.collection==='billingIntentAdmissionGuards'&&data.incidentId!==clean.incidentKey
+812:         &&!planned.some(candidate=>candidate.collection==='billingIntentObservationIncidents'&&candidate.id===data.incidentId))throw new UnblockFault('conflict');
+813:       if(row.collection==='billingIntents'){
+814:         const [intent,witness]=await tx.getAll(snap.ref,root.collection('billingIntentWitnesses').doc(row.id));
+815:         rows.push({planned:row,snap,exit:intentExit(intent,witness)});
+816:       }else rows.push({planned:row,snap});
+817:     }
+818:     // Account says whether OTHER Account incidents remain; Video checks its own side again, because an incident could have
+819:     // landed after the audited read. Either one keeps the guard blocked: `unblocked:true` never means the account is open.
+820:     const rivals=unresolvedRows(await accountRows(tx,root,accountId),new Set(rows.map(row=>row.planned.collection+'/'+row.planned.id)));
+821:     const clear=!account.blocked&&rivals.length===0&&!localAccountBlocked;
+822:     const advanced:string[]=[];
+823:     for(const {planned:row,snap,exit} of rows){
+824:       const auditId=unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs);
+825:       if(row.collection==='billingReviewIncidents'||row.collection==='billingOutboxReviewIncidents')tx.update(snap.ref,{state:'reviewed',reviewedAtMs:nowMs,unblockAuditId:auditId});
+826:       else if(row.collection==='billingIntentObservationIncidents')tx.update(snap.ref,{state:'reviewed',reviewedAtMs:nowMs,unblockAuditId:auditId});
+827:       else if(row.collection==='billingHoldOutbox')tx.update(snap.ref,{state:'applied',appliedAtMs:nowMs,lastErrorCode:null});
+828:       else if(row.collection==='billingOutbox')tx.update(snap.ref,{state:'retry_wait',reviewIncidentId:FieldValue.delete(),nextAttemptAt:nowMs,updatedAtMs:nowMs});
+829:       else if(row.collection==='billingIntentAdmissionGuards')tx.update(snap.ref,{state:'clear',incidentId:FieldValue.delete(),updatedAtMs:FieldValue.delete()});
+830:       else tx.update(snap.ref,{state:exit,reviewReason:FieldValue.delete(),reviewIncidentId:FieldValue.delete(),reviewOutboxIncidentId:FieldValue.delete(),updatedAtMs:nowMs});
+831:       advanced.push(row.collection+'/'+row.id);
+832:     }
+833:     if(clear){
+834:       tx.delete(guardRef);
+835:       tx.update(alertRef,{status:'dispositioned',dispositionedAtMs:nowMs,dispositionedBy:authorizedBy,dispositionAuditId:unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs)});
+836:     }
+837:     const auditId=unblockAuditId(clean.incidentKey,'unblocked',clean.epoch,clean.createdAtMs);
+838:     if(clear)tx.set(root.collection('billingReleaseReopenings').doc(accountId),{accountId,auditId});
+839:     tx.create(doneRef,{auditId,action:'unblocked',...payload,kind,accountId,holdId,advanced,accountBlocked:account.blocked||localAccountBlocked,videoBlocked:!clear,videoRivals:rivals,accountReplayed:account.replayed,accountEpoch:accepted.epoch,accountCreatedAtMs:accepted.createdAtMs,recordedAtMs:nowMs});
+840:     return {unblocked:true as const,replayed:false as const,accountBlocked:account.blocked||localAccountBlocked,videoBlocked:!clear,advanced,auditId};
+841:   });
+842: }
+843: 
+844: /** The identity key of the account's owner, read from the account's own identity document (never from the request). */
+845: async function identityKeyOf(root:DocumentReference,accountId:string):Promise<string>{
+846:   const page=await root.collection('identities').where('accountId','==',accountId).limit(2).get();
+847:   const keys=page.docs.filter(doc=>doc.get('accountId')===accountId&&typeof doc.get('uid')==='string').map(doc=>doc.id);
+848:   if(keys.length!==1||!digest(keys[0]))throw new UnblockFault('conflict');
+849:   return keys[0];
+850: }
+851: /**
+852:  * Where a reviewed intent goes back to. An intent that already owns a work keeps its head state for that work (the
+853:  * drainer reads `job_created` as the pre-dispatch state of an admitted job, and sending it to `reserve_pending` would
+854:  * re-reserve work that exists); otherwise it resumes the release it had prepared, and only otherwise its reservation.
+855:  */
+856: function intentExit(intent:DocumentSnapshot,witness:DocumentSnapshot):string{
+857:   if(intent.exists&&(intent.get('state')==='job_created'||typeof intent.get('jobId')==='string'))return 'job_created';
+858:   return witness.exists&&witness.get('terminalRecovery')?.releasePrepared===true?'release_pending':'reserve_pending';

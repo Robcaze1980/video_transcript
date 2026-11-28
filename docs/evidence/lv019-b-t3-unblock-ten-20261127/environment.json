@@ -1,0 +1,27 @@
+{
+  "nodeVersion": "v24.13.0",
+  "project": "demo-vistavo-financial",
+  "host": "127.0.0.1:8198",
+  "expectedSelected": 10,
+  "profile": "C:\\Users\\rob62\\.t3\\worktrees\\vamos-a-continuar-linguistvision-en-esta-2\\lv019b-t3-saldo-retorno-one-shot-20261127\\outputs\\lv019-b-unblock-focus-runs\\run-3aca86b1-68df-4383-9146-f0d6e3a5676c\\profile",
+  "temp": "C:\\Users\\rob62\\.t3\\worktrees\\vamos-a-continuar-linguistvision-en-esta-2\\lv019b-t3-saldo-retorno-one-shot-20261127\\outputs\\lv019-b-unblock-focus-runs\\run-3aca86b1-68df-4383-9146-f0d6e3a5676c\\temp",
+  "environmentKeys": [
+    "APPDATA",
+    "FIRESTORE_EMULATOR_HOST",
+    "GCLOUD_PROJECT",
+    "GOOGLE_CLOUD_PROJECT",
+    "LOCALAPPDATA",
+    "LV_FINANCIAL_REGRESSION",
+    "LV_REVIEW_CONTRACT",
+    "METADATA_SERVER_DETECTION",
+    "NODE_ENV",
+    "PATH",
+    "SystemRoot",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "WINDIR"
+  ],
+  "loader": "tsx",
+  "limitation": "Node preload is not an OS firewall; esbuild and native children are not covered."
+}

@@ -15,9 +15,10 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FINANCIAL_ROOT_COLLECTIONS } from '../server/commercial/financialOwnedRootGuard.mjs';
 
-const project = 'demo-vistavo-ledger';
-const host = '127.0.0.1:8185';
+const project = 'demo-vistavo-financial';
+const host = '127.0.0.1:8198';
 // The total is counted from the real TAP output, not fixed. Only these voice tests may be skipped (voice stays
 // closed until reconciliation and privacy are closed); any other skip, failure or cancellation fails the run.
 const expectedSkippedNames = [
@@ -30,6 +31,8 @@ const expectedSkippedNames = [
 const expectedSkipped = expectedSkippedNames.length;
 const guardFile = 'scripts/financialEmulatorNetworkGuard.cjs';
 const inventoryFile = 'scripts/inspectFinancialSyntheticRoots.mjs';
+const rulesFile = 'deploy/google-cloud/firestore.rules';
+const rulesPreflightFile = 'scripts/financialEmulatorRulesPreflight.mjs';
 const fixtureFiles = ['server/commercial/firestoreBackend.emulator.mjs', 'server/commercial/firestoreAiBackend.emulator.mjs', 'server/commercial/firestoreAi.emulator.mjs', 'server/commercial/firestoreVideoSettlementC2a.emulator.mjs', 'server/commercial/firestoreDrainControl.emulator.mjs', 'server/commercial/firestoreUnknownResolver.emulator.mjs', 'server/commercial/billingDrainSection.emulator.mjs', 'server/commercial/firestoreAgeEscalation.emulator.mjs', 'server/commercial/firestoreBlocksA.emulator.mjs', 'server/commercial/firestoreA3Exit.emulator.mjs', 'server/commercial/textAccountReserveAckWindow.emulator.mjs', 'server/commercial/billingSettlementHistoryRaces.emulator.mjs', 'server/commercial/billingUnblock.emulator.mjs', 'server/account/unblockAudited.emulator.mjs'];
 const tracked = Object.freeze([
   'server/commercial/firestoreBackend.ts',
@@ -54,6 +57,14 @@ const tracked = Object.freeze([
   'server/commercial/accountReadOnlyRoot.ts',
   ...fixtureFiles,
   'server/commercial/financialFixtureSafety.mjs',
+  'server/commercial/financialOwnedRootGuard.mjs',
+  'scripts/checkFinancialOwnedRootGuard.mjs',
+  'scripts/runFinancialHarnessSelfchecks.mjs',
+  'scripts/checkFinancialRegressionEquivalence.mjs',
+  'scripts/checkFinancialCandidateIntegrity.mjs',
+  'scripts/prepareFinancialIsolation.mjs',
+  'scripts/InspectFinancialRegressionFirestore.java',
+  'scripts/runFinancialRegressionIsolated.ps1',
   'server/commercial/firestoreHttp.ts',
   'server/commercial/firestoreAiHttp.ts',
   'server/commercial/firestoreWorker.ts',
@@ -77,6 +88,8 @@ const tracked = Object.freeze([
   'server/commercial/geminiFileUpload.ts',
   guardFile,
   inventoryFile,
+  rulesFile,
+  rulesPreflightFile,
   'scripts/financialEmulatorNetworkGuard.windows.cjs',
   'scripts/runFinancialRegressionEmulator.mjs',
   'package.json',
@@ -132,11 +145,14 @@ function snapshot(root) {
 }
 function validateManifest(manifest) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest) || manifest.version !== 1 ||
-      Object.keys(manifest).sort().join(',') !== 'expectedSkipped,files,host,node,project,version' ||
+      Object.keys(manifest).sort().join(',') !== 'expectedSkipped,files,host,node,project,rules,version' ||
       manifest.project !== project || manifest.host !== host || manifest.expectedSkipped !== expectedSkipped ||
       !manifest.node || typeof manifest.node.path !== 'string' || typeof manifest.node.version !== 'string' ||
       Object.keys(manifest.node).sort().join(',') !== 'path,sha256,version' ||
-      !/^[a-f0-9]{64}$/.test(manifest.node.sha256) || !manifest.files || typeof manifest.files !== 'object' || Array.isArray(manifest.files)) {
+      !/^[a-f0-9]{64}$/.test(manifest.node.sha256) || !manifest.files || typeof manifest.files !== 'object' || Array.isArray(manifest.files) ||
+      !manifest.rules || typeof manifest.rules !== 'object' || Array.isArray(manifest.rules) ||
+      Object.keys(manifest.rules).sort().join(',') !== 'file,sha256' ||
+      manifest.rules.file !== rulesFile || typeof manifest.rules.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(manifest.rules.sha256)) {
     return fail('Invalid synthetic manifest');
   }
   const names = Object.keys(manifest.files);
@@ -144,6 +160,7 @@ function validateManifest(manifest) {
       tracked.some(name => typeof manifest.files[name] !== 'string' || !/^[a-f0-9]{64}$/.test(manifest.files[name]))) {
     return fail('Manifest does not contain exactly the required file hashes');
   }
+  if (manifest.rules.sha256 !== manifest.files[rulesFile]) return fail('Manifest rules hash does not match the rules input');
 }
 function compare(expected, actual) {
   return tracked.filter(name => expected[name] !== actual[name]);
@@ -197,7 +214,8 @@ const args = process.argv.slice(2);
 
 if (args.length === 1 && args[0] === '--prepare') {
   const before = snapshot(workspace);
-  const manifest = { version: 1, project, host, expectedSkipped, node, files: before.files };
+  if (!before.files[rulesFile]) fail('Firestore rules file was not hashed');
+  const manifest = { version: 1, project, host, expectedSkipped, node, rules: { file: rulesFile, sha256: before.files[rulesFile] }, files: before.files };
   const destination = path.join(manifests, `manifest-${randomUUID()}.json`);
   writeFileSync(destination, `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx' });
   process.stdout.write(`Synthetic manifest prepared: ${destination}\nReview its hashes before --run. No fixture was started.\n`);
@@ -209,6 +227,10 @@ if (args.length === 1 && args[0] === '--prepare') {
   if (manifest.node.path.toLowerCase() !== node.path.toLowerCase() || manifest.node.version !== node.version || manifest.node.sha256 !== node.sha256) fail('Node identity differs from the frozen manifest');
   const before = snapshot(workspace), mismatchBefore = compare(manifest.files, before.files);
   if (mismatchBefore.length) fail(`Frozen inputs changed before launch: ${mismatchBefore.join(', ')}`);
+  const rulesPath = repositoryFile(workspace, rulesFile);
+  const rulesBytes = readFileSync(rulesPath);
+  const rulesSha256 = createHash('sha256').update(rulesBytes).digest('hex');
+  if (manifest.rules.sha256 !== rulesSha256 || before.files[rulesFile] !== rulesSha256) fail('Frozen Firestore rules changed before launch');
   const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
   if (!systemRoot || !path.isAbsolute(systemRoot) || !statSync(path.join(systemRoot, 'System32')).isDirectory()) fail('Windows system directory unavailable');
   const run = checkedDirectory(runs, `run-${randomUUID()}`, true);
@@ -224,6 +246,7 @@ if (args.length === 1 && args[0] === '--prepare') {
   writeFileSync(path.join(run, 'manifest.json'), manifestText, { flag: 'wx' });
   writeFileSync(path.join(run, 'environment.json'), `${JSON.stringify({
     nodeVersion: node.version, project, host, expectedSkipped, profile, temp,
+    rulesFile, rulesSha256,
     environmentKeys: Object.keys(env).sort(), loader: 'tsx',
     limitation: 'Node preload is not an OS firewall; esbuild and native children are not covered.',
   }, null, 2)}\n`, { flag: 'wx' });
@@ -246,30 +269,85 @@ if (args.length === 1 && args[0] === '--prepare') {
     if (!stderr.includes('VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS') || stderr.includes('VISTAVO_REVIEW_NETWORK_DENIED')) fail(`Synthetic roots ${label} guard failed`);
     const value = JSON.parse(raw);
     if (value.version !== 1 || value.project !== project || value.host !== host || !value.collections ||
-        Object.keys(value.collections).sort().join(',') !== 'vistavo_ai_backend_test,vistavo_ai_integration_test,vistavo_backend_test' ||
+        JSON.stringify(Object.keys(value.collections).sort()) !== JSON.stringify([...FINANCIAL_ROOT_COLLECTIONS].sort()) ||
         Object.values(value.collections).some(items => !Array.isArray(items) || items.some(item => typeof item !== 'string' || !/^[a-f0-9]{64}$/.test(item)))) fail(`Invalid synthetic roots ${label} inventory`);
     return value;
   };
+
+  const rulesPreflight = async () => {
+    const stdoutPath = path.join(run, 'rules-preflight.stdout.json');
+    const stderrPath = path.join(run, 'rules-preflight.stderr.log');
+    let stdoutFd = null, stderrFd = null;
+    try {
+      stdoutFd = openSync(stdoutPath, 'wx'); stderrFd = openSync(stderrPath, 'wx');
+      const guardPath = repositoryFile(workspace, guardFile);
+      const preflightPath = repositoryFile(workspace, rulesPreflightFile);
+      if (hashFile(guardPath) !== before.files[guardFile] || hashFile(preflightPath) !== before.files[rulesPreflightFile]) {
+        return { ok: false, error: 'Rules preflight inputs changed before launch' };
+      }
+      const child = spawn(node.path, ['--no-network-family-autoselection', '--require', guardPath, preflightPath, rulesSha256], {
+        cwd: workspace, env, stdio: ['pipe', stdoutFd, stderrFd], windowsHide: true,
+      });
+      const timer = setTimeout(() => child.kill(), 30_000);
+      const outcomePromise = new Promise(resolve => {
+        child.once('error', () => { clearTimeout(timer); resolve({ exitCode: null, signal: null, error: 'Rules preflight launch failed' }); });
+        child.once('exit', (exitCode, signal) => { clearTimeout(timer); resolve({ exitCode, signal, error: null }); });
+      });
+      child.stdin.once('error', () => {});
+      try { child.stdin.end(rulesBytes); } catch { child.kill(); }
+      const outcome = await outcomePromise;
+      if (outcome.exitCode !== 0 || outcome.signal !== null || outcome.error) return { ok: false, error: 'Rules preflight exited unsuccessfully' };
+    } catch {
+      return { ok: false, error: 'Rules preflight launch failed' };
+    } finally {
+      if (stdoutFd !== null) closeSync(stdoutFd);
+      if (stderrFd !== null) closeSync(stderrFd);
+    }
+    try {
+      const stdout = textFile(stdoutPath, 1024 * 1024), stderr = textFile(stderrPath, 1024 * 1024);
+      if (!stderr.includes('VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS') || stderr.includes('VISTAVO_REVIEW_NETWORK_DENIED')) {
+        return { ok: false, error: 'Rules preflight guard failed' };
+      }
+      const report = JSON.parse(stdout);
+      if (!report || typeof report !== 'object' || Array.isArray(report) ||
+          report.version !== 1 || report.project !== project || report.host !== host || report.rulesSha256 !== rulesSha256 ||
+          !report.rulesLoad || report.rulesLoad.status !== 200 || report.rulesLoad.issues !== 0 ||
+          !report.clientProbe || report.clientProbe.status !== 403 ||
+          !report.adminProbe || report.adminProbe.status !== 'PASS' || report.adminProbe.wrote !== false || report.adminProbe.exists !== false) {
+        return { ok: false, error: 'Rules preflight evidence failed validation' };
+      }
+      return { ok: true, report };
+    } catch {
+      return { ok: false, error: 'Rules preflight evidence unreadable' };
+    }
+  };
+
+  const preflight = await rulesPreflight();
   const rootsBefore = await inventory('before');
+  if (Object.values(rootsBefore.collections).some(items => items.length !== 0)) fail('Dedicated synthetic roots must start empty');
   const stdoutPath = path.join(run, 'fixture.stdout.tap'), stderrPath = path.join(run, 'fixture.stderr.log');
   let out, err, timedOut = false, interrupted = false;
-  let result = { exitCode: null, signal: null, error: 'Child was not started' };
-  try {
-    out = openSync(stdoutPath, 'wx'); err = openSync(stderrPath, 'wx');
-    const child = spawn(node.path, ['--no-network-family-autoselection', '--require', repositoryFile(workspace, guardFile),
-      '--import', 'tsx', '--test', '--test-concurrency=1', '--test-reporter=tap', ...fixtureFiles.map(file => repositoryFile(workspace, file))], {
-      cwd: workspace, env, stdio: ['ignore', out, err], windowsHide: true,
-    });
-    const stop = () => { interrupted = true; child.kill(); };
-    process.once('SIGINT', stop); process.once('SIGTERM', stop);
+  let result = preflight.ok
+    ? { exitCode: null, signal: null, error: 'Child was not started' }
+    : { exitCode: null, signal: null, error: preflight.error };
+  if (preflight.ok) {
     try {
-      result = await new Promise(resolve => {
-        child.once('error', () => resolve({ exitCode: null, signal: null, error: 'Child launch failed' }));
-        child.once('exit', (exitCode, signal) => resolve({ exitCode, signal, error: null }));
+      out = openSync(stdoutPath, 'wx'); err = openSync(stderrPath, 'wx');
+      const child = spawn(node.path, ['--no-network-family-autoselection', '--require', repositoryFile(workspace, guardFile),
+        '--import', 'tsx', '--test', '--test-concurrency=1', '--test-reporter=tap', ...fixtureFiles.map(file => repositoryFile(workspace, file))], {
+        cwd: workspace, env, stdio: ['ignore', out, err], windowsHide: true,
       });
-    } finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
-  } catch { result = { exitCode: null, signal: null, error: 'Child launch failed' }; }
-  finally { if (out !== undefined) closeSync(out); if (err !== undefined) closeSync(err); }
+      const stop = () => { interrupted = true; child.kill(); };
+      process.once('SIGINT', stop); process.once('SIGTERM', stop);
+      try {
+        result = await new Promise(resolve => {
+          child.once('error', () => resolve({ exitCode: null, signal: null, error: 'Child launch failed' }));
+          child.once('exit', (exitCode, signal) => resolve({ exitCode, signal, error: null }));
+        });
+      } finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
+    } catch { result = { exitCode: null, signal: null, error: 'Child launch failed' }; }
+    finally { if (out !== undefined) closeSync(out); if (err !== undefined) closeSync(err); }
+  }
 
   let rootsAfter = null, rootsInventoryError = null;
   try { rootsAfter = await inventory('after'); } catch { rootsInventoryError = 'Synthetic roots after inventory failed'; }
@@ -287,15 +365,16 @@ if (args.length === 1 && args[0] === '--prepare') {
   let stdout = '', stderr = '', logsReadable = false;
   try { stdout = textFile(stdoutPath, 5 * 1024 * 1024); stderr = textFile(stderrPath, 5 * 1024 * 1024); logsReadable = true; } catch { /* Fail closed. */ }
   const checks = summary(stdout, stderr);
-  const checksPass = checks.guardInstances >= fixtureFiles.length + 1 && !checks.guardDeniedDuringRun && checks.tests && checks.numberedCases && checks.countsConsistent &&
+  const checksPass = preflight.ok && checks.guardInstances >= fixtureFiles.length + 1 && !checks.guardDeniedDuringRun && checks.tests && checks.numberedCases && checks.countsConsistent &&
     checks.noCancelled && checks.noSkipped && checks.noTodo && cleanups && !rootsInventoryError;
-  const complete = (result.exitCode === 0 || result.exitCode === 1) && result.signal === null && !result.error && !timedOut && !interrupted && logsReadable &&
+  const complete = preflight.ok && (result.exitCode === 0 || result.exitCode === 1) && result.signal === null && !result.error && !timedOut && !interrupted && logsReadable &&
     !mismatchAfter.length && !pathChanges.length && manifestAfterSha === manifestSha256 && nodeUnchanged && checksPass &&
     result.exitCode === (checks.failCount === 0 ? 0 : 1);
   const behavior = checks.failCount === 0 ? 'PASS' : 'FAIL', pass = complete && behavior === 'PASS';
   const report = { version: 1, complete, behavior, pass, result, timedOut, interrupted, logsReadable, manifestSha256, manifestAfterSha, nodeUnchanged,
+    rules: { file: rulesFile, sha256: rulesSha256, preflight: preflight.ok ? preflight.report : null, error: preflight.ok ? null : preflight.error },
     mismatchAfter, pathChanges, checks, cleanups, rootsInventoryError, before: before.files, after: after?.files ?? null,
-    limitation: 'The preload is not an OS firewall; esbuild, native addons, native children and unsupported APIs are not covered. Tests replace fetch with an in-memory provider stub at selected points. Transitive dependencies are not all hashed and pre/post hashes do not create an immutable snapshot.' };
+    limitation: 'The preload is not an OS firewall; esbuild, native addons, native children and unsupported APIs are not covered. Tests replace fetch with an in-memory provider stub at selected points. Transitive dependencies are not all hashed and pre/post hashes do not create an immutable snapshot. The rules preflight depends on the emulator serving REST and gRPC on 127.0.0.1:8198 and on the existing guard allowing those exact loopback requests; otherwise it fails closed.' };
   writeFileSync(path.join(run, 'result.json'), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
   process.stdout.write(`Synthetic financial regression: ${complete ? behavior : 'INCOMPLETE'}; evidence: ${run}\n`);
   if (!pass) process.exitCode = 1;

@@ -1,0 +1,600 @@
+✔ a block during reserve keeps the Account confirmation without creating or capturing work (4020.9683ms)
+✔ a capture already authorized by Video reaches Account before a concurrent hold propagates (4141.6718ms)
+✖ a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock (7763.5907ms)
+✔ an aged refund with missing billingIntentWitnesses goes to review despite the account guard (4697.8139ms)
+✔ an aged refund with missing billingIntentJobMarkers goes to review despite the account guard (4535.9995ms)
+✔ an aged refund with missing billingIntentAdmissionGuards goes to review despite the account guard (4444.668ms)
+✔ guard accounting: the real outbox writer creates epoch 1 with createdAtMs and a re-block grows the epoch (4494.1158ms)
+✔ guard accounting: a legacy guard without createdAtMs is refused, and a missing epoch is read as 1 only when the mark exists (13398.5755ms)
+✔ guard accounting: the guard predicate still tolerates blocked:false and refuses to invent a value for a missing flag (1499.7353ms)
+{"code":"conflict"}
+✖ 11 full unblock leaves a Video audit, deletes Account guard, clears the Video guard and revives Account (2888.7947ms)
+✖ 11 replay: an identical repeat is replayed without a single write; a different payload is a conflict (2843.9297ms)
+✔ 11 negative: a missing, empty or control-character evidenceRef is invalid and writes nothing (3325.6437ms)
+✔ 11 negative: an absent alert or one that is not open never unblocks (2685.3072ms)
+✔ 11 negative: an unresolved needs_review row that this incident did not name stops the unblock (3301.3998ms)
+✖ 11 negative: a second incident arriving between the read and the write aborts and is never overwritten (4550.607ms)
+✖ 11 negative: a rival row that lands between phase 0 and phase 3 keeps the Video guard blocked (2726.4425ms)
+✖ 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch (2942.0882ms)
+✖ 11 partial: Account keeps its guard because other incidents remain, so Video keeps its own but advances this incident (2927.9255ms)
+✖ 11 partial then repeat: once Account has no other incident, the identical repeat releases the Video guard and the alert (2909.6124ms)
+✖ 11 negative: a row that is re-blocked during the partial repeat is refused and the newer guard survives (2915.3956ms)
+✖ 11 negative: after a partial release, the old request cannot replay as success over a NEWER block (2875.5668ms)
+✖ 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock (2896.9232ms)
+✖ 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock (2620.1258ms)
+✖ 11 negative: every kind of unresolved row of the account stops the unblock, and rows of OTHER accounts never do (7914.1878ms)
+✖ 11 resume: an audited request only resumes on the SAME guard generation, operator and payload (3661.693ms)
+✖ 11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted (2830.8441ms)
+✖ 11 partial: a repeat while Account still holds the owner, or while Video has a rival row, writes nothing and keeps the guard (2999.618ms)
+✖ 11 negative: the audited rows and the alert are re-read in phase 3, and any drift aborts without advancing anything (3693.1163ms)
+✔ 11 negative: an audited row that no longer exists in phase 3 aborts the release and the guard survives (3047.4527ms)
+✔ 11 negative: an audited row that now belongs to another account in phase 3 aborts the release and the guard survives (2964.7256ms)
+✖ 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt (2872.994ms)
+✔ 11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock (3066.4072ms)
+✖ 11 negative: a guard that stops being blocked, or names the incident through both fields, in phase 3 aborts the release (3266.2719ms)
+✖ 11 negative: an alert that is no longer open stops a resume before it reaches Account (3089.1396ms)
+✖ 11 negative: an alert that is no longer open stops a partial repeat before it reaches Account (2965.0847ms)
+✖ 11 negative: an alert that closes during the partial repeat keeps the Video guard and writes no release (3050.7933ms)
+✖ 11 partial: a receipt that is not confirmed, or that names another Account generation than the completion record, never releases and never asks Account again (3042.4733ms)
+✖ 11 negative: phase 0 refuses an open alert of another generation, or a guard that names another account, before Account is ever asked (3128.8281ms)
+✔ 11 negative: an observation incident that now names another intent in phase 3 aborts the release and the guard survives (1140.4166ms)
+✔ 11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives (1202.0604ms)
+✖ 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back (1190.6444ms)
+✖ 11 an INTENT unblock leaves alone an admission guard that names another incident (1071.0588ms)
+✖ 11 an INTENT unblock leaves alone an admission guard that is already clear (1240.5991ms)
+✖ the rows of the account are read through the transaction in phase 0 and in phase 3, never outside it (2912.3113ms)
+✔ 12b a SECOND incident on a live guard stores its hold with the guard generation, so the drainer authorizes it and Account records it (4751.7782ms)
+✖ 11 an INTENT that diverges AGAIN after its unblock can be unblocked again: audit records are per occurrence (1079.0476ms)
+✖ 11 a hold that needed review when audited is handed back as applied, and a clear row is never touched twice (2933.9835ms)
+✖ 11 a corrupt pending hold whose stored epoch disagrees with its id is never adopted, and keeps the Video guard (3030.1246ms)
+✖ 11 a corrupt pending hold whose stored createdAtMs disagrees with its id is never adopted, and keeps the Video guard (2936.7096ms)
+✖ 11 an intent with no work of its own exits to release_pending when its release was prepared (3090.4917ms)
+✖ 11 an intent with no work of its own exits to reserve_pending otherwise (2837.4637ms)
+✖ 11 negative: a failed Account phase leaves Video blocked and its rows untouched (2981.3341ms)
+✖ 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it (2856.8104ms)
+✖ 12 a stale epoch or createdAtMs is refused and the current generation applies (3417.5828ms)
+✖ 12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone (3017.6018ms)
+✖ 12b a re-block after an unblock is a NEW guard epoch, a new alert, and the sweep never duplicates either (3690.7835ms)
+✔ 12b the alert state carries the REAL epoch, so a second incident on a live block is a new alert (5154.951ms)
+✖ 13 the unblock works while another holder owns billingDrainLease/current and never takes it (3071.1925ms)
+✖ re-block after unblock: the same row diverges again with a NEW Account incident id, the old id is never resent, and it unblocks again (3090.3567ms)
+✖ retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once (3168.1582ms)
+Synthetic unblock-1.4b cleanup total: 64/64
+✖ retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives (3186.7876ms)
+ℹ tests 61
+ℹ suites 0
+ℹ pass 18
+ℹ fail 43
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 226424.0567
+
+✖ failing tests:
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:361:1
+✖ a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock (7763.5907ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:392:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:477:1
+✖ 11 full unblock leaves a Video audit, deletes Account guard, clears the Video guard and revives Account (2888.7947ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:482:15)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:536:1
+✖ 11 replay: an identical repeat is replayed without a single write; a different payload is a conflict (2843.9297ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:538:15)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:592:1
+✖ 11 negative: a second incident arriving between the read and the write aborts and is never overwritten (4550.607ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 2
+  
+      at TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:608:122)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:611:1
+✖ 11 negative: a rival row that lands between phase 0 and phase 3 keeps the Video guard blocked (2726.4425ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:621:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:631:1
+✖ 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch (2942.0882ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 1795833656791
+  - 1795833656792
+                ^
+  
+      at TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:643:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1795833656791,
+    expected: 1795833656792,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:646:1
+✖ 11 partial: Account keeps its guard because other incidents remain, so Video keeps its own but advances this incident (2927.9255ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:650:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:660:1
+✖ 11 partial then repeat: once Account has no other incident, the identical repeat releases the Video guard and the alert (2909.6124ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:662:15)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:690:1
+✖ 11 negative: a row that is re-blocked during the partial repeat is refused and the newer guard survives (2915.3956ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:692:15)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:716:1
+✖ 11 negative: after a partial release, the old request cannot replay as success over a NEWER block (2875.5668ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:718:17)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:735:3
+✖ 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock (2896.9232ms)
+  AssertionError [ERR_ASSERTION]: the audited request stays visible
+  
+  false !== true
+  
+      at TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:742:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:735:3
+✖ 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock (2620.1258ms)
+  AssertionError [ERR_ASSERTION]: the audited request stays visible
+  
+  false !== true
+  
+      at TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:742:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:757:1
+✖ 11 negative: every kind of unresolved row of the account stops the unblock, and rows of OTHER accounts never do (7914.1878ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:773:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:777:1
+✖ 11 resume: an audited request only resumes on the SAME guard generation, operator and payload (3661.693ms)
+  AssertionError [ERR_ASSERTION]: a refused repeat never reaches Account
+  
+  4 !== 1
+  
+      at TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:796:10)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:800:1
+✖ 11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted (2830.8441ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:804:15)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:819:1
+✖ 11 partial: a repeat while Account still holds the owner, or while Video has a rival row, writes nothing and keeps the guard (2999.618ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:821:3)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:839:1
+✖ 11 negative: the audited rows and the alert are re-read in phase 3, and any drift aborts without advancing anything (3693.1163ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:858:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:882:1
+✖ 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt (2872.994ms)
+  AssertionError [ERR_ASSERTION]: the first attempt is recorded as the operator supplied it
+  
+  undefined !== 8
+  
+      at TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:888:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 8,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:913:1
+✖ 11 negative: a guard that stops being blocked, or names the incident through both fields, in phase 3 aborts the release (3266.2719ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:927:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:930:1
+✖ 11 negative: an alert that is no longer open stops a resume before it reaches Account (3089.1396ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:940:17)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:943:1
+✖ 11 negative: an alert that is no longer open stops a partial repeat before it reaches Account (2965.0847ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:947:17)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:955:1
+✖ 11 negative: an alert that closes during the partial repeat keeps the Video guard and writes no release (3050.7933ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:957:17)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:968:1
+✖ 11 partial: a receipt that is not confirmed, or that names another Account generation than the completion record, never releases and never asks Account again (3042.4733ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:970:17)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:989:1
+✖ 11 negative: phase 0 refuses an open alert of another generation, or a guard that names another account, before Account is ever asked (3128.8281ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1005:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1029:1
+✖ 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back (1190.6444ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1038:53)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1052:3
+✖ 11 an INTENT unblock leaves alone an admission guard that names another incident (1071.0588ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1057:18)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1052:3
+✖ 11 an INTENT unblock leaves alone an admission guard that is already clear (1240.5991ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1057:18)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1065:1
+✖ the rows of the account are read through the transaction in phase 0 and in phase 3, never outside it (2912.3113ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1074:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1097:1
+✖ 11 an INTENT that diverges AGAIN after its unblock can be unblocked again: audit records are per occurrence (1079.0476ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1099:50)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1120:1
+✖ 11 a hold that needed review when audited is handed back as applied, and a clear row is never touched twice (2933.9835ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1123:53)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1132:3
+✖ 11 a corrupt pending hold whose stored epoch disagrees with its id is never adopted, and keeps the Video guard (3030.1246ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1135:55)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1132:3
+✖ 11 a corrupt pending hold whose stored createdAtMs disagrees with its id is never adopted, and keeps the Video guard (2936.7096ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1135:55)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1144:3
+✖ 11 an intent with no work of its own exits to release_pending when its release was prepared (3090.4917ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1149:55)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1144:3
+✖ 11 an intent with no work of its own exits to reserve_pending otherwise (2837.4637ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1149:55)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1155:1
+✖ 11 negative: a failed Account phase leaves Video blocked and its rows untouched (2981.3341ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1161:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1171:1
+✖ 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it (2856.8104ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /synthetic Video crash/. Input:
+  
+  'Error: conflict'
+  
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1177:3)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: conflict
+        at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+        at async waitForActual (node:assert:646:5)
+        at async strict.rejects (node:assert:769:25)
+        at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1177:3)
+        at async Test.run (node:internal/test_runner/test:1113:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:788:7),
+    expected: /synthetic Video crash/,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1193:1
+✖ 12 a stale epoch or createdAtMs is refused and the current generation applies (3417.5828ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1202:17)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1205:1
+✖ 12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone (3017.6018ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1207:15)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1231:1
+✖ 12b a re-block after an unblock is a NEW guard epoch, a new alert, and the sweep never duplicates either (3690.7835ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1240:3)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1269:1
+✖ 13 the unblock works while another holder owns billingDrainLease/current and never takes it (3071.1925ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1274:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1282:1
+✖ re-block after unblock: the same row diverges again with a NEW Account incident id, the old id is never resent, and it unblocks again (3090.3567ms)
+  Error: conflict
+      at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1284:15)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    code: 'conflict'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1314:1
+✖ retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once (3168.1582ms)
+  AssertionError [ERR_ASSERTION]: The validation function is expected to return "true". Received false
+  
+  Caught error:
+  
+  Error: conflict
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1326:3)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: conflict
+        at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+        at async waitForActual (node:assert:646:5)
+        at async strict.rejects (node:assert:769:25)
+        at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1326:3)
+        at async Test.run (node:internal/test_runner/test:1113:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:788:7),
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblockPiece2.emulator.mjs:1356:1
+✖ retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives (3186.7876ms)
+  AssertionError [ERR_ASSERTION]: The validation function is expected to return "true". Received false
+  
+  Caught error:
+  
+  Error: conflict
+      at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1362:3)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: conflict
+        at unblockBillingAccount (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblock.ts:664:68)
+        at async waitForActual (node:assert:646:5)
+        at async strict.rejects (node:assert:769:25)
+        at async TestContext.<anonymous> (C:\Users\rob62\Documents\Codex\2026-11-11\vistavo-saldo-integracion-20261127\server\commercial\billingUnblockPiece2.emulator.mjs:1362:3)
+        at async Test.run (node:internal/test_runner/test:1113:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:788:7),
+    operator: 'rejects',
+    diff: 'simple'
+  }

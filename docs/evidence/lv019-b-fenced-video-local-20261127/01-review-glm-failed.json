@@ -1,0 +1,9 @@
+{
+  "threadId": "mcp:a8e75be3-a519-419b-8086-dbf92d68cd1d",
+  "status": "failed",
+  "latestRunId": "run:thread:mcp%3Aa8e75be3-a519-419b-8086-dbf92d68cd1d:ordinal:4",
+  "providerInstanceId": "linguistvision-openrouter",
+  "model": "~z-ai/glm-flash-latest",
+  "updatedAt": "2026-11-27T22:12:04.646Z",
+  "description": "Sin respuesta asistente para el último intento; resultado INCONCLUYENTE. Se usó el respaldo directo autorizado para la versión reforzada."
+}

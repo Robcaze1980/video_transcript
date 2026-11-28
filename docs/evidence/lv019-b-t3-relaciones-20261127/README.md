@@ -1,0 +1,16 @@
+# LV-019.B · Relación de filas al desbloquear
+
+La candidata vuelve a comprobar, en la transacción final de Video, que las filas de observación y la guarda de admisión todavía pertenecen al incidente auditado. Si una relación cambió después de la lectura y antes de terminar, la transacción de Video rechaza el cierre. La comprobación permite que la guarda nombre el incidente o una observación del mismo incidente incluida en el plan.
+
+Antes de aplicar el cambio, **dos contrapruebas fallaron** y **dos casos válidos pasaron** en el emulador. Tras el cambio, pasaron **15/15** controles, cero omitidos y limpieza **15/15**. Los dos negativos verifican que Cuenta confirmó una sola orden antes del rechazo en Video; la guarda y las filas comprobadas permanecen sin cerrar. Los positivos cubren la relación directa y la guarda que nombra una observación del mismo incidente.
+
+- Antes: red/fixture.stdout.tap SHA-256 189ec5fae1d20cfa720a4c074369d18aaa5c57b6f81b20b0061b79271723159e; red/result.json SHA-256 8a3790e00e5be03dafca218cb44f6a74ce08f9749b2a82d88813da0ef4de6b8a. Resultado completo 2 PASS/2 FAIL y limpieza 4/4.
+- Después: green/fixture.stdout.tap SHA-256 1e4d69fbe287a3872940af99bc2de926b941824ec5344f4bbeba4078b0570a18; green/result.json SHA-256 f4396e0eb79dbb09b0a6ee011830f94ce504dfb6df32d26c0b73823cdc3bfc5d. Resultado completo 15 PASS/0 FAIL y limpieza 15/15.
+- En ambas corridas las 22 colecciones sintéticas inventariadas estaban vacías antes y después; el inventario tiene SHA-256 5203bfba25237cfe76b139103b63c6975c9786d35b1a368b6354d4d0719f8864. Los procesos propios se cerraron sin cambiar listeners ajenos; las JVM propias se terminaron por sus handles después del plazo.
+- La corrida posterior generó un manifiesto nuevo para 15 pruebas, SHA-256 ca5ec07cf34fdb10f9b22fe365234af0720ae4b0f68ed045a405331f580eee4c. La igualdad antes/después se refiere a ese mismo manifiesto de 15, no al manifiesto anterior de 11. El del sistema fue 832ee6b19a9954771c22a0c145b5f422ff0480771cd489ee633bfd09b7f66902. El autocontrol TAP y los tipos pasaron.
+
+DeepSeek propuso el cambio y las pruebas mediante T3. GLM dio PASS estático acotado con la ejecución de 15 aún en curso. DeepSeek dio INCONCLUYENTE inicial por esa ejecución pendiente y después PASS acotado con el resultado aportado; Codex verificó los archivos y aclaró la diferencia entre ambos manifiestos. Los revisores no ejecutaron las pruebas. Los informes completos conservan los límites. El alias GLM no mostró modelo servido; costo y tokens por hilo no medidos.
+
+Una observación válida creada después de la lectura auditada puede producir rechazo conservador. No está demostrado que ese caso se recupere automáticamente tras confirmar Cuenta: requiere conciliación. La prueba usa Firestore Emulator y transporte sintético; no certifica IAM, producción ni la batería financiera completa. La guarda Node no es un firewall del sistema ni las huellas congelan todas las dependencias.
+
+El primer escaneo marcó seis coincidencias del SHA-256 de firebaseAccess.ts en los dos manifiestos y resultados, y una asignación de variables del paquete de revisión. Se conserva el informe redactado y una excepción limitada a esas siete líneas y esa regla.

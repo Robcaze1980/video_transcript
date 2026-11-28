@@ -20,7 +20,7 @@ const project = 'demo-vistavo-ledger';
 const host = '127.0.0.1:8185';
 const expectedTests = 38;
 const expectedFixtures = 51;
-const guardFile = 'scripts/financialEmulatorNetworkGuard.cjs';
+const guardFile = 'scripts/accountEmulatorNetworkGuard.cjs';
 const fixtureFile = 'server/account/backendProtected.emulator.mjs';
 const tracked = Object.freeze([
   'server/account/backend.ts',
@@ -30,7 +30,7 @@ const tracked = Object.freeze([
   'server/commercial/accountBillingClient.ts',
   fixtureFile,
   guardFile,
-  'scripts/financialEmulatorNetworkGuard.windows.cjs',
+  'scripts/accountEmulatorNetworkGuard.windows.cjs',
   'scripts/runAccountProtectedRegressionEmulator.mjs',
   'package.json',
   'package-lock.json',

@@ -1,0 +1,29 @@
+[
+  {
+    "threadId": "mcp:ba1a1bdb-a384-453e-8f53-88f353d4cf05",
+    "status": "completed",
+    "providerInstanceId": "linguistvision-openrouter",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "branch": "lv019b/t3-account-phase-author-20261127",
+    "runCount": 2,
+    "itemCount": 9
+  },
+  {
+    "threadId": "mcp:ea6f2b27-7e5c-4b02-ab67-9889455b2e2c",
+    "status": "completed",
+    "providerInstanceId": "linguistvision-openrouter",
+    "model": "~z-ai/glm-flash-latest",
+    "branch": "lv019b/t3-account-failure-review-glm-20261127",
+    "runCount": 2,
+    "itemCount": 9
+  },
+  {
+    "threadId": "mcp:5f3412eb-ad8f-4c9b-b56b-8037d569448e",
+    "status": "completed",
+    "providerInstanceId": "linguistvision-openrouter",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "branch": "lv019b/t3-account-failure-review-ds-20261127",
+    "runCount": 2,
+    "itemCount": 9
+  }
+]

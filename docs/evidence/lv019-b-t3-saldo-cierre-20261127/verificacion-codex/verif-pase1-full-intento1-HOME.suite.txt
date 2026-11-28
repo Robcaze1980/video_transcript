@@ -1,0 +1,2396 @@
+Synthetic unblock-1.4b cleanup total: 0/91
+✖ a block during reserve keeps the Account confirmation without creating or capturing work (94.7619ms)
+✖ a capture already authorized by Video reaches Account before a concurrent hold propagates (6.694ms)
+✖ a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock (6.262ms)
+✖ an aged refund with missing billingIntentWitnesses goes to review despite the account guard (5.4973ms)
+✖ an aged refund with missing billingIntentJobMarkers goes to review despite the account guard (4.7519ms)
+✖ an aged refund with missing billingIntentAdmissionGuards goes to review despite the account guard (6.0035ms)
+✖ guard accounting: the real outbox writer creates epoch 1 with createdAtMs and a re-block grows the epoch (6.1512ms)
+✖ guard accounting: a legacy guard without createdAtMs is refused, and a missing epoch is read as 1 only when the mark exists (6.2689ms)
+✖ guard accounting: the guard predicate still tolerates blocked:false and refuses to invent a value for a missing flag (4.5487ms)
+✖ 11 full unblock leaves a Video audit, deletes Account guard, clears the Video guard and revives Account (5.3424ms)
+✖ 11 replay: an identical repeat is replayed without a single write; a different payload is a conflict (4.1752ms)
+✖ 11 negative: a missing, empty or control-character evidenceRef is invalid and writes nothing (4.34ms)
+✖ 11 negative: an absent alert or one that is not open never unblocks (4.9977ms)
+✖ 11 negative: an unresolved needs_review row that this incident did not name stops the unblock (5.1788ms)
+✖ 11 negative: a second incident arriving between the read and the write aborts and is never overwritten (3.978ms)
+✖ 11 negative: a rival row that lands between phase 0 and phase 3 keeps the Video guard blocked (3.9867ms)
+✖ 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch (4.4615ms)
+✖ 11 partial: Account keeps its guard because other incidents remain, so Video keeps its own but advances this incident (4.9104ms)
+✖ 11 partial then repeat: once Account has no other incident, the identical repeat releases the Video guard and the alert (4.2898ms)
+✖ 11 negative: a row that is re-blocked during the partial repeat is refused and the newer guard survives (4.6917ms)
+✖ 11 negative: after a partial release, the old request cannot replay as success over a NEWER block (4.3358ms)
+✖ 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock (5.8091ms)
+✖ 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock (4.5502ms)
+✖ 11 negative: every kind of unresolved row of the account stops the unblock, and rows of OTHER accounts never do (4.1969ms)
+✖ 11 resume: a pending claim on the SAME guard generation, operator and payload keeps the Video block and never sends twice (3.9447ms)
+✖ retry generation missing: a claim left by an uncertain POST still refuses a later call after the guard document is gone (4.5678ms)
+✖ 11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted (4.6608ms)
+✖ 11 partial: a repeat while Account still holds the owner, or while Video has a rival row, writes nothing and keeps the guard (3.8849ms)
+✖ 11 negative: the audited rows and the alert are re-read in phase 3, and any drift aborts without advancing anything (3.751ms)
+✖ 11 negative: an audited row that no longer exists in phase 3 aborts the release and the guard survives (4.4181ms)
+✖ 11 negative: an audited row that now belongs to another account in phase 3 aborts the release and the guard survives (5.1007ms)
+✖ 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt (5.1271ms)
+✖ 11 the completion records the Account generation the confirmed call actually used, not a different one presented on resume (5.0613ms)
+✖ 11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock (4.6074ms)
+✖ 11 negative: an observation incident that now names another intent in phase 3 aborts the release and the guard survives (5.7544ms)
+✖ 11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives (5.2811ms)
+✖ 11 an INTENT unblock completes when the admission guard names an observation incident of the same incident (4.3301ms)
+✖ 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back (4.6088ms)
+✖ 11 an INTENT unblock leaves alone an admission guard that names another incident (6.6947ms)
+✖ 11 an INTENT unblock leaves alone an admission guard that is already clear (3.7606ms)
+✖ the rows of the account are read through each required transaction and never through a direct read (4.1613ms)
+✖ 12b a SECOND incident on a live guard stores its hold with the guard generation, so the drainer authorizes it and Account records it (3.5008ms)
+✖ 11 an INTENT that diverges AGAIN after its unblock can be unblocked again: audit records are per occurrence (4.4648ms)
+✖ 11 a hold that needed review when audited is handed back as applied, and a clear row is never touched twice (4.3318ms)
+✖ 11 a corrupt pending hold whose stored epoch disagrees with its id is never adopted, and keeps the Video guard (3.8612ms)
+✖ 11 a corrupt pending hold whose stored createdAtMs disagrees with its id is never adopted, and keeps the Video guard (3.85ms)
+✖ 11 an intent with no work of its own exits to release_pending when its release was prepared (4.9114ms)
+✖ 11 an intent with no work of its own exits to reserve_pending otherwise (5.6539ms)
+✖ 11 negative: a failed Account phase leaves Video blocked and its rows untouched (4.451ms)
+✖ 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it (4.1847ms)
+✖ 12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any send, and the current generation applies (3.8148ms)
+✖ 12 a wrong Account generation is refused per variation: one claim, one refused POST, guard retained, never re-sent (5.0212ms)
+✖ 12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone (4.4546ms)
+✖ 12b a re-block after an unblock is a NEW guard epoch, a new alert, and the sweep never duplicates either (4.8287ms)
+✖ 12b the alert state carries the REAL epoch, so a second incident on a live block is a new alert (4.1787ms)
+✖ 13 the unblock works while another holder owns billingDrainLease/current and never takes it (3.389ms)
+✖ re-block after unblock: the same row diverges again with a NEW Account incident id, the old id is never resent, and it unblocks again (4.3074ms)
+✖ retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once (5.4241ms)
+✖ retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives (4.1164ms)
+✖ retry-generation C: a lost confirmation is recovered from its receipt while a newer Account block survives (4.1608ms)
+✖ an uncertain Account unblock with no receipt preserves reservations and never sends a second POST (3.7894ms)
+✖ a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once (4.7268ms)
+✖ a missing writer cut cannot authorize an Account unblock (3.9278ms)
+✖ a modified writer cut cannot authorize an Account unblock (3.5589ms)
+✖ a recreated writer cut cannot authorize an Account unblock (3.1031ms)
+✖ a fenced confirmation-first unblock recovers by receipt and returns both reservations exactly once (4.3793ms)
+✖ a fenced receipt naming a different incident is refused without writes (5.2828ms)
+✖ successor real receipt: g0->g1 observes pending, closes by ONE successor claim, drains once and leaves the other account intact (4.1002ms)
+✖ successor parallel: two recoverers create ONE claim and dispatch once (3.3312ms)
+✖ successor lost reconcile ACK: same tuple, ONE claim and ONE send (3.9703ms)
+✖ successor lost confirm ACK: recover the active receipt, never resend (4.7644ms)
+✖ successor claim missing/tampered: the confirmed successor receipt cannot close (4.3397ms)
+✖ successor invalid authority: missing cut/grant, wrong tuple and wrong identity write nothing (3.4515ms)
+✖ successor partial resume uses the DONE accepted epoch and the original durable request for the claim (3.1537ms)
+✖ successor race order A: previous confirms between receipt and reconcile; close by receipt, no claim/send (3.7392ms)
+✖ successor race order B: reconcile fences first; previous is refused and the successor dispatches once (5.2603ms)
+✖ successor environment gate: non-emulator settings and a forged attestation write nothing (4.5056ms)
+✖ successor pending is not permission: no grant path never dispatches (3.4849ms)
+✖ guard corruption: an invalid reviewedCount fails the fenced receipt before pending and writes nothing (3.4541ms)
+✖ successor partial resume derives the claim from the durable request, not from the done close (4.5451ms)
+✖ successor stale Account clear: a newer incident between receipt and release keeps the Video guard (4.1241ms)
+✖ successor: an incident AFTER the last receipt and BEFORE the release keeps the Video guard (3.7321ms)
+✖ successor partial replay: a real partial closure, rival review, then a post-read incident keeps Video closed (4.1111ms)
+✖ successor: a lost ACK alone creates no done (4.7611ms)
+✖ successor: a mutated Account identity rejects without writes (5.371ms)
+✖ successor: an empty or oversized Video uid rejects without writes (4.4494ms)
+✖ successor: a substituted Account root rejects without writes (3.6942ms)
+✖ successor: a missing accredited root fails closed before any write (3.5852ms)
+✖ successor: an unblock of account A writes nothing to account B in the same AccountStore and B keeps operating (4.8216ms)
+✖ successor: swapping identity A to account B after the last receipt rejects, keeps Video blocked and leaves B untouched (5.3046ms)
+✖ successor: an identity already pointing at another account rejects before any write (4.521ms)
+✖ C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs (0.854ms)
+ℹ tests 92
+ℹ suites 0
+ℹ pass 0
+ℹ fail 92
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3220.5631
+
+✖ failing tests:
+
+test at server\commercial\billingUnblock.emulator.mjs:389:1
+✖ a block during reserve keeps the Account confirmation without creating or capturing work (94.7619ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:390:17)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:428:1
+✖ a capture already authorized by Video reaches Account before a concurrent hold propagates (6.694ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:429:17)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:516:1
+✖ a blocked account keeps due release outboxes unchanged and releases them once after the audited unblock (6.262ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:517:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:571:2
+✖ an aged refund with missing billingIntentWitnesses goes to review despite the account guard (5.4973ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:572:28)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:571:2
+✖ an aged refund with missing billingIntentJobMarkers goes to review despite the account guard (4.7519ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:572:28)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:571:2
+✖ an aged refund with missing billingIntentAdmissionGuards goes to review despite the account guard (6.0035ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:572:28)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:590:1
+✖ guard accounting: the real outbox writer creates epoch 1 with createdAtMs and a re-block grows the epoch (6.1512ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:591:37)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:601:1
+✖ guard accounting: a legacy guard without createdAtMs is refused, and a missing epoch is read as 1 only when the mark exists (6.2689ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:604:28)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:620:1
+✖ guard accounting: the guard predicate still tolerates blocked:false and refuses to invent a value for a missing flag (4.5487ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:621:17)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:632:1
+✖ 11 full unblock leaves a Video audit, deletes Account guard, clears the Video guard and revives Account (5.3424ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:633:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:691:1
+✖ 11 replay: an identical repeat is replayed without a single write; a different payload is a conflict (4.1752ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:692:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:715:1
+✖ 11 negative: a missing, empty or control-character evidenceRef is invalid and writes nothing (4.34ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:716:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:728:1
+✖ 11 negative: an absent alert or one that is not open never unblocks (4.9977ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:729:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:736:1
+✖ 11 negative: an unresolved needs_review row that this incident did not name stops the unblock (5.1788ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:737:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:747:1
+✖ 11 negative: a second incident arriving between the read and the write aborts and is never overwritten (3.978ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:750:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:766:1
+✖ 11 negative: a rival row that lands between phase 0 and phase 3 keeps the Video guard blocked (3.9867ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:767:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:786:1
+✖ 11 negative: a guard whose createdAtMs moves between phase 0 and phase 3 is refused even at the same epoch (4.4615ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:787:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:801:1
+✖ 11 partial: Account keeps its guard because other incidents remain, so Video keeps its own but advances this incident (4.9104ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:802:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:815:1
+✖ 11 partial then repeat: once Account has no other incident, the identical repeat releases the Video guard and the alert (4.2898ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:816:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:841:1
+✖ 11 negative: a row that is re-blocked during the partial repeat is refused and the newer guard survives (4.6917ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:842:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:867:1
+✖ 11 negative: after a partial release, the old request cannot replay as success over a NEWER block (4.3358ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:868:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:886:3
+✖ 11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock (5.8091ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:887:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:886:3
+✖ 11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock (4.5502ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:887:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:920:1
+✖ 11 negative: every kind of unresolved row of the account stops the unblock, and rows of OTHER accounts never do (4.1969ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:921:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:940:1
+✖ 11 resume: a pending claim on the SAME guard generation, operator and payload keeps the Video block and never sends twice (3.9447ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:941:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:977:1
+✖ retry generation missing: a claim left by an uncertain POST still refuses a later call after the guard document is gone (4.5678ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:978:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1002:1
+✖ 11 partial: the repeat only resumes on the SAME guard generation and never asks Account when the guard drifted (4.6608ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1003:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1019:1
+✖ 11 partial: a repeat while Account still holds the owner, or while Video has a rival row, writes nothing and keeps the guard (3.8849ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1020:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1039:1
+✖ 11 negative: the audited rows and the alert are re-read in phase 3, and any drift aborts without advancing anything (3.751ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1040:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1067:3
+✖ 11 negative: an audited row that no longer exists in phase 3 aborts the release and the guard survives (4.4181ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1068:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1067:3
+✖ 11 negative: an audited row that now belongs to another account in phase 3 aborts the release and the guard survives (5.1007ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1068:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1082:1
+✖ 11 the completion records name the Account generation that the confirmed call actually used, not only the first attempt (5.1271ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1083:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1144:1
+✖ 11 the completion records the Account generation the confirmed call actually used, not a different one presented on resume (5.0613ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1145:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1171:1
+✖ 11 negative: an alert of another kind or account, and an ambiguous owner identity, never unblock (4.6074ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1172:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1197:3
+✖ 11 negative: an observation incident that now names another intent in phase 3 aborts the release and the guard survives (5.7544ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedIntentAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:228:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1198:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1197:3
+✖ 11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives (5.2811ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedIntentAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:228:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1198:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1235:1
+✖ 11 an INTENT unblock completes when the admission guard names an observation incident of the same incident (4.3301ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedIntentAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:228:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1236:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1253:1
+✖ 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back (4.6088ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedIntentAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:228:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1254:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1276:3
+✖ 11 an INTENT unblock leaves alone an admission guard that names another incident (6.6947ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedIntentAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:228:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1278:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1276:3
+✖ 11 an INTENT unblock leaves alone an admission guard that is already clear (3.7606ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedIntentAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:228:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1278:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1289:1
+✖ the rows of the account are read through each required transaction and never through a direct read (4.1613ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1290:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1391:1
+✖ 12b a SECOND incident on a live guard stores its hold with the guard generation, so the drainer authorizes it and Account records it (3.5008ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1392:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1406:1
+✖ 11 an INTENT that diverges AGAIN after its unblock can be unblocked again: audit records are per occurrence (4.4648ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedIntentAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:228:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1407:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1429:1
+✖ 11 a hold that needed review when audited is handed back as applied, and a clear row is never touched twice (4.3318ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1430:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1441:3
+✖ 11 a corrupt pending hold whose stored epoch disagrees with its id is never adopted, and keeps the Video guard (3.8612ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1442:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1441:3
+✖ 11 a corrupt pending hold whose stored createdAtMs disagrees with its id is never adopted, and keeps the Video guard (3.85ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1442:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1453:3
+✖ 11 an intent with no work of its own exits to release_pending when its release was prepared (4.9114ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1454:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1453:3
+✖ 11 an intent with no work of its own exits to reserve_pending otherwise (5.6539ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1454:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1464:1
+✖ 11 negative: a failed Account phase leaves Video blocked and its rows untouched (4.451ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1465:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1499:1
+✖ 11 negative: a Video failure after Account confirmed leaves Video blocked, and the repeat completes it (4.1847ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1500:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1531:1
+✖ 12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any send, and the current generation applies (3.8148ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1532:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1548:1
+✖ 12 a wrong Account generation is refused per variation: one claim, one refused POST, guard retained, never re-sent (5.0212ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1555:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1580:1
+✖ 12 epoch 1 again after a delete and a re-block is refused by createdAtMs, never by the epoch alone (4.4546ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1581:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1606:1
+✖ 12b a re-block after an unblock is a NEW guard epoch, a new alert, and the sweep never duplicates either (4.8287ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1607:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1629:1
+✖ 12b the alert state carries the REAL epoch, so a second incident on a live block is a new alert (4.1787ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1630:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1644:1
+✖ 13 the unblock works while another holder owns billingDrainLease/current and never takes it (3.389ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1645:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1657:1
+✖ re-block after unblock: the same row diverges again with a NEW Account incident id, the old id is never resent, and it unblocks again (4.3074ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1658:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1689:1
+✖ retry-generation A: an Account generation that moved refuses the old request, and the retry with the new generation is confirmed once (5.4241ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1690:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1738:1
+✖ retry-generation B: a lost confirmation is recovered from its receipt while a newer Account block survives (4.1164ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1739:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1823:1
+✖ retry-generation C: a lost confirmation is recovered from its receipt while a newer Account block survives (4.1608ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1824:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1912:1
+✖ an uncertain Account unblock with no receipt preserves reservations and never sends a second POST (3.7894ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1913:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1946:1
+✖ a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once (4.7268ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1947:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1980:3
+✖ a missing writer cut cannot authorize an Account unblock (3.9278ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1981:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1980:3
+✖ a modified writer cut cannot authorize an Account unblock (3.5589ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1981:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:1980:3
+✖ a recreated writer cut cannot authorize an Account unblock (3.1031ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:1981:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2087:1
+✖ a fenced confirmation-first unblock recovers by receipt and returns both reservations exactly once (4.3793ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2088:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2156:1
+✖ a fenced receipt naming a different incident is refused without writes (5.2828ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2157:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2173:1
+✖ successor real receipt: g0->g1 observes pending, closes by ONE successor claim, drains once and leaves the other account intact (4.1002ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2174:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2238:1
+✖ successor parallel: two recoverers create ONE claim and dispatch once (3.3312ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2239:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2268:1
+✖ successor lost reconcile ACK: same tuple, ONE claim and ONE send (3.9703ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2269:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2300:1
+✖ successor lost confirm ACK: recover the active receipt, never resend (4.7644ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2301:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2331:1
+✖ successor claim missing/tampered: the confirmed successor receipt cannot close (4.3397ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2333:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2367:1
+✖ successor invalid authority: missing cut/grant, wrong tuple and wrong identity write nothing (3.4515ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2369:25)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2434:1
+✖ successor partial resume uses the DONE accepted epoch and the original durable request for the claim (3.1537ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2435:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2473:1
+✖ successor race order A: previous confirms between receipt and reconcile; close by receipt, no claim/send (3.7392ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2474:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2500:1
+✖ successor race order B: reconcile fences first; previous is refused and the successor dispatches once (5.2603ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2501:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2530:1
+✖ successor environment gate: non-emulator settings and a forged attestation write nothing (4.5056ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2533:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2544:1
+✖ successor pending is not permission: no grant path never dispatches (3.4849ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2545:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2561:1
+✖ guard corruption: an invalid reviewedCount fails the fenced receipt before pending and writes nothing (3.4541ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2562:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2592:1
+✖ successor partial resume derives the claim from the durable request, not from the done close (4.5451ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2593:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2629:1
+✖ successor stale Account clear: a newer incident between receipt and release keeps the Video guard (4.1241ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2630:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2665:1
+✖ successor: an incident AFTER the last receipt and BEFORE the release keeps the Video guard (3.7321ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2666:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2704:1
+✖ successor partial replay: a real partial closure, rival review, then a post-read incident keeps Video closed (4.1111ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2705:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2745:1
+✖ successor: a lost ACK alone creates no done (4.7611ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2746:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2762:1
+✖ successor: a mutated Account identity rejects without writes (5.371ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2763:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2779:1
+✖ successor: an empty or oversized Video uid rejects without writes (4.4494ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2780:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2798:1
+✖ successor: a substituted Account root rejects without writes (3.6942ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2799:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2815:1
+✖ successor: a missing accredited root fails closed before any write (3.5852ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2816:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2831:1
+✖ successor: an unblock of account A writes nothing to account B in the same AccountStore and B keeps operating (4.8216ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2832:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2865:1
+✖ successor: swapping identity A to account B after the last receipt rejects, keeps Video blocked and leaves B untouched (5.3046ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2866:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:2924:1
+✖ successor: an identity already pointing at another account rejects before any write (4.521ms)
+  AssertionError [ERR_ASSERTION]: Unexpected HOME
+  + actual - expected
+  
+  + 'C:\\Users\\rob62'
+  - undefined
+  
+      at assertScope (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:31:12)
+      at prepareFinancialOwnedRoot (file:///C:/Users/rob62/.t3/worktrees/vamos-a-continuar-linguistvision-en-esta-2/lv019b-t3-saldo-cierre-b-20261127/server/commercial/financialOwnedRootGuard.mjs:56:3)
+      at fixture (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:128:36)
+      at blockedAccount (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:202:17)
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:2925:23)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'C:\\Users\\rob62',
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at server\commercial\billingUnblock.emulator.mjs:55:1
+✖ C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs (0.854ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 91
+  
+      at TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\server\commercial\billingUnblock.emulator.mjs:55:94)
+      at TestHook.runInAsyncScope (node:async_hooks:214:14)
+      at TestHook.run (node:internal/test_runner/test:1106:25)
+      at TestHook.run (node:internal/test_runner/test:1427:18)
+      at TestHook.run (node:internal/util:585:20)
+      at Test.runHook (node:internal/test_runner/test:1024:20)
+      at after (node:internal/test_runner/test:1064:20)
+      at Test.run (node:internal/test_runner/test:1132:13)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 91,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

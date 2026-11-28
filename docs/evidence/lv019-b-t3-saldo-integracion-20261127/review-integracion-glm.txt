@@ -1,0 +1,24 @@
+**Decision**
+- **A:** Sí justifica fusionar **C** como línea activa: la producción integrada es idéntica a la certificada y `tsc` + 91/91 + regresiones pasan. El fallo de L es cambio de contrato por `guardBornAfterWriterCut`, no defecto de producción. Pero **no archives L todavía**: ese paso debe esperar a reconciliar cobertura o portar los casos únicos.
+
+- **Secuencia teórica, no demostrada:** una edición futura debilita `sameGuard` para comparar solo epoch/`createdAtMs`; una guarda borrada y recreada con esa misma generación pero otro incidente podría reanudarse. L detecta el incidente y `blocked:false`; C podría cubrirlo, pero los nombres no lo prueban. Igual hipótesis aplica a cerrar la alerta justo antes de liberar.
+
+- **B:**
+  1. Forma de guarda en fase 3: **parcial** por “audited rows…drift aborts” y “same guard generation”. Portar después, inmediato.
+  2. Alerta cerrada durante repetición parcial: **parcial** por “absent/not open” y relectura fase 3. Portar después.
+  3. Alerta cerrada bloquea repetición parcial antes de Account: **cubierta por** “an absent alert or one that is not open never unblocks”. Después.
+  4. Alerta cerrada bloquea reanudación antes de Account: **cubierta por** el mismo nombre anterior. Después.
+  5. Fase 0 rechaza alerta de otra generación o guarda de otra cuenta: **parcial**; los nombres cubren alerta de otra cuenta/tipo y generación de Video, pero no exactamente ambos gates. Portar después, prioridad alta.
+  6. Recibo pendiente o con otra generación de Account: **parcial** por “retry-generation” y registros de generación; falta ver exactamente pending, epoch/`createdAtMs` y “no resend”. Portar después, prioridad alta.
+  7. Reanudación solo con misma generación, operador y payload: **cubierta por** “resume: pending claim on the SAME guard generation, operator and payload”. Después.
+  8. Epoch/`createdAtMs` obsoletos: **cubierta por** “12 a stale Video epoch/createdAtMs…”. Después.
+  9. Lecturas de filas dentro de transacción: **cubierta por** “the rows…read through each required transaction”. Después.
+
+- **C:** Fusionar localmente ahora es razonable porque no publica nada y la producción ya es la certificada. El riesgo no es la fusión actual, sino archivar L antes del porte: futuras mutaciones en `sameGuard`, `sameOpenAlert`, recibos, gates de fase 0 o lecturas transaccionales podrían pasar si C no tiene esos casos con otro nombre. No hay error de producción demostrado; las brechas señaladas son hipótesis de cobertura.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Producción integrada idéntica a C; `tsc` limpio; 91/91 y cleanup 99/99; regresiones financieras 559/554/0/5 y 38/38; fallo de L explicado por nuevo contrato de corte de escritores; comparación de nombres de C contra las 9 pruebas de L.
+NEGATIVOS: No se puede probar, solo con nombres, que C cubra cada mutación guiada por L. No hay hueco actual demostrado. No archivar L antes del porte o de una revisión de cobertura.
+BLOQUEOS: Ninguno para fusión local; no publicar ni declarar cerrada la cobertura hasta ejecutar el porte inmediato.
+=== FIN RESUMEN ===

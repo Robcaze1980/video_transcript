@@ -1,0 +1,48 @@
+=== EDITS ===
+{
+  "edits": [
+    {
+      "file": "scripts/runUnblockFocusEmulator.mjs",
+      "old": "// The focus runs exactly these five synthetic cases. All other cases are excluded, not passed.\nconst selectedNames = [\n  'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',\n  'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',\n  'a missing writer cut cannot authorize an Account unblock',\n  'a modified writer cut cannot authorize an Account unblock',\n  'a recreated writer cut cannot authorize an Account unblock',\n];",
+      "new": "// The focus runs exactly these seven synthetic cases. All other cases are excluded, not passed.\nconst selectedNames = [\n  'an uncertain Account unblock with no receipt preserves reservations and never sends a second POST',\n  'a confirmed lost unblock reply recovers by receipt and returns both reservations exactly once',\n  'a missing writer cut cannot authorize an Account unblock',\n  'a modified writer cut cannot authorize an Account unblock',\n  'a recreated writer cut cannot authorize an Account unblock',\n  '11 resume: a hold that moved to applied between the audited read and the release does not strand the unblock',\n  '11 resume: a hold that moved to needs_review between the audited read and the release does not strand the unblock',\n];"
+    },
+    {
+      "file": "scripts/runUnblockFocusEmulator.mjs",
+      "old": "if(selectedNames.some(name=>!/^[A-Za-z ]+$/.test(name)))throw Error('Unsafe focus name');",
+      "new": "if(selectedNames.some(name=>!/^[A-Za-z0-9: _]+$/.test(name)))throw Error('Unsafe focus name');"
+    },
+    {
+      "file": "scripts/runUnblockFocusEmulator.mjs",
+      "old": "  const suffix='\\n# tests 5\\n# pass 5\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n';",
+      "new": "  const suffix='\\n# tests 7\\n# pass 7\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n';"
+    },
+    {
+      "file": "scripts/runUnblockFocusEmulator.mjs",
+      "old": "     accept(good.replace('# tests 5','# tests 6'))||accept(good,'')||",
+      "new": "     accept(good.replace('# tests 7','# tests 6'))||accept(good,'')||"
+    },
+    {
+      "file": "scripts/prepareUnblockFocusIsolation.mjs",
+      "old": "const base='37c9b939fd81eddd3aceb7e71852d04af7a63d90';",
+      "new": "const base='1a099b52b145001abf5b51340c54158f08ae239d';"
+    },
+    {
+      "file": "scripts/prepareUnblockFocusIsolation.mjs",
+      "old": "if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==5||!snapshot.files)",
+      "new": "if(snapshot.version!==1||snapshot.project!=='demo-vistavo-financial'||snapshot.host!=='127.0.0.1:8198'||snapshot.expectedSelected!==7||!snapshot.files)"
+    },
+    {
+      "file": "scripts/runUnblockFocusIsolated.ps1",
+      "old": "      $system.version -ne 1 -or $system.base -cne '37c9b939fd81eddd3aceb7e71852d04af7a63d90' -or",
+      "new": "      $system.version -ne 1 -or $system.base -cne '1a099b52b145001abf5b51340c54158f08ae239d' -or"
+    }
+  ]
+}
+=== FIN EDITS ===
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Siete ediciones exactas sobre tres archivos permitidos: dos nombres nuevos añadidos a `selectedNames` y comentario «five»→«seven» en `scripts/runUnblockFocusEmulator.mjs`; selector endurecido a `/^[A-Za-z0-9: _]+$/` (letras, espacio, dígitos, dos puntos y guion bajo, sin metacaracteres) conservando patrón anclado `^(?:...)$` y `expectedSelected = selectedNames.length`; autochequeo con `# tests 7`/`# pass 7` y su negativa de total incorrecto actualizada a `'# tests 7'→'# tests 6'`, conservando las demás negativas (seis) y el resto de controles; `base` del preparador y `$system.base` del lanzador fijados a `1a099b52b145001abf5b51340c54158f08ae239d`; conteo exigido del manifiesto `expectedSelected!==5`→`!==7`. Cada `old` es un fragmento único de su archivo; sin tocar puertos (8198/9198/9298), proyecto (`demo-vistavo-financial`), host ni ningún otro valor.
+NEGATIVOS: No ejecuté pruebas ni comandos (cero acciones), por lo que no afirmo verificación local. No pude comprobar desde los extractos que el cuerpo principal del emulador defina realmente los dos casos «11 resume»; si no existen, el selector los exigiría y el foco fallaría. Los hashes `$ExpectedManifestSha256`/`$ExpectedSystemManifestSha256` del lanzador dependen del manifiesto y deben regenerarse al cambiar `expectedSelected` a 7; no los modifiqué por no estar autorizado. Sin segunda opinión: el cambio mueve el gate de un contrato de saldo y exige contraste de dos revisores según la política de riesgo.
+BLOQUEOS: Ninguno.
+=== FIN RESUMEN ===

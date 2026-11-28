@@ -2,6 +2,7 @@
 // local transport so both balances are observed. This file covers the
 // pre-POST window comparison, ACK identity binding and the active counters.
 import assert from 'node:assert/strict';
+import {prepareFinancialOwnedRoot,assertFinancialOwnedRoot,deleteFinancialOwnedRoot} from './financialOwnedRootGuard.mjs';
 import {after,afterEach,before,test} from 'node:test';
 import {createHash,randomUUID} from 'node:crypto';
 import {Firestore} from 'firebase-admin/firestore';
@@ -11,7 +12,7 @@ import {AccountBillingClient,accountIdentityKey} from './accountBillingClient.ts
 import {AccountStore} from '../account/backend.ts';
 import {privateBucket} from './privateObjectPlan.ts';
 
-const project='demo-vistavo-ledger',host='127.0.0.1:8185';
+const project='demo-vistavo-financial',host='127.0.0.1:8198';
 const videoCollection='vistavo_ack_window_video_synthetic',accountCollection='vistavo_ack_window_ledger_synthetic';
 const WORK_TIMEOUT_MS=180000,CLEANUP_TIMEOUT_MS=45000;
 const sha=value=>createHash('sha256').update(value).digest('hex');
@@ -25,12 +26,12 @@ async function descendants(root,found=[]){for(const collection of await root.lis
 
 before(async()=>{
  assert.equal(process.env.NODE_ENV,'test');assert.equal(process.env.FIRESTORE_EMULATOR_HOST,host);
- assert.equal((await fetch('http://127.0.0.1:8185/',{signal:AbortSignal.timeout(5000)})).status,200);
+ assert.equal((await fetch('http://127.0.0.1:8198/',{signal:AbortSignal.timeout(5000)})).status,200);
 });
 afterEach(async()=>{
  for(const c of contexts.splice(0)){
   try{
-   for(const entry of c.roots){const known=await descendants(entry.root);await bounded(c.db.recursiveDelete(entry.root),CLEANUP_TIMEOUT_MS,'cleanup');assert.equal((await entry.root.get()).exists,false);for(const doc of known)assert.equal((await doc.get()).exists,false);}
+   for(const entry of c.roots){await assertFinancialOwnedRoot(c.db,entry.root,entry.marker);const known=await descendants(entry.root);await bounded(deleteFinancialOwnedRoot(c.db,entry.root,entry.marker),CLEANUP_TIMEOUT_MS,'cleanup');assert.equal((await entry.root.get()).exists,false);for(const doc of known)assert.equal((await doc.get()).exists,false);}
    cleaned++;
   }finally{try{await bounded(c.db.terminate(),15000,'terminate');}catch{}}
  }
@@ -58,9 +59,9 @@ class LocalAccountTransport{
 async function fixture(scope){
  const db=new Firestore({projectId:project,host,ssl:false,preferRest:false});
  const root=db.collection(videoCollection).doc(randomUUID()),accountRoot=db.collection(accountCollection).doc(randomUUID());
- const c={scope,db,root,accountRoot,roots:[{root},{root:accountRoot}]};
+ const c={scope,db,root,accountRoot,roots:[root,accountRoot].map(document=>({root:document,marker:{project,purpose:'ack-window-synthetic',nonce:randomUUID()}}))};
  contexts.push(c);created++;
- for(const entry of c.roots)await entry.root.create({purpose:'ack-window-synthetic',nonce:randomUUID()});
+ for(const entry of c.roots)await prepareFinancialOwnedRoot(c.db,entry.root,entry.marker);
  c.backend=new FirestoreBackend(db,root);c.store=new AccountStore(db,accountRoot);
  c.uid='ack-window-owner-'+randomUUID();c.account=await c.backend.accountForUid(c.uid);
  await ref(root,'accounts',c.account).update({aiPilot:true,simulationOnly:true,credited:40,available:40});

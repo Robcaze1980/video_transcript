@@ -1,0 +1,7 @@
+HEAD fbf01bf status 0
+Synthetic manifest prepared: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\outputs\lv019-b-account-full-manifests\manifest-7078e2b0-586c-41ba-b420-ad1b9cfecbcf.json
+Review its hashes before --run. No fixture was started.
+manifest: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\outputs\lv019-b-account-full-manifests\manifest-7078e2b0-586c-41ba-b420-ad1b9cfecbcf.json
+run exit 1 (2s)
+Synthetic Account full fixture: FAIL; evidence: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\outputs\lv019-b-account-full-runs\run-04196f02-8ee0-41f3-8de9-d9fd19b1711c
+DONE

@@ -1,0 +1,25 @@
+Eres el autor de codigo en T3 para LV-019.B (cierre del saldo, pase 1, intento limpio). Trabajas SOLO en tu worktree (rama lv019b/t3-saldo-cierre-b-20261127). Lee AGENTS.md (secciones "Coordinacion y entrega" y "Metodologia") y respetalo. Todo texto para el dueño va en español neutro latinoamericano (costo, video; sin voseo).
+
+LEE PRIMERO (en tu worktree): docs/evidence/lv019-b-t3-saldo-cierre-20261127/BRIEF-pase1.md (contexto y objetivo) y docs/evidence/lv019-b-t3-saldo-cierre-20261127/propuesta-owner-check.md (propuesta exacta de correccion). LA SECCION "Comandos" Y LA VERIFICACION DEL EMULADOR DE ESE BRIEF ESTAN CORREGIDAS ABAJO Y PREVALECEN.
+
+ENTORNO CORRECTO (ya preparado por Codex; NO lo investigues, NO crees relays ni puentes, NO inicies ni detengas emuladores):
+- Esta linea exige el emulador aislado en 127.0.0.1:8198, proyecto demo-vistavo-financial. Ya esta levantado con reglas deny-all (un GET de documento a http://127.0.0.1:8198/v1/projects/demo-vistavo-financial/databases/(default)/documents/probe/x responde 403). NO uses el puerto 8185.
+- Variables: NODE_ENV=test, FIRESTORE_EMULATOR_HOST=127.0.0.1:8198, GOOGLE_CLOUD_PROJECT=demo-vistavo-financial, GCLOUD_PROJECT=demo-vistavo-financial, LV_FINANCIAL_REGRESSION=1. Quita OPENROUTER_API_KEY y OPENROUTERROB_API_KEY del entorno.
+- Node 24 en el PATH: C:\Users\rob62\AppData\Local\LinguistVision\tools\node-v24.13.0-win-x64
+- node_modules: crea la union con: cmd /c mklink /J node_modules C:\Users\rob62\Documents\Codex\2026-11-11\vamos-a-continuar-linguistvision-en-esta-2\node_modules  (si no existe)
+- Suite: node --no-network-family-autoselection --import tsx --test server/commercial/billingUnblock.emulator.mjs > salida-suite.txt 2>&1  (lee solo el final y las lineas "not ok"; no vuelques la salida completa en tu contexto).
+- Tambien: npx tsc --noEmit  y  npm test.
+- El lanzador aislado oficial (scripts/runUnblockFenceEmulator.mjs / runUnblockFenceIsolated.ps1) NO se usa en este pase; Codex lo ejecuta al certificar.
+
+OBJETIVO (en orden): (1) tsc limpio; (2) aplicar la correccion owner-check de la propuesta a server/commercial/billingUnblock.ts y añadir sus dos pruebas a billingUnblock.emulator.mjs, conservando las existentes; (3) suite del emulador TODA aprobada: si algo falla, diagnostica la causa real; corrige produccion solo si la prueba es correcta, corrige la prueba solo si es defectuosa y explica por que; NUNCA debilites ni borres una prueba negativa; (4) npm test sin regresiones; (5) commit local en tu rama (sin push) y resumen en docs/evidence/lv019-b-t3-saldo-cierre-20261127/RESULTADO-pase1.md con comandos exactos, cifras (aprobadas/falladas/omitidas) y lo que NO pudiste comprobar.
+
+LIMITES: puedes modificar SOLO server/commercial/billingUnblock.ts, server/commercial/billingUnblock.emulator.mjs y archivos nuevos bajo docs/evidence/lv019-b-t3-saldo-cierre-20261127/. Para cualquier otro archivo, DETENTE y justificalo. Sin push, sin red externa, sin claves, sin llamar modelos. No toques otros worktrees ni el repositorio principal.
+TOPES: 50 llamadas a herramientas en total. Si pasadas 20 llamadas no has completado UNA ejecucion de la suite, DETENTE y responde INCONCLUYENTE con el comando y la salida exactos. Si repites 3 veces el mismo comando fallido sin hipotesis nueva, DETENTE. Un comando de mas de 8 minutos se corta. No afirmes que algo paso sin haber visto su salida: distingue lo ejecutado de lo supuesto.
+
+Tu ultimo mensaje debe terminar exactamente con:
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: (comandos y cifras reales, hash del commit)
+NEGATIVOS: (que pruebas negativas protegen la correccion y que no se pudo probar)
+BLOQUEOS: (lo que impidio terminar, o ninguno)
+=== FIN RESUMEN ===

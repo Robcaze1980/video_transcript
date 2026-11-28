@@ -1,0 +1,62 @@
+TAP version 13
+# VISTAVO_FINANCIAL_NETWORK_GUARD_ACTIVE SELF_CHECK=PASS
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# VISTAVO_REVIEW_TSX_IPC_SYNTHETIC
+# Subtest: 11 negative: an observation incident that now names another intent in phase 3 aborts the release and the guard survives
+not ok 1 - 11 negative: an observation incident that now names another intent in phase 3 aborts the release and the guard survives
+  ---
+  duration_ms: 2782.5569
+  type: 'test'
+  location: 'C:\\Users\\rob62\\.t3\\worktrees\\vamos-a-continuar-linguistvision-en-esta-2\\lv019b-t3-saldo-retorno-one-shot-20261127\\server\\commercial\\billingUnblock.emulator.mjs:941:3'
+  failureType: 'testCodeFailure'
+  error: 'an observation incident that now names another intent'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-retorno-one-shot-20261127\server\commercial\billingUnblock.emulator.mjs:959:12)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3)
+  ...
+# Subtest: 11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives
+not ok 2 - 11 negative: an admission guard that now names another incident in phase 3 aborts the release and the guard survives
+  ---
+  duration_ms: 1869.1816
+  type: 'test'
+  location: 'C:\\Users\\rob62\\.t3\\worktrees\\vamos-a-continuar-linguistvision-en-esta-2\\lv019b-t3-saldo-retorno-one-shot-20261127\\server\\commercial\\billingUnblock.emulator.mjs:941:3'
+  failureType: 'testCodeFailure'
+  error: 'an admission guard that now names another incident'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-retorno-one-shot-20261127\server\commercial\billingUnblock.emulator.mjs:959:12)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# Subtest: 11 an INTENT unblock completes when the admission guard names an observation incident of the same incident
+ok 3 - 11 an INTENT unblock completes when the admission guard names an observation incident of the same incident
+  ---
+  duration_ms: 1899.9814
+  type: 'test'
+  ...
+# Synthetic unblock-1.4b cleanup total: 4/4
+# Subtest: 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back
+ok 4 - 11 an INTENT incident is unblocked too: its review row, its observation incidents, the intent and the hold are all handed back
+  ---
+  duration_ms: 1980.4124
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 2
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 10588.4714

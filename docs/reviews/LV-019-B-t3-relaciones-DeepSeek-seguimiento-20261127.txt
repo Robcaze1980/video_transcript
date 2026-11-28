@@ -1,0 +1,25 @@
+Coincido con el corte y retiro mi afirmación anterior.
+
+**Corrección aceptada**
+Mi informe previo dijo que el falso rechazo de una observación posterior es «reintentable» y que `planned` se recomputa. Esa frase excedía la evidencia: el paquete no demuestra un reintento seguro una vez que Cuenta ya confirmó (la reserva de envío se consume y la relación que faltaba seguiría ausente del conjunto auditado). Lo reclasifico como límite de disponibilidad y conciliación pendiente, no como propiedad probada.
+
+**PASS acotado**
+Sí: el cambio y las pruebas aportadas dan para un PASS acotado, no para un PASS global.
+
+- Alcance del PASS: la guarda de relaciones en `server/commercial/billingUnblock.ts:473-475` (observación `intentId`, admisión `incidentId` con `planned.some`) más el arnés de 15 en `server/commercial/billingUnblock.emulator.mjs`. Es lo estáticamente correcto (aborto atómico antes de la primera escritura, sin bypass) confirmado ahora en comportamiento.
+- Evidencia de cierre: 15/15 PASS en el emulador, 0 fallos/omitidos, limpieza 15/15, los dos negativos antes en FAIL ahora en PASS y los dos positivos en PASS, 22 colecciones inventariadas vacías antes/después, tipos y autocontrol TAP en verde, Node con salida 0, puertos ajenos sin cambios. Hashes reportados: TAP `1e4d69fb…b0570a18`, `result.json` `f4396e0e…cdc3bfc5d`.
+- La guarda es deliberadamente sobre-estricta: rechaza una observación legítima aparecida tras la lectura auditada. Fail-safe, pero es el límite de disponibilidad ya señalado.
+
+**Observaciones que persisten (no bloquean el PASS acotado)**
+- Reintento tras Cuenta confirmada: sin evidencia de seguridad ni de conciliación; queda abierto.
+- Conservar ambos recibos: el `result.json` pre-parche (`behavior:FAIL`) y este PASS, sin borrar el historial.
+- El JVM se terminó por handle tras el plazo; Node salió 0, pero la finalización forzada conviene registrarla como incidente menor.
+- «El manifiesto no cambió» debe conciliarse con el salto `expectedSelected` 11→15 del diff: el manifiesto candidato ya debe portar 15; verificar que la constancia se refiere a la inmutabilidad durante la corrida, no a que el hash previo ya incluía 15.
+- Gate financiero global, conciliación, integridad total, IAM y producción siguen fuera de este alcance.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: Guarda de relaciones en `server/commercial/billingUnblock.ts:473-475` (observación `intentId===incidentKey`; admisión `incidentId===incidentKey` o de una observación entregada por el mismo unblock vía `planned.some`), con aborto atómico antes de la primera escritura y sin bypass estático. Arnés de 15 en `server/commercial/billingUnblock.emulator.mjs` (dos negativos de drift observación/admisión y dos positivos de relación directa y guarda→observación). Resultados reportados por Codex: 15/15 PASS en Firestore Emulator, 0 fallos/omitidos, limpieza 15/15, negativos antes en FAIL ahora en PASS, 22 inventarios vacíos antes/después, tipos y TAP en verde, Node 0, puertos ajenos sin cambios. Hashes TAP `1e4d69fbe287a3872940af99bc2de926b941824ec5344f4bbeba4078b0570a18` y `result.json` `f4396e0eb79dbb09b0a6ee011830f94ce504dfb6df32d26c0b73823cdc3bfc5d`. PASS acotado al cambio y a las pruebas aportadas; ambos recibos (FAIL pre-parche y PASS) deben preservarse.
+NEGATIVOS: El falso rechazo de una observación legítima posterior a la lectura auditada es límite de disponibilidad; retiro mi previa afirmación de «reintentable» y de recomputación, no demostrada tras confirmación de Cuenta. Reintento seguro y conciliación: pendientes. JVM terminado por handle tras el plazo. Ambigüedad a conciliar entre «manifiesto sin cambios» y `expectedSelected` 11→15. No verifiqué hashes ni corrida (CERO herramientas); gate financiero global, conciliación, integridad total, IAM y producción no evaluados.
+BLOQUEOS: Ninguno para el alcance acotado. Persisten gate financiero global, conciliación del reintento tras Cuenta confirmada y conciliación del manifiesto como trabajo abierto. Tokens y costo no medidos (no visibles).
+=== FIN RESUMEN ===

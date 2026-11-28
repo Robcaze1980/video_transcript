@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "base": "61e64070c2ac6245caaee8eaad620feb68d9e246",
+  "project": "demo-vistavo-financial",
+  "host": "127.0.0.1:8198",
+  "fixedPorts": [
+    8198,
+    9198,
+    9298
+  ],
+  "candidate": {
+    "path": "C:\\Users\\rob62\\Documents\\Codex\\2026-11-11\\vistavo-account-fence-integration-20261127\\outputs\\lv019-b-unblock-fence-manifests\\manifest-3d9037b9-3630-4d87-ac8c-f60eb37e0576.json",
+    "sha256": "d023e38c18fc01cfdd6d733ea8e3050fd2255c4a212ce38aeb6fa35339231268",
+    "trackedCount": 70
+  },
+  "node": {
+    "path": "C:\\Users\\rob62\\AppData\\Local\\LinguistVision\\tools\\node-v24.13.0-win-x64\\node.exe",
+    "version": "v24.13.0",
+    "sha256": "d14ba95cdce1ef7dc9ad3ac74949ca5db38b27378ee30f30a23cf26f9e875a11"
+  },
+  "jdk": {
+    "path": "C:\\Program Files\\Java\\jdk-24",
+    "files": {
+      "java": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\bin\\java.exe",
+        "sha256": "8d242982227e1b18eeb2b1f2e62dbb251525900ca0b5357b919d869429b3a3e5"
+      },
+      "javac": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\bin\\javac.exe",
+        "sha256": "ce05cd76c6c61639b69cb05ccb678dccf3b08ef84f598a6a73a9aea7cf1ad502"
+      },
+      "javaDll": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\bin\\java.dll",
+        "sha256": "344adeb6653116f8ffa2cd94edadf0541175a6d30e1921db1ac044d91bd7364f"
+      },
+      "jvm": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\bin\\server\\jvm.dll",
+        "sha256": "93777805081a465788d01f6455077379b9937260ba3c9b1edbd11e3f73e94831"
+      },
+      "modules": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\lib\\modules",
+        "sha256": "eee053462d243e4db5a9be5b7dd8f6ee98370747fd600ff85213bfa7b515f22c"
+      }
+    }
+  },
+  "jar": {
+    "path": "C:\\Users\\rob62\\.cache\\firebase\\emulators\\cloud-firestore-emulator-v1.21.0.jar",
+    "sha256": "c3d3680a89d946a90a027365ea14c26c6472a162bcf37f099bbb1ebd66d25e8e"
+  },
+  "limitation": "File hashes before/after are not immutable snapshots; unlisted transitive files and native networking are not firewalled."
+}

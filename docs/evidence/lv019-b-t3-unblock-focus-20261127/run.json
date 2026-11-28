@@ -1,0 +1,242 @@
+{
+  "startedAt": "2026-11-27T18:18:14.8064236+00:00",
+  "project": "demo-vistavo-financial",
+  "address": "127.0.0.1",
+  "nonce": "d3338546-c145-474b-9713-2aafb973fd19",
+  "fixedPorts": [
+    8198,
+    9198,
+    9298
+  ],
+  "clientPort": 8198,
+  "grpcBackendPort": 63786,
+  "listenersBefore": [
+    {
+      "LocalAddress": "127.0.0.1",
+      "LocalPort": 8185,
+      "OwningProcess": 16900
+    }
+  ],
+  "listenerProofs": [
+    {
+      "tracked": [
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 8198,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 9198,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 9298,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 63786,
+          "OwningProcess": 33124
+        }
+      ],
+      "owned": [
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 8198,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 9198,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 9298,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 63786,
+          "OwningProcess": 33124
+        }
+      ],
+      "phase": "before-fixture"
+    },
+    {
+      "tracked": [
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 8198,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 9198,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 9298,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 63786,
+          "OwningProcess": 33124
+        }
+      ],
+      "owned": [
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 8198,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 9198,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 9298,
+          "OwningProcess": 33124
+        },
+        {
+          "LocalAddress": "127.0.0.1",
+          "LocalPort": 63786,
+          "OwningProcess": 33124
+        }
+      ],
+      "phase": "after-fixture"
+    }
+  ],
+  "environmentKeys": [
+    {
+      "keys": [
+        "APPDATA",
+        "FIRESTORE_EMULATOR_HOST",
+        "GCLOUD_PROJECT",
+        "GOOGLE_CLOUD_PROJECT",
+        "LOCALAPPDATA",
+        "LV_FINANCIAL_REGRESSION",
+        "LV_REVIEW_CONTRACT",
+        "METADATA_SERVER_DETECTION",
+        "NODE_ENV",
+        "SystemRoot",
+        "TEMP",
+        "TMP",
+        "USERPROFILE"
+      ],
+      "process": "compile"
+    },
+    {
+      "keys": [
+        "APPDATA",
+        "FIRESTORE_EMULATOR_HOST",
+        "GCLOUD_PROJECT",
+        "GOOGLE_CLOUD_PROJECT",
+        "LOCALAPPDATA",
+        "LV_FINANCIAL_REGRESSION",
+        "LV_REVIEW_CONTRACT",
+        "METADATA_SERVER_DETECTION",
+        "NODE_ENV",
+        "SystemRoot",
+        "TEMP",
+        "TMP",
+        "USERPROFILE"
+      ],
+      "process": "emulator"
+    },
+    {
+      "keys": [
+        "APPDATA",
+        "FIRESTORE_EMULATOR_HOST",
+        "GCLOUD_PROJECT",
+        "GOOGLE_CLOUD_PROJECT",
+        "LOCALAPPDATA",
+        "LV_FINANCIAL_REGRESSION",
+        "LV_METADATA_DEPENDENCIES",
+        "LV_REVIEW_CONTRACT",
+        "METADATA_SERVER_DETECTION",
+        "NODE_ENV",
+        "SystemRoot",
+        "TEMP",
+        "TMP",
+        "USERPROFILE"
+      ],
+      "process": "fixture"
+    }
+  ],
+  "stage": "processes-exited",
+  "ownedJavaPid": 33124,
+  "ownedNodePid": 32328,
+  "nodeExit": 0,
+  "javaStoppedByNonce": false,
+  "processReceipts": [
+    {
+      "exit": 0,
+      "label": "fixture",
+      "id": 32328
+    },
+    {
+      "exit": -1,
+      "label": "emulator",
+      "id": 33124
+    },
+    {
+      "exit": 0,
+      "label": "compile",
+      "id": 24280
+    }
+  ],
+  "failure": null,
+  "fixtureVersion": {
+    "firestore": "9.4.1",
+    "firebaseAdmin": "14.5.0"
+  },
+  "inputs": {
+    "jar": "c3d3680a89d946a90a027365ea14c26c6472a162bcf37f099bbb1ebd66d25e8e",
+    "fixture": "300ec9ee927a2b3b7013d4da0f42f24d5aed0781769aa26000d07774bb05bcff",
+    "javaSource": "3c410ae036a87f26c5e58c0aa9d81efe5b8ea7ef6e7b7a8858e81d0cf98753bd",
+    "guardSource": "86fd0a95706e0e2d2371dfdbb811efdd530a40e594bd4f2ed8ac06c05545dc6b",
+    "guard": "86fd0a95706e0e2d2371dfdbb811efdd530a40e594bd4f2ed8ac06c05545dc6b",
+    "launcher": "07aacb74420cf5af8cf1597e070065e56bf4bb6943cad2cfb1c1352589ab9083",
+    "manifest": "be695364144b666c27f4cd3149379d31dea198caded2ab056d99322150fe6523",
+    "systemManifest": "c9fe96e0cff80223523b25118a6748fed9d1cc9ed71dd52ae6864c6c3a944981",
+    "node": "d14ba95cdce1ef7dc9ad3ac74949ca5db38b27378ee30f30a23cf26f9e875a11",
+    "jdk": {
+      "java": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\bin\\java.exe",
+        "sha256": "8d242982227e1b18eeb2b1f2e62dbb251525900ca0b5357b919d869429b3a3e5"
+      },
+      "javac": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\bin\\javac.exe",
+        "sha256": "ce05cd76c6c61639b69cb05ccb678dccf3b08ef84f598a6a73a9aea7cf1ad502"
+      },
+      "javaDll": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\bin\\java.dll",
+        "sha256": "344adeb6653116f8ffa2cd94edadf0541175a6d30e1921db1ac044d91bd7364f"
+      },
+      "jvm": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\bin\\server\\jvm.dll",
+        "sha256": "93777805081a465788d01f6455077379b9937260ba3c9b1edbd11e3f73e94831"
+      },
+      "modules": {
+        "path": "C:\\Program Files\\Java\\jdk-24\\lib\\modules",
+        "sha256": "eee053462d243e4db5a9be5b7dd8f6ee98370747fd600ff85213bfa7b515f22c"
+      }
+    }
+  },
+  "listenersAfter": [
+    {
+      "LocalAddress": "127.0.0.1",
+      "LocalPort": 8185,
+      "OwningProcess": 16900
+    }
+  ],
+  "sharedListenersUnchanged": true,
+  "endedAt": "2026-11-27T18:19:23.8569872+00:00"
+}

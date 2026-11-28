@@ -1,0 +1,26 @@
+Revisé los artefactos suministrados como revisor de solo lectura. No ejecuté nada. El arnés enfocado es internamente coherente y fail-closed, pero su evidencia es parcial: el preflight es un *probe* de solo lectura y el test de denegación read+write vive en un archivo no incluido.
+
+**Hallazgos sólidos**
+- Negativo primero real: el hash falso se rechaza antes del `PUT` (`hashGuardIndex < loadIndex` en fuente + salida en ejecución con `Rules input hash mismatch`, código ≠ 0 y sin `rulesLoad|clientProbe|adminProbe`). El `await import(backend)` queda tras el preflight, así que un fallo aborta la evaluación del módulo: no corren pruebas seleccionadas. Correcto.
+- Confinamiento: host fijo `127.0.0.1:8198`, proyecto `demo-vistavo-financial`, `METADATA_SERVER_DETECTION=none`, `LV_FINANCIAL_REGRESSION=1`, sin `NODE_OPTIONS`/`GOOGLE_APPLICATION_CREDENTIALS`. `repositoryFile` con `lstat/realpath/isInside` bloquea symlinks y traversal; el fixture exige su propia ruta real.
+- Manifiesto: clave `rules{file,sha256}` con set exacto de claves, `rules.sha256 === files[rulesFile]`, re-hash en `--run`, inventario de 73 con unicidad y `requiredTracked`. Identidades node/proyecto/host pinneadas.
+- Sin escrituras de datos: `GET` cliente→403, lectura Admin de documento inexistente (`exists:false`), `terminate`/`deleteApp`; el `PUT` es configuración del emulador, no datos; no hay borrado de directorios.
+- Captura: `stdout/stderr` a archivos `wx`, topes de tamaño, validación estricta del JSON, self-check de guardia y rechazo de `VISTAVO_REVIEW_NETWORK_DENIED`.
+
+**Hallazgos críticos / lo que falta**
+- El preflight solo prueba **lectura** cliente (GET→403). La negación de **escritura** cliente y la creación/lectura Admin real residen en `server/commercial/firestoreBackend.emulator.mjs` ("…reject reads and writes of actual Admin-created documents"), que **no está** en el paquete. El criterio read/write no queda evidenciado aquí.
+- Verificación de contenido de reglas débil: solo substring `rules_version = '2';` y `allow read, write: if false;`. La garantía real es el SHA fijado desde el archivo del repo; el substring por sí solo aceptaría reglas permisivas adicionales con hash coincidente.
+- No hay control negativo "emulador sin reglas ≠ 403": el único negativo aborta antes de red, así que no se reproduce explícitamente el fallo original (403 sin reglas cargadas).
+- El probe Admin es débil: lee un inexistente (solo `exists:false`), no prueba lectura de datos existentes ni camino de escritura Admin.
+- Selección: se define `selectedPattern`/`focusPattern` y `escapedRegex`, pero los diffs **no muestran** el `--test-name-pattern` aplicado al spawn; `summary`/`acceptableChecks` tampoco aparecen completos. No se puede confirmar 3/3 ni que no se degrade la selección.
+- Chequeo de orden `hashGuardIndex < loadIndex` es heurístico por substring de fuente (frágil ante refactor/comentarios), no comportamiento.
+- La corrección de "ruta temporal" se afirma (bytes por stdin en vez de archivo temporal, coherente con no dejar temporales), pero no se incluye el artefacto antes/después ni su interacción con la guardia.
+- Límites declarados correctamente: el preload no es firewall de SO; hashes no son snapshot inmutable; quedan fuera esbuild, addons/hijos nativos y deps transitivas no hasheadas. Todo esto no certifica reglas de producción ni IAM.
+- Uso/costo: no medido. Puertos: `8198` fijo y listas `sharedPorts` conservadas, pero conviene evidencia del chequeo de colisión.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS (limitado a la mecánica y gate negativo del arnés enfocado local)
+EVIDENCIA: Revisión estática de `scripts/financialEmulatorRulesPreflight.mjs`, `server/commercial/financialRulesFocus.emulator.mjs`, `deploy/google-cloud/firestore.rules` y diffs de `runFinancialRegressionEmulator.mjs`, `runRulesFocusEmulator.mjs`, `prepareRulesFocusIsolation.mjs`, `runRulesFocusIsolated.ps1`. El paquete cumpliría los criterios exigidos, sin medición de uso/costo. No medido.
+NEGATIVOS: Solo lectura cliente 403, no escritura; test read+write no incluido; check de reglas por substring; sin control "sin reglas ≠ 403"; probe Admin de doc inexistente; selección 3/3 no evidenciada en el spawn; chequeo de orden por fuente.
+BLOQUEOS: Nada demuestra reglas de producción, IAM ni despliegue. Falta: `firestoreBackend.emulator.mjs` (o fragmento del test), spawn con `--test-name-pattern` + `summary`/`acceptableChecks`, control negativo sin reglas, evidencia del cambio de ruta temporal y verificación de puertos compartidos.
+=== FIN RESUMEN ===

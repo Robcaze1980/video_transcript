@@ -1,0 +1,29 @@
+[
+  {
+    "threadId": "mcp:9e0ad981-255e-4340-80cd-409350de3812",
+    "status": "completed",
+    "providerInstanceId": "linguistvision-openrouter",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "branch": "lv019b/t3-historicos-author-20261127",
+    "runCount": 4,
+    "itemCount": 17
+  },
+  {
+    "threadId": "mcp:26499e24-96d7-43e3-9d94-e320f1fd401c",
+    "status": "completed",
+    "providerInstanceId": "linguistvision-openrouter",
+    "model": "~z-ai/glm-flash-latest",
+    "branch": "lv019b/t3-pending-review-glm-20261127",
+    "runCount": 1,
+    "itemCount": 5
+  },
+  {
+    "threadId": "mcp:73b0f279-c611-454b-8fc0-707b4c20ec85",
+    "status": "completed",
+    "providerInstanceId": "linguistvision-openrouter",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "branch": "lv019b/t3-pending-review-ds-20261127",
+    "runCount": 1,
+    "itemCount": 5
+  }
+]

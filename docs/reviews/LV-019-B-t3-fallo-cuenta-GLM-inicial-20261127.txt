@@ -1,0 +1,20 @@
+**Revisión estática LV-019.B — caso 77 y arnés**
+
+**Hallazgos principales**
+- Caso 77 cumple lo pedido: `unblockReceipt` real se consulta antes del reclamo y del POST (`receipts===1` en el primer intento, `===2` en la reanudación), la inyección incierta lanza antes de delegar a la mutación real (`posts===1` y el doble excluye estructuralmente la mutación de Cuenta), la auditoría queda en una sola entrada `unblock_requested` tras ambos intentos, la reanudación es rechazada sin segundo POST y sin escrituras (`deepEqual` de firmas de ambas raíces), y guardia de Video, fila de Cuenta, outbox en `needs_review` y saldo quedan intactos tras dos `drainExternalBilling`.
+- La eliminación de la cobertura antigua "el reintento completa" es coherente con el contrato nuevo (reclamo existente + `pending` → conflicto). Pero ninguna prueba seleccionada demuestra cómo llegaría a cerrarse un reclamo pendiente: la frase de especificación "solicita conciliación hasta demostrar… mediante una exclusión válida" no está respaldada por código ni prueba en este paquete; "exclusión válida" queda sin definición. Debe citarse el mecanismo o suavizarse antes de fusionar.
+- La especificación refleja bien el contrato previo en lo esencial: `pending` no prueba ausencia de envío en vuelo ni autoriza reenvío, y el primer envío exige solicitud nueva más reclamo durable. "Reclamo durable autorizado" es ambiguo: el reclamo lo crea la transacción de Video, no una autoridad de Cuenta; conviene precisar para no sugerir una autoridad externa inexistente.
+- Arnés: el nombre nuevo coincide exactamente con el título de la prueba, el manifiesto fija `expectedSelected===11`, el autocontrol adapta el conteo y conserva las contrapruebas visibles (nombre no seleccionado, `not ok`, skipped/cancelled/todo, conteo N−1 y N+1, orden, línea ausente, guards vacíos). Las 12 contrapruebas se conservan en lo visible del diff.
+- Pins: `ac6f0730…` → `c395315…` es un cambio de hash exacto, consistente en `prepareUnblockFocusIsolation.mjs` y `runUnblockFocusIsolated.ps1`; no afloja ninguna validación.
+- Menores: la segunda aserción de rechazo comprueba solo `code==='conflict'` sin stage/motivo; tras los drains la verificación es por campos, no por firmas completas; la fila de Cuenta se comprueba por existencia, no por contenido (atenuado porque `posts===1` con el doble lanzador excluye la mutación).
+
+**Límites**
+- No ejecuté las 11 pruebas (están en curso); solo revisé el paquete.
+- No son visibles en el diff: la definición de `expectedSelected` en el emulador, el helper `signatures()`, la cola completa de la cadena de contrapruebas, el contenido del manifiesto y cualquier mecanismo de conciliación preexistente.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: `scripts/prepareUnblockFocusIsolation.mjs` (pin de base, `expectedSelected` 11), `scripts/runUnblockFocusEmulator.mjs` (lista de 11, autocontrol y contrapruebas), `scripts/runUnblockFocusIsolated.ps1` (pin de base, sistema congelado), `server/commercial/billingUnblock.emulator.mjs` caso «11 negative: a failed Account phase…» (receipt real contada, inyección antes de mutar, auditoría única, `posts===1`, firmas sin escrituras, drains, saldo), transporte y decisión de Cuenta (puerta fresh/`pending`), `docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md` (contrato `pending`).
+NEGATIVOS: reenvío prohibido ante `pending` (dos intentos, `posts===1`), una sola solicitud auditada tras la reanudación, cero escrituras en la reanudación (`deepEqual` de firmas de ambas bases), bloqueos de Video y Cuenta, outbox y saldo intactos tras dos drains, contrapruebas del autocontrol intactas en lo visible (incluidos conteo N−1/N+1), pins de base exactos y consistentes. No verificado: definición de `expectedSelected` y `signatures()` fuera del diff, mecanismo de conciliación/exclusión, cola completa de contrapruebas, manifiesto generado.
+BLOQUEOS: ninguno; tokens y costo no medidos (no visibles). La frase de especificación «solicita conciliación … exclusión válida» excede lo demostrado en este paquete y debe evidenciarse o ajustarse antes de fusionar.
+=== FIN RESUMEN ===

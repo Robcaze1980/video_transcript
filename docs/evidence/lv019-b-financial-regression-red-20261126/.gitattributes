@@ -1,0 +1,9 @@
+# Preserve exact bytes of the interrupted test and process evidence.
+interrupted.tap -text -diff
+launcher-receipt.json -text -diff
+roots-before.json -text -diff
+fixture.stderr.log -text -diff
+memory-focus-source.txt -text -diff
+memory-focus-output.tap -text -diff
+memory-focus-stderr.log -text -diff
+memory-focus-offline-guard.txt -text -diff

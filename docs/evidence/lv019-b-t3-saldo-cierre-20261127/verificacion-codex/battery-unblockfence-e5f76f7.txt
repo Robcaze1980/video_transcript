@@ -1,0 +1,7 @@
+HEAD e5f76f7 status 3
+Synthetic manifest prepared: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cuenta-guarda-20261127\outputs\lv019-b-unblock-fence-manifests\manifest-249bbb10-b6ba-4a0b-99d5-dc2617f9655d.json
+Review its hashes before --run. No fixture was started.
+manifest: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cuenta-guarda-20261127\outputs\lv019-b-unblock-fence-manifests\manifest-249bbb10-b6ba-4a0b-99d5-dc2617f9655d.json
+run exit 0 (38s)
+Synthetic unblock focus: PASS; evidence: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cuenta-guarda-20261127\outputs\lv019-b-financial-runs\run-7577e8e3-04cf-4007-a4c9-10fc70eda0b6
+DONE

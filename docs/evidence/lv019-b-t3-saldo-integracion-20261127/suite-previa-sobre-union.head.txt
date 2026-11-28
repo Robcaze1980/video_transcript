@@ -1,0 +1,5 @@
+HEAD ee35189 merge-en-curso: si
+suite exit 1
+pass 18  fail 87
+Synthetic unblock-1.4b cleanup total: 64/64
+DONE

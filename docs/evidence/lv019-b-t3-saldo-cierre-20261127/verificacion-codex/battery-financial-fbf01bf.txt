@@ -1,0 +1,7 @@
+HEAD fbf01bf status 0
+Synthetic manifest prepared: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\outputs\lv019-b-financial-manifests\manifest-698196db-2e24-4c1a-8537-8ae8b8196254.json
+Review its hashes before --run. No fixture was started.
+manifest: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\outputs\lv019-b-financial-manifests\manifest-698196db-2e24-4c1a-8537-8ae8b8196254.json
+run exit 0 (1627s)
+Synthetic financial regression: PASS; evidence: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cierre-b-20261127\outputs\lv019-b-financial-runs\run-f455e130-e45f-4b3d-be55-c7c6fa347f73
+DONE

@@ -1,0 +1,7 @@
+HEAD e5f76f7 status 0
+Synthetic manifest prepared: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cuenta-guarda-20261127\outputs\lv019-b-account-full-manifests\manifest-8526e252-bfd4-4377-ad98-f531d891397e.json
+Review its hashes before --run. No fixture was started.
+manifest: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cuenta-guarda-20261127\outputs\lv019-b-account-full-manifests\manifest-8526e252-bfd4-4377-ad98-f531d891397e.json
+run exit 0 (107s)
+Synthetic Account full fixture: PASS; evidence: C:\Users\rob62\.t3\worktrees\vamos-a-continuar-linguistvision-en-esta-2\lv019b-t3-saldo-cuenta-guarda-20261127\outputs\lv019-b-account-full-runs\run-a2f34feb-9903-4455-87b8-bf82bc1697e7
+DONE

@@ -1,0 +1,8 @@
+'use strict';
+const net=require('node:net');
+const {syncBuiltinESMExports}=require('node:module');
+net.Socket.prototype.connect=function(){throw Error('OFFLINE_DIAGNOSTIC_DENIED_SOCKET');};
+net.Server.prototype.listen=function(){throw Error('OFFLINE_DIAGNOSTIC_DENIED_LISTENER');};
+globalThis.fetch=async()=>{throw Error('OFFLINE_DIAGNOSTIC_DENIED_FETCH');};
+syncBuiltinESMExports();
+process.stderr.write('OFFLINE_DIAGNOSTIC_NODE_GUARD_ACTIVE\n');

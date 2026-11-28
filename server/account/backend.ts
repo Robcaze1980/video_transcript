@@ -23,6 +23,45 @@ const modelMatchesKey=(callKey:string,model:string)=>callKey.startsWith('text-wi
 const digestValid=(value:unknown):value is string=>typeof value==='string'&&value.length===64&&/^[a-f0-9]{64}$/.test(value);
 // A durable reference to the evidence an operator reviewed: bounded to 200 characters and free of control characters.
 const reviewRefValid=(value:unknown):value is string=>typeof value==='string'&&/^[^\u0000-\u001f\u007f]{1,200}$/.test(value);
+const fencedUnblockProtocol='fenced_v1';
+type FencedUnblock={incidentId:string;attemptId:string;epoch:number;createdAtMs:number;reviewRef:string;authorizationSha256:string};
+type ReconcileUnblock=FencedUnblock&{previousAttemptId:string;previousEpoch:number;reconcileId:string};
+type FencedUnblockCommand={kind:'confirm'|'receipt';input:FencedUnblock}|{kind:'reconcile';input:ReconcileUnblock};
+const attemptFields=['incidentId','attemptId','epoch','createdAtMs','reviewRef','authorizationSha256'];
+const reconcileFields=[...attemptFields,'previousAttemptId','previousEpoch','reconcileId'];
+function checkedUnblockCommand<T extends FencedUnblock>(value:T,fields:readonly string[]):T{
+ if(!value||Object.getPrototypeOf(value)!==Object.prototype)bad();
+ const descriptors=Object.getOwnPropertyDescriptors(value);
+ if(Reflect.ownKeys(descriptors).length!==fields.length||
+    !fields.every(key=>Object.hasOwn(descriptors,key)&&'value' in descriptors[key]))bad();
+ const request=Object.fromEntries(fields.map(key=>[key,descriptors[key].value])) as T;
+ incidentId(request.incidentId);id(request.attemptId);
+ if(!integer(request.epoch,1)||!integer(request.createdAtMs)||!reviewRefValid(request.reviewRef)||
+    !digestValid(request.authorizationSha256))bad();
+ return request;
+}
+function checkedReconcileUnblock(input:ReconcileUnblock){
+ const request=checkedUnblockCommand(input,reconcileFields);
+ id(request.previousAttemptId);id(request.reconcileId);
+ if(request.previousAttemptId===request.attemptId||!integer(request.previousEpoch,1)||request.epoch<request.previousEpoch)bad();
+ return request;
+}
+function unblockDocumentVersion(doc:DocumentSnapshot,field:'createTime'|'updateTime'){
+ const stamp=doc[field];
+ return stamp&&integer(stamp.seconds)&&integer(stamp.nanoseconds)&&stamp.nanoseconds<1_000_000_000?
+  stamp.seconds+':'+stamp.nanoseconds:null;
+}
+function matchesUnblockRow(doc:DocumentSnapshot,fields:Record<string,unknown>){
+ return doc.exists&&Object.entries(fields).every(([key,value])=>doc.get(key)===value);
+}
+function nextGuardReview(guard:DocumentSnapshot){
+ const count=guard.get('incidentCount') as number,stored=guard.get('reviewedCount');
+ const reviewed=stored===undefined?0:stored;
+ if(!integer(reviewed)||reviewed>=count)invariant();
+ const reviewedCount=reviewed+1;
+ if(!integer(reviewedCount,1)||reviewedCount>count)invariant();
+ return {reviewedCount,blocked:reviewedCount!==count};
+}
 const callDocId=(callKey:string)=>hash(['provider-call-v2',callKey]);
 function admission(value:unknown):VideoProviderAdmission{
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).sort().join(',')!=='attemptId,jobId')bad();
@@ -239,6 +278,7 @@ export class AccountStore {
     this.root.collection('videoBillingUnblocks').doc(hash([accountId,incident,'unblock'])),
    );
    accountRecord(stored,identityKey);const blocked=billingHold(guard,accountId,identityKey);
+   if(record.get('unblockProtocol')!==undefined||receipt.get('unblockProtocol')!==undefined)throw new AccountFault('conflict');
    if(!record.exists)throw new AccountFault(receipt.exists?'invariant':'conflict');
    if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
    if(!receipt.exists){
@@ -271,6 +311,7 @@ export class AccountStore {
    const accountId=identity.get('accountId');if(typeof accountId!=='string'||!uuid.test(accountId))invariant();
    const accountRef=this.root.collection('accounts').doc(accountId),guardRef=this.root.collection('videoBillingGuards').doc(accountId),recordRef=this.root.collection('videoBillingIncidents').doc(hash([accountId,incident])),unblockRef=this.root.collection('videoBillingUnblocks').doc(hash([accountId,incident,'unblock']));
    const [stored,guard,record,unblock]=await tx.getAll(accountRef,guardRef,recordRef,unblockRef);accountRecord(stored,identityKey);
+   if(record.get('unblockProtocol')!==undefined||unblock.get('unblockProtocol')!==undefined)throw new AccountFault('conflict');
    // A repeat of the same decision is a receipt; any different payload for the same incident is refused, and neither writes.
    if(unblock.exists){
     if(unblock.get('ownerAccountId')===accountId&&unblock.get('identityKey')===identityKey&&unblock.get('incidentId')===incident&&unblock.get('epoch')===epoch&&unblock.get('createdAtMs')===createdAtMs&&unblock.get('reviewRef')===reviewRef)return {unblocked:true as const,replayed:true as const,blocked:guard.exists};
@@ -282,13 +323,104 @@ export class AccountStore {
    if(record.get('ownerAccountId')!==accountId||record.get('identityKey')!==identityKey||record.get('incidentId')!==incident||!integer(record.get('createdAtMs')))invariant();
    if(record.get('state')!=='active')throw new AccountFault('conflict');
    // `incidentCount` incidents are known; each unblock adds one reviewed incident, and the guard survives until all are reviewed.
-   const incidentCount=guard.get('incidentCount') as number,reviewed=guard.get('reviewedCount')===undefined?0:guard.get('reviewedCount');
-   if(!integer(reviewed)||reviewed>=incidentCount)invariant();
-   const nextReviewed=reviewed+1;if(!integer(nextReviewed,1)||nextReviewed>incidentCount)invariant();
+   const remaining=nextGuardReview(guard);
    tx.create(unblockRef,{ownerAccountId:accountId,identityKey,incidentId:incident,epoch,createdAtMs,reviewRef,unblockedAtMs:time});
    tx.update(recordRef,{state:'reviewed',reviewedAtMs:time});
-   if(nextReviewed===incidentCount)tx.delete(guardRef);else tx.update(guardRef,{reviewedCount:nextReviewed});
-   return {unblocked:true as const,replayed:false as const,blocked:nextReviewed!==incidentCount};
+   if(remaining.blocked)tx.update(guardRef,{reviewedCount:remaining.reviewedCount});else tx.delete(guardRef);
+   return {unblocked:true as const,replayed:false as const,blocked:remaining.blocked};
+  });
+ }
+ /** Closed test seam. Enrollment and reconciliation approval must predate this operation. */
+ async reconcileVideoBillingUnblockAttempt(identityKey:string,input:ReconcileUnblock){
+  return this.runFencedUnblock(identityKey,{kind:'reconcile',input});
+ }
+ /** Dispatch uses the same serialized anchor and receipt as reconciliation. */
+ async confirmFencedVideoBillingUnblockAttempt(identityKey:string,input:FencedUnblock){
+  return this.runFencedUnblock(identityKey,{kind:'confirm',input});
+ }
+ async fencedVideoBillingUnblockReceipt(identityKey:string,input:FencedUnblock){
+  return this.runFencedUnblock(identityKey,{kind:'receipt',input});
+ }
+ private async runFencedUnblock(identityKey:string,command:FencedUnblockCommand){
+  const conflict=():never=>{throw new AccountFault('conflict');};
+  if(process.env.NODE_ENV!=='test')return conflict();
+  const reconciliation=command.kind==='reconcile'?checkedReconcileUnblock(command.input):null;
+  const request=reconciliation??checkedUnblockCommand(command.input,attemptFields);
+  const identityRef=this.identityFromKey(identityKey);
+  return this.db.runTransaction(async tx=>{
+   const identity=await tx.get(identityRef);
+   if(!identity.exists)throw new AccountFault('account_not_provisioned');
+   const uid=identity.get('uid'),accountId=identity.get('accountId');
+   if(typeof uid!=='string'||uidKey(uid)!==identityKey||typeof accountId!=='string'||!uuid.test(accountId))return invariant();
+   const incidentId=request.incidentId,incidentKey=hash([accountId,incidentId]);
+   const guardRef=this.root.collection('videoBillingGuards').doc(accountId);
+   const incidentRef=this.root.collection('videoBillingIncidents').doc(incidentKey);
+   const anchorRef=this.root.collection('videoBillingUnblockAttempts').doc(incidentKey);
+   const receiptRef=this.root.collection('videoBillingUnblocks').doc(hash([accountId,incidentId,'unblock']));
+   const [account,guard,incident,anchor,receipt]=await tx.getAll(
+    this.root.collection('accounts').doc(accountId),guardRef,incidentRef,anchorRef,receiptRef,
+   );
+   accountRecord(account,identityKey);
+   const owner={ownerAccountId:accountId,identityKey,incidentId,unblockProtocol:fencedUnblockProtocol};
+   const {createdAtMs,reviewRef,authorizationSha256}=request;
+   const evidence={...owner,createdAtMs,reviewRef,authorizationSha256};
+   const identityVersion=unblockDocumentVersion(identity,'updateTime');
+   const incidentVersion=unblockDocumentVersion(incident,'createTime');
+   const guardVersion=anchor.get('guardVersion');
+   const original={...evidence,identityVersion,incidentVersion,guardVersion};
+   if(!matchesUnblockRow(incident,owner)||!integer(incident.get('createdAtMs'))||!identityVersion||!incidentVersion||
+      typeof guardVersion!=='string'||!/^\d+:\d{1,9}(?![\s\S])/.test(guardVersion)||!matchesUnblockRow(anchor,original))return conflict();
+   const previousAttemptId=anchor.get('initialAttemptId'),previousEpoch=anchor.get('initialEpoch');
+   if(typeof previousAttemptId!=='string'||!uuid.test(previousAttemptId)||!integer(previousEpoch,1))return conflict();
+   const reconcileId=anchor.get('reconcileId'),successor=anchor.get('successorAttemptId'),successorEpoch=anchor.get('successorEpoch');
+   const fenced=[reconcileId,successor,successorEpoch].some(value=>value!==undefined);
+   if(fenced&&(typeof reconcileId!=='string'||!uuid.test(reconcileId)||typeof successor!=='string'||
+      !uuid.test(successor)||successor===previousAttemptId||!integer(successorEpoch,previousEpoch)))return conflict();
+   const active={attemptId:fenced?successor:previousAttemptId,epoch:fenced?successorEpoch:previousEpoch};
+   if(reconciliation){
+    if(reconciliation.previousAttemptId!==previousAttemptId||reconciliation.previousEpoch!==previousEpoch||
+       (fenced&&(reconcileId!==reconciliation.reconcileId||active.attemptId!==request.attemptId||active.epoch!==request.epoch)))return conflict();
+   }else if(active.attemptId!==request.attemptId||active.epoch!==request.epoch)return conflict();
+   const grantId=reconciliation?.reconcileId??reconcileId;
+   if(grantId!==undefined){
+    const grant=await tx.get(this.root.collection('videoBillingUnblockReconciliationGrants').doc(hash([accountId,incidentId,grantId])));
+    const version=unblockDocumentVersion(grant,'createTime');
+    if(!matchesUnblockRow(grant,{...original,previousAttemptId,previousEpoch,reconcileId:grantId,
+       attemptId:request.attemptId,epoch:request.epoch})||!version||version!==unblockDocumentVersion(grant,'updateTime'))return conflict();
+   }
+   const blocked=billingHold(guard,accountId,identityKey);
+   if(receipt.exists){
+    const receiptVersion=unblockDocumentVersion(receipt,'createTime'),time=receipt.get('unblockedAtMs');
+    if(!matchesUnblockRow(receipt,{...evidence,...active,guardVersion})||!receiptVersion||
+       receiptVersion!==unblockDocumentVersion(receipt,'updateTime')||!integer(time)||
+       incident.get('state')!=='reviewed'||incident.get('reviewedAtMs')!==time||
+       incident.get('unblockAttemptId')!==active.attemptId)return conflict();
+    if(blocked){const liveEpoch=guard.get('epoch');if(!integer(liveEpoch,1)||liveEpoch<active.epoch)return conflict();}
+    return {state:'confirmed' as const,...active,createdAtMs,blocked,replayed:true};
+   }
+   if(!blocked||incident.get('state')!=='active'||incident.get('reviewedAtMs')!==undefined||
+      incident.get('unblockAttemptId')!==undefined||unblockDocumentVersion(guard,'createTime')!==guardVersion||
+      guard.get('createdAtMs')!==createdAtMs)return conflict();
+   const liveEpoch=guard.get('epoch');
+   if(!integer(liveEpoch,1)||liveEpoch<request.epoch)return conflict();
+   if(command.kind==='receipt'){
+     // The original checked the guard's own bookkeeping before answering `pending`. Keep that detection:
+     // an inconsistent reviewedCount is corruption and must not be masked by the relaxed epoch.
+     nextGuardReview(guard);
+     return {state:'pending' as const,...active,createdAtMs};
+   }
+   if(liveEpoch!==request.epoch)return conflict();
+   const remaining=nextGuardReview(guard);
+   if(reconciliation){
+    if(!fenced)tx.update(anchorRef,{reconcileId:reconciliation.reconcileId,successorAttemptId:request.attemptId,successorEpoch:request.epoch});
+    return {state:'permitted' as const,reconcileId:reconciliation.reconcileId,attemptId:request.attemptId,epoch:request.epoch,
+     createdAtMs,replayed:fenced};
+   }
+   const time=this.now();if(!integer(time))return invariant();
+   tx.create(receiptRef,{...evidence,...active,guardVersion,unblockedAtMs:time});
+   tx.update(incidentRef,{state:'reviewed',reviewedAtMs:time,unblockAttemptId:active.attemptId});
+   if(remaining.blocked)tx.update(guardRef,{reviewedCount:remaining.reviewedCount});else tx.delete(guardRef);
+   return {state:'confirmed' as const,...active,createdAtMs,blocked:remaining.blocked,replayed:false};
   });
  }
  /** Atomically prevent a future reserve or return the existing reservation's receipt. */

@@ -1,10 +1,11 @@
 // Synthetic-only LV-019.B C2a (Video side, etapa 2) fixture. It runs a real `AccountStore` (Account is already certified) behind a local
-// adapter of `AccountBillingClient`, against the fixed demo emulator at 127.0.0.1:8185. No cloud service, credential, HTTP route or real media
+// adapter of `AccountBillingClient`, against the fixed demo emulator at 127.0.0.1:8198. No cloud service, credential, HTTP route or real media
 // is touched. Execute only through a reviewed launcher with the fixed demo environment.
 //
 // Every scenario states the behaviour this step must reach (docs/specs/LV-019-B-liquidacion-parcial-y-liberacion-posadmision.md, sections 3, 4,
 // 5 and 8). They are written to fail TODAY for the missing behaviour, never for a syntax or mount error.
 import assert from 'node:assert/strict';
+import {prepareFinancialOwnedRoot,assertFinancialOwnedRoot,deleteFinancialOwnedRoot} from './financialOwnedRootGuard.mjs';
 import {after,afterEach,before,test} from 'node:test';
 import {createHash,randomUUID} from 'node:crypto';
 import {Firestore,FieldValue} from 'firebase-admin/firestore';
@@ -19,7 +20,7 @@ import {ALERT_COLLECTION,raisePendingAlerts} from './billingPendingAlerts.ts';
 import {readPendingReport} from './billingPendingReport.ts';
 import {UNKNOWN_RESOLUTION_MIN_AGE_MS} from '../account/settlementContract.ts';
 
-const project='demo-vistavo-ledger',host='127.0.0.1:8185';
+const project='demo-vistavo-financial',host='127.0.0.1:8198';
 const videoCollection='vistavo_video_c2a_settlement_video_synthetic',accountCollection='vistavo_video_c2a_settlement_ledger_synthetic';
 // The retry bound is the production constant itself, never a copy: a repeated `conflict` must stop exactly here.
 const CONFLICT_ATTEMPT_LIMIT=EXTERNAL_BILLING_CONFLICT_ATTEMPT_LIMIT;
@@ -48,7 +49,7 @@ function assertSafeClient(c){
   assert.match(c.root.path,new RegExp(`^${videoCollection}/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$`));
   assert.match(c.accountRoot.path,new RegExp(`^${accountCollection}/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$`));
   assert.notEqual(c.root.path,c.accountRoot.path);assert.equal(c.db.projectId,project);assert.equal(c.db.databaseId,'(default)');
-  const settings=c.db._settings;assert.equal(settings?.projectId,project);assert.equal(settings?.servicePath,'127.0.0.1');assert.equal(settings?.port,8185);
+  const settings=c.db._settings;assert.equal(settings?.projectId,project);assert.equal(settings?.servicePath,'127.0.0.1');assert.equal(settings?.port,8198);
   assert.equal(settings?.ssl,false);assert.equal(settings?.preferRest,false);
   for(const key of ['auth','credentials','keyFilename','authClient'])assert.equal(settings?.[key],undefined);
 }
@@ -60,18 +61,15 @@ before(async()=>{
 });
 afterEach(async()=>{
   for(const c of contexts.splice(0)){
-    // Cleanup must run even when a scenario failed or left a root in an unexpected shape: the root delete is attempted unconditionally, and only then is the
-    // shape asserted, so a broken scenario can never leave synthetic roots behind.
-    let problem=null;try{assertSafeClient(c);}catch(error){problem=error;console.error('Synthetic C2a Video settlement unsafe client before cleanup',error);}
     try{
-      for(const entry of c.roots){
-        try{assert.deepEqual((await entry.root.get()).data(),entry.marker);}catch(error){problem??=error;console.error('Synthetic C2a Video settlement marker changed',entry.root.path,error);}
+      assertSafeClient(c);
+      for(const entry of c.roots){await assertFinancialOwnedRoot(c.db,entry.root,entry.marker);
+        assert.deepEqual((await entry.root.get()).data(),entry.marker);
         const known=await descendants(entry.root);for(const document of known)assert.ok(document.path.startsWith(entry.root.path+'/'));
-        await c.db.recursiveDelete(entry.root);
+        await deleteFinancialOwnedRoot(c.db,entry.root,entry.marker);
         assert.equal((await entry.root.get()).exists,false);assert.deepEqual(await entry.root.listCollections(),[]);
         for(const document of known){assert.equal((await document.get()).exists,false);assert.deepEqual(await document.listCollections(),[]);}
       }
-      if(problem)throw problem;
       cleanups++;console.log(`Synthetic C2a Video settlement cleanup verified ${cleanups}/${fixturesCreated}`);
     }finally{await c.db.terminate();}
   }

@@ -7,7 +7,7 @@
  */
 import {createHash} from 'node:crypto';
 import type {DocumentReference,DocumentSnapshot,Firestore,QueryDocumentSnapshot,Transaction} from 'firebase-admin/firestore';
-import {PENDING_SOURCES,buildPendingReport,inspectTerminalPoll,intentTerminalKey,normalizePending,safeDocId,validPollIntentId,
+import {PENDING_SOURCES,buildPendingReport,inspectTerminalPoll,intentTerminalKey,normalizePending,safeDocId,validPollIntentId,validReportAccountId,
   type PendingKind,type PendingReport,type PollReadSnapshot,type ReportRow} from './billingPendingReport';
 
 export const ALERT_COLLECTION='billingPendingAlerts';
@@ -58,10 +58,16 @@ function pollLocator(data:Record<string,unknown>):PollLocator|null{
   return {pollIntentId,pollAction};
 }
 function validAlertAccount(kind:unknown,rowId:unknown,accountId:unknown){
-  return accountId===null||typeof accountId==='string'&&(kind!=='guard'||accountId===rowId);
+  return accountId===null||typeof accountId==='string'&&(kind!=='guard'||accountId===rowId&&validReportAccountId(accountId));
+}
+function validAlertCategory(kind:unknown,reason:unknown):boolean{
+  if(kind==='sweep')return SWEEP_REASONS.some(code=>code===reason);
+  if(kind==='terminal_poll')return reason==='malformed';
+  return PENDING_SOURCES.some(source=>source.kind===kind)&&
+    (reason==='needs_review'||reason==='malformed'||reason==='unknown_age'||reason==='age');
 }
 function validAlertShape(data:Record<string,unknown>|undefined,key:string){
-  return !!data&&typeof data.kind==='string'&&validAlertAccount(data.kind,data.rowId,data.accountId)&&
+  return !!data&&validAlertCategory(data.kind,data.reason)&&validAlertAccount(data.kind,data.rowId,data.accountId)&&
     (data.kind!=='terminal_poll'||pollLocator(data)!==null)&&data.alertKey===key&&safeDocId(data.rowId)&&
     typeof data.status==='string'&&['open','cleared','superseded','dispositioned'].includes(data.status)&&
     nonNegativeInteger(data.seenCount)&&data.seenCount>=1&&nonNegativeInteger(data.firstSeenAtMs)&&
@@ -83,7 +89,7 @@ function openAlertState(snap:{exists:boolean;id:string;data():unknown}):'open'|'
 }
 /** One transaction per alert: under concurrency exactly one writer creates it, the others count a sighting. */
 async function raiseOne(db:Firestore,root:DocumentReference,fields:{kind:AlertKind;rowId:string;state:string;reason:AlertReason;accountId:string|null}&Partial<PollLocator>,nowMs:number,existingTx?:Transaction):Promise<'created'|'seen'>{
-  if(!validAlertAccount(fields.kind,fields.rowId,fields.accountId))throw new Error('Corrupt alert document');
+  if(!validAlertCategory(fields.kind,fields.reason)||!validAlertAccount(fields.kind,fields.rowId,fields.accountId))throw new Error('Corrupt alert document');
   const key=alertKey(fields.kind,fields.rowId,fields.state,fields.reason),ref=root.collection(ALERT_COLLECTION).doc(key);
   const put=async(tx:Transaction)=>{
     const snap=await tx.get(ref);

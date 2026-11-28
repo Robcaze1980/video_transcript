@@ -2,6 +2,7 @@
 // adapter against the fixed emulator. It covers the deadline fence and the conflict close paths.
 // Every wait is bounded and every Firestore client is terminated in a finally block.
 import assert from 'node:assert/strict';
+import {prepareFinancialOwnedRoot,assertFinancialOwnedRoot,deleteFinancialOwnedRoot} from './financialOwnedRootGuard.mjs';
 import {after,afterEach,before,test} from 'node:test';
 import {createHash,randomUUID} from 'node:crypto';
 import {FieldValue,Firestore} from 'firebase-admin/firestore';
@@ -21,7 +22,7 @@ import {runBillingDrainSection} from './billingDrainSection.ts';
 import {runBillingSweepSection} from './billingSweepSection.ts';
 import {accountHoldId} from './billingHoldIdentity.ts';
 
-const project='demo-vistavo-ledger',host='127.0.0.1:8185';
+const project='demo-vistavo-financial',host='127.0.0.1:8198';
 const videoCollection='vistavo_a3_exit_video_synthetic',accountCollection='vistavo_a3_exit_ledger_synthetic';
 const WORK_TIMEOUT_MS=180000,CLEANUP_TIMEOUT_MS=45000,TERMINATE_TIMEOUT_MS=15000;
 const sha=value=>createHash('sha256').update(value).digest('hex');
@@ -33,11 +34,11 @@ const reservationDoc=(c,reservationId)=>ref(c.accountRoot,'videoReservations',sh
 const intentRef=(c,requestKey)=>ref(c.root,'billingIntents',sha(JSON.stringify([c.account,requestKey])));
 async function descendants(root,found=[]){for(const collection of await root.listCollections())for(const doc of await collection.listDocuments()){found.push(doc);await descendants(doc,found);}return found;}
 
-before(async()=>{assert.equal(process.env.NODE_ENV,'test');assert.equal(process.env.FIRESTORE_EMULATOR_HOST,host);assert.equal((await fetch('http://127.0.0.1:8185/',{signal:AbortSignal.timeout(5000)})).status,200);});
+before(async()=>{assert.equal(process.env.NODE_ENV,'test');assert.equal(process.env.FIRESTORE_EMULATOR_HOST,host);assert.equal((await fetch('http://127.0.0.1:8198/',{signal:AbortSignal.timeout(5000)})).status,200);});
 afterEach(async()=>{
  for(const c of contexts.splice(0)){
   try{
-   for(const entry of c.roots){const known=await descendants(entry.root);await bounded(c.db.recursiveDelete(entry.root),CLEANUP_TIMEOUT_MS,'cleanup '+entry.root.path);assert.equal((await entry.root.get()).exists,false);for(const doc of known)assert.equal((await doc.get()).exists,false);}
+   for(const entry of c.roots){await assertFinancialOwnedRoot(c.db,entry.root,entry.marker);const known=await descendants(entry.root);await bounded(deleteFinancialOwnedRoot(c.db,entry.root,entry.marker),CLEANUP_TIMEOUT_MS,'cleanup '+entry.root.path);assert.equal((await entry.root.get()).exists,false);for(const doc of known)assert.equal((await doc.get()).exists,false);}
    cleaned++;
   }finally{try{await bounded(c.db.terminate(),TERMINATE_TIMEOUT_MS,'terminate');}catch{}}
  }
@@ -69,9 +70,9 @@ class LocalAccountTransport{
 async function fixture(scope){
  const db=new Firestore({projectId:project,host,ssl:false,preferRest:false});
  const root=db.collection(videoCollection).doc(randomUUID()),accountRoot=db.collection(accountCollection).doc(randomUUID());
- const c={scope,db,root,accountRoot,roots:[{root},{root:accountRoot}]};
+ const c={scope,db,root,accountRoot,roots:[root,accountRoot].map(document=>({root:document,marker:{project,purpose:'a3-exit-synthetic',nonce:randomUUID()}}))};
  contexts.push(c);created++;
- for(const entry of c.roots)await entry.root.create({purpose:'a3-exit-synthetic',nonce:randomUUID()});
+ for(const entry of c.roots)await prepareFinancialOwnedRoot(c.db,entry.root,entry.marker);
  c.backend=new FirestoreBackend(db,root);c.store=new AccountStore(db,accountRoot);
  c.uid='a3-exit-owner-'+randomUUID();c.account=await c.backend.accountForUid(c.uid);
  await ref(root,'accounts',c.account).update({aiPilot:true,simulationOnly:true,credited:40,available:40});

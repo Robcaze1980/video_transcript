@@ -1,0 +1,32 @@
+No llamo herramientas: respondo la revisiÃ³n con el material adjunto.
+
+**A) Â¿(2)-(4) justifican fusionar C y archivar la suite de L?**
+Para *producciÃ³n* sÃ­: si el `billingUnblock.ts` integrado es byte-idÃ©ntico a C (mismo hash), todo el cÃ³digo de L queda contenido en C; no hay cÃ³digo de producciÃ³n de L que se pierda. `tsc` limpio + 91/91 + regresiÃ³n financiera/Cuenta sobre C y sobre el Ã¡rbol integrado confirman que C es la lÃ­nea activa correcta. La fusiÃ³n de producciÃ³n no conlleva riesgo de regresiÃ³n. Lo que (2)-(4) **no** justifican por sÃ­ solos es archivar la suite de L: el hecho (7) admite que no se sabe si C cubre esos 9 comportamientos. Como el cÃ³digo es idÃ©ntico, los comportamientos siguen presentes; el riesgo no es de producciÃ³n en el merge, es de cobertura futura (borrar/derivar cÃ³digo sin test que lo detecte).
+
+Secuencia concreta de defecto no detectado: si se elimina el aborto de fase 3 ante una guarda que deja de estar bloqueada (lÃ­nea 664 y `sameVersion` de 593), o la comprobaciÃ³n de fase 0 de "guarda que nombra otra cuenta", y resulta que la suite de C no ejerce ese camino (no verificado), C seguirÃ­a en verde mientras L fallaba. Es **hipÃ³tesis**, no error demostrado. Veredicto: fusiÃ³n segura; archivado definitivo de L, prematuro â†’ **portar primero**.
+
+**B) Cobertura de las 9 pruebas de L**
+1. Fase 3: guarda deja de estar bloqueada / ambos campos â†’ **parcialmente**: cubierta por Â«the audited rows and the alert are re-read in phase 3, and any drift abortsÂ» vÃ­a `sameVersion`; el subcaso "ambos campos" (`lastIncidentId`) no tiene nombre propio. **Antes**.
+2. Alerta cierra durante repeat parcial â†’ **parcialmente**: Â«an absent alert or one that is not open never unblocksÂ» + lectura de cÃ³digo (`sameOpenAlert`, lÃ­neas 593/574/562). **Antes**.
+3. Alerta cerrada frena repeat parcial antes de Account â†’ **parcialmente**: mismo nombre que 2; no hay test que fije `calls==0` en ese punto. **Antes**.
+4. Alerta cerrada frena resume antes de Account â†’ **parcialmente**: igual que 3. **Antes**.
+5. Fase 0: alerta de otra generaciÃ³n o guarda de otra cuenta â†’ **parcialmente**: Â«an alert of another kind or accountâ€¦ never unblockÂ» cubre cuenta/tipo; Â«otra generaciÃ³nÂ» y Â«guarda de otra cuentaÂ» quedan **sin cobertura aparente por nombre**. **Antes**.
+6. Receipt pendiente / otra generaciÃ³n de Cuenta en repeat parcial â†’ **cubierta por** Â«the completion records the Account generationâ€¦ not a different one presented on resumeÂ» y Â«after a partial release, the old request cannot replayâ€¦Â» + cÃ³digo 642-645. **DespuÃ©s**.
+7. Resume solo misma generaciÃ³n/operador/payload â†’ **cubierta por** Â«the repeat only resumes on the SAME guard generationâ€¦Â» y Â«an identical repeat is replayedâ€¦ a different payload is a conflictÂ». **DespuÃ©s**.
+8. Epoch/createdAtMs obsoletos â†’ **cubierta por** Â«12 a stale Video epoch/createdAtMs/updatedAtMs is refused before any sendÂ». **DespuÃ©s**.
+9. Lecturas por transacciÃ³n en fase 0 y 3 â†’ **cubierta por** Â«the rows of the account are read through each required transaction and never through a direct readÂ». **DespuÃ©s**.
+
+Criterio: portar **antes** solo las que carecen de nombre en C y tocan el gate contractual (1-5); el resto es redundante y puede ir despuÃ©s.
+
+**C) Riesgos de fusionar ahora y portar despuÃ©s (todo local, sin publicar)**
+- La suite de L (61) queda inservible (87 fallos por `conflict` en `:664`) hasta portarla; si se archiva/borra antes, se pierde la evidencia de mutaciÃ³n y el Ãºnico test de esos 9 caminos.
+- El punto de contrato cambiado (`guardBornAfterWriterCut`, lÃ­nea 664) es justo el que conviene fijar con un test.
+- Sin publicaciÃ³n no hay riesgo para saldo, clientes ni secretos; el riesgo es de gobernanza de pruebas.
+- MitigaciÃ³n: **conservar** el archivo de L (no borrar), fusionar el cÃ³digo de C ya, y portar 1-5 como tarea inmediata con un revisor (GLM), segÃºn polÃ­tica por riesgo sin saldo.
+
+=== RESUMEN FINAL ===
+RESULTADO: PASS
+EVIDENCIA: ProducciÃ³n integrada byte-idÃ©ntica a C por hash; `tsc` limpio; 91/91 en el Ã¡rbol integrado; regresiÃ³n financiera/Cuenta (559/554/0/5 y 38/38) repetida sobre el integrado; L falla en `:664` por cambio de contrato, no por defecto. Mapeo B contra los nombres de C y el cÃ³digo adjunto (lÃ­neas 593, 574, 562, 642-645, 664).
+NEGATIVOS: No se pudo verificar si la suite de C ejerce los 9 comportamientos de L; por eso no se aprueba archivar la suite de L. Las pruebas 1-5 tienen cobertura solo parcial o sin nombre aparente en C. Los "escenarios de defecto no detectado" son hipÃ³tesis, no errores demostrados. No se inventaron resultados.
+BLOQUEOS: Ninguno para fusionar el cÃ³digo. Bloqueo lÃ³gico para el archivado definitivo de L hasta portar 1-5.
+=== FIN RESUMEN ===

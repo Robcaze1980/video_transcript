@@ -3,6 +3,7 @@
 // HTTP route or real media is touched. Every wait is bounded and every fixture terminates its Firestore client.
 // Design: docs/specs/LV-019-B-ejecutor-periodico-drenajes.md (sections 2, 3.2-3.6, 4).
 import assert from 'node:assert/strict';
+import {prepareFinancialOwnedRoot,assertFinancialOwnedRoot,deleteFinancialOwnedRoot} from './financialOwnedRootGuard.mjs';
 import {after,afterEach,before,test} from 'node:test';
 import {createHash,randomUUID} from 'node:crypto';
 import {Firestore} from 'firebase-admin/firestore';
@@ -17,7 +18,7 @@ import {Worker} from 'node:worker_threads';
 import {acquireDrainLease} from './billingDrainLease.ts';
 import {UNKNOWN_RESOLUTION_MIN_AGE_MS} from '../account/settlementContract.ts';
 
-const project='demo-vistavo-ledger',host='127.0.0.1:8185';
+const project='demo-vistavo-financial',host='127.0.0.1:8198';
 const videoCollection='vistavo_drain_section_video_synthetic',accountCollection='vistavo_drain_section_ledger_synthetic';
 const WORK_TIMEOUT_MS=180000,CLEANUP_TIMEOUT_MS=45000,TERMINATE_TIMEOUT_MS=15000;
 const WINDOW=6*60*60*1000;
@@ -49,10 +50,10 @@ before(async()=>{
 afterEach(async()=>{
  for(const c of contexts.splice(0)){
   try{
-   for(const entry of c.roots){
+   for(const entry of c.roots){await assertFinancialOwnedRoot(c.db,entry.root,entry.marker);
     assert.deepEqual((await entry.root.get()).data(),entry.marker);
     const known=await descendants(entry.root);for(const document of known)assert.ok(document.path.startsWith(entry.root.path+'/'));
-    await bounded(c.db.recursiveDelete(entry.root),CLEANUP_TIMEOUT_MS,'cleanup delete');
+    await bounded(deleteFinancialOwnedRoot(c.db,entry.root,entry.marker),CLEANUP_TIMEOUT_MS,'cleanup delete');
     assert.equal((await entry.root.get()).exists,false);assert.deepEqual(await entry.root.listCollections(),[]);
     for(const document of known)assert.equal((await document.get()).exists,false);
    }

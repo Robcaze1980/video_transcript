@@ -1,0 +1,73 @@
+Seguimiento para alcance estrictamente prototipo local. No uses herramientas, no edites, no ejecutes. Se repitieron 7 archivos con Node 24: 127/127 y tsc --noEmit aprobados. Adjunto tests de memoria 285-349: prueban intento cruzado con identidad rival, preservación de camino legado, rechazo legado de marcador en incidente/recibo, tres métodos cerrados fuera de test; también documentan que un escritor privilegiado puede recrear un recibo. La prueba Firestore concurrente se ejecutó UNA vez y acepta cualquiera de los resultados: no prueba que se observaran ambas victorias. Los dos órdenes también se probaron secuencialmente, simulando respuesta perdida descartando el resultado; no es pérdida real de red. Autorización real/IAM, writer cut, migración, restauración, endpoint y Video siguen pendientes. Evalúa de nuevo solo tu dictamen estático para el prototipo con estos límites, identifica hallazgos y no certifiques producción ni arnés. Costo/uso no medidos.
+--- TESTS ADICIONALES ---
+285: it.each(['anchor missing','grant missing','guard recreated','incident recreated','identity restored','grant from another owner'] as const)(
+286:  'fails closed without changing either account (%s)',async scenario=>{
+287:   const f=fixture(),{a,b}=f;a.enroll();a.authorize();b.enroll();b.authorize();
+288:   if(scenario==='anchor missing')f.rows.delete(a.anchor);
+289:   if(scenario==='grant missing')f.rows.delete(a.grant());
+290:   if(scenario==='guard recreated'){
+291:    const original=f.at(a.guard);f.rows.delete(a.guard);f.put(a.guard,original);
+292:   }
+293:   if(scenario==='incident recreated'){
+294:    const original=f.at(a.incident);f.rows.delete(a.incident);f.put(a.incident,original);
+295:   }
+296:   if(scenario==='identity restored'){
+297:    const original=f.at(a.identity);f.put(a.identity,{...original,accountId:b.accountId});f.put(a.identity,original);
+298:   }
+299:   if(scenario==='grant from another owner')f.put(a.grant(),f.at(b.grant()));
+300:   const before=f.copy();
+301:   await expect(f.reconcile()).rejects.toMatchObject({code:'conflict'});
+302:   if(scenario!=='grant missing'&&scenario!=='grant from another owner')await expect(f.confirm()).rejects.toMatchObject({code:'conflict'});
+303:   await expect(f.store().reconcileVideoBillingUnblockAttempt(b.identityKey,a.change)).rejects.toMatchObject({code:'conflict'});
+304:   expect(f.copy()).toEqual(before);
+305:   expect(f.writes).toEqual([]);
+306:  },
+307: );
+308: 
+309: it('preserves the legacy path and never converts its receipts into fenced permits',async()=>{
+310:  const f=fixture(),{a,b}=f;a.enroll();a.authorize();
+311:  await expect(f.reconcile(b)).rejects.toMatchObject({code:'conflict'});
+312:  await expect(f.confirm(b)).rejects.toMatchObject({code:'conflict'});
+313:  await expect(f.store().unblockVideoBilling(a.identityKey,a.legacy)).rejects.toMatchObject({code:'conflict'});
+314:  expect(await f.store().unblockVideoBilling(b.identityKey,b.legacy)).toMatchObject({unblocked:true,replayed:false});
+315:  expect(await f.store().unblockVideoBilling(b.identityKey,b.legacy)).toMatchObject({unblocked:true,replayed:true});
+316:  expect(await f.store().videoBillingUnblockReceipt(b.identityKey,incidentId,b.legacy.reviewRef)).toMatchObject({state:'confirmed'});
+317:  expect(await f.confirm()).toMatchObject({state:'confirmed'});
+318:  const before=f.copy();
+319:  await expect(f.store().videoBillingUnblockReceipt(a.identityKey,incidentId,a.legacy.reviewRef)).rejects.toMatchObject({code:'conflict'});
+320:  await expect(f.reconcile(b)).rejects.toMatchObject({code:'conflict'});
+321:  expect(f.copy()).toEqual(before);
+322: });
+323: 
+324: it('documents the trust boundary when a privileged fixture writer recreates an identical receipt',async()=>{
+325:  const f=fixture(),{a}=f;a.enroll();a.authorize();
+326:  const money=f.economic();
+327:  await f.confirm();
+328:  const original=f.rows.get(a.receipt)!;
+329:  f.rows.delete(a.receipt);f.put(a.receipt,original.data);
+330:  expect(f.rows.get(a.receipt)?.created).not.toBe(original.created);
+331:  // No entry point grants this direct database write. Inside the trusted-writer model the row still reads as confirmed.
+332:  const before=f.copy();
+333:  await expect(f.read()).resolves.toMatchObject({state:'confirmed',replayed:true});
+334:  expect(f.copy()).toEqual(before);
+335:  expect(f.writes).toEqual([a.receipt,a.incident,a.guard]);
+336:  expect(f.economic()).toEqual(money);
+337: });
+338: 
+339: it('leaves the three new entry points closed outside tests',async()=>{
+340:  const f=fixture(),{a}=f;a.enroll();a.authorize();
+341:  vi.stubEnv('NODE_ENV','production');
+342:  try{
+343:   await expect(f.read()).rejects.toMatchObject({code:'conflict'});
+344:   await expect(f.confirm()).rejects.toMatchObject({code:'conflict'});
+345:   await expect(f.reconcile()).rejects.toMatchObject({code:'conflict'});
+346:  }finally{vi.unstubAllEnvs();}
+347:  expect(f.transactions()).toBe(0);
+348:  expect(f.writes).toEqual([]);
+349: });
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: ...
+NEGATIVOS: ...
+BLOQUEOS: ...
+=== FIN RESUMEN ===
