@@ -21,6 +21,14 @@
 
 Cada paso sigue el criterio de «production ready» del [plan paso a paso](LV-019-B-plan-paso-a-paso-20261120.md): pruebas primero, mutaciones, regresión completa y revisión de GLM y DeepSeek.
 
+## Qué bloquea el cierre de la fase 1
+
+El backlog ya fija que el operador pertenece al paso 3.5 de la fase 3. Por eso, de los ocho límites:
+
+- **Bloquean la fase 1: 1, 2 y 3** (varios incidentes por guarda). Son la lógica de saldo del desbloqueo y requieren diseño, código, pruebas, mutaciones y revisión doble. Punto de partida: la guarda de Video nombra hoy solo el último incidente de cada tipo, así que un incidente anterior no se puede direccionar; el diseño debe guardar la lista de incidentes abiertos (Cuenta ya cuenta incidentes revisados por separado).
+- **Pasan a la fase 3 (paso 3.5): 4, 6 y 7**, que dependen de la ruta y la identidad del operador.
+- **Aceptados mientras las bases reales estén vacías: 5 y 8.**
+
 ## Decisiones de Rob (27 nov 2026, noche)
 
 1. **Varios incidentes del mismo tipo sobre una guarda (límites 1, 2 y 3): se resuelven uno a uno.** Cada incidente se revisa por separado, con su propia auditoría; el desbloqueo de uno no resuelve a los demás. Implica un diseño en que los otros incidentes de la cuenta no impidan desbloquear el que la guarda nombra, y una guarda que sobrevive hasta que se revisen todos (como ya hace Cuenta con su contador de incidentes revisados).
