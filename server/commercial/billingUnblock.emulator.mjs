@@ -2989,8 +2989,10 @@ test('11 negative: an alert that is no longer open stops a partial repeat before
   let calls=0;const fail=async()=>{calls++;throw new Error('unexpected Account request');};
   const counting={db:c.db,root:c.root,accountBilling:{unblock:fail,unblockReceipt:fail}};
   await alertRef.update({status:'superseded'});
+  const videoBefore=await signatures(c.root);
   await assert.rejects(unblockBillingAccount(counting,c.account,requestBody,'operator-ana',9_000_001_000),error=>error instanceof UnblockFault&&error.code==='conflict');
   assert.equal(calls,0,'a partial repeat over a closed alert never reaches Account');
+  assert.deepEqual(await signatures(c.root),videoBefore,'the refused repeat writes nothing: the partial record and the audit are untouched');
   assert.equal((await guardOf(c).get()).get('blocked'),true);
 });
 
