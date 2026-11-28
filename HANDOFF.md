@@ -32,7 +32,7 @@ La revisión T3 del conjunto (GLM INCONCLUYENTE, DeepSeek FALLA por contradiccio
 | 1.1 Liquidación parcial | Verificado en local | [Recibo](docs/evidence/lv019-b-t3-codificacion-1-1-20261120/RECIBO.md): Cuenta real en emulador, 21/21 |
 | 1.2 Cancelación y trabajos en duda | Verificado en local | [Recibo](docs/evidence/lv019-b-t3-codificacion-1-2-20261120/RECIBO.md) |
 | 1.3 Reserva sin trabajo (a y b) | Verificado en local | Recibos 1.3a y 1.3b (ensayo de reserva externa 13/13) |
-| 1.4 Bloqueos | **Abierto** | 1.4a y 1.4b verificados en local; la devolución de reservas tras un desbloqueo está cubierta en la regresión (dos reservas devueltas una sola vez, otra cuenta intacta); **1.4c** (límites de diseño) **bloquea** |
+| 1.4 Bloqueos | **Abierto** ([plan de 1.4c](docs/specs/LV-019-B-1-4c-limites-plan-20261127.md)) | 1.4a y 1.4b verificados en local; la devolución de reservas tras un desbloqueo está cubierta en la regresión (dos reservas devueltas una sola vez, otra cuenta intacta); **1.4c** (límites de diseño) **bloquea** |
 | 1.5 Legado | Verificado en local | [Recibo](docs/evidence/lv019-b-codex-legado-1-5-20261121/RECIBO.md); el corte y la migración de escritores reales siguen pendientes |
 | 1.6 Ejecutor periódico | Verificado en local | [Recibo 1.6b](docs/evidence/lv019-b-t3-codificacion-1-6b2-20261121/RECIBO.md): dos pasadas simultáneas y una pausada que despierta tarde, un solo movimiento de saldo |
 | 1.7 Cierre | **Abierto** | Falta repetir la revisión T3 del conjunto sobre el estado ya corregido, la regresión final en el cierre y la decisión de Rob sobre la auditoría Gemini completa (la mínima fue INCONCLUYENTE) |
