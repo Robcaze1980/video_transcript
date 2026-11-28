@@ -67,3 +67,7 @@ Costo: el saldo de OpenRouter pasó de US$5.49 a US$4.77 en este tramo (≈US$0.
 - Quedan los límites de diseño de la tarea 1.4c y los pasos 1.7 (regresión final, T3 y revisión Gemini) y la pieza 3.
 
 Dictamen de Codex: **la corrección de la carrera tardía y la validación `owner-check` quedan certificadas solo en local, solo para la ruta con `successor` en emulador**, con las dos revisiones PASS y las tres regresiones oficiales en verde sobre los commits indicados. La integración con la línea principal y la actualización de los documentos activos están pendientes.
+
+## Actualización posterior (27 nov 2026, tarde)
+
+La integración con la línea principal se hizo después de esta certificación: ver [INTEGRACION.md](../lv019-b-t3-saldo-integracion-20261127/INTEGRACION.md). La línea `codex/vistavo-continue-20261127` avanzó en local a esa integración (sin publicar) y los documentos activos se actualizaron. Lo que esta certificación declara como no cubierto sigue sin cubrir.

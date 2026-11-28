@@ -921,3 +921,12 @@ El prototipo cerrado `d01541c` acepta un recibo idéntico recreado y una autoriz
 La primera batería adaptada de la rama `0244bfc` se interrumpió con **49 aprobadas y 34 fallidas**, sin resumen final ni inventario posterior completo. Veintiséis fallos señalan directamente la comprobación de corte de escritor en `billingUnblock.ts:405`; la fixture anterior no prepara ese testigo y se contrasta la relación. Las otras ocho aserciones se revisan individualmente. La ejecución usó un emulador propio ya terminado, sin afectar procesos ajenos ni saldo real. No se considera una regresión aprobada ni se repitió automáticamente.
 
 Una revisión independiente de `b7f5ef0` se interrumpió por una alerta automática de posible riesgo de ciberseguridad. No produjo un informe final verificable; se conserva como revisión inconclusa y no se habilita la candidata.
+
+## 27 nov 2026 · tarde · Incidentes del cierre del saldo
+
+- **Mutación interrumpida dejó la producción alterada.** La verificación de mutantes antiguos se detuvo y dejó `billingUnblock.ts` sin la línea `if(holdSettled&&data.state==='applied')continue;`. Se detectó por hash, se restauró desde la copia certificada y se comprobó igual al commit. Regla: tras cualquier corrida interrumpida, comparar el hash antes de seguir.
+- **Regresión de Cuenta protegida rota en la línea del cerco.** Su lanzador usaba la guarda financiera, fijada a 8198 en esa línea, mientras Cuenta exige 8185; fallaba a los 2 segundos. Resuelto con una guarda propia de Cuenta (`e5f76f7`) y repetido por Codex: 38/38.
+- **Hilos de T3.** Un hilo de autor investigó 45 minutos un entorno equivocado de mi encargo; un hilo GLM de revisión se repitió hasta unos 700 mil caracteres. Ninguno cuenta como evidencia; el CLI no puede detener hilos y los detuvo Rob.
+- **Suite anterior de 61 pruebas.** Falla en bloque contra el código integrado (`conflict` en `billingUnblock.ts`, `guardBornAfterWriterCut`): cambio de contrato, no defecto de producción. Misma causa que los 26 fallos de la rama `0244bfc`. Archivada.
+- **Entorno de un árbol nuevo en Windows.** Una copia fresca queda con finales CRLF: la prueba de `validateListeningScripts` falla por el `#!` con CRLF y `reviewBrowserNodeFixtures` necesita carpetas locales de `outputs/`. En el árbol principal pasan. Los lanzadores oficiales exigen además `node_modules` real (no enlace) y raíces sintéticas vacías.
+- **Tiempos de espera de 5 s en `billingDrainSection` bajo carga paralela.** Pasan solos (38/38) y en la segunda corrida completa; sin cambio de código.

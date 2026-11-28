@@ -1,0 +1,32 @@
+# Estado del saldo en los documentos activos antes de la integración · 27 nov 2026
+
+**Histórico, no vigente.** Texto literal de los documentos activos antes de la integración certificada del cerco (27 nov 2026, tarde). El estado vigente está en [MASTERPLAN](../../MASTERPLAN.md), [backlog](../../backlog.md), [gantt](../../gantt.md) y [HANDOFF](../../HANDOFF.md); contexto en la [certificación](../../docs/evidence/lv019-b-t3-saldo-cierre-20261127/CERTIFICACION-codex.md).
+
+## MASTERPLAN.md:23
+
+| Saldo y recuperación local | **1.4b.3 EN CURSO, SIN CERTIFICAR** | La candidata aislada `5d949a0` pasó **165/165** unitarias, **9/9** focales y una batería de **516 aprobadas, cero fallos y cinco omisiones previstas de voz**. El caso de dos devoluciones tras desbloqueo pasó con otra cuenta intacta. Una revisión del conjunto dio PASS de DeepSeek e INCONCLUYENTE de GLM por huellas; se verificó la equivalencia tras normalizar finales de línea y el dictamen sigue INCONCLUYENTE. Después se reprodujeron cuatro fallos de auditoría en ACK directo; la corrección `0131143` pasó **457/457** unitarias y **16/16** en emulador, pero una auditoría encontró dos rojos adicionales si desaparece o se recrea la solicitud. La candidata `708c414` pasó **473/473** unitarias y **27/27** en emulador; su auditoría detectó casos que quedarían sin recuperación automática. Un diseño aislado `aa1d16b` pasó **25/25** en memoria; la prueba independiente de metadatos de Firestore Emulator pasó **4/4**, sin probar el protocolo financiero. La corrección aislada `613ea52` de una fila aplicada pasó **75/75** relacionadas y dos revisiones acotadas; su foco posterior pasó **29/29** en emulador. La rama combinada `0244bfc` pasó **57/57** focales en memoria y tipos. Su primera batería adaptada se interrumpió con **49 aprobadas y 34 fallidas**; las causas se contrastan. El seguimiento T3 pasó **7/7** en emulador para respuesta incierta, cambios de hold, devolución por recibo y cortes inválidos; GLM y el seguimiento de DeepSeek dieron PASS acotados. No sustituye la regresión completa. [Evidencia](https://github.com/Robcaze1980/video_transcript/blob/2a246762b17e9857985334d50aa092ab17037abb/docs/evidence/lv019-b-t3-unblock-focus-20261127/README.md). No hay regresión final aprobada. [Rama combinada](https://github.com/Robcaze1980/video_transcript/blob/0244bfc591368524a4b980312c20c9b53952a532/docs/evidence/lv019-b-finance-integration-wip-20261126/README.md). [Foco en emulador](https://github.com/Robcaze1980/video_transcript/blob/54240217d2e247a7c72cbbb3572525ef476f3ff7/docs/evidence/lv019-b-applied-owner-firestore-20261126/README.md). El prototipo de recibo `d01541c` pasó **110/110** en memoria con autorización sembrada; GLM dio PASS acotado y DeepSeek FALLA por continuidad histórica, con dos fallos reproducidos después en memoria bajo escritura privilegiada simulada. El seguimiento `91073d5` pasó **120/120** en memoria con observador sintético; GLM dio PASS acotado y DeepSeek FALLA. Tras siete negativos, `c640dd0` pasó **127/127** en memoria y dos revisiones acotadas; `bbbfd73` añadió seis controles y pasó **133/133** sin cambiar runtime. No hay observador real. [Revisión](docs/reviews/LV-019-B-prueba-historica-91073d5-adjudicacion-20261126.md). El diagnóstico `e21889c` pasó **4/4** en emulador y mostró que la guarda financiera puede retener una devolución terminada; dos negativos de admisión siguen abiertos. El seguimiento aislado `3b96286` de la observación por edad pasó **171/171** en memoria y **12/12** en emulador; aún no acredita dueño ni implementa la guarda. GLM dio PASS limitado y DeepSeek INCONCLUYENTE; la recuperación y la guarda siguen pendientes. El corte previo `a607ab4` recibió PASS acotado de GLM y FALLA de DeepSeek. [Observación por edad](docs/reviews/LV-019-B-observacion-edad-a607ab4-adjudicacion-20261126.md). Requiere corte de escritores, migración, autoridad y conciliación aún no implementados, además de regresión final. El inventario, D2 y la guardia de admisión tras devolución vencida siguen abiertos. [Recibo y revisión](docs/reviews/LV-019-B-intento-cuenta-d01541c-adjudicacion-20261126.md) · [Admisión](https://github.com/Robcaze1980/video_transcript/blob/e21889c58e31ca2d3695e1ce107ad5f5017a9cea/docs/evidence/lv019-b-entry-continuity-20261126/README.md). [Auditoría](docs/reviews/LV-019-B-sondeo-alerta-auditoria-local-20261126.md) · [Corrección de fila](docs/reviews/LV-019-B-desbloqueo-fila-aplicada-adjudicacion-20261126.md). |
+
+## gantt.md:13
+
+| 4 | **EN CURSO LOCAL** | Saldo y recuperación LV-019.B. `5d949a0` pasó una batería de **516 aprobadas y 5 omisiones de voz**. `708c414` pasó **473/473** unitarias y **27/27** en emulador, pero tiene dos recuperaciones sin salida automática. El modelo propuesto `aa1d16b` pasó **25/25** en memoria. | Concretar autoridad y conciliación, implementar y probar el corte y la migración de escritores, y repetir la batería del corte final. Evaluar estados corruptos persistentes; resolver D2 y la guardia de admisión vencida. [Criterios](backlog.md#lv-019b--ruta-principal) · [Auditoría](docs/reviews/LV-019-B-sondeo-alerta-auditoria-local-20261126.md). |
+
+## backlog.md:19
+
+2. **Recuperación financiera durable — 1.4b.3 EN CURSO, SIN CERTIFICAR.** La candidata debe resolver una devolución bajo bloqueo conservando propiedad, historial y recibos. Una candidata anterior dio **10/10** focales y recibió dos revisiones **INCONCLUYENTES**. La regresión de otra instantánea anterior obtuvo **482 aprobadas, 6 fallos y 5 omisiones previstas de voz**. El seguimiento posterior figura abajo. [Recibo del corte](docs/evidence/lv019-b-checkpoint-20261126/README.md) · [Contrato de bloqueo y devolución](docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md) · [Auditoría interna](docs/reviews/LV-019-B-auditoria-interna-financiera-20261126.md).
+
+## backlog.md (frase)
+
+La regresión completa del corte final sigue pendiente;
+
+## HANDOFF.md:23
+
+| LV-019.B · Bloqueo y devolución 1.4b.3 | En curso. Una candidata anterior pasó **10/10** focales y recibió dos revisiones **INCONCLUYENTES**. La regresión de otra instantánea anterior registró **482 aprobadas, 6 fallos y 5 omisiones previstas de voz**; los seis casos adaptados pasaron en el foco combinado. Las correcciones y revisiones posteriores se describen en la fila siguiente; la regresión del último corte no está cerrada. |
+
+## HANDOFF.md (frase)
+
+Esta reparación no está cubierta por la batería de `5d949a0`.
+
+## HANDOFF.md (frase)
+
+Este corte es un respaldo WIP sin certificar.
+
