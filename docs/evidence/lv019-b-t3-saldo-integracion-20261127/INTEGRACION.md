@@ -24,3 +24,7 @@ Paquete de 49 KB sin herramientas (`review-integracion.in.txt`): GLM `~z-ai/glm-
 ## Decisión de proceso del dueño (27 nov 2026, tarde)
 
 Rob señaló que T3 daba muchos problemas para escribir código y propuso avanzar directo con OpenRouter; confirmó que se use la clave ya vinculada al proyecto, sin cambiar el presupuesto. Después pidió revisar con T3 esta integración. Las revisiones estáticas por T3 funcionaron; los hilos de autor de código fueron los problemáticos.
+
+## Actualización posterior (27 nov, noche)
+
+La rama de integración `codex/vistavo-saldo-integracion-20261127` se adelantó por avance rápido a `codex/vistavo-continue-20261127`; ambas apuntan a la misma revisión de integración. La suite vigente pasó de 91 a **96 pruebas** con la tarea 1.4d ([porte](verificacion-1-4d/README.md)); la regresión financiera completa sobre `c044257` dio 564 pruebas (559 aprobadas, 0 fallos, 5 omisiones de voz). La rama se publicó en GitHub el 27 nov.

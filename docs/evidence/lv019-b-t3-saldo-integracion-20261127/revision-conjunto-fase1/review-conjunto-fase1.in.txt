@@ -1,0 +1,226 @@
+Revisor T3 independiente de Vistavo LV-019.B. SIN herramientas, sin modificar archivos, UNA sola respuesta, maximo 700 palabras, sin repetirte. Todo es documentacion y evidencia sinteticas; sin claves ni datos de clientes. Revisas el CONJUNTO actual (commit 2003b15) antes de decidir si se puede cerrar la fase 1 del plan.
+
+QUE REVISAS: la coherencia entre los documentos activos y la evidencia del cierre del saldo local del 27 nov 2026: el plan paso a paso (fase 1, pasos 1.1 a 1.7), el estado en MASTERPLAN, backlog, gantt y HANDOFF, y las tres piezas de evidencia (certificacion de Codex, integracion, porte 1.4d) mas la revision Gemini minima.
+
+REGLAS DEL PROYECTO QUE APLICAN: una sola fuente de estado vigente (MASTERPLAN comienza con el estado; backlog guarda el estado y criterio de cada tarea; gantt solo orden y dependencias; HANDOFF el proximo paso); lo supersedido se archiva en docs/history con aviso; no se declara aceptado un trabajo sin la evidencia exigida; no se afirma mas de lo comprobado; distinguir FALLA original y PASS posterior; una FALLA no se borra.
+
+QUE QUEREMOS DE TI, con base solo en el material:
+1. CONTRADICCIONES O ETIQUETAS OBSOLETAS entre los documentos (estado de 1.4d, 1.4c, 1.7, publicacion de la rama, cifras de pruebas, commits, Gemini). Cita el documento y la frase.
+2. AFIRMACIONES QUE EXCEDEN LA EVIDENCIA: p. ej. ¿algun texto dice «certificado» o «verificado» mas de lo que sustentan las cifras y los limites declarados (ruta legacy sin successor, sin concurrencia real, sin IAM, la prueba de la forma de la guarda en la fase final no verificada por mutacion)?
+3. ¿Puede declararse CERRADA la fase 1 con lo mostrado? Lista de forma concreta lo que falta (por paso del plan) y distingue bloqueos de mejoras.
+4. El mayor riesgo residual del cierre y que evidencia lo reduciria.
+Distingue errores demostrados de hipotesis. Si falta informacion para concluir, INCONCLUYENTE y di que falta.
+
+FORMATO OBLIGATORIO: termina con exactamente este bloque (sin cambiar las etiquetas):
+=== RESUMEN FINAL ===
+RESULTADO: PASS|FALLA|INCONCLUYENTE
+EVIDENCIA: ...
+NEGATIVOS: ...
+BLOQUEOS: ...
+=== FIN RESUMEN ===
+
+=== MATERIAL ===
+
+--- Plan paso a paso, fase 1 (extracto) ---
+## 2. Fase 1 · Cierre financiero local
+
+| Paso | Qué se hace | Cómo se sabe que está bien | Quién |
+|---|---|---|---|
+| 1.1 | **Video usa la liquidación parcial** (etapa 2 de C2a): fila de salida con protocolo 3; elegir la acción según el trabajo (éxito → captura; fallo sin llamadas → liberación; fallo o «sin habla» tras admitir → liberación con resolución; cancelación tras entrega → captura parcial); tope de reintentos que acaba en revisión con alerta; `too_early` sin contar | Prueba con Cuenta **real** que primero reproduce el incidente «sin habla tras admitir» y luego lo cierra; filas de ambos protocolos drenan; mutaciones; T3; regresión | Codex |
+| 1.2 | **Cancelación del cliente y trabajos en duda (`unknown`)**: sellar el trabajo, calcular lo entregado, cobrar solo eso; plazo máximo para `unknown` con estado visible, límite por cuenta y liberación con marcador; llamador de producción para `reconcile` | Pruebas de cada transición; ningún camino cobra de más ni deja saldo retenido sin fin | Codex |
+| 1.3 | **Reserva hecha sin trabajo (A-3)** ([diseño v2](LV-019-B-reserva-sin-trabajo-a3-diseno.md), dividido en **1.3a** salida por plazo del drenaje y **1.3b** ACK durable del solicitante): que converja (crear el trabajo solo con un ACK real repetido, o liberar sin trabajo tras el plazo y con prueba de Cuenta) y conectar la evidencia de ACK | El ensayo de reserva externa pasa de 7/13 a 13/13; puerta para abrir la reserva externa por HTTP | Codex |
+| 1.4 | **Bloqueos** ([diseño v2](LV-019-B-bloqueos-y-cierres-diseno.md)): que un fallo transitorio tras un ACK no deje un bloqueo permanente (C-3, E-3: reintentos acotados antes de la cuarentena; el bloqueo permanente solo con una divergencia demostrada); protocolo auditado de desbloqueo; alerta de bloqueo solo en Video (D-4); salida para reservas de una cuenta bloqueada (A-5, E-4) | Pruebas por cada ventana del [mapa de caídas](../reviews/LV-019-B-mapa-caidas-video-cuenta-20261120.md) | Codex |
+| 1.5 | **Historias antiguas o corruptas y legado**: fallar cerrado, inventario, y documentar que no hay escritores antiguos que drenar (las bases reales están vacías) | Pruebas de forma futura/ausente; inventario de fechas ya existente | Codex |
+| 1.6 | **Ejecución periódica de los drenajes de saldo (modo `billing`):** hoy ningún planificador los ejecuta y la recuperación depende de que pase un worker; diseñar y probar un ejecutor periódico autenticado y equitativo, de una sola ejecución a la vez y con tope de trabajo por pasada, para reservas, salidas y bloqueos | Exclusión mutua con arriendo y valla (token de fencing) además de la idempotencia que ya tiene Cuenta; prueba de **dos ejecutores simultáneos y de uno pausado que despierta tarde** que demuestre un solo movimiento de saldo; pasada interrumpida y equidad entre cuentas; el barrido de alertas (3.4) lo vigila | Codex |
+| 1.7 | **Cierre de la fase**: regresión completa, T3 del conjunto y revisión Gemini del backend de saldo y de arquitectura, rendimiento y costo ([encargo preparado](../evidence/lv019-b-gemini-arquitectura-20261122/README.md)) | Invariantes I1–I6 con prueba; I5 («todo llega a estado final o a revisión con alerta») ya garantizado | Codex + T3 + Gemini |
+
+
+--- MASTERPLAN.md, fila del saldo ---
+| Saldo y recuperación local | **1.4b.3 · cerco integrado y certificado en local (27 nov); pendientes abiertos** | La línea del cerco (`667b2f0` → `e5f76f7`) quedó integrada en esta rama (`e6c74ac`, local, sin publicar): `tsc` limpio; suite del desbloqueo **91/91**; regresión financiera completa **559 pruebas, 554 aprobadas, 0 fallos y 5 omisiones previstas de voz**; Cuenta protegida **38/38**; lanzador aislado **5/5**; la tarea 1.4d (cinco pruebas portadas) quedó hecha con regresión financiera de **564 pruebas, 559 aprobadas, 0 fallos y 5 omisiones**; GLM y DeepSeek dieron PASS a la corrección de la carrera tardía, al `owner-check` y a la decisión de integrar. Certifica solo la ruta con `successor` en emulador: la ruta legacy conserva la carrera, no hay concurrencia real medida, ni autoridad/IAM, ni producción. Siguen abiertos: los límites de diseño 1.4c, el inventario de alertas, D2, la guardia de admisión tras devolución vencida, la observación por edad y la proyección de identidad, el corte de escritores y la migración reales, y el cierre 1.7 (revisión Gemini mínima INCONCLUYENTE sin defecto demostrado; auditoría completa pendiente de decisión de Rob). [Certificación](docs/evidence/lv019-b-t3-saldo-cierre-20261127/CERTIFICACION-codex.md) · [Integración](docs/evidence/lv019-b-t3-saldo-integracion-20261127/INTEGRACION.md) · [Texto anterior archivado](docs/history/estado-saldo-antes-integracion-20261127.md). |
+
+--- backlog.md, tarea 2 y subtareas 1.4d y 1.4c ---
+2. **Recuperación financiera durable — 1.4b.3 CERCO INTEGRADO Y CERTIFICADO EN LOCAL el 27 nov; pendientes abiertos.** La candidata resuelve una devolución bajo bloqueo conservando propiedad, historial y recibos, y cierra la carrera de una incidencia que llega a la Cuenta después de la última lectura (solo ruta con `successor` en emulador). Evidencia: `tsc` limpio, suite del desbloqueo 91/91, regresión financiera completa 559 (554 aprobadas, 0 fallos, 5 omisiones previstas de voz), Cuenta protegida 38/38, lanzador aislado 5/5, mutación del `owner-check` detectada por sus dos pruebas y dos revisiones PASS (GLM y DeepSeek). [Certificación](docs/evidence/lv019-b-t3-saldo-cierre-20261127/CERTIFICACION-codex.md) · [Integración](docs/evidence/lv019-b-t3-saldo-integracion-20261127/INTEGRACION.md) · [Recibo del corte](docs/evidence/lv019-b-checkpoint-20261126/README.md) · [Contrato de bloqueo y devolución](docs/specs/LV-019-B-bloqueos-y-cierres-diseno.md) · [Auditoría interna](docs/reviews/LV-019-B-auditoria-interna-financiera-20261126.md) · [Texto anterior archivado](docs/history/estado-saldo-antes-integracion-20261127.md).
+   - **1.4d · Portar pruebas — HECHA el 27 nov.** Cinco pruebas de la suite anterior se portaron a `billingUnblock.emulator.mjs` (guarda que deja de estar bloqueada o nombra el incidente por los dos campos; alerta cerrada antes de reanudar; alerta cerrada antes de repetir un resultado parcial; alerta cerrada durante la repetición parcial; fase 0 con alerta de otra generación o guarda de otra cuenta). La reescritura de la prueba de reanudación fue necesaria: en el orden de pasos vigente el registro se crea después de leer el recibo. Mutación: cuatro pruebas detectan sus roturas; la de la forma de la guarda en la fase final está defendida en profundidad (versión, coherencia de tipo y resto de la transacción) y **ninguna rotura individual la detecta**: fija el resultado observable, no se declara verificada por mutación. Suite del desbloqueo 96/96; regresión financiera completa 564 pruebas (559 aprobadas, 0 fallos, 5 omisiones previstas de voz), Cuenta protegida y lanzador aislado PASS sobre `c044257`; un revisor (GLM) PASS. [Evidencia](docs/evidence/lv019-b-t3-saldo-integracion-20261127/verificacion-1-4d/README.md) · [Nota archivada](docs/history/lv019-b-unblock-suite-contrato-previo-20261127/README.md).
+   - **1.4c · Límites de diseño abiertos.** Varios incidentes del mismo tipo sobre una guarda; un incidente que diverge de nuevo con la guarda viva; alerta de guarda mixta que nombra el más antiguo; filas rivales sin ruta de resolución; holds heredados inalcanzables hasta una migración; sin ruta ni autenticación de operador (paso 3.5); la fase 2 convierte todo error de Cuenta en `conflict`; una entrega tardía de un hold ya revisado recibe `invariant`. Bloquean cerrar el paso 1.7.
+   - **D1/D3.** Correcciones integradas tras **5/5** negativos locales en una candidata aislada. Prueban diagnóstico de hold/revisión incompatibles, alerta de fila malformada sin atribuir un dueño y retirada de la pista de cuenta obsoleta sin alterar disposición ni auditoría. El foco de la candidata combinada pasó **19/19**, incluidos D1/D3, cinco pruebas de espera y los seis casos fallidos de la regresión anterior con las adaptaciones de sus fixtures. La regresión completa de la línea integrada pasó el 27 nov (559 pruebas: 554 aprobadas, 0 fallos, 5 omisiones previstas de voz); el seguimiento de las revisiones de sondeo figura en el punto siguiente.
+
+--- backlog.md, salida 1.4b.3 y cierre 1.7 ---
+   - **Salida 1.4b.3 y cierre 1.7.** Verificar los negativos y la regresión financiera completa en la misma revisión congelada, conservar los resultados de los seis casos históricos y verificar su cobertura integrada, obtener revisión independiente de GLM y DeepSeek y comprobar recuperación tras caída y legado en la integración. Validar dueños, reservas, trabajos, testigos, bloqueos, outbox, respuestas perdidas, barrido equitativo con cursores y alertas. La marca local no detiene llamadas remotas en vuelo. Mantener el operador mínimo (3.5), el inventario y la retirada de escritores previos como dependencias del corte. **Revisión Gemini mínima de 1.7 (aprobada por Rob el 27 nov 2026): hecha, veredicto INCONCLUYENTE sin defecto demostrado.** Paquete cerrado de unos 8 mil tokens, modelo `google/gemini-4-hydrogen`; dos intentos (el primero sin informe por el tope de salida), costo real US$0.0647. Los cuatro hallazgos se adjudicaron: dos mejoras de rendimiento, una hipótesis ya conocida y otra descartada. La auditoría completa de arquitectura sigue preparada y **sin lanzar**; requiere decisión de Rob sobre su costo. [Adjudicación](docs/evidence/lv019-b-t3-saldo-integracion-20261127/gemini-1-7/ADJUDICACION.md). [Plan paso a paso](docs/specs/LV-019-B-plan-paso-a-paso-20261120.md) · [Plan eficiente y sus recortes](docs/plans/LV-019-B-plan-eficiente-bajo-costo-20261121.md).
+
+--- backlog.md, base verificada ---
+   - **Base verificada en local.** [Liquidación parcial y liberación posadmisión en Cuenta y Video (1.1/C2a)](docs/evidence/lv019-b-t3-codificacion-1-1-20261120/RECIBO.md), [recuperación de texto en duda (1.2)](docs/evidence/lv019-b-t3-codificacion-1-2-20261120/RECIBO.md), [vencimiento de reserva sin trabajo (1.3a)](docs/evidence/lv019-b-t3-codificacion-1-3a-20261121/RECIBO.md), [ACK durable (1.3b)](docs/evidence/lv019-b-t3-codificacion-1-3b-20261122/RECIBO.md), [cercas de ACK y alerta (1.4a)](docs/evidence/lv019-b-t3-codificacion-1-4a-20261121/RECIBO.md), [desbloqueo auditable de Cuenta (1.4b.1)](docs/evidence/lv019-b-t3-codificacion-1-4b-20261123/RECIBO-pieza-1.md), [legado reducido (1.5)](docs/evidence/lv019-b-codex-legado-1-5-20261121/RECIBO.md), [ejecutor con candado y cursores (1.6b)](docs/evidence/lv019-b-t3-codificacion-1-6b2-20261121/RECIBO.md) y [edad máxima y constancia de intento (1.6c)](docs/evidence/lv019-b-t3-codificacion-1-6c-20261121/RECIBO.md). El [inventario de fechas](docs/evidence/lv019-b-t3-inventario-fechas-20261119/RECIBO.md) está listo para comprobar si hacen falta migraciones. El índice de `billingHoldOutbox` está autorizado y aún no se creó.
+
+--- gantt.md fase 4 ---
+| 4 | **EN CURSO LOCAL** | Saldo y recuperación LV-019.B. El cerco quedó integrado y certificado en local el 27 nov: regresión financiera 554 aprobadas, 0 fallos y 5 omisiones de voz; Cuenta protegida 38/38; dos revisiones PASS. | Concretar autoridad y conciliación, implementar el corte y la migración de escritores reales, resolver los límites 1.4c, D2 y la guardia de admisión vencida, y repetir la regresión final (1.7). [Criterios](backlog.md#lv-019b--ruta-principal) · [Certificación](docs/evidence/lv019-b-t3-saldo-cierre-20261127/CERTIFICACION-codex.md). |
+
+--- HANDOFF.md fila 1.4b.3 ---
+| LV-019.B · Bloqueo y devolución 1.4b.3 | Cerco integrado y certificado en local el 27 nov (`e6c74ac`; rama `codex/vistavo-continue-20261127`, publicada el 27 nov): suite 91/91, regresión financiera completa 554 aprobadas, 0 fallos y 5 omisiones previstas de voz, Cuenta protegida 38/38, lanzador aislado 5/5 y dos revisiones PASS. La tarea 1.4d está hecha (regresión financiera de 564 pruebas, 0 fallos). Quedan 1.4c y la revisión final 1.7. [Certificación](docs/evidence/lv019-b-t3-saldo-cierre-20261127/CERTIFICACION-codex.md) · [Integración](docs/evidence/lv019-b-t3-saldo-integracion-20261127/INTEGRACION.md). |
+
+--- HANDOFF.md proximo paso ---
+## Próximo paso (27 nov, tarde)
+
+1. **1.7.** La revisión Gemini mínima ya se hizo (INCONCLUYENTE, sin defecto demostrado; [adjudicación](docs/evidence/lv019-b-t3-saldo-integracion-20261127/gemini-1-7/ADJUDICACION.md)). Falta cerrar la fase con T3 sobre el conjunto y decidir con Rob si se lanza la auditoría completa de arquitectura (costo mayor). La tarea 1.4d (cinco pruebas portadas) está hecha.
+2. **Decisión de Rob.** La rama `codex/vistavo-continue-20261127` se publicó en GitHub el 27 nov por orden de Rob, con la integración certificada. Falta decidir el orden de 1.4c, D2 y la guardia de admisión.
+3. **Proceso.** Rob decidió el 27 nov (tarde) avanzar directo con OpenRouter para código y propuestas, y revisar con T3 las integraciones; ver [AGENTS](AGENTS.md).
+4. **Entorno.** Los lanzadores oficiales de la línea del cerco necesitan emulador en 8198 (`demo-vistavo-financial`) y el de Cuenta protegida en 8185; ejecutar en un árbol con `node_modules` real y raíces sintéticas vacías.
+
+## Estado para retomar
+
+--- Evidencia: certificacion de Codex ---
+# LV-019.B · Cierre del saldo · Certificación de Codex (27 nov 2026)
+
+Rama: `lv019b/t3-saldo-cuenta-guarda-20261127`. Commits certificados, todos locales y sin publicar:
+
+| Commit | Qué es | Quién lo escribió |
+| --- | --- | --- |
+| `667b2f0` | Candidata del cerco de Cuenta de la sesión anterior (contraprueba de la carrera tardía: 22/23). | Sesión anterior |
+| `837fd88` | Instantánea del trabajo sin guardar de esa sesión (núcleo de la corrección «incidencia tardía» y sus pruebas), tomada sin tocar su carpeta. | Sesión anterior |
+| `fbf01bf` | Pase 1: validación `owner-check` en `resolveAccountGuard` (el documento `accounts/<id>` debe nombrar la misma identidad) y dos pruebas de mezcla de cuentas. | T3 (DeepSeek v4.1 flash), verificado por Codex |
+| `e5f76f7` | Pase 2: guarda de red propia para la regresión de Cuenta (`scripts/accountEmulatorNetworkGuard*.cjs`), fijada a 8185/`demo-vistavo-ledger`; la guarda financiera no cambió. | T3 (DeepSeek v4.1 flash), verificado por Codex |
+
+El archivo `RESULTADO-pase1.md` de T3 cita el hash `1bb4102`, de un estado anterior a su último ajuste; el commit final del pase 1 es `fbf01bf`.
+
+## Lo que Codex comprobó por su cuenta (no se aceptó el resumen de T3)
+
+Todo se ejecutó en emulador local con datos sintéticos; no se tocó ningún saldo real ni la nube.
+
+| Comprobación | Resultado |
+| --- | --- |
+| `tsc --noEmit` sobre `fbf01bf` | exit 0 |
+| Suite del desbloqueo `billingUnblock.emulator.mjs` (emulador 8198, entorno completo de la guarda) | 91/91 aprobadas, limpieza 99/99 (`verificacion-codex/verif-pase1-full.*`) |
+| Mutación: quitar la comprobación `identityKey` del `owner-check` | fallan exactamente las dos pruebas nuevas («Missing expected rejection»); archivo restaurado y verificado por hash (`mut-ownercheck-key.*`) |
+| `npm test` | 3 archivos y 1 prueba fallan, los mismos que la base de esta línea (`validateListeningScripts`, `voiceQuotePreview`, `reviewBrowserNodeFixtures`); ninguno referencia el desbloqueo. El cuarto fallo que T3 vio (`billingDrainSection`, tiempo de espera) no se repitió. |
+| Regresión financiera oficial completa sobre `fbf01bf` (`run-f455e130`) | PASS: 559 pruebas, 554 aprobadas, 0 fallos, 5 omitidas por voz pausada; raíces sintéticas vacías al final (`result-financiera-run-f455e130.json`) |
+| Regresión de Cuenta protegida sobre `e5f76f7` (`run-a2f34feb`) | PASS: 38/38, limpieza 51/51 |
+| Lanzador aislado del desbloqueo sobre `e5f76f7` (`run-7577e8e3`) | PASS: 5/5 |
+
+Los «seis fallos» que mencionaba el informe de la sesión anterior no aparecen en esta versión: la batería completa dio 0 fallos.
+
+## Intentos fallidos y desvíos (conservados como evidencia)
+
+- Primer hilo T3 del pase 1 (`7502a175`): 45 minutos investigando un entorno equivocado de mi encargo (apuntaba al emulador 8185; esta línea exige 8198). El dueño lo detuvo y su parche quedó en `encargos/old-thread-diff-pase1.patch`; se reemplazó por un hilo limpio con el entorno correcto (`MSG-pase1b.txt`).
+- Hilo de GLM «carrera integrada» (`3abe4beb`) de la sesión anterior: se repitió hasta unos 700 mil caracteres; no es una revisión válida y el dueño lo detuvo.
+- Mi primera repetición de la suite falló en milisegundos por mi consola (definía `HOME`, que la guarda prohíbe). Conservada en `verif-pase1-full-intento1-HOME.*`.
+- Primer intento de la batería financiera: su lanzador rechaza un acceso directo (junction) a `node_modules`; se usó una copia real.
+- Segundo intento: «Dedicated synthetic roots must start empty» por restos de mi prueba de mutación; se reinició el emulador 8198 limpio.
+- Primer intento de Cuenta protegida: falló por una **inconsistencia real de esta línea**: su lanzador usaba la guarda financiera, fijada a 8198, mientras Cuenta exige 8185. Se corrigió en el pase 2 (`e5f76f7`).
+
+## Revisión doble por T3 (código que mueve saldo: dos revisores)
+
+Paquete autocontenido de 56 KB, sin herramientas (`revision-doble/review-saldo-fbf01bf.in.txt`).
+
+| Revisor | Resultado | Notas |
+| --- | --- | --- |
+| GLM (`~z-ai/glm-flash-latest`, alias dinámico; modelo servido no observable) | PASS | Sin secuencia concreta que deje Video abierto con saldo bloqueado ni libere la cuenta equivocada. |
+| DeepSeek (`deepseek/deepseek-v4.1-flash`) | PASS con 7 hallazgos no demostrados | Adjudicación abajo. |
+
+Adjudicación de los hallazgos de DeepSeek, contrastados con el código:
+
+1. **Atomicidad incidente→guarda en Cuenta (hipótesis, media): refutada.** `blockVideoBilling` crea el registro del incidente y crea o actualiza la guarda en una sola transacción (`server/account/backend.ts:225-243`).
+2. **La ventana real lectura→commit no se ejercita (media): límite aceptado y declarado.** Las pruebas inyectan la incidencia antes de la transacción final; el aborto por read set descansa en el comportamiento documentado de Firestore y no se midió concurrencia real. Seguimiento: tarea 1.4c.
+3. **Guarda con `blocked:false` (media-baja): refutada.** La guarda se crea con `blocked:true` y Cuenta la borra al revisar todos los incidentes (`backend.ts:303-333`); `billingHold` trata cualquier otro valor como invariante.
+4. **Comentario de fase 0 inexacto (baja): aceptado.** La sonda previa es una transacción aparte y no ata la creación de auditoría; no libera nada. Corregir el comentario en la integración.
+5. **`identityKeyOf` frente a `videoIdentityOf` (baja): aceptado.** El chequeo estricto cubre al laxo y falla cerrado; unificar en la integración.
+6. **Filas avanzadas con la guarda viva (baja): intencional**, auditable por `videoBlocked:true`; documentar.
+7. **Ambigüedad de identidad con `where(...).limit(2)` (hipótesis, baja): límite aceptado.** Exigiría dos identidades de Video con el mismo `accountId`, que el diseño no permite; no se demostró alta concurrente.
+
+Costo: el saldo de OpenRouter pasó de US$5.49 a US$4.77 en este tramo (≈US$0.72, que incluye los dos hilos de autor, el hilo descartado y las dos revisiones); el costo por hilo no se midió.
+
+## Lo que esta certificación NO cubre
+
+- La ruta legacy sin `successor` conserva la carrera original.
+- No se acredita autoridad/IAM real, contrato entre servicios, producción ni saldo real; la atestación certifica clientes de Firestore, no la identidad física de las bases.
+- No hay concurrencia real medida durante la transacción final.
+- Esta versión **no está integrada** en `codex/vistavo-continue-20261127` (las dos líneas modifican `billingUnblock.ts`), ni publicada, ni desplegada.
+- Voz: 5 pruebas omitidas por voz pausada, sin cambio.
+- Quedan los límites de diseño de la tarea 1.4c y los pasos 1.7 (regresión final, T3 y revisión Gemini) y la pieza 3.
+
+Dictamen de Codex: **la corrección de la carrera tardía y la validación `owner-check` quedan certificadas solo en local, solo para la ruta con `successor` en emulador**, con las dos revisiones PASS y las tres regresiones oficiales en verde sobre los commits indicados. La integración con la línea principal y la actualización de los documentos activos están pendientes.
+
+## Actualización posterior (27 nov 2026, tarde)
+
+La integración con la línea principal se hizo después de esta certificación: ver [INTEGRACION.md](../lv019-b-t3-saldo-integracion-20261127/INTEGRACION.md). La línea `codex/vistavo-continue-20261127` avanzó en local a esa integración (sin publicar) y los documentos activos se actualizaron. Lo que esta certificación declara como no cubierto sigue sin cubrir.
+
+
+--- Evidencia: integracion ---
+# LV-019.B · Integración de la línea del cerco con la línea principal · 27 nov 2026
+
+Rama de integración: `codex/vistavo-saldo-integracion-20261127` (local, sin publicar). Une `codex/vistavo-continue-20261127` (con sus pruebas de endurecimiento, commit `ee35189`) con `lv019b/t3-saldo-cuenta-guarda-20261127` (certificada: [certificación](../lv019-b-t3-saldo-cierre-20261127/CERTIFICACION-codex.md)).
+
+## Resultado de la fusión
+
+- Solo dos archivos cambiaron en ambas líneas: `billingUnblock.ts` y `billingUnblock.emulator.mjs`. El resto se fusionó sin conflicto.
+- `billingUnblock.ts`: el único choque era un comentario sobre dos comprobaciones de relación de fase 3 con la misma lógica en ambas líneas. El archivo integrado es **idéntico, blob por blob, al certificado**; todo el código de producción de la línea principal ya estaba contenido en el del cerco.
+- `billingUnblock.emulator.mjs`: se adoptó el de la línea del cerco (91 pruebas), también idéntico al certificado. La suite de 61 pruebas de la línea principal se archivó en `docs/history/lv019-b-unblock-suite-contrato-previo-20261127/`.
+
+## Comprobaciones sobre el árbol integrado
+
+| Comprobación | Resultado |
+| --- | --- |
+| `tsc --noEmit` | exit 0 |
+| Suite vigente del desbloqueo, emulador 8198 | 91/91, limpieza 99/99 (`suite-cerco-sobre-union.*`) |
+| Suite previa (61 pruebas) contra el código integrado | falla en bloque por el cambio de contrato (`suite-previa-sobre-union.*`); conservada como evidencia |
+| Regresiones oficiales sobre el árbol integrado | ver el estado en el backlog y la bitácora |
+
+## Revisión por T3 de la decisión de integrar (código que mueve saldo: dos revisores)
+
+Paquete de 49 KB sin herramientas (`review-integracion.in.txt`): GLM `~z-ai/glm-flash-latest` y DeepSeek `deepseek/deepseek-v4.1-flash`, ambos **PASS**, con el mismo criterio: fusionar el código ya es seguro (producción idéntica a la certificada), pero **no archivar ni borrar la suite previa** hasta portar sus casos únicos. Coincidencia sobre las pruebas de fase 0 (alerta de otra generación o guarda de otra cuenta) como prioridad alta. Los escenarios de defecto que describen son hipótesis de cobertura, no errores demostrados. El modelo servido y el costo por hilo no son observables en este canal.
+
+## Decisión de proceso del dueño (27 nov 2026, tarde)
+
+Rob señaló que T3 daba muchos problemas para escribir código y propuso avanzar directo con OpenRouter; confirmó que se use la clave ya vinculada al proyecto, sin cambiar el presupuesto. Después pidió revisar con T3 esta integración. Las revisiones estáticas por T3 funcionaron; los hilos de autor de código fueron los problemáticos.
+
+
+--- Evidencia: porte 1.4d ---
+# 1.4d · Porte de cinco pruebas al desbloqueo vigente · 27 nov 2026
+
+Commits locales: `4bd7db8` (porte), `c044257` (refuerzo de una prueba por la sugerencia de GLM).
+
+| Comprobación | Resultado |
+| --- | --- |
+| Cinco pruebas portadas en código intacto | 5/5, limpieza 5/5 (`port-new5.head.txt`) |
+| Suite completa del desbloqueo | 96/96, limpieza 104/104, producción sin cambios (`main-full-96.*`) |
+| Regresión financiera completa sobre `c044257` | PASS: 564 pruebas, 559 aprobadas, 0 fallos, 5 omisiones previstas de voz (incluye las cinco portadas) |
+| Cuenta protegida y lanzador aislado sobre `c044257` | PASS |
+| GLM (un solo revisor, por ser solo pruebas) | PASS; su sugerencia de comprobar que el intento rechazado no escribe se aplicó; la de comprobar «ningún recibo» tras reabrir la alerta era incorrecta: tras reabrirla el sistema sí lee el recibo y rechaza el reenvío |
+
+## Mutación (`mutate_ported*.log`, `mut-port-*.head.txt`)
+
+| Rotura | Resultado |
+| --- | --- |
+| Reanudación sin comprobar que la alerta siga abierta | detectada (tras reescribir la prueba; la versión original sobrevivía porque ya no ejercía la reanudación) |
+| Repetición parcial sin comprobar la alerta | detectada |
+| Fase final sin comprobar la alerta | detectada |
+| Fase 0 sin estado de alerta / sin cuenta de la guarda | detectadas |
+| Fase final sin `sameGuard`, sin su condición de bloqueo, sin su condición exclusiva, o sin `sameGuard` ni el candado de versión | **sobreviven**: defensa en profundidad; la prueba fija el resultado observable |
+
+Intentos y desvíos conservados: el resultado de la primera versión de la prueba de reanudación (el mutante SOBREVIVE) está en `mutate_ported.log`; el de la versión reescrita (MATADO) en `mutate_ported2.log`.
+
+
+--- Evidencia: revision Gemini minima ---
+# 1.7 · Revisión Gemini mínima del desbloqueo · 27 nov 2026
+
+Rob aprobó la revisión Gemini del paso 1.7 con **entrada y salida mínimas de tokens**. Se envió un paquete cerrado, sin herramientas ni lectura del repositorio ([brief.txt](brief.txt), unos 8 mil tokens estimados): el código de bloqueo y desbloqueo de Cuenta y las fases 0 a 3 del desbloqueo de Video sobre `355fe35`. Modelo `google/gemini-4-hydrogen` (sincrónico; el plan nombraba `:batch`, que no se usó porque un envío único no se puede repetir con seguridad si tarda). Clave ya vinculada a LinguistVision (huella verificada por el script), sin cambiar presupuesto. [Script usado](reviewGeminiOnce.mjs).
+
+| Intento | Parámetros | Resultado | Tokens (entrada / salida) | Costo |
+| --- | --- | --- | --- | --- |
+| 1 | salida limitada a 1800 | **INCONCLUYENTE sin informe**: `finish_reason=length`; el modelo gastó todo el tope razonando y no devolvió texto visible | 9 906 / 1 800 | US$0.0281 |
+| 2 | salida limitada a 3500, razonamiento bajo | **COMPLETADO**; veredicto del revisor **INCONCLUYENTE** | 9 906 / 2 951 | US$0.0366 |
+
+Costo real total: **US$0.0647**. El segundo envío fue una decisión deliberada tras un fallo conocido (respuesta vacía por el tope), con parámetros distintos y otro hash de solicitud; el primer intento se conserva ([intento1](intento1/receipt.json), [intento2](intento2/report.txt)).
+
+## Adjudicación de los hallazgos contra el código
+
+| # | Hallazgo de Gemini | Decisión de Codex |
+| --- | --- | --- |
+| 1 | Hipótesis: una incidencia nueva en Cuenta entre la última lectura y el borrado de la guarda podría dejar Video abierto | **Ya conocido y cubierto en el alcance declarado.** La guarda de Cuenta se lee dentro de la transacción final (`localAccountBlocked`) y 96 pruebas deterministas lo ejercitan; no se midió concurrencia real ni cubre la ruta legacy sin `successor` (límite 1.4c). |
+| 2 | Mejora: `recheck` relee los mismos ocho documentos en la fase 2 y otra vez en la transacción final | **Aceptada como mejora futura de rendimiento, no defecto.** Son transacciones distintas por diseño: la final es la comprobación atómica previa a escribir. |
+| 3 | Mejora: la transacción final es larga (varias lecturas antes de escribir) | **Aceptada como observación.** El desbloqueo es una operación rara de operador, no una ruta caliente; no se cambia sin una medición. |
+| 4 | Hipótesis: `cutRef` y `guardRef` como puntos calientes | **Descartada como riesgo actual.** `cutRef` solo se lee en el desbloqueo y solo se escribe al preparar el corte; las lecturas concurrentes no se bloquean entre sí. |
+
+Conteo de operaciones por desbloqueo completo, contrastado con `server/account/backend.ts:303-333`: Cuenta 5 lecturas y 3 escrituras; Video, fases 0, 2 y 3 con los grupos de lectura indicados en el informe. Lo que no verificó (`accountRows`, `resolveAccountGuard`, `readAccountGuard`, la ruta legacy) quedó fuera del paquete mínimo a propósito.
+
+## Dictamen
+
+**INCONCLUYENTE, sin defecto demostrado**: Gemini no observó doble movimiento de saldo ni escritura en la cuenta equivocada en lo que vio, pero declara que faltaban definiciones para cerrar la verificación; es la consecuencia directa del paquete mínimo pedido por Rob. No cuenta como PASS. La auditoría completa de arquitectura, rendimiento y costo ([encargo](../../lv019-b-gemini-arquitectura-20261122/encargo.txt)) sigue preparada y **sin lanzar**; hace falta una decisión de Rob sobre su costo antes de ejecutarla.
+

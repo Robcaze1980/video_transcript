@@ -1,0 +1,28 @@
+**1. Contradicciones y etiquetas obsoletas (demostradas)**
+- Publicación: MASTERPLAN dice de la rama «(`e6c74ac`, local, **sin publicar**)» y la Certificación «todos locales y **sin publicar**»; HANDOFF dice «rama `codex/vistavo-continue-20261127`, **publicada el 27 nov**» y «se publicó en GitHub el 27 nov». Contradicción directa entre documentos activos.
+- Cifras: gantt fija «regresión financiera **554 aprobadas**, 0 fallos» — obsoleta frente a 1.4d («**564** pruebas, 559 aprobadas»). La Integración declara «91/91» sobre la suite vigente mientras 1.4d reporta «**96/96**».
+- Rama/hash: MASTERPLAN y HANDOFF integran en `codex/vistavo-continue-20261127` (`e6c74ac`); la Integración declara rama `codex/vistavo-saldo-integracion-20261127`. No reconciliado; 1.4d añade `4bd7db8`/`c044257` sin decir en qué rama viven.
+- 1.7: el plan exige «T3 del conjunto y revisión Gemini del backend de saldo y de arquitectura, rendimiento y costo»; solo hay Gemini mínima INCONCLUYENTE y el T3 del conjunto pendiente. El plan marca I5 «**ya garantizado**», que las limitaciones declaradas no sostienen.
+
+**2. Afirmaciones que exceden la evidencia**
+- «Cerco integrado y **certificado** en local» (gantt, HANDOFF) sin el matiz que sí da MASTERPLAN: «solo la ruta con `successor` en emulador; la ruta legacy conserva la carrera, no hay concurrencia real medida, ni autoridad/IAM, ni producción».
+- La prueba de la forma de la guarda en la fase final «**no se declara verificada por mutación**» figura en 1.4d y el porte, pero MASTERPLAN y gantt solo citan la mutación del `owner-check`; quien lea esos dos documentos no ve el límite.
+- «Dos revisiones PASS» (gantt) corresponde a la línea del cerco; 1.4d tuvo un solo revisor (correcto por política), pero el rótulo global no lo separa.
+
+**3. ¿Puede cerrarse la fase 1?** No.
+- 1.1: exige prueba con «Cuenta real»; la evidencia es emulador/sintética. **Inconcluyente por material.**
+- 1.3: criterio «7/13 → 13/13» no mostrado. **Inconcluyente.**
+- 1.4: 1.4c sigue abierto y el backlog dice que «Bloquean cerrar el paso 1.7». **Bloqueo.**
+- 1.6: falta la prueba de «dos ejecutores simultáneos y de uno pausado que despierta tarde». **Bloqueo por evidencia.**
+- 1.7: falta el T3 del conjunto y la auditoría Gemini completa (decisión de costo de Rob). **Bloqueo.**
+- Mejoras, no bloqueos: comentario de fase 0, unificar `identityKeyOf`/`videoIdentityOf`, documentar filas avanzadas con guarda viva.
+
+**4. Riesgo residual mayor**
+La carrera de la incidencia tardía en la ruta legacy sin `successor`, agravada por la ventana lectura→commit no medida: en producción podría dejar Video abierto con saldo retenido. Evidencia que lo reduce: prueba determinista de intercalado que ejerza esa ventana (o dos escritores concurrentes con aborto por read set), recorrido legacy sin `successor`, migración/corte de escritores, y un mutante que fije la forma de la guarda final hoy superviviente.
+
+=== RESUMEN FINAL ===
+RESULTADO: FALLA
+EVIDENCIA: Contradicción publicada/«sin publicar» entre HANDOFF y MASTERPLAN+Certificación; cifras divergentes 554 vs 559 y 91/91 vs 96/96; ramas `codex/vistavo-continue-20261127` vs `codex/vistavo-saldo-integracion-20261127`; 1.7 (T3 del conjunto y auditoría Gemini completa) y 1.4c abiertos; mutación de la guarda final no verificada.
+NEGATIVOS: No se demuestra doble movimiento de saldo ni liberación de la cuenta equivocada en lo revisado; Gemini INCONCLUYENTE sin defecto demostrado; las limitaciones legacy/concurrencia/IAM están declaradas en MASTERPLAN y la Certificación.
+BLOQUEOS: 1.4c; prueba de concurrencia de 1.6; T3 del conjunto y auditoría Gemini completa de 1.7 (requiere decisión de costo de Rob); 1.1 y 1.3 sin evidencia observable en el material.
+=== FIN RESUMEN ===

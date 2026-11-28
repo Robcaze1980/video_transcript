@@ -71,3 +71,5 @@ Dictamen de Codex: **la corrección de la carrera tardía y la validación `owne
 ## Actualización posterior (27 nov 2026, tarde)
 
 La integración con la línea principal se hizo después de esta certificación: ver [INTEGRACION.md](../lv019-b-t3-saldo-integracion-20261127/INTEGRACION.md). La línea `codex/vistavo-continue-20261127` avanzó en local a esa integración (sin publicar) y los documentos activos se actualizaron. Lo que esta certificación declara como no cubierto sigue sin cubrir.
+
+La rama `codex/vistavo-continue-20261127` se publicó en GitHub el 27 nov (noche) por orden de Rob; el «sin publicar» de este registro describe el momento de la certificación.

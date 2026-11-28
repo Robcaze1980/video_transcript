@@ -1,0 +1,30 @@
+No se puede declarar cerrada la fase 1 con el material mostrado.
+
+**Contradicciones u obsolescencia**
+- Publicación: `MASTERPLAN.md` dice «e6c74ac, local, sin publicar», mientras `HANDOFF.md` dice «publicada el 27 nov» y «se publicó en GitHub el 27 nov». Falta reconciliar cuál es el estado vigente.
+- Commit del conjunto: el cierre se pide sobre `2003b15`, pero el material no muestra ninguna prueba vinculada a ese commit. La evidencia citada corresponde a `fbf01bf`, `e5f76f7`, `c044257`, `e6c74ac` y la revisión Gemini a `355fe35`.
+- Ámbito del «certificado»: `gantt.md` resume «El cerco quedó integrado y certificado en local», pero `CERTIFICACION-codex.md` declara «la ruta legacy conserva la carrera», sin concurrencia real, sin IAM/autoridad real y sin producción. El resumen activo no debe omitir ese alcance.
+- Resultado Gemini: `HANDOFF.md` correctamente dice «Falta cerrar la fase con T3 sobre el conjunto». La revisión mínima es INCONCLUYENTE, cubrió el desbloqueo sobre `355fe35`, no el conjunto actual ni la auditoría completa.
+
+**Exceso sobre la evidencia**
+- Decir «certificado» sin repetir «solo ruta con `successor`, solo emulador local» excede lo sustentado. La certificación lo limita explícitamente.
+- «Regresión financiera completa» aparece sobre commits anteriores, no sobre `2003b15`; por tanto no prueba el estado final.
+- El texto de la revisión Gemini tiene además un fragmento corrupto/truncado, lo que impide validar plenamente su contenido.
+- Que la mutación de la forma de la guarda final sobreviva está bien declarado en `backlog.md`; sería exceso presentar 1.4d como mutación-verificada en esa prueba concreta.
+
+**Estado por paso**
+- 1.1, 1.2 y 1.3: los recibos están enlazados en `backlog.md`; no se muestra contradicción.
+- 1.4: no puede cerrarse. Quedan los límites declarados en 1.4c: múltiples incidentes sobre una guarda, nueva divergencia con guarda viva, guarda mixta, filas rivales, holds heredados, operación de operador, ruta legacy y concurrencia real. Esto bloquea 1.7.
+- 1.5: hay recibo de legado reducido; el corte y migración de escritores reales siguen pendientes según `MASTERPLAN.md`.
+- 1.6: el material muestra 1.6b y 1.6c, pero no evidencia de dos ejecutores simultáneos, despertar tardío, pasada interrumpida ni equidad. Falta verla, aunque exista fuera del extracto.
+- 1.7: falta T3 sobre el conjunto, regresión final en `2003b15`, verificación de I1–I6 y una revisión Gemini válida o la auditoría completa autorizada.
+
+**Riesgo residual mayor**
+Declarar cierre sobre un estado distinto del probado. El riesgo técnico asociado es la ruta legacy sin `successor`; la evidencia que lo reduciría es una prueba de concurrencia sobre esa ruta o su eliminación/migración, además de regresión y T3 sobre `2003b15`.
+
+=== RESUMEN FINAL ===
+RESULTADO: INCONCLUYENTE
+EVIDENCIA: MASTERPLAN «local, sin publicar»; HANDOFF «publicada el 27 nov»; CERTIFICACION «ruta legacy conserva la carrera», «no concurrencia real», «no IAM/producción»; 1.4d 564 pruebas sobre `c044257`; Gemini mínima INCONCLUYENTE sobre `355fe35`; sin evidencia sobre `2003b15`.
+NEGATIVOS: Publicación contradictoria; estado «certificado» resumido sin límites; regreso final no ligado al commit actual; Gemini mínima y truncada no sustituye 1.7; no hay T3 del conjunto; prueba de forma de guarda final no detectada por mutación.
+BLOQUEOS: Cierre de 1.4/1.7 por 1.4c, ruta legacy, concurrencia real, operación/autenticación de operador, inventario de alertas y cobertura integrada; falta regresión y T3 sobre `2003b15`; falta decisión de Rob sobre auditoría completa. Las mejoras de rendimiento de Gemini y el endurecimiento por mutación no son defectos demostrados.
+=== FIN RESUMEN ===
